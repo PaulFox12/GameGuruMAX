@@ -5872,10 +5872,13 @@ void gun_load ( void )
 				{
 					if (  t.tvariationsavailable == 1  ) { t.snd_s = Left(t.snd_s.Get(),Len(t.snd_s.Get())-5); t.snd_s += "2.wav"; }
 					t.gunsoundcompanion[t.gunid][t.p][0].soundid=loadinternalsoundcore(t.snd_s.Get(),1);
+					// only clone when all three share one sound
+					int iCloneCompanionFrom = 0;
+					if (  t.tvariationsavailable == 0  ) iCloneCompanionFrom = t.gunsoundcompanion[t.gunid][t.p][0].soundid;
 					if (  t.tvariationsavailable == 1  ) { t.snd_s = Left(t.snd_s.Get(),Len(t.snd_s.Get())-5); t.snd_s += "3.wav"; }
-					t.gunsoundcompanion[t.gunid][t.p][1].soundid=loadinternalsoundcorecloneflag(t.snd_s.Get(),1,t.gunsoundcompanion[t.gunid][t.p][0].soundid);
+					t.gunsoundcompanion[t.gunid][t.p][1].soundid=loadinternalsoundcorecloneflag(t.snd_s.Get(),1,iCloneCompanionFrom);
 					if (  t.tvariationsavailable == 1  ) { t.snd_s = Left(t.snd_s.Get(),Len(t.snd_s.Get())-5); t.snd_s += "4.wav"; }
-					t.gunsoundcompanion[t.gunid][t.p][2].soundid=loadinternalsoundcorecloneflag(t.snd_s.Get(),1,t.gunsoundcompanion[t.gunid][t.p][0].soundid);
+					t.gunsoundcompanion[t.gunid][t.p][2].soundid=loadinternalsoundcorecloneflag(t.snd_s.Get(),1,iCloneCompanionFrom);
 				}
 			}
 			else
