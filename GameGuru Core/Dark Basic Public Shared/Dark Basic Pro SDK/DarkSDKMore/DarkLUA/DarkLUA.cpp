@@ -11454,7 +11454,7 @@ int SetMaterialData(lua_State *L, int mode)
 				case 10: WickedCall_SetObjectTransparentDirect (pObject, (bool)fValue); break;
 				case 11: WickedCall_SetObjectDoubleSided (pObject, (bool)fValue); break;
 				case 12: WickedCall_SetObjectPlanerReflection (pObject, (bool)fValue); break;
-				case 13: WickedCall_SetObjectCastShadows(pObject, (bool)fValue);
+				case 13: WickedCall_SetObjectCastShadows(pObject, (bool)fValue); break;
 				case 14:
 				{
 					// cannot hold per instance of zdepth mode, but can force object to a mode if we usurp entityprofile temporarily
