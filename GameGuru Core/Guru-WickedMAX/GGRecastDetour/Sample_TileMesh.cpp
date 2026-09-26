@@ -263,6 +263,13 @@ void Sample_TileMesh::handleSettings()
 		const int th = (gh + ts-1) / ts;
 		
 
+#ifdef DT_POLYREF64
+		// 64-bit poly refs reserve DT_TILE_BITS for the tile index, so room is made for every tile.
+		// The 22-bit cap below allows 16384 tiles (about 102400 units square), and buildAllTiles
+		// silently dropped every tile past that, leaving holes in the navmesh of larger levels.
+		m_maxTiles = rcClamp(tw*th, 1, 1 << DT_TILE_BITS);
+		m_maxPolysPerTile = 1 << DT_POLY_BITS;
+#else
 		// Max tiles and max polys affect how the tile IDs are caculated.
 		// There are 22 bits available for identifying a tile and a polygon.
 		int tileBits = rcMin((int)ilog2(nextPow2(tw*th)), 14);
@@ -270,6 +277,7 @@ void Sample_TileMesh::handleSettings()
 		int polyBits = 22 - tileBits;
 		m_maxTiles = 1 << tileBits;
 		m_maxPolysPerTile = 1 << polyBits;
+#endif
 	}
 	else
 	{
