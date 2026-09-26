@@ -1668,9 +1668,11 @@ void lua_set_sky(void)
 	if (index != -1) 
 	{
 		//Only if not the same sky.
-		if ( t.visuals.skyindex != index ) 
-		{ 
+		if ( t.visuals.skyindex != index )
+		{
 			t.visuals.skyindex = index;
+			// SetLutTo and the cloud setters push t.gamevisuals, which would otherwise bring back the old sky and its clouds
+			t.gamevisuals.skyindex = index;
 			t.visuals.refreshskysettingsfromlua = true;
 			t.visuals.refreshskysettings = 1;
 			t.visuals.refreshshaders = 1;
