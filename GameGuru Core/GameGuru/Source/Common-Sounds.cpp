@@ -111,7 +111,8 @@ int loadinternalsoundcorecloneflag(char* tfile_s, int mode, int clonesoundindex)
 				}
 				else
 				{
-					if (mode == 1 && tspecialogg == 0)
+					//  OGG decodes to the same PCM as WAV, so it can be 3D too (stereo files still fall back to 2D)
+					if (mode == 1)
 					{
 						Load3DSound(tfiletoload_s.Get(), soundid, 1);
 						if (SoundExist(soundid) == 0)  LoadSound(tfiletoload_s.Get(), soundid, 0, 1);

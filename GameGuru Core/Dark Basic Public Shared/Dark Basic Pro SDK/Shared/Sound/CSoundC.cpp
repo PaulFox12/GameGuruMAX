@@ -41,6 +41,7 @@
 #ifdef WICKEDAUDIO
 #include "..\..\..\..\WickedRepo\WickedEngine\WickedEngine.h"
 #include <xaudio2.h>
+#include <unordered_set>
 using namespace wiGraphics;
 using namespace wiScene;
 using namespace wiECS;
@@ -546,6 +547,17 @@ bool bLoadWickedSound(LPSTR szFilename, int iID, bool b3DSound, int iSilentFail,
 		uint32_t channels = GetSoundChannels(&sound->soundinstance);
 		if (channels > 1)
 		{
+			if (b3DSound)
+			{
+				//Log once per file, so a sound meant to be positional that plays flat can be traced to its file.
+				static std::unordered_set<std::string> stereoFilesLogged;
+				if (stereoFilesLogged.insert(fileName).second)
+				{
+					char cLog[MAX_PATH + 64];
+					snprintf(cLog, sizeof(cLog), "Stereo sound plays as 2D, 3D needs mono: %s", szFilename);
+					timestampactivity(0, cLog);
+				}
+			}
 			b3DSound = false;
 		}
 
