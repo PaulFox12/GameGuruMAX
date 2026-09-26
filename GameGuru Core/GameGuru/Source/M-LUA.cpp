@@ -311,6 +311,9 @@ void lua_execute_properties_variable(char *string)
 
 void lua_launchallinitscripts ( void )
 {
+	// entity init functions run before the first lua_loop_begin, so they need the terrain size published here too
+	LuaSetInt("g_LevelTerrainSize", GGTerrain::ggterrain_global_render_params2.editable_size);
+
 	// call the INIT function of the GLOBAL GAMELOOP INIT
 	if ( t.playercontrol.gameloopinitflag == 10 )
 	{
