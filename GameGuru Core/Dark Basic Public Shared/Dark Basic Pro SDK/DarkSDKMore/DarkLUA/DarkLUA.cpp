@@ -13055,6 +13055,8 @@ void addInternalFunctions_float()
 	lua_register(lua, "SendMessageF_stopparticleemitter", SendMessageF_stopparticleemitter);
 	lua_register(lua, "SendMessageF_lookattargetyoffset", SendMessageF_lookattargetyoffset);
 	lua_register(lua, "SendMessageF_setconstrast", SendMessageF_setconstrast);
+	// old misspelled name kept for scripts using it
+	lua_register(lua, "SendMessageF_setcontrast", SendMessageF_setconstrast);
 	lua_register(lua, "SendMessageF_setcamerafov", SendMessageF_setcamerafov);
 	lua_register(lua, "SendMessageF_lookattarget", SendMessageF_lookattarget);
 	lua_register(lua, "SendMessageF_lookatplayer", SendMessageF_lookatplayer);
