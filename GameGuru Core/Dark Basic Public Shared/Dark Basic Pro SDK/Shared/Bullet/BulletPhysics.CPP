@@ -3627,7 +3627,7 @@ void ODESetNoGravity( int iObjectNumber, int iGravity )
 			// zero gravity
 			btVector3 vecGravReset = btVector3(0, 0, 0);
 			pPhyObject->body->setGravity (vecGravReset);
-			pPhyObject->body->setFlags (!BT_DISABLE_WORLD_GRAVITY);
+			pPhyObject->body->setFlags (pPhyObject->body->getFlags() & ~BT_DISABLE_WORLD_GRAVITY);
 		}
 		else
 		{
