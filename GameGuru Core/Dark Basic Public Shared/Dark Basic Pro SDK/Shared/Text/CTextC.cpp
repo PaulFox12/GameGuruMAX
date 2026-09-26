@@ -88,8 +88,9 @@ void ValidateWorkString(char* pString)
 
 int	Asc ( char* dwSrcStr )
 {
+	// unsigned, so chars above 127 index correctly
 	if(dwSrcStr)
-		return (int)*dwSrcStr;
+		return (int)(unsigned char)*dwSrcStr;
 	else
 		return 0;
 }

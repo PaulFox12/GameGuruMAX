@@ -5,14 +5,21 @@
 #include "stdafx.h"
 #include "gameguru.h"
 
-// 
+//
 //  BITMAP FONT
-// 
+//
+
+// keep the font slot inside the bitmapfont array
+static bool bitmapfontslotvalid ( int index )
+{
+	return index >= 0 && index < (int)t.bitmapfont.size();
+}
 
 //(dave) new function to relace a font
 void changebitmapfont ( char* name_s, int index )
 {
-	if (  ImageExist(g.bitmapfontimagetart+index) == 1 ) 
+	if ( !bitmapfontslotvalid(index) ) return;
+	if (  ImageExist(g.bitmapfontimagetart+index) == 1 )
 		DeleteImage (g.bitmapfontimagetart+index);
 
 	initbitmapfont ( name_s , index );
@@ -68,11 +75,12 @@ void initbitmapfont ( char* name_s, int index )
 	cstr y2_s =  "";
 	int pos = 0;
 	int n = 0;
+	if ( !bitmapfontslotvalid(index) ) return;
 	png_s=name_s;
 	png_s += ".png";
 	txt_s=name_s;
 	txt_s += "-Subimages.fnt";
-	if ( ImageExist(g.bitmapfontimagetart+index) == 0 ) 
+	if ( ImageExist(g.bitmapfontimagetart+index) == 0 )
 	{
 		LoadImage (  png_s.Get(),g.bitmapfontimagetart+index );
 		OpenToRead (  1,txt_s.Get() );
@@ -99,6 +107,7 @@ void initbitmapfont ( char* name_s, int index )
 			if (  lastbh_f == 0  )  lastbh_f = bh_f;
 			bx2_f=bx1_f+bw_f;
 			by2_f=by1_f+bh_f;
+			if ( charindex < 0 || charindex >= (int)t.bitmapfont[index].size() ) continue;
 			t.bitmapfont[index][charindex].x1=bx1_f/(ImageWidth(g.bitmapfontimagetart+index)+0.0);
 			t.bitmapfont[index][charindex].y1=by1_f/(ImageHeight(g.bitmapfontimagetart+index)+0.0);
 			t.bitmapfont[index][charindex].x2=bx2_f/(ImageWidth(g.bitmapfontimagetart+index)+0.0);
@@ -142,6 +151,7 @@ void pastebitmapfont ( char* text_s, int tx, int ty, int index, int alpha )
 	float v2_f = 0;
 	int sid = 0;
 	int n = 0;
+	if ( !bitmapfontslotvalid(index) ) return;
 	//  text$
 	sid=g.bitmapfontimagetart+index;
 	if (  sid  <=  0  )  return;
@@ -174,6 +184,7 @@ void pastebitmapfontcenter ( char* text_s, int tx, int ty, int index, int alpha 
 	int twidth = 0;
 	int sid = 0;
 	int n = 0;
+	if ( !bitmapfontslotvalid(index) ) return;
 	sid=g.bitmapfontimagetart+index;
 	if (  sid  <=  0  )  return;
 	if (  ImageExist(sid)  ==  0  )  return;
@@ -197,6 +208,7 @@ int getbitmapfontwidth ( char* text_s, int index )
 	int charindex = 0;
 	int twidth=0;
 	int n;
+	if ( !bitmapfontslotvalid(index) ) return 0;
 	for ( n = 1 ; n <= Len(text_s); n++ )
 	{
 		charindex=Asc(Mid(text_s,n) );
@@ -208,6 +220,7 @@ int getbitmapfontwidth ( char* text_s, int index )
 
 int getbitmapfontheight ( int index )
 {
+	if ( !bitmapfontslotvalid(index) ) return 0;
 	int charindex=Asc("A");
 	return t.bitmapfont[index][charindex].h;
 }
@@ -221,6 +234,7 @@ void pastebitmapfontcolor ( char* text_s, int tx, int ty, int index, int alpha, 
 	float v2_f = 0;
 	int sid = 0;
 	int n;
+	if ( !bitmapfontslotvalid(index) ) return;
 	//  text$
 	sid = g.bitmapfontimagetart+index;
 	if (  sid  <=  0  )  return;
