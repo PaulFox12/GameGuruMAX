@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
+#include <unordered_set>
 #include "M-RPG.h"
 
 // DarkLUA needs access to the T global (but could be in two locations)
@@ -145,6 +146,34 @@ struct luaState
 };
 
 lua_State *lua = NULL;
+
+// Entity commands index t.entityelement directly, so an id outside it (such as an object number passed by mistake)
+// wrote past the end of the array and crashed later somewhere unrelated. iMinID is 1, or 0 / -1 for the few commands
+// that treat those as "no entity". Invalid ids are logged once per command and calling script line.
+bool LuaEntityIDValid ( lua_State* L, int iEntityID, int iMinID )
+{
+	if ( iEntityID >= iMinID && iEntityID < (int)t.entityelement.size() ) return true;
+	if ( g.gproducelogfiles > 0 )
+	{
+		static std::unordered_set<std::string> invalidEntityCallsLogged;
+		lua_Debug ar;
+		const char* pName = "?";
+		if ( lua_getstack ( L, 0, &ar ) && lua_getinfo ( L, "n", &ar ) && ar.name ) pName = ar.name;
+		luaL_where ( L, 1 );
+		luaL_where ( L, 2 );
+		const char* pWhere1 = lua_tostring ( L, -2 );
+		const char* pWhere2 = lua_tostring ( L, -1 );
+		std::string key = std::string(pName) + pWhere1 + pWhere2;
+		if ( invalidEntityCallsLogged.insert(key).second )
+		{
+			char pLog[1024];
+			snprintf ( pLog, sizeof(pLog), "Lua %s ignored invalid entity %d (valid %d to %d) at %s %s", pName, iEntityID, iMinID, (int)t.entityelement.size()-1, pWhere1, pWhere2 );
+			timestampactivity ( 0, pLog );
+		}
+		lua_pop ( L, 2 );
+	}
+	return false;
+}
 
 int maxLuaStates = 0;
 luaState** ppLuaStates = NULL;
@@ -786,7 +815,7 @@ static int LUA_GETTOP(lua_State* L)
 	if ( n < 1 ) return 0;
 	int iReturnValue = 0;
 	int iEntityIndex = lua_tonumber(L, 1);
-	if ( iEntityIndex > 0 )
+	if ( LuaEntityIDValid ( L, iEntityIndex, 1 ) )
 	{
 		int iEntityBankIndex = t.entityelement[iEntityIndex].bankindex;
 		if ( iEntityBankIndex > 0 )
@@ -1041,6 +1070,7 @@ static int LUA_GETTOP(lua_State* L)
 	int n = LUA_GETTOP(L);
 	if ( n < 2 ) return 0;
 	int iIndex = lua_tonumber(L, 1);
+	if ( !LuaEntityIDValid ( L, iIndex, 1 ) ) return 0;
 	switch ( iCode )
 	{
 		case 1 : t.entityelement[iIndex].luadata.x = lua_tonumber(L, 2); break;
@@ -1074,7 +1104,7 @@ static int LUA_GETTOP(lua_State* L)
 	int n = LUA_GETTOP(L);
 	if ( n < 1 ) return 0;
 	int iIndex = lua_tonumber(L, 1);
-	if ( iIndex > 0 )
+	if ( LuaEntityIDValid ( L, iIndex, 1 ) )
 	{
 		switch ( iCode )
 		{
@@ -1165,6 +1195,7 @@ static int LUA_GETTOP(lua_State* L)
 	if ( n < 2 ) return 0;
 	int iIndex = lua_tonumber(L, 1);
 	int iSetThisValue = lua_tonumber(L, 2);
+	if ( !LuaEntityIDValid ( L, iIndex, 1 ) ) return 0;
 	t.entityelement[iIndex].active = iSetThisValue;
 	return 0;
  }
@@ -1174,6 +1205,7 @@ static int LUA_GETTOP(lua_State* L)
 	int n = LUA_GETTOP(L);
 	if ( n < 2 ) return 0;
 	int iIndex = lua_tonumber(L, 1);
+	if ( !LuaEntityIDValid ( L, iIndex, 1 ) ) return 0;
 	t.entityelement[iIndex].activated = lua_tonumber(L, 2);
 	return 0;
  }
@@ -1183,6 +1215,7 @@ static int LUA_GETTOP(lua_State* L)
 	 int n = LUA_GETTOP(L);
 	 if (n < 2) return 0;
 	 int iIndex = lua_tonumber(L, 1);
+	 if (!LuaEntityIDValid(L, iIndex, 1)) return 0;
 	 t.entityelement[iIndex].lua.haskey = lua_tonumber(L, 2);
 	 return 0;
  }
@@ -1192,6 +1225,7 @@ static int LUA_GETTOP(lua_State* L)
 	 int n = LUA_GETTOP(L);
 	 if (n < 2) return 0;
 	 int iIndex = lua_tonumber(L, 1);
+	 if (!LuaEntityIDValid(L, iIndex, 1)) return 0;
 	 t.entityelement[iIndex].eleprof.isobjective = lua_tonumber(L, 2);
 	 return 0;
  }
@@ -1201,6 +1235,7 @@ static int LUA_GETTOP(lua_State* L)
 	 int n = LUA_GETTOP(L);
 	 if (n < 2) return 0;
 	 int iIndex = lua_tonumber(L, 1);
+	 if (!LuaEntityIDValid(L, iIndex, 1)) return 0;
 	 t.entityelement[iIndex].eleprof.iscollectable = lua_tonumber(L, 2);
 	 return 0;
  }
@@ -1215,6 +1250,8 @@ static int LUA_GETTOP(lua_State* L)
 	bool bRemoveEntityFromGame = false;
 	int iEntityIndex = lua_tonumber(L, 1);
 	int iCollectState = lua_tonumber(L, 2);
+	// zero is allowed (fills inventory slots when a saved game loads), and every use below is inside iEntityIndex > 0
+	if (iEntityIndex > 0 && !LuaEntityIDValid(L, iEntityIndex, 1)) return 0;
 	if (iCollectState < 0)
 	{
 		bRemoveEntityFromGame = true;
@@ -1494,7 +1531,7 @@ static int LUA_GETTOP(lua_State* L)
 	 int n = LUA_GETTOP(L);
 	 if (n < 2) return 0;
 	 int iEntityIndex = lua_tonumber(L, 1);
-	 if (iEntityIndex > 0)
+	 if (LuaEntityIDValid(L, iEntityIndex, 1))
 	 {
 		 int iUsedState = lua_tonumber(L, 2);
 		 if (iUsedState < 0 && t.entityelement[iEntityIndex].eleprof.iscollectable == 2)
@@ -1518,7 +1555,7 @@ static int LUA_GETTOP(lua_State* L)
 	 int n = LUA_GETTOP(L);
 	 if (n < 2) return 0;
 	 int iEntityIndex = lua_tonumber(L, 1);
-	 if (iEntityIndex > 0)
+	 if (LuaEntityIDValid(L, iEntityIndex, 1))
 	 {
 		 int iValue = lua_tonumber(L, 2);
 		 t.entityelement[iEntityIndex].eleprof.explodable = iValue;
@@ -1531,7 +1568,7 @@ static int LUA_GETTOP(lua_State* L)
 	 int n = LUA_GETTOP(L);
 	 if (n < 2) return 0;
 	 int iEntityIndex = lua_tonumber(L, 1);
-	 if (iEntityIndex > 0)
+	 if (LuaEntityIDValid(L, iEntityIndex, 1))
 	 {
 		 int iValue = lua_tonumber(L, 2);
 		 t.entityelement[iEntityIndex].eleprof.explodedamage = iValue;
@@ -1544,7 +1581,7 @@ static int LUA_GETTOP(lua_State* L)
 	 int n = LUA_GETTOP(L);
 	 if (n < 2) return 0;
 	 int iEntityIndex = lua_tonumber(L, 1);
-	 if (iEntityIndex > 0)
+	 if (LuaEntityIDValid(L, iEntityIndex, 1))
 	 {
 		 int iValue = lua_tonumber(L, 2);
 		 t.entityelement[iEntityIndex].eleprof.explodeheight = iValue;
@@ -1558,7 +1595,7 @@ static int LUA_GETTOP(lua_State* L)
 	 int n = LUA_GETTOP(L);
 	 if (n < 2) return 0;
 	 int iEntityIndex = lua_tonumber(L, 1);
-	 if (iEntityIndex > 0)
+	 if (LuaEntityIDValid(L, iEntityIndex, 1))
 	 {
 		 const char* pEffect = lua_tostring(L, 2);
 		 if (!pEffect)
@@ -1700,7 +1737,7 @@ static int LUA_GETTOP(lua_State* L)
 	 int n = LUA_GETTOP(L);
 	 if (n < 2) return 0;
 	 int iEntityIndex = lua_tonumber(L, 1);
-	 if (iEntityIndex > 0)
+	 if (LuaEntityIDValid(L, iEntityIndex, 1))
 	 {
 		 int iQty = lua_tonumber(L, 2);
 		 t.entityelement[iEntityIndex].eleprof.quantity = iQty;
@@ -1743,7 +1780,7 @@ static int LUA_GETTOP(lua_State* L)
 	if ( n < 1 ) return 0;
 	int iIndex = lua_tonumber(L, 1);
 	int iReturnValue = 0;
-	if ( iIndex > 0 )
+	if ( LuaEntityIDValid ( L, iIndex, 1 ) )
 	{
 		iReturnValue = t.entityelement[iIndex].active;
 		if ( Len(t.entityelement[iIndex].eleprof.aimainname_s.Get())>1 ) 
@@ -1760,7 +1797,7 @@ static int LUA_GETTOP(lua_State* L)
 	if ( n < 1 ) return 0;
 	int iReturnValue = 0;
 	int iEntityIndex = lua_tonumber(L, 1);
-	if ( iEntityIndex > 0 )
+	if ( LuaEntityIDValid ( L, iEntityIndex, 1 ) )
 	{
 		int iObjectNumber = t.entityelement[iEntityIndex].obj;
 		if ( iObjectNumber > 0 )
@@ -1779,7 +1816,7 @@ static int LUA_GETTOP(lua_State* L)
 	int n = LUA_GETTOP(L);
 	if ( n < 2 ) return 0;
 	int iEntityIndex = lua_tonumber(L, 1);
-	if (iEntityIndex > 0)
+	if (LuaEntityIDValid(L, iEntityIndex, 1))
 	{
 		t.entityelement[iEntityIndex].eleprof.spawnatstart = lua_tonumber(L, 2);
 	}
@@ -1792,7 +1829,7 @@ static int LUA_GETTOP(lua_State* L)
 	if ( n < 1 ) return 0;
 	int iReturnValue = 0;
 	int iEntityIndex = lua_tonumber(L, 1);
-	if (iEntityIndex > 0)
+	if (LuaEntityIDValid(L, iEntityIndex, 1))
 	{
 		iReturnValue = t.entityelement[iEntityIndex].eleprof.spawnatstart;
 	}
@@ -1807,7 +1844,7 @@ static int LUA_GETTOP(lua_State* L)
 	char pReturnValue[1024];
 	strcpy ( pReturnValue, "" );
 	int iEntityIndex = lua_tonumber(L, 1);
-	if ( iEntityIndex > 0 ) 
+	if ( LuaEntityIDValid ( L, iEntityIndex, 1 ) )
 	{
 		int iEntID = t.entityelement[iEntityIndex].bankindex;
 		if ( iEntID > 0 )
@@ -1826,7 +1863,7 @@ static int LUA_GETTOP(lua_State* L)
 	 if (n < 1) return 0;
 	 int iReturnValue = 0;
 	 int iEntityIndex = lua_tonumber(L, 1);
-	 iReturnValue = t.entityelement[iEntityIndex].iWasSpawnedInGame;
+	 if (LuaEntityIDValid(L, iEntityIndex, 1)) iReturnValue = t.entityelement[iEntityIndex].iWasSpawnedInGame;
 	 lua_pushinteger (L, iReturnValue);
 	 return 1;
  }
@@ -1837,7 +1874,7 @@ static int LUA_GETTOP(lua_State* L)
 	int n = LUA_GETTOP(L);
 	if ( n < 2 ) return 0;
 	int iEntityIndex = lua_tonumber(L, 1);
-	if (iEntityIndex > 0)
+	if (LuaEntityIDValid(L, iEntityIndex, 1))
 	{
 		t.entityelement[iEntityIndex].eleprof.aipreexit = lua_tonumber(L, 2);
 	}
@@ -2110,6 +2147,7 @@ static int LUA_GETTOP(lua_State* L)
 	 if (n < 2) return 0;
 	 int iEntityIndex = lua_tonumber(L, 1);
 	 const char* pString = lua_tostring(L, 2);
+	 if (!LuaEntityIDValid(L, iEntityIndex, 1)) return 0;
 	 t.entityelement[iEntityIndex].eleprof.ifused_s = pString;
 	 return 0;
  }
@@ -2119,6 +2157,11 @@ static int LUA_GETTOP(lua_State* L)
 	 int n = LUA_GETTOP(L);
 	 if (n < 1) return 0;
 	 int iEntityIndex = lua_tonumber(L, 1);
+	 if (!LuaEntityIDValid(L, iEntityIndex, 1))
+	 {
+		 lua_pushstring(L, "");
+		 return 1;
+	 }
 	 lua_pushstring(L, t.entityelement[iEntityIndex].eleprof.ifused_s.Get());
 	 return 1;
  }
@@ -2144,6 +2187,7 @@ static int LUA_GETTOP(lua_State* L)
 	if (n < 2) return 0;
 	int iEntityIndex = lua_tonumber(L, 1);
 	int iNewValue = lua_tonumber(L, 2);
+	if (!LuaEntityIDValid(L, iEntityIndex, 1)) return 0;
 	switch (iDataMode)
 	{
 		case 1: 
@@ -2164,7 +2208,7 @@ static int LUA_GETTOP(lua_State* L)
 	if (n < 1 || n > 2) return 0;
 	int iEntityIndex = lua_tonumber(L, 1);
 	int iSubscriptValue = lua_tonumber(L, 2);
-	if (iEntityIndex > 0)
+	if (LuaEntityIDValid(L, iEntityIndex, 1))
 	{
 		float fReturnValue = 0;
 		int iObjectNumber = t.entityelement[iEntityIndex].obj;
@@ -2400,7 +2444,7 @@ static int LUA_GETTOP(lua_State* L)
 	int iEntityIndex    = lua_tonumber( L, 1 );
 	int iSlotIndex      = lua_tonumber( L, 2 );
 	const char* pString = lua_tostring( L, 3 );
-	if ( iEntityIndex > 0 )
+	if ( LuaEntityIDValid ( L, iEntityIndex, 1 ) )
 	{
 		if ( iSlotIndex == 0 ) 
 		{
@@ -2479,7 +2523,7 @@ static int LUA_GETTOP(lua_State* L)
 	int iEntityIndex = lua_tonumber(L, 1);
 	int iSlotIndex = lua_tonumber(L, 2);
 	LPSTR pString = "";
-	if ( iEntityIndex > 0 )
+	if ( LuaEntityIDValid ( L, iEntityIndex, 1 ) )
 	{
 		if ( iSlotIndex == 0 ) pString = t.entityelement[iEntityIndex].eleprof.soundset_s.Get();
 		if ( iSlotIndex == 1 ) pString = t.entityelement[iEntityIndex].eleprof.soundset1_s.Get();
@@ -2528,7 +2572,7 @@ static int LUA_GETTOP(lua_State* L)
 	int iAnimationSetIndex = lua_tonumber(L, 2);
 	int iAnimationSetStart = lua_tonumber(L, 3);
 	int iAnimationSetFinish = lua_tonumber(L, 4);
-	if ( iEntityIndex > 0 )
+	if ( LuaEntityIDValid ( L, iEntityIndex, 1 ) )
 	{
 		int iEntID = t.entityelement[iEntityIndex].bankindex;
 		if ( iEntID > 0 )
@@ -2551,7 +2595,7 @@ static int LUA_GETTOP(lua_State* L)
 	int iReturnValue = 0;
 	int iEntityIndex = lua_tonumber(L, 1);
 	int iAnimationSetIndex = lua_tonumber(L, 2);
-	if ( iEntityIndex > 0 )
+	if ( LuaEntityIDValid ( L, iEntityIndex, 1 ) )
 	{
 		int iEntID = t.entityelement[iEntityIndex].bankindex;
 		if ( iEntID > 0 )
@@ -2570,7 +2614,7 @@ static int LUA_GETTOP(lua_State* L)
 	int iReturnValue = 0;
 	int iEntityIndex = lua_tonumber(L, 1);
 	int iAnimationSetIndex = lua_tonumber(L, 2);
-	if ( iEntityIndex > 0 )
+	if ( LuaEntityIDValid ( L, iEntityIndex, 1 ) )
 	{
 		int iEntID = t.entityelement[iEntityIndex].bankindex;
 		if ( iEntID > 0 )
@@ -2589,7 +2633,7 @@ static int LUA_GETTOP(lua_State* L)
 	int iReturnValue = 0;
 	int iEntityIndex = lua_tonumber(L, 1);
 	int iAnimationSetIndex = lua_tonumber(L, 2);
-	if ( iEntityIndex > 0 )
+	if ( LuaEntityIDValid ( L, iEntityIndex, 1 ) )
 	{
 		int iEntID = t.entityelement[iEntityIndex].bankindex;
 		if ( iEntID > 0 )
@@ -2609,7 +2653,7 @@ static int LUA_GETTOP(lua_State* L)
 	 int iReturnValue = 0;
 	 int iEntityIndex = lua_tonumber(L, 1);
 	 int iChopFramesOffThEnd = lua_tonumber(L, 2);
-	 if (iEntityIndex > 0)
+	 if (LuaEntityIDValid(L, iEntityIndex, 1))
 	 {
 		 int iObjID = t.entityelement[iEntityIndex].obj;
 		 if (iObjID)
@@ -2678,7 +2722,7 @@ static int LUA_GETTOP(lua_State* L)
 	if ( n < 1 ) return 0;
 	int iReturnValue = 0;
 	int iEntityIndex = lua_tonumber(L, 1);
-	if ( iEntityIndex > 0 )
+	if ( LuaEntityIDValid ( L, iEntityIndex, 1 ) )
 	{
 		int iEntID = t.entityelement[iEntityIndex].bankindex;
 		if ( iEntID > 0 )
@@ -2698,7 +2742,7 @@ static int LUA_GETTOP(lua_State* L)
 	int iEntityIndex = lua_tonumber(L, 1);
 	int iFootfallIndex = lua_tonumber(L, 2);
 	int iLeftOrRight = lua_tonumber(L, 3);
-	if ( iEntityIndex > 0 )
+	if ( LuaEntityIDValid ( L, iEntityIndex, 1 ) )
 	{
 		int iEntID = t.entityelement[iEntityIndex].bankindex;
 		if ( iEntID > 0 )
@@ -2721,7 +2765,7 @@ static int LUA_GETTOP(lua_State* L)
 	 int iReturnValue = 0;
 	 int iEntityIndex = lua_tonumber(L, 1);
 	 const char* pAnimationName = lua_tostring(L, 2);
-	 if (iEntityIndex > 0)
+	 if (LuaEntityIDValid(L, iEntityIndex, 1))
 	 {
 		 float fFoundStart = -1, fFoundFinish = -1;
 		 cstr pStr = (LPSTR)pAnimationName;
@@ -2818,7 +2862,7 @@ static int LUA_GETTOP(lua_State* L)
 	 int iReturnValue = -1;
 	 int iEntityIndex = lua_tonumber(L, 1);
 	 int iTriggerIndex = lua_tonumber(L, 2);
-	 if (iEntityIndex > 0)
+	 if (LuaEntityIDValid(L, iEntityIndex, 1))
 	 {
 		int iObj = t.entityelement[iEntityIndex].obj;
 		if (iObj > 0)
@@ -3154,6 +3198,7 @@ static int LUA_GETTOP(lua_State* L)
 	if ( iCoreMode == 0 && n < 1 ) return 0;
 	if ( iCoreMode == 1 && n < 2 ) return 0;
 	int iEntityIndex = lua_tonumber(L, 1);
+	if ( !LuaEntityIDValid ( L, iEntityIndex, 1 ) ) return 0;
 	int iObjectNumber = t.entityelement[iEntityIndex].obj;
 	if ( iObjectNumber > 0 )
 	{
@@ -4478,6 +4523,11 @@ int SetCharacterMode(lua_State *L)
 	float e = lua_tonumber(L, 1);
 	float mode = lua_tonumber(L, 2);
 	int iSuccess = 0;
+	if (!LuaEntityIDValid(L, (int)e, 1))
+	{
+		lua_pushnumber (L, iSuccess);
+		return 1;
+	}
 	int entid = t.entityelement[e].bankindex;
 	if (t.entityprofile[entid].ischaracter == 1)
 	{
@@ -5293,6 +5343,11 @@ int GetSoundPlaying(lua_State* L)
 	int e = lua_tointeger(L, 1);
 	int v = lua_tointeger(L, 2);
 	int tsnd = 0;
+	if (!LuaEntityIDValid(L, e, 1))
+	{
+		lua_pushinteger (L, 0);
+		return 1;
+	}
 	if (v == 0) tsnd = t.entityelement[e].soundset;
 	if (v == 1) tsnd = t.entityelement[e].soundset1;
 	if (v == 2) tsnd = t.entityelement[e].soundset2;
@@ -5377,6 +5432,11 @@ int GetEntityRawSound(lua_State *L)
 	int iE = lua_tonumber(L, 1);
 	int iSoundSlot = lua_tonumber(L, 2);
 	int iRawSoundIndex = 0;
+	if (!LuaEntityIDValid(L, iE, 1))
+	{
+		lua_pushnumber ( L , iRawSoundIndex );
+		return 1;
+	}
 	if (iSoundSlot == 0) iRawSoundIndex = t.entityelement[iE].soundset;
 	if (iSoundSlot == 1) iRawSoundIndex = t.entityelement[iE].soundset1;
 	if (iSoundSlot == 2) iRawSoundIndex = t.entityelement[iE].soundset2;
@@ -9721,10 +9781,10 @@ int GetGamePlayerControlData ( lua_State *L, int iDataMode )
 
 		case 741 : lua_pushnumber ( L, t.csi_stoodvault[lua_tonumber(L, 1)] ); break;
 		case 751 : lua_pushnumber ( L, t.charseq[lua_tonumber(L, 1)].trigger ); break;
-		case 761 : lua_pushnumber ( L, t.entityelement[lua_tonumber(L, 1)].bankindex ); break;
-		case 762 : lua_pushnumber ( L, t.entityelement[lua_tonumber(L, 1)].obj ); break;
-		case 763 : lua_pushnumber ( L, t.entityelement[lua_tonumber(L, 1)].ragdollified ); break;
-		case 764 : lua_pushnumber ( L, t.entityelement[lua_tonumber(L, 1)].speedmodulator_f ); break;
+		case 761 : lua_pushnumber ( L, LuaEntityIDValid ( L, lua_tonumber(L, 1), 1 ) ? t.entityelement[lua_tonumber(L, 1)].bankindex : 0 ); break;
+		case 762 : lua_pushnumber ( L, LuaEntityIDValid ( L, lua_tonumber(L, 1), 1 ) ? t.entityelement[lua_tonumber(L, 1)].obj : 0 ); break;
+		case 763 : lua_pushnumber ( L, LuaEntityIDValid ( L, lua_tonumber(L, 1), 1 ) ? t.entityelement[lua_tonumber(L, 1)].ragdollified : 0 ); break;
+		case 764 : lua_pushnumber ( L, LuaEntityIDValid ( L, lua_tonumber(L, 1), 1 ) ? t.entityelement[lua_tonumber(L, 1)].speedmodulator_f : 0 ); break;
 		case 801 : lua_pushnumber ( L, t.charanimcontrols[lua_tonumber(L, 1)].leaping ); break;
 		case 802 : lua_pushnumber ( L, t.charanimcontrols[lua_tonumber(L, 1)].moving ); break;
 		case 851 : lua_pushnumber ( L, t.entityprofile[lua_tonumber(L, 1)].fJumpModifier ); break;
@@ -10613,6 +10673,7 @@ int EffectStart(lua_State* L)
 	int n = LUA_GETTOP(L);
 	if (n < 1) return 0;
 	int e = lua_tonumber(L, 1);
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
 	t.entityelement[e].eleprof.newparticle.bParticle_Show_At_Start = 1;
 	return 0;
 }
@@ -10622,6 +10683,7 @@ int EffectStop(lua_State* L)
 	int n = LUA_GETTOP(L);
 	if (n < 1) return 0;
 	int e = lua_tonumber(L, 1);
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
 	t.entityelement[e].eleprof.newparticle.bParticle_Show_At_Start = 0;
 	return 0;
 }
@@ -10634,6 +10696,7 @@ int EffectSetLocalPosition(lua_State* L)
 	float x = lua_tonumber(L, 2);
 	float y = lua_tonumber(L, 3);
 	float z = lua_tonumber(L, 4);
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
 	t.entityelement[e].eleprof.newparticle.bParticle_Offset_Used = true;
 	t.entityelement[e].eleprof.newparticle.bParticle_Offset_X = x;
 	t.entityelement[e].eleprof.newparticle.bParticle_Offset_Y = y;
@@ -10649,6 +10712,7 @@ int EffectSetLocalRotation(lua_State* L)
 	float x = lua_tonumber(L, 2);
 	float y = lua_tonumber(L, 3);
 	float z = lua_tonumber(L, 4);
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
 	t.entityelement[e].eleprof.newparticle.bParticle_LocalRot_Used = true;
 	t.entityelement[e].eleprof.newparticle.bParticle_LocalRot_X = x;
 	t.entityelement[e].eleprof.newparticle.bParticle_LocalRot_Y = y;
@@ -10662,6 +10726,7 @@ int EffectSetSpeed(lua_State* L)
 	if (n < 2) return 0;
 	int e = lua_tonumber(L, 1);
 	float speed = lua_tonumber(L, 2) / 100.0f;
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
 	t.entityelement[e].eleprof.newparticle.bParticle_SpeedChange = true;
 	t.entityelement[e].eleprof.newparticle.fParticle_Speed = speed;
 	return 0;
@@ -10673,6 +10738,7 @@ int EffectSetOpacity(lua_State* L)
 	if (n < 2) return 0;
 	int e = lua_tonumber(L, 1);
 	float opacity = lua_tonumber(L, 2) / 100.0f;
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
 	t.entityelement[e].eleprof.newparticle.bParticle_OpacityChange = true;
 	t.entityelement[e].eleprof.newparticle.fParticle_Opacity = opacity;
 	return 0;
@@ -10684,6 +10750,7 @@ int EffectSetParticleSize(lua_State* L)
 	if (n < 2) return 0;
 	int e = lua_tonumber(L, 1);
 	float opacity = lua_tonumber(L, 2) / 100.0f;
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
 	t.entityelement[e].eleprof.newparticle.bParticle_SizeChange = true;
 	t.entityelement[e].eleprof.newparticle.bParticle_Size = opacity;
 	return 0;
@@ -10695,6 +10762,7 @@ int EffectSetBurstMode(lua_State* L)
 	if (n < 2) return 0;
 	int e = lua_tonumber(L, 1);
 	int automode = lua_tonumber(L, 2);
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
 	t.entityelement[e].eleprof.newparticle.bParticle_Looping_Animation = 1 - automode;
 	return 0;
 }
@@ -10704,6 +10772,7 @@ int EffectFireBurst(lua_State* L)
 	int n = LUA_GETTOP(L);
 	if (n < 1) return 0;
 	int e = lua_tonumber(L, 1);
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
 	t.entityelement[e].eleprof.newparticle.bParticle_Fire = true;
 	return 0;
 }
@@ -10715,6 +10784,7 @@ int EffectSetFloorReflection(lua_State* L)
 	int e = lua_tonumber(L, 1);
 	int active = lua_tonumber(L, 2);
 	float height = lua_tonumber(L, 3);
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
 	t.entityelement[e].eleprof.newparticle.iParticle_Floor_Active = 1 + active;
 	t.entityelement[e].eleprof.newparticle.fParticle_Floor_Height = height;
 	return 0;
@@ -10726,6 +10796,7 @@ int EffectSetBounciness(lua_State* L)
 	if (n < 2) return 0;
 	int e = lua_tonumber(L, 1);
 	float bounciness = lua_tonumber(L, 2) / 100.0f;
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
 	t.entityelement[e].eleprof.newparticle.fParticle_BouncinessChange = true;
 	t.entityelement[e].eleprof.newparticle.fParticle_Bounciness = bounciness;
 	return 0;
@@ -10739,6 +10810,7 @@ int EffectSetColor(lua_State* L)
 	float r = lua_tonumber(L, 2);
 	float g = lua_tonumber(L, 3);
 	float b = lua_tonumber(L, 4);
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
 	t.entityelement[e].eleprof.newparticle.bParticle_ColorChange = true;
 	t.entityelement[e].eleprof.newparticle.fParticle_R = r;
 	t.entityelement[e].eleprof.newparticle.fParticle_G = g;
@@ -10752,6 +10824,7 @@ int EffectSetLifespan(lua_State* L)
 	if (n < 2) return 0;
 	int e = lua_tonumber(L, 1);
 	float lifespan = lua_tonumber(L, 2) * 10.0f;
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
 	t.entityelement[e].eleprof.newparticle.bParticle_LifespanChange = true;
 	t.entityelement[e].eleprof.newparticle.fParticle_Lifespan = lifespan;
 	return 0;
@@ -11410,6 +11483,7 @@ int SetAttachmentVisible ( lua_State *L )
 
 	int e = lua_tointeger(L, 1);
 	int v = lua_tointeger(L, 2);
+	if ( !LuaEntityIDValid ( L, e, 1 ) ) return 0;
 
 	if ( v == 1 )
 	{
@@ -11478,6 +11552,7 @@ int SetMaterialData(lua_State *L, int mode)
 	lua = L;
 	int n = LUA_GETTOP(L);
 	int iEntityID = lua_tonumber(L, 1);
+	if (!LuaEntityIDValid(L, iEntityID, 1)) return 0;
 	int iObjID = t.entityelement[iEntityID].obj;
 	if (!ConfirmObjectInstance (iObjID)) return 0;
 	sObject* pObject = g_ObjectList[iObjID];
@@ -11576,6 +11651,7 @@ int GetMaterialData(lua_State *L, int mode)
 	int n = LUA_GETTOP(L);
 	if (n < 1) return 0;
 	int iEntityID = lua_tonumber(L, 1);
+	if (!LuaEntityIDValid(L, iEntityID, 1)) return 0;
 	int iObjID = t.entityelement[iEntityID].obj;
 	if (!ConfirmObjectInstance (iObjID)) return 0;
 	sObject* pObject = g_ObjectList[iObjID];
@@ -11689,7 +11765,7 @@ int IsPointWithinZone(lua_State* L)
 	if (n < 4) return 0;
 	int iIsInZone = 0;
 	int iEntityIndex = lua_tonumber(L, 1);
-	if(iEntityIndex>0)
+	if(LuaEntityIDValid(L, iEntityIndex, 1))
 	{
 		float fX = lua_tonumber(L, 2);
 		float fY = lua_tonumber(L, 3);
@@ -12234,6 +12310,54 @@ enum eInternalCommandNames
 //triggerfadein lua_triggerfadein(); }
 //wingame lua_wingame(); }
 //losegame lua_losegame(); }
+// lowest entity id each command accepts, for the commands whose handlers index t.entityelement[t.e]
+// (the one-argument integer path also copies non-entity values into t.e, so only these are checked)
+#define LUAENTITY_NOTENTITYCOMMAND 0x7fffffff
+int LuaEntityCommandMinID ( eInternalCommandNames eInternalCommandValue )
+{
+	switch ( eInternalCommandValue )
+	{
+		// -1 or 0 mean the damage has no source entity
+		case enum_hurtplayer: case enum_drownplayer:
+			return -1;
+		// 0 means no entity
+		case enum_checkpoint: case enum_jumptolevel: case enum_getentityplrvisible:
+			return 0;
+		case enum_collisionon: case enum_promptvideo: case enum_spawnifused: case enum_activateifused:
+		case enum_loopnon3dsound: case enum_playnon3dsound: case enum_rotatetocamera: case enum_rotatetoplayer:
+		case enum_hide: case enum_show: case enum_replaceplayerweapon: case enum_setactivated:
+		case enum_collisionoff: case enum_resetlimbhit: case enum_ragdollforce: case enum_setforcelimb:
+		case enum_setnogravity: case enum_setlimbindex: case enum_destroy: case enum_setsound:
+		case enum_collected: case enum_loopsound: case enum_playsound: case enum_playvideo:
+		case enum_stopvideo: case enum_stopsound: case enum_playspeech: case enum_starttimer:
+		case enum_loopanimationfrom: case enum_movewithanimation: case enum_playanimationfrom: case enum_setactivatedformp:
+		case enum_promptvideonoskip: case enum_playsoundifsilent: case enum_transporttoifused: case enum_addplayerammo:
+		case enum_loopanimation: case enum_playanimation: case enum_refreshentity: case enum_stopanimation:
+		case enum_addplayerhealth: case enum_addplayerweapon: case enum_getentityinzone: case enum_playvideonoskip:
+		case enum_setentityhealth: case enum_setlightvisible: case enum_addplayerjetpack: case enum_spawn:
+		case enum_setcharactersoundset: case enum_setentityhealthsilent: case enum_performlogicconnections: case enum_performlogicconnectionnumber:
+		case enum_setentityhealthwithdamage: case enum_performlogicconnectionsaskey: case enum_setprioritytotransporter: case enum_hidelimbs:
+		case enum_showlimbs: case enum_moveforward: case enum_rotatelimbx: case enum_rotatelimby:
+		case enum_rotatelimbz: case enum_resetpositionx: case enum_resetpositiony: case enum_resetpositionz:
+		case enum_resetrotationx: case enum_resetrotationy: case enum_resetrotationz: case enum_sethoverfactor:
+		case enum_stopparticleemitter: case enum_movebackward: case enum_setrotationx: case enum_setrotationy:
+		case enum_setrotationz: case enum_setpositionx: case enum_setpositiony: case enum_setpositionz:
+		case enum_moveup: case enum_rotatex: case enum_rotatey: case enum_rotatez:
+		case enum_setanimationframe: case enum_changeanimationframe: case enum_setanimationspeed: case enum_modulatespeed:
+		case enum_scale: case enum_startparticleemitter: case enum_rotatetoplayerwithoffset: case enum_switchscript:
+		case enum_setanimationname: case enum_setcharactersound: case enum_playcharactersound:
+			return 1;
+	}
+	return LUAENTITY_NOTENTITYCOMMAND;
+}
+
+bool LuaEntityCommandValid ( lua_State* L, eInternalCommandNames eInternalCommandValue )
+{
+	int iMinID = LuaEntityCommandMinID ( eInternalCommandValue );
+	if ( iMinID == LUAENTITY_NOTENTITYCOMMAND ) return true;
+	return LuaEntityIDValid ( L, t.e, iMinID );
+}
+
 int int_core_sendmessagenone(lua_State* L, eInternalCommandNames eInternalCommandValue)
 {
 	int n = LUA_GETTOP(L);
@@ -12297,6 +12421,12 @@ int int_core_sendmessagei(lua_State* L, eInternalCommandNames eInternalCommandVa
 	{
 		t.e = lua_tonumber(L, 1);
 		t.v = lua_tonumber(L, 2);
+	}
+	if (!LuaEntityCommandValid(L, eInternalCommandValue))
+	{
+		t.e = storee;
+		t.v = storev;
+		return 0;
 	}
 	switch (eInternalCommandValue)
 	{
@@ -12836,6 +12966,12 @@ int int_core_sendmessagef(lua_State* L, eInternalCommandNames eInternalCommandVa
 		t.e = lua_tonumber(L, 1);
 		t.v_f = lua_tonumber(L, 2);
 	}
+	if (!LuaEntityCommandValid(L, eInternalCommandValue))
+	{
+		t.e = storee;
+		t.v_f = storev;
+		return 0;
+	}
 	switch (eInternalCommandValue)
 	{
 		case enum_lookatangle: entity_lua_lookatangle(); break;
@@ -13215,6 +13351,12 @@ int int_core_sendmessages(lua_State* L, eInternalCommandNames eInternalCommandVa
 			t.s_s = pStrPtr;
 		else
 			t.s_s = "";
+	}
+	if (!LuaEntityCommandValid(L, eInternalCommandValue))
+	{
+		t.e = storee;
+		t.s_s = stores;
+		return 0;
 	}
 	switch (eInternalCommandValue)
 	{
