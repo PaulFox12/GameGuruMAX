@@ -2295,7 +2295,7 @@ void physics_play_thump_sound (float fX, float fY, float fZ, float fStartFreq, f
 		if (iThumpSound > 0 && SoundExist(iThumpSound) == 1)
 		{
 			PositionSound (iThumpSound, fX, fY, fZ);
-			SetSoundSpeed (iThumpSound, fStartFreq + Rnd(fFreqRange));
+			setsoundspeedtunedfor44k (iThumpSound, fStartFreq + Rnd(fFreqRange));
 			PlaySound (iThumpSound);
 		}
 	}

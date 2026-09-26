@@ -6,6 +6,7 @@
 
 int soundfileexist ( char* tfile_s );
 float soundtruevolume ( int tvolume_f );
+void setsoundspeedtunedfor44k ( int soundid, int frequency44k );
 int loadinternalsoundcorecloneflag ( char* tfile_s, int mode, int clonesoundindex );
 int loadinternalsoundcore ( char* tfile_s, int mode );
 int loadinternalsound ( char* tfile_s );

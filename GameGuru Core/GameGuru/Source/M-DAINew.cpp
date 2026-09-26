@@ -2362,7 +2362,7 @@ void darkai_shooteffect (void)
 			PositionSound (t.ttsnd, t.entityelement[t.te].x, t.entityelement[t.te].y, t.entityelement[t.te].z);
 			t.tvolume_f = soundtruevolume(95.0);
 			SetSoundVolume (t.ttsnd, t.tvolume_f);
-			SetSoundSpeed (t.ttsnd, 43000 + Rnd(2000));
+			setsoundspeedtunedfor44k (t.ttsnd, 43000 + Rnd(2000));
 		}
 	}
 

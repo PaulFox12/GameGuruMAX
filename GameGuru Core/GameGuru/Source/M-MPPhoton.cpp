@@ -4051,7 +4051,7 @@ void mp_update_all_projectiles ( void )
 								CloneSound (  t.tSteamSoundID,t.tDeathSoundSoundID );
 							}
 							PositionSound (  t.tSteamSoundID,ObjectPositionX(t.tsteamBObj),ObjectPositionY(t.tsteamBObj), ObjectPositionZ(t.tsteamBObj) );
-							SetSoundSpeed (  t.tSteamSoundID,38000 + Rnd(8000) );
+							setsoundspeedtunedfor44k (  t.tSteamSoundID,38000 + Rnd(8000) );
 							PlaySound (  t.tSteamSoundID );
 						}
 

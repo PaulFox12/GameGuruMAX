@@ -1828,7 +1828,7 @@ void weapon_projectileresult_make (int customdecal )
 			if (t.tSourceEntity > 0 && t.tSourceEntity < t.entityelement.size() && iCustomDecal > 0 && SoundExist(t.entityelement[t.tSourceEntity].soundset6))
 			{
 				PositionSound(t.entityelement[t.tSourceEntity].soundset6, t.tx_f, t.ty_f, t.tz_f);
-				SetSoundSpeed(t.entityelement[t.tSourceEntity].soundset6, 38000 + Rnd(8000));
+				setsoundspeedtunedfor44k(t.entityelement[t.tSourceEntity].soundset6, 38000 + Rnd(8000));
 				PlaySound(t.entityelement[t.tSourceEntity].soundset6);
 				extern int i_LastExplosionSoundID;
 				i_LastExplosionSoundID = t.entityelement[t.tSourceEntity].soundset6;
@@ -1836,7 +1836,7 @@ void weapon_projectileresult_make (int customdecal )
 			else if (t.tSoundID > 0 && SoundExist(t.tSoundID) == 1)
 			{
 				PositionSound ( t.tSoundID,t.tx_f,t.ty_f,t.tz_f );
-				SetSoundSpeed ( t.tSoundID,38000+Rnd(8000) );
+				setsoundspeedtunedfor44k ( t.tSoundID,38000+Rnd(8000) );
 				PlaySound ( t.tSoundID );
 			}
 
