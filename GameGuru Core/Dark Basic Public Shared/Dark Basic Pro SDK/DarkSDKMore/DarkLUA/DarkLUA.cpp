@@ -5322,6 +5322,7 @@ int SetRawSoundData ( lua_State *L, int iDataMode )
 		case 2 : iParamNum = 1;	break;
 		case 3 : iParamNum = 1;	break;
 		case 4 : iParamNum = 2;	break;
+		case 5 : iParamNum = 2;	break;
 	}
 	int n = LUA_GETTOP(L);
 	if ( n < iParamNum ) return 0;
