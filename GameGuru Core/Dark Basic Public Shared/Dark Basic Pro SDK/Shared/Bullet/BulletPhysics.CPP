@@ -4347,9 +4347,10 @@ void ODESetBodyAngle ( int iObjectNumber, float fXRot, float fYRot, float fZRot 
 		GGQUATERNION QuatAroundX(1,0,0,fXRot);
 		GGQUATERNION QuatAroundY(0,1,0,fYRot);
 		GGQUATERNION QuatAroundZ(0,0,1,fZRot);
-		GGQuaternionRotationAxis(&QuatAroundX,&GGVECTOR3(1,0,0),fXRot);
-		GGQuaternionRotationAxis(&QuatAroundY,&GGVECTOR3(0,1,0),fYRot);
-		GGQuaternionRotationAxis(&QuatAroundZ,&GGVECTOR3(0,0,1),fZRot);
+		// angles arrive in degrees (callers pass ObjectAngleX/Y/Z), the quaternion wants radians as in fillTransform
+		GGQuaternionRotationAxis(&QuatAroundX,&GGVECTOR3(1,0,0),GGToRadian(fXRot));
+		GGQuaternionRotationAxis(&QuatAroundY,&GGVECTOR3(0,1,0),GGToRadian(fYRot));
+		GGQuaternionRotationAxis(&QuatAroundZ,&GGVECTOR3(0,0,1),GGToRadian(fZRot));
 		GGQUATERNION finalOrientation = QuatAroundX * QuatAroundY * QuatAroundZ;
 		worldTrans.setRotation(btQuaternion(finalOrientation.x,finalOrientation.y,finalOrientation.z,finalOrientation.w));
 		pPhyObject->body->setWorldTransform(worldTrans);
