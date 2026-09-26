@@ -551,6 +551,7 @@ void weapon_projectile_loop ( void )
 							t.tx_f = t.tHitX_f; t.ty_f = t.tHitY_f; t.tz_f = t.tHitZ_f;
 							t.tDamage_f = t.WeaponProjectileBase[t.tProjType].damage_f;
 							t.tradius_f = t.WeaponProjectileBase[t.tProjType].damageRadius_f;
+							t.tSoundID = t.WeaponProjectile[t.tProj].soundDeath;
 							t.tSourceEntity = t.WeaponProjectile[t.tProj].sourceEntity;
 							t.tHitObj = 0;
 							weapon_projectileresult_make (custom_decal_explosion);
