@@ -1681,6 +1681,8 @@ SetOcclusion: SetOcclusion(100), control the occluder from script! set the occlu
 
 SetFont: SetFont ( "myFont : 1) To change in game font. Fonts 1-3 are the default ones used.
 NOTE: You can place your texture atlas bitmap font file in the Files\fontbank\ folder with the name FPSCR-Font-XX.png where XX is the unique name for your font. When you want to use it, simply call the command SetFont ( "XX", YY ) where XX is the unique name above and YY is the index you want to 'overwrite'. Remember to include the 'FPSCR-Font-XX-Subimages.fnt' file which describes the coordinates within the texture atlas image for the specific bitmap fonts contained therein.
+GetTextWidth: w = GetTextWidth ( size, text ) -- width of Text() output in percent of screen width (same units as the Text x position)
+GetTextHeight: h = GetTextHeight ( size ) -- height of a line of Text() output in percent of screen height
 
 Include(file) -- to include a LUA script file from scriptbank.
 

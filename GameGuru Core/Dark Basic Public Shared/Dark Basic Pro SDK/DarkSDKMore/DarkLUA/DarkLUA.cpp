@@ -11242,6 +11242,32 @@ int SetFont ( lua_State *L )
 	return 0;
 }
 
+// GetTextWidth(size,text) and GetTextHeight(size) measure Text() output in the same screen percent units Text() is positioned in
+int GetTextWidth ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 2 ) return 0;
+	int iSize = lua_tonumber(L, 1);
+	const char* pText = lua_tostring(L, 2);
+	float fWidth = 0.0f;
+	if ( pText && GetDisplayWidth() > 0 ) fWidth = (getbitmapfontwidth((char*)pText, iSize) * 100.0f) / GetDisplayWidth();
+	lua_pushnumber ( L, fWidth );
+	return 1;
+}
+
+int GetTextHeight ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int iSize = lua_tonumber(L, 1);
+	float fHeight = 0.0f;
+	if ( GetDisplayHeight() > 0 ) fHeight = (getbitmapfontheight(iSize) * 100.0f) / GetDisplayHeight();
+	lua_pushnumber ( L, fHeight );
+	return 1;
+}
+
 int SetOcclusion ( lua_State *L )
 {
 
@@ -14282,6 +14308,8 @@ void addFunctions()
 	lua_register(lua, "SetFlashLightKeyEnabled" , SetFlashLightKeyEnabled );
 	lua_register(lua, "SetPlayerRun" , SetPlayerRun );
 	lua_register(lua, "SetFont" , SetFont );
+	lua_register(lua, "GetTextWidth" , GetTextWidth );
+	lua_register(lua, "GetTextHeight" , GetTextHeight );
 	lua_register(lua, "GetDeviceWidth" , GetDeviceWidth );
 	lua_register(lua, "GetDeviceHeight" , GetDeviceHeight );
 	lua_register(lua, "GetFirstEntitySpawn" , GetFirstEntitySpawn );
