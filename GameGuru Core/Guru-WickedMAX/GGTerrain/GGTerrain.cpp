@@ -11320,7 +11320,13 @@ int GGTerrain_GetTriangleListHighQuality(KMaths::Vector3** vertices, float minXo
 
 			// add relevant trianles to list
 			GGTerrainLODSet* pCurrLODs = ggterrain.GetCurrentLODs();
-			if (!pCurrLODs->IsValid() || pCurrLODs->IsGenerating()) return 0;
+			if (!pCurrLODs->IsValid() || pCurrLODs->IsGenerating())
+			{
+				char pLog[256];
+				sprintf_s(pLog, 256, "GGTerrain_GetTriangleListHighQuality gave up at slice x %.0f z %.0f: LODs %s, %u vertices collected so far are discarded", minX, minZ, pCurrLODs->IsValid() ? "still generating" : "not valid", vertexArray.NumItems());
+				timestampactivity(0, pLog);
+				return 0;
+			}
 			int lastLevel = pCurrLODs->GetNumLevels() - 1; // may not need this as we have updated the chunk data at this location!
 			for (int level = firstLOD; level <= lastLevel; level++)
 			{
@@ -11332,6 +11338,11 @@ int GGTerrain_GetTriangleListHighQuality(KMaths::Vector3** vertices, float minXo
 
 	// when all triangles collected in list, prepare some memory to store it and pass out
 	uint32_t numVertices = vertexArray.NumItems();
+	{
+		char pLog[256];
+		sprintf_s(pLog, 256, "GGTerrain_GetTriangleListHighQuality: x %.0f to %.0f, z %.0f to %.0f, %u vertices", minXoverall, maxXoverall, minZoverall, maxZoverall, numVertices);
+		timestampactivity(0, pLog);
+	}
 	*vertices = new KMaths::Vector3[numVertices];
 	for (uint32_t i = 0; i < numVertices; i++)
 	{

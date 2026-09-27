@@ -59,6 +59,10 @@ int GGRecastDetour::buildall (float* pVertices, uint32_t numVertices)
 		{
 			if (!geom->loadData(&ctx, pVertices, numVertices))
 			{
+				void timestampactivity(int i, char* desc_s);
+				char pLog[256];
+				sprintf_s(pLog, 256, "Navmesh geometry load failed for %u vertices", numVertices);
+				timestampactivity(0, pLog);
 				// error
 				delete geom;
 				geom = 0;

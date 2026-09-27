@@ -358,6 +358,7 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 
 	// work out hash for all "static" objects
 	double dSuperHash = 0;
+	int iNavBoundsUsed = 0, iNavBoundsOutsideEditable = 0, iNavBoundsOutsideLimit = 0;
 	for (int e = 1; e <= g.entityelementlist; e++)
 	{
 		int entid = t.entityelement[e].bankindex;
@@ -376,7 +377,7 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 				{
 					// establish bounds of static objects
 					GGVECTOR3 vecPos = GGVECTOR3(ObjectPositionX(iObj), ObjectPositionY(iObj), ObjectPositionZ(iObj));
-					if ( vecPos.x > editableSize || vecPos.x < -editableSize || vecPos.z > editableSize || vecPos.z < -editableSize ) continue;
+					if ( vecPos.x > editableSize || vecPos.x < -editableSize || vecPos.z > editableSize || vecPos.z < -editableSize ) { iNavBoundsOutsideEditable++; continue; }
 
 					// extra feature called NAVMESH LIMIT (assign this name to a flag and place)
 					// which enables the nav mesh area to be customized, allowing objects outside to be placed for scenery
@@ -388,9 +389,11 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 							vecPos.z > vecCustomPlayAreaMax.z )
 						{
 							// this object outside of custom navmesh limit area, can ignore (done again below)
+							iNavBoundsOutsideLimit++;
 							continue;
 						}
 					}
+					iNavBoundsUsed++;
 
 					if (vecPos.x > vecMaxArea.x) vecMaxArea.x = vecPos.x;
 					if (vecPos.z > vecMaxArea.z) vecMaxArea.z = vecPos.z;
@@ -456,6 +459,12 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 	vecMinArea.z -= 1000;
 	vecMaxArea.z += 1000;
 
+	char pNavLog[512];
+	sprintf_s(pNavLog, 512, "Navmesh area: editable size %.0f (global %.0f), %d entities used, %d outside editable size, %d outside NAVMESH LIMIT%s, x %.0f to %.0f, z %.0f to %.0f",
+		editableSize, GGTerrain::ggterrain_global_render_params2.editable_size, iNavBoundsUsed, iNavBoundsOutsideEditable, iNavBoundsOutsideLimit,
+		bUsingNavMeshLimitCustomArea ? " (limit flags in use)" : "", vecMinArea.x, vecMaxArea.x, vecMinArea.z, vecMaxArea.z);
+	timestampactivity(0, pNavLog);
+
 	// reuse navmeshlimiter to create a tiny navmesh nothing could possibly use (but keep navmesh calls working)
 	bool bIgnoreStaticStuff = false;
 	if (t.visuals.bEnableZeroNavMeshMode == true)
@@ -481,6 +490,8 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 		int iFirstLOD = 2;
 		GGVECTOR3* pvecVerts = NULL;
 		int iTerrainFloorVertexCount = GGTerrain_GetTriangleListHighQuality(&pvecVerts, vecMinArea.x, vecMinArea.z, vecMaxArea.x, vecMaxArea.z, iFirstLOD);
+		sprintf_s(pNavLog, 512, "Navmesh terrain vertices: %d", iTerrainFloorVertexCount);
+		timestampactivity(0, pNavLog);
 		if (iTerrainFloorVertexCount > 0 )
 		{
 			// divide up into 16-bit size meshes
@@ -830,6 +841,9 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 			}
 		}
 	}
+
+	sprintf_s(pNavLog, 512, "Navmesh vertex soup: %u vertices (%u from the level object)", numVertices, numRawVertices);
+	timestampactivity(0, pNavLog);
 
 	// can now delete massive object
 	timestampactivity(0, "Delete temporary nav mesh super object");

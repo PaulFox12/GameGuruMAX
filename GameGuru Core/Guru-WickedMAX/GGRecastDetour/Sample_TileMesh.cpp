@@ -37,6 +37,8 @@
 #include "GGThread.h"
 using namespace GGThread;
 
+void timestampactivity(int i, char* desc_s);
+
 #ifdef OPTICK_ENABLE
 #include "optick.h"
 #endif
@@ -278,6 +280,11 @@ void Sample_TileMesh::handleSettings()
 		m_maxTiles = 1 << tileBits;
 		m_maxPolysPerTile = 1 << polyBits;
 #endif
+		char pLog[512];
+		sprintf_s(pLog, 512, "Navmesh tiles: geometry %d verts %d tris, bounds x %.0f to %.0f, z %.0f to %.0f, grid %d x %d cells, %d x %d = %d tiles, pool %d",
+			m_geom->getMesh() ? m_geom->getMesh()->getVertCount() : 0, m_geom->getMesh() ? m_geom->getMesh()->getTriCount() : 0,
+			bmin[0], bmax[0], bmin[2], bmax[2], gw, gh, tw, th, tw*th, m_maxTiles);
+		timestampactivity(0, pLog);
 	}
 	else
 	{
@@ -735,6 +742,9 @@ bool Sample_TileMesh::handleBuild()
 	if (dtStatusFailed(status))
 	{
 		tileLog(RC_LOG_ERROR, "buildTiledNavigation: Could not init navmesh.");
+		char pLog[256];
+		sprintf_s(pLog, 256, "Navmesh init failed (status 0x%x) for a pool of %d tiles", status, m_maxTiles);
+		timestampactivity(0, pLog);
 		return false;
 	}
 	
@@ -884,6 +894,8 @@ void Sample_TileMesh::buildAllTiles()
 		}
 		//TileMeshThread::WaitForAll();
 
+		int iTilesAdded = 0, iTilesFailed = 0;
+		dtStatus firstFailStatus = 0;
 		for (int i = 0; i < th*tw; i++)
 		{
 			uint8_t* data = pWork[ i ].pOutData;
@@ -897,9 +909,21 @@ void Sample_TileMesh::buildAllTiles()
 				m_navMesh->removeTile( m_navMesh->getTileRefAt(x,y,0), 0, 0 );
 				// Let the navmesh own the data.
 				dtStatus status = m_navMesh->addTile( data, dataSize, DT_TILE_FREE_DATA, 0, 0 );
-				if ( dtStatusFailed(status) ) dtFree( data );
+				if ( dtStatusFailed(status) )
+				{
+					dtFree( data );
+					if ( iTilesFailed == 0 ) firstFailStatus = status;
+					iTilesFailed++;
+				}
+				else
+				{
+					iTilesAdded++;
+				}
 			}
 		}
+		char pLog[256];
+		sprintf_s(pLog, 256, "Navmesh tiles built: %d added, %d failed to add (first status 0x%x), %d had no walkable data", iTilesAdded, iTilesFailed, firstFailStatus, th*tw - iTilesAdded - iTilesFailed);
+		timestampactivity(0, pLog);
 
 		delete [] pWork;
 	}
