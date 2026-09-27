@@ -12265,7 +12265,8 @@ void Wicked_Update_Visuals(void* voidvisual);
 void Wicked_Update_LUT(void* voidvisual);
 int lua_get_lut(lua_State* L)
 {
-	std::string retstr = t.visuals.ColorGradingLUT.Get();
+	// SetLutTo writes t.gamevisuals (in a test game only that, so the editor keeps its own LUT), so read it back from there
+	std::string retstr = t.gamevisuals.ColorGradingLUT.Get();
 	if(retstr.length() > 0)
 		lua_pushstring(lua, retstr.c_str());
 	else
