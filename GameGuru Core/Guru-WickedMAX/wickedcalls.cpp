@@ -7548,6 +7548,51 @@ void WickedCall_UpdateTreeWind(float wind)
 	}
 }
 
+// terrain heights under the water, so the ocean's waves fade out over shallow water and stay flat over low land
+// (wiOcean::SetShoreHeightMap). Heights rather than depths, so SetWaterHeight needs no rebuild. Covers the
+// editable area; beyond it the water counts as deep
+#define WATERSHOREMAP_SIZE 1024
+#define WATERSHOREMAP_SHOREDEPTH 200.0f // water this deep (world units) or deeper gets full waves
+void WickedCall_UpdateWaterShoreMap(void)
+{
+	static Texture texShoreHeightMap;
+	float fEditable = GGTerrain::GGTerrain_GetEditableSize();
+	std::vector<float> heights(WATERSHOREMAP_SIZE * WATERSHOREMAP_SIZE);
+	LARGE_INTEGER iStart, iEnd, iFreq;
+	QueryPerformanceCounter(&iStart);
+	if (fEditable <= 0 || !GGTerrain::GGTerrain_GetHeightMap(WATERSHOREMAP_SIZE, WATERSHOREMAP_SIZE, heights.data()))
+	{
+		wiOcean::SetShoreHeightMap(nullptr, 0, 0, 0, 0);
+		return;
+	}
+
+	TextureDesc texDesc = {};
+	texDesc.BindFlags = BIND_SHADER_RESOURCE;
+	texDesc.SampleCount = 1;
+	texDesc.MipLevels = 1;
+	texDesc.ArraySize = 1;
+	texDesc.Format = FORMAT_R32_FLOAT;
+	texDesc.Usage = USAGE_IMMUTABLE;
+	texDesc.Width = WATERSHOREMAP_SIZE;
+	texDesc.Height = WATERSHOREMAP_SIZE;
+	SubresourceData initData = {};
+	initData.pSysMem = heights.data();
+	initData.SysMemPitch = WATERSHOREMAP_SIZE * sizeof(float);
+	wiRenderer::GetDevice()->CreateTexture(&texDesc, &initData, &texShoreHeightMap);
+
+	// GGTerrain_GetHeightMap samples both edges of the area, so each sample is a texel centre half a step in
+	float fStep = (2.0f * fEditable) / (WATERSHOREMAP_SIZE - 1);
+	float fMin = -fEditable - fStep * 0.5f;
+	wiOcean::SetShoreHeightMap(&texShoreHeightMap, fMin, fMin, fStep * WATERSHOREMAP_SIZE, WATERSHOREMAP_SHOREDEPTH);
+
+	QueryPerformanceCounter(&iEnd);
+	QueryPerformanceFrequency(&iFreq);
+	char pLog[256];
+	sprintf_s(pLog, "Water shore map: %d x %d over %.0f units in %.0f ms", WATERSHOREMAP_SIZE, WATERSHOREMAP_SIZE, 2.0f * fEditable, (iEnd.QuadPart - iStart.QuadPart) * 1000.0 / iFreq.QuadPart);
+	extern void timestampactivity(int i, char* desc_s);
+	timestampactivity(0, pLog);
+}
+
 // tree and foliage sway speed, set apart from the amount; 0 ties it to the amount as before
 void WickedCall_UpdateTreeWindSpeed(float speed)
 {

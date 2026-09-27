@@ -3905,6 +3905,8 @@ void game_preparelevel_finally ( void )
 	LuaPostEffects_Clear(NULL);
 	extern void LuaGameVisuals_Clear(void);
 	LuaGameVisuals_Clear();
+	// the terrain under the water, so waves stay off low land (the terrain is final by now)
+	WickedCall_UpdateWaterShoreMap();
 	lua_launchallinitscripts ( );
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );
 
