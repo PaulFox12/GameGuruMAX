@@ -670,6 +670,31 @@ namespace
 			}
 		}
 
+		// no detail edge qualified (float rounding at large coordinates):
+		// use the polygon outline, else its first vertex
+		if (!pmin)
+		{
+			for (int k = 0, j = (int)poly->vertCount - 1; k < (int)poly->vertCount; j = k++)
+			{
+				const float* va = &tile->verts[poly->verts[j] * 3];
+				const float* vb = &tile->verts[poly->verts[k] * 3];
+				float t;
+				float d = dtDistancePtSegSqr2D(pos, va, vb, t);
+				if (d < dmin)
+				{
+					dmin = d;
+					tmin = t;
+					pmin = va;
+					pmax = vb;
+				}
+			}
+			if (!pmin)
+			{
+				dtVcopy(closest, &tile->verts[poly->verts[0] * 3]);
+				return;
+			}
+		}
+
 		dtVlerp(closest, pmin, pmax, tmin);
 	}
 }
