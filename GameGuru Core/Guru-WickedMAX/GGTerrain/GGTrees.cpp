@@ -1018,16 +1018,18 @@ void GGTrees_ChangeDensity( int density)
 		pInstance->SetData(j, chosenType, 1);
 		pInstance->SetScale(Random(ggtrees_global_params.paint_scale_random_low, ggtrees_global_params.paint_scale_random_high));
 		int test = j % 100;
-		if (test >= ggtrees_global_params.paint_density)
+		// a slot outside the tree area stays hidden, free for the Add tool
+		if (test >= ggtrees_global_params.paint_density || !GGTrees_GetChunk(pInstance->x, pInstance->z))
 		{
 			pInstance->SetVisible(0);
-			pInvisibleTrees.AddItem(j);
 		}
-		else
-		{
-			if (!pInstance->IsVisible()) pInvisibleTrees.RemoveItem(pInstance->GetID());
-			pInstance->SetVisible(1);
-		}
+	}
+
+	// rebuild the hidden slot list after SetData
+	pInvisibleTrees.Clear();
+	for (uint32_t j = 0; j < numTotalTrees; j++)
+	{
+		if (!pAllTrees[j].IsVisible()) pInvisibleTrees.AddItem(j);
 	}
 }
 
