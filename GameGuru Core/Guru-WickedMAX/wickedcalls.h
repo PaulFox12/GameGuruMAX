@@ -148,6 +148,7 @@ void WickedCall_TextureMeshWithImagePtr(sMesh* pMesh, int iPutInEmissivemode);
 void WickedCall_TextureObjectWithImagePtr ( sObject* pObject, int iPutInEmissivemode );
 void WickedCall_UpdateObject(sObject* pObject);
 void WickedCall_UpdateLimbsOfObject( sObject* pObject );
+void WickedCall_UpdateLimbFromFrame( sObject* pObject, int iLimb );
 void WickedCall_UpdateSceneForPick(void);
 void WickedCall_SetRenderOrderBias(sMesh* pMesh, float fDistanceToAdd);
 float WickedCall_GetRenderOrderBias(sMesh* pMesh);

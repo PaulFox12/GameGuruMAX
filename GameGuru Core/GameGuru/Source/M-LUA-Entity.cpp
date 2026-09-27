@@ -2038,6 +2038,7 @@ void entity_lua_rotatelimbx ( void )
 			if ( t.lualimbindex >= 0 && t.lualimbindex < GetObjectData(iObj)->iFrameCount )
 			{
 				RotateLimb ( iObj, t.lualimbindex, t.v_f, LimbAngleY(iObj, t.lualimbindex), LimbAngleZ(iObj, t.lualimbindex) );
+				WickedCall_UpdateLimbFromFrame ( GetObjectData(iObj), t.lualimbindex ); // update the Wicked limb too
 			}
 		}
 	}
@@ -2052,6 +2053,7 @@ void entity_lua_rotatelimby ( void )
 			if ( t.lualimbindex >= 0 && t.lualimbindex < GetObjectData(iObj)->iFrameCount )
 			{
 				RotateLimb ( iObj, t.lualimbindex, LimbAngleX(iObj, t.lualimbindex), t.v_f, LimbAngleZ(iObj, t.lualimbindex) );
+				WickedCall_UpdateLimbFromFrame ( GetObjectData(iObj), t.lualimbindex );
 			}
 		}
 	}
@@ -2066,6 +2068,7 @@ void entity_lua_rotatelimbz ( void )
 			if ( t.lualimbindex >= 0 && t.lualimbindex < GetObjectData(iObj)->iFrameCount )
 			{
 				RotateLimb ( iObj, t.lualimbindex, LimbAngleX(iObj, t.lualimbindex), LimbAngleY(iObj, t.lualimbindex), t.v_f );
+				WickedCall_UpdateLimbFromFrame ( GetObjectData(iObj), t.lualimbindex );
 			}
 		}
 	}

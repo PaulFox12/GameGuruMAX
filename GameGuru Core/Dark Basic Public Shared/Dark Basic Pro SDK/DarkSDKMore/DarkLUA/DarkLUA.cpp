@@ -2560,6 +2560,90 @@ static int LUA_GETTOP(lua_State* L)
 	 return 1;
  }
 
+ // limb index as GetLimbName numbers them
+ static sObject* LuaEntityLimbObject ( lua_State* L, int e, int iLimb )
+ {
+	 if ( !LuaEntityIDValid ( L, e, 1 ) ) return NULL;
+	 int iObj = t.entityelement[e].obj;
+	 if ( iObj <= 0 || ObjectExist ( iObj ) == 0 ) return NULL;
+	 sObject* pObject = GetObjectData ( iObj );
+	 if ( !pObject || !pObject->ppFrameList || iLimb < 0 || iLimb >= pObject->iFrameCount || !pObject->ppFrameList[iLimb] ) return NULL;
+	 return pObject;
+ }
+ int GetEntityLimbCount ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 1 ) return 0;
+	 int e = lua_tointeger(L, 1);
+	 int iCount = 0;
+	 if ( LuaEntityIDValid ( L, e, 1 ) )
+	 {
+		 int iObj = t.entityelement[e].obj;
+		 if ( iObj > 0 && ObjectExist ( iObj ) == 1 ) iCount = GetObjectData ( iObj )->iFrameCount;
+	 }
+	 lua_pushinteger(L, iCount);
+	 return 1;
+ }
+ int GetEntityLimbName ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 2 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 lua_pushstring(L, pObject ? pObject->ppFrameList[iLimb]->szName : "");
+	 return 1;
+ }
+ // SetEntityLimbRotation(e, limb, ax, ay, az): degrees, limb space
+ int SetEntityLimbRotation ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 5 ) return 0;
+	 int e = lua_tointeger(L, 1);
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, e, iLimb );
+	 if ( !pObject ) return 0;
+	 RotateLimb ( t.entityelement[e].obj, iLimb, lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5) );
+	 WickedCall_UpdateLimbFromFrame ( pObject, iLimb );
+	 return 0;
+ }
+ int GetEntityLimbRotation ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 2 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 GGVECTOR3 vecRotation = pObject ? pObject->ppFrameList[iLimb]->vecRotation : GGVECTOR3(0, 0, 0);
+	 lua_pushnumber(L, vecRotation.x);
+	 lua_pushnumber(L, vecRotation.y);
+	 lua_pushnumber(L, vecRotation.z);
+	 return 3;
+ }
+ // SetEntityLimbOffset(e, limb, x, y, z): limb space
+ int SetEntityLimbOffset ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 5 ) return 0;
+	 int e = lua_tointeger(L, 1);
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, e, iLimb );
+	 if ( !pObject ) return 0;
+	 OffsetLimb ( t.entityelement[e].obj, iLimb, lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5) );
+	 WickedCall_UpdateLimbFromFrame ( pObject, iLimb );
+	 return 0;
+ }
+ int GetEntityLimbOffset ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 2 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 GGVECTOR3 vecOffset = pObject ? pObject->ppFrameList[iLimb]->vecOffset : GGVECTOR3(0, 0, 0);
+	 lua_pushnumber(L, vecOffset.x);
+	 lua_pushnumber(L, vecOffset.y);
+	 lua_pushnumber(L, vecOffset.z);
+	 return 3;
+ }
+
  // Entity Animation
  int SetEntityAnimation(lua_State *L)
  {
@@ -13533,6 +13617,12 @@ void addFunctions()
 	lua_register(lua, "GetEntityString", GetEntityString);
 
 	lua_register(lua, "GetLimbName", GetLimbName);
+	lua_register(lua, "GetEntityLimbCount", GetEntityLimbCount);
+	lua_register(lua, "GetEntityLimbName", GetEntityLimbName);
+	lua_register(lua, "SetEntityLimbRotation", SetEntityLimbRotation);
+	lua_register(lua, "GetEntityLimbRotation", GetEntityLimbRotation);
+	lua_register(lua, "SetEntityLimbOffset", SetEntityLimbOffset);
+	lua_register(lua, "GetEntityLimbOffset", GetEntityLimbOffset);
 
 	lua_register(lua, "SetEntitySpawnAtStart", SetEntitySpawnAtStart);
 	lua_register(lua, "GetEntitySpawnAtStart", GetEntitySpawnAtStart);
