@@ -3761,6 +3761,9 @@ void game_preparelevel_finally ( void )
 	timestampactivity(0,"postprocessing initialized");
 
 	//  Ensure correct shaders in play
+	// the standalone quality refresh takes its base values (grass distance, shadow resolution) from this level, not the first
+	extern bool g_bInitGraphicsSettingsValues;
+	g_bInitGraphicsSettingsValues = true;
 	visuals_shaderlevels_update ( );
 
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );

@@ -2401,6 +2401,9 @@ void visuals_loop ( void )
 // grass draw distance set from Lua, 0 when the level's own (quality scaled) distance applies
 float g_fGrassDistanceOverride = 0.0f;
 
+// set at each level start so the standalone quality levels scale that level's own values, not the first level's
+bool g_bInitGraphicsSettingsValues = true;
+
 void visuals_shaderlevels_update_core (bool bUpdateEngine)
 {
 	// HIGHEST
@@ -2572,12 +2575,11 @@ void visuals_shaderlevels_update_core (bool bUpdateEngine)
 	if (bUpdateEngine == true && t.game.gameisexe == 1)
 	{
 		// Wicked controls some early performance levers:
-		static bool bInitGraphicsSettingsValues = true;
 		static float fInitialShadowPointResolution = 0;
 		static float fInitialShadowSpotResolution = 0;
 		static float fInitialGrassDrawDistanceValue = 0;
 		static float fInitialCameraFar = t.visuals.CameraFAR_f;
-		if (bInitGraphicsSettingsValues == true)
+		if (g_bInitGraphicsSettingsValues == true)
 		{
 			if (t.visuals.shaderlevels.entities == 1)
 			{
@@ -2599,7 +2601,7 @@ void visuals_shaderlevels_update_core (bool bUpdateEngine)
 			if (t.visuals.shaderlevels.vegetation == 4) fInitialGrassDrawDistanceValue = GGGrass::gggrass_global_params.lod_dist / 3;
 
 			// all initial values set for possible changes below
-			bInitGraphicsSettingsValues = false;
+			g_bInitGraphicsSettingsValues = false;
 		}
 
 		// "entities" controls shadow work
