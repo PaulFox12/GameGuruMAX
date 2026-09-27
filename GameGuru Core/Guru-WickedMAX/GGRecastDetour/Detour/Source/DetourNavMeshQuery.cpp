@@ -1018,8 +1018,6 @@ dtStatus dtNavMeshQuery::findPath(dtPolyRef startRef, dtPolyRef endRef,
 	
 	bool outOfNodes = false;
 
-	int maxdoorcost = 99999;
-
 	while (!m_openList->empty())
 	{
 		// Remove node from open list and put it in closed list.
@@ -1127,22 +1125,19 @@ dtStatus dtNavMeshQuery::findPath(dtPolyRef startRef, dtPolyRef endRef,
 			float fToY = neighbourNode->pos[1];
 			float fToZ = neighbourNode->pos[2];
 
-			// LB: add an extra cost if the path runs through an area marked as a door, it will
+			// LB: skip a step if the path runs through an area marked as a door, it will
 			// force the system to find another path that does NOT go through dor areas (effectively blocking them as path ways when active)
+			// (removed: the 99999 cost cut also stopped every path over ~2.5 km)
 			extern bool DoesLineGoThroughBlocker (float fFromX, float fFromY, float fFromZ, float fToX, float fToY, float fToZ);
 			if (DoesLineGoThroughBlocker (fFromX, fFromY, fFromZ, fToX, fToY, fToZ) == true)
 			{
-				// the path goes through a door
-				heuristic += maxdoorcost;
+				// the path goes through a door, skip
+				continue;
 			}
 
 			// do the full cost tital
 			const float total = cost + heuristic;
 
-			// hit a door or water, skip
-			if (total > maxdoorcost)
-				continue;
-			
 			// The node is already in open list and the new result is worse, skip.
 			if ((neighbourNode->flags & DT_NODE_OPEN) && total >= neighbourNode->total)
 				continue;
@@ -1179,13 +1174,6 @@ dtStatus dtNavMeshQuery::findPath(dtPolyRef startRef, dtPolyRef endRef,
 	}
 
 	dtStatus status = getPathToNode(lastBestNode, path, pathCount, maxPath);
-
-	if (lastBestNodeCost > maxdoorcost)
-	{
-		// hit a door we could not find a way around, abort path
-		status |= DT_PARTIAL_RESULT;
-		pathCount = 0;
-	}
 
 	if (lastBestNode->id != endRef)
 		status |= DT_PARTIAL_RESULT;
