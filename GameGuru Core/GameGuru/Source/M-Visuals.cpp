@@ -2398,6 +2398,9 @@ void visuals_loop ( void )
 	}
 }
 
+// grass draw distance set from Lua, 0 when the level's own (quality scaled) distance applies
+float g_fGrassDistanceOverride = 0.0f;
+
 void visuals_shaderlevels_update_core (bool bUpdateEngine)
 {
 	// HIGHEST
@@ -2620,6 +2623,10 @@ void visuals_shaderlevels_update_core (bool bUpdateEngine)
 		GGGrass::gggrass_global_params.lod_dist = fInitialGrassDrawDistanceValue;
 		if (t.visuals.shaderlevels.vegetation >= 2) GGGrass::gggrass_global_params.lod_dist = fInitialGrassDrawDistanceValue * 2;
 		if (t.visuals.shaderlevels.vegetation == 4) GGGrass::gggrass_global_params.lod_dist = fInitialGrassDrawDistanceValue * 3;
+
+		// a distance set by SetGrassDistance (usually in an init script) survives this refresh, which runs after the init scripts
+		extern float g_fGrassDistanceOverride;
+		if (g_fGrassDistanceOverride > 0) GGGrass::gggrass_global_params.lod_dist = g_fGrassDistanceOverride;
 
 		extern CCameraManager m_CameraManager;
 		tagCameraData* m_ptr = m_CameraManager.GetData(0);

@@ -11964,6 +11964,25 @@ int GetGrassScale(lua_State* L)
 	lua_pushnumber(L, gggrass_global_params.grass_scale);
 	return 1;
 }
+// SetGrassDistance(d) - grass draw distance in world units, clamped to the editor slider range (750 to 7000).
+// Changing it rebuilds all grass chunks in one frame, so set it on events rather than every frame.
+int SetGrassDistance(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	float fDistance = lua_tonumber(L, 1);
+	if (fDistance < 750.0f) fDistance = 750.0f;
+	if (fDistance > 7000.0f) fDistance = 7000.0f;
+	extern float g_fGrassDistanceOverride;
+	g_fGrassDistanceOverride = fDistance;
+	gggrass_global_params.lod_dist = fDistance;
+	return 0;
+}
+int GetGrassDistance(lua_State* L)
+{
+	lua_pushnumber(L, gggrass_global_params.lod_dist);
+	return 1;
+}
 
 //PE: USE - SetLutTo("editors\\lut\\sephia.png")
 //PE: USE - string = GetLut()
@@ -14677,6 +14696,8 @@ void addFunctions()
 	//Other effects.
 	lua_register(lua, "SetGrassScale", SetGrassScale);
 	lua_register(lua, "GetGrassScale", GetGrassScale);
+	lua_register(lua, "SetGrassDistance", SetGrassDistance);
+	lua_register(lua, "GetGrassDistance", GetGrassDistance);
 	lua_register(lua, "GunAnimationSetFrame", GunAnimationSetFrame);
 	lua_register(lua, "LoopGunAnimation", LoopGunAnimation);
 	lua_register(lua, "StopGunAnimation", StopGunAnimation);

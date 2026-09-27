@@ -2465,6 +2465,9 @@ ScaleObject : ScaleObject( obj, x, y, z ) -- Scales object in all axis (Note: us
 
 SetSkyTo : SetSkyTo ( str ) -- where str is the folder name of the sky you want to change to
 
+SetGrassDistance : SetGrassDistance ( d ) -- grass draw distance in world units (750 to 7000), kept until the next level loads. Rebuilds all grass, so call on events not every frame
+GetGrassDistance : d = GetGrassDistance() -- current grass draw distance in world units
+
 ***** The following five functions return multiple values, if you do not need them all just replace 
 ***** the ones you don't need with '_' for example : _, _, _, Ax, Ay, Az = GetEntityPosAng( e ) would
 ***** just give you last three of the 6 values returned

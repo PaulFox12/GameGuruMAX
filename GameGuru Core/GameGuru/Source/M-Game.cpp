@@ -3880,6 +3880,9 @@ void game_preparelevel_finally ( void )
 	timestampactivity(0,"Entity Initiations");
 	entity_initafterphysics ( );
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );
+	// each level starts with its own grass distance until a script sets one
+	extern float g_fGrassDistanceOverride;
+	g_fGrassDistanceOverride = 0.0f;
 	lua_launchallinitscripts ( );
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );
 
