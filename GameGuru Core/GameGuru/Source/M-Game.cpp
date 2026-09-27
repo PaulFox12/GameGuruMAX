@@ -3747,6 +3747,9 @@ void game_preparelevel_finally ( void )
 	timestampactivity(0,"postprocessing initialized");
 
 	//  Ensure correct shaders in play
+	// quality refresh uses this level's values
+	extern bool g_bInitGraphicsSettingsValues;
+	g_bInitGraphicsSettingsValues = true;
 	visuals_shaderlevels_update ( );
 
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );
