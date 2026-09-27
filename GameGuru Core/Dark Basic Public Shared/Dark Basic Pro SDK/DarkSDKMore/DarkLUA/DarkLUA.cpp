@@ -10911,6 +10911,23 @@ int EffectSetOpacity(lua_State* L)
 	t.entityelement[e].eleprof.newparticle.fParticle_Opacity = opacity;
 	return 0;
 }
+//EffectGetOpacity(e) - opacity in percent, as EffectSetOpacity takes it
+int EffectGetOpacity(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	int e = lua_tonumber(L, 1);
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
+	newparticletype* pParticle = &t.entityelement[e].eleprof.newparticle;
+	float opacity = 1.0f;
+	if (pParticle->bParticle_OpacityChange == true)
+		opacity = pParticle->fParticle_Opacity;
+	else if (pParticle->bWPE == false && pParticle->emitterid != -1)
+		opacity = GPUParticles::gpup_getParticleOpacity(pParticle->emitterid);
+	lua_pushnumber(L, opacity * 100.0f);
+	return 1;
+}
 int EffectSetParticleSize(lua_State* L)
 {
 	lua = L;
@@ -11213,6 +11230,169 @@ int WParticleEffectAction(lua_State* L)
 	int iAction = lua_tonumber(L, 2);
 	WickedCall_PerformEmitterAction(iAction, root);
 	return 0;
+}
+
+//WParticleEffectSetKillBox(EffectID,Slot,MinX,MinY,MinZ,MaxX,MaxY,MaxZ) - Slot 1-8. Particles of the effect inside the world box are removed. Without the box the slot is cleared.
+int WParticleEffectSetKillBox(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 2) return 0;
+	Entity root = lua_tonumber(L, 1);
+	int iSlot = lua_tonumber(L, 2) - 1;
+	if (iSlot < 0 || iSlot >= (int)EMITTER_KILLBOX_COUNT) return 0;
+	XMFLOAT4 vMin = XMFLOAT4(FLT_MAX, FLT_MAX, FLT_MAX, 0);
+	XMFLOAT4 vMax = XMFLOAT4(-FLT_MAX, -FLT_MAX, -FLT_MAX, 0);
+	if (n >= 8)
+	{
+		float fX1 = lua_tonumber(L, 3);
+		float fY1 = lua_tonumber(L, 4);
+		float fZ1 = lua_tonumber(L, 5);
+		float fX2 = lua_tonumber(L, 6);
+		float fY2 = lua_tonumber(L, 7);
+		float fZ2 = lua_tonumber(L, 8);
+		vMin = XMFLOAT4(min(fX1, fX2), min(fY1, fY2), min(fZ1, fZ2), 0);
+		vMax = XMFLOAT4(max(fX1, fX2), max(fY1, fY2), max(fZ1, fZ2), 0);
+	}
+
+	Scene& scene = wiScene::GetScene();
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		if (hier && hier->parentID == root)
+		{
+			wiEmittedParticle& ec = scene.emitters[i];
+			ec.killbox_min[iSlot] = vMin;
+			ec.killbox_max[iSlot] = vMax;
+			if (ec.killbox_count < (uint32_t)iSlot + 1) ec.killbox_count = (uint32_t)iSlot + 1;
+		}
+	}
+	return 0;
+}
+
+//WParticleEffectClearKillBoxes(EffectID)
+int WParticleEffectClearKillBoxes(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	Entity root = lua_tonumber(L, 1);
+
+	Scene& scene = wiScene::GetScene();
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		if (hier && hier->parentID == root)
+		{
+			scene.emitters[i].killbox_count = 0;
+		}
+	}
+	return 0;
+}
+
+//WParticleEffectSetOpacity(EffectID,Opacity) - Opacity in percent of the opacity the effect was made with (100 = as made).
+int WParticleEffectSetOpacity(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 2) return 0;
+	Entity root = lua_tonumber(L, 1);
+	float fOpacity = max(0.0f, (float)lua_tonumber(L, 2) / 100.0f);
+
+	Scene& scene = wiScene::GetScene();
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		if (hier && hier->parentID == root)
+		{
+			scene.emitters[i].opacity_scale = fOpacity;
+		}
+	}
+	return 0;
+}
+
+//WParticleEffectGetOpacity(EffectID) - Returns the opacity in percent set by WParticleEffectSetOpacity (100 by default), nil if the effect has no emitters.
+int WParticleEffectGetOpacity(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	Entity root = lua_tonumber(L, 1);
+
+	Scene& scene = wiScene::GetScene();
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		if (hier && hier->parentID == root)
+		{
+			lua_pushnumber(L, scene.emitters[i].opacity_scale * 100.0f);
+			return 1;
+		}
+	}
+	return 0;
+}
+
+//WParticleEffectGetBounds(EffectID) - Returns MinX,MinY,MinZ,MaxX,MaxY,MaxZ of the world area the effect's particles are born in, as of the last frame (particles then move by their speed and gravity). Nothing if the effect has no emitters.
+int WParticleEffectGetBounds(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	Entity root = lua_tonumber(L, 1);
+
+	Scene& scene = wiScene::GetScene();
+	AABB bounds;
+	bool bFound = false;
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		TransformComponent* transform = scene.transforms.GetComponent(emitter);
+		if (hier && transform && hier->parentID == root)
+		{
+			const wiEmittedParticle& ec = scene.emitters[i];
+			const MeshComponent* mesh = scene.meshes.GetComponent(ec.meshID);
+			AABB area;
+			if (mesh)
+			{
+				// emits from the mesh surface
+				area = mesh->aabb.transform(transform->world);
+			}
+			else if (ec.IsVolumeEnabled())
+			{
+				// emits inside the unit cube under the emitter transform (emittedparticle_emitCS EMITTER_VOLUME)
+				area = AABB(XMFLOAT3(-1, -1, -1), XMFLOAT3(1, 1, 1)).transform(transform->world);
+			}
+			else
+			{
+				// emits at the emitter origin, spread on X and Z by random_position_scale
+				XMFLOAT3 pos = transform->GetPosition();
+				float fHalf = fabs(ec.random_position_scale) * 0.5f;
+				area = AABB(XMFLOAT3(pos.x - fHalf, pos.y, pos.z - fHalf), XMFLOAT3(pos.x + fHalf, pos.y, pos.z + fHalf));
+			}
+			// startpos adds a swing of up to x and z, and y/2
+			area._min.x -= fabs(ec.startpos.x);
+			area._max.x += fabs(ec.startpos.x);
+			area._min.y -= fabs(ec.startpos.y) * 0.5f;
+			area._max.y += fabs(ec.startpos.y) * 0.5f;
+			area._min.z -= fabs(ec.startpos.z);
+			area._max.z += fabs(ec.startpos.z);
+			bounds = AABB::Merge(bounds, area);
+			bFound = true;
+		}
+	}
+	if (!bFound) return 0;
+	lua_pushnumber(L, bounds._min.x);
+	lua_pushnumber(L, bounds._min.y);
+	lua_pushnumber(L, bounds._min.z);
+	lua_pushnumber(L, bounds._max.x);
+	lua_pushnumber(L, bounds._max.y);
+	lua_pushnumber(L, bounds._max.z);
+	return 6;
 }
 //disableindoor
 // rotate
@@ -14877,6 +15057,7 @@ void addFunctions()
 	lua_register(lua, "EffectSetLocalRotation",		EffectSetLocalRotation);
 	lua_register(lua, "EffectSetSpeed",				EffectSetSpeed);
 	lua_register(lua, "EffectSetOpacity",			EffectSetOpacity);
+	lua_register(lua, "EffectGetOpacity",			EffectGetOpacity);
 	lua_register(lua, "EffectSetParticleSize",		EffectSetParticleSize);
 	lua_register(lua, "EffectSetBurstMode",			EffectSetBurstMode);
 	lua_register(lua, "EffectFireBurst",			EffectFireBurst);
@@ -14891,6 +15072,11 @@ void addFunctions()
 	lua_register(lua, "WParticleEffectPosition", WParticleEffectPosition);
 	lua_register(lua, "WParticleEffectVisible", WParticleEffectVisible);
 	lua_register(lua, "WParticleEffectAction", WParticleEffectAction);
+	lua_register(lua, "WParticleEffectSetKillBox", WParticleEffectSetKillBox);
+	lua_register(lua, "WParticleEffectClearKillBoxes", WParticleEffectClearKillBoxes);
+	lua_register(lua, "WParticleEffectSetOpacity", WParticleEffectSetOpacity);
+	lua_register(lua, "WParticleEffectGetOpacity", WParticleEffectGetOpacity);
+	lua_register(lua, "WParticleEffectGetBounds", WParticleEffectGetBounds);
 #endif
 
 	//PE: Other missing commands.
