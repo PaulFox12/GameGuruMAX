@@ -54,12 +54,18 @@ uint GetTreeHighlighted( uint data ) { return data & 0x4; }
 float GetTreeScale( uint data ) { return ((data >> 16) & 0xFE) / 170.0 + 0.5; }
 
 #ifndef __cplusplus
+// sway speed set on its own (SetTreeWind's second value), otherwise tied to the amount as before
+float TreeSwaySpeed()
+{
+    return (g_xFrame_TreeWindSpeed > 0) ? g_xFrame_TreeWindSpeed : g_xFrame_TreeWind * 6.0;
+}
+
 //PE: Animate the trees a bit.
 float TreeWaveX(float posy, float posx)
 {
     if (g_xFrame_TreeWind <= 0)
         return (0);
-    const float swayspeed = g_xFrame_TreeWind * 6.0; // (0.85)
+    const float swayspeed = TreeSwaySpeed(); // (0.85)
     const float swayamount = g_xFrame_TreeWind * 0.35; //0.075
     const float time = g_xFrame_Time;
     const float sdat = sin((time * (swayspeed * 1.5)) + posx) + cos((time * (swayspeed * 0.8)) + posx) + sin((time * (swayspeed * 1.2)));
@@ -70,7 +76,7 @@ float TreeWaveZ(float posy, float posx)
 {
     if (g_xFrame_TreeWind <= 0)
         return (0);
-    const float swayspeed = g_xFrame_TreeWind * 6.0; // (0.85)
+    const float swayspeed = TreeSwaySpeed(); // (0.85)
     const float swayamount = g_xFrame_TreeWind * 0.20; //0.055
     const float time = g_xFrame_Time;
     const float sdat = sin((time * swayspeed) + posx) + cos((time * (swayspeed * 1.5)) + posx);

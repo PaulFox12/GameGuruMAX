@@ -7757,6 +7757,8 @@ int SetCloudSpeed(lua_State* L)
 }
 
 //PE: Other Shaders
+// SetTreeWind(amount [, speed]): the optional speed (0 to 12, 0 = tied to the amount as before) lets a storm sway
+// trees far without also making them sway fast
 int SetTreeWind(lua_State* L)
 {
 	int n = LUA_GETTOP(L);
@@ -7764,13 +7766,19 @@ int SetTreeWind(lua_State* L)
 	t.gamevisuals.tree_wind = lua_tonumber(L, 1);
 	//void WickedCall_UpdateTreeWind(float wind)
 	WickedCall_UpdateTreeWind(t.gamevisuals.tree_wind);
+	if (n >= 2)
+	{
+		t.gamevisuals.tree_wind_speed = max(0.0f, min(12.0f, (float)lua_tonumber(L, 2)));
+		WickedCall_UpdateTreeWindSpeed(t.gamevisuals.tree_wind_speed);
+	}
 	g_bLuaSetTreeWind = true;
 	return 0;
 }
 int GetTreeWind(lua_State* L)
 {
 	lua_pushnumber(L, t.gamevisuals.tree_wind);
-	return 1;
+	lua_pushnumber(L, t.gamevisuals.tree_wind_speed);
+	return 2;
 }
 
 

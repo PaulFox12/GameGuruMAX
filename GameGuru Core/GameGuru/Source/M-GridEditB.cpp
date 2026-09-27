@@ -7679,7 +7679,11 @@ void LuaGameVisuals_Apply(void* pPushedVisuals)
 		clouds.SkyCloudSpeed = t.gamevisuals.SkyCloudSpeed;
 		Wicked_Update_Cloud(&clouds);
 	}
-	if (g_bLuaSetTreeWind) WickedCall_UpdateTreeWind(t.gamevisuals.tree_wind);
+	if (g_bLuaSetTreeWind)
+	{
+		WickedCall_UpdateTreeWind(t.gamevisuals.tree_wind);
+		WickedCall_UpdateTreeWindSpeed(t.gamevisuals.tree_wind_speed);
+	}
 	if (g_bLuaSetWind) Wicked_Update_Wind(&t.gamevisuals);
 	if (g_bLuaSetWaterColor) WickedCall_UpdateWaterColor(t.gamevisuals.WaterRed_f, t.gamevisuals.WaterGreen_f, t.gamevisuals.WaterBlue_f);
 	if (g_bLuaSetWaterFog) WickedCall_UpdateWaterFog(t.gamevisuals.WaterFogMinDist, t.gamevisuals.WaterFogMaxDist, t.gamevisuals.WaterFogMinAmount);
@@ -7798,6 +7802,7 @@ void Wicked_Update_Visuals(void *voidvisual)
 		weather->pp_alpha = visuals->pp_alpha;
 		weather->windRandomness = visuals->wind_randomness;
 		weather->tree_wind = visuals->tree_wind;
+		weather->tree_wind_speed = visuals->tree_wind_speed;
 		weather->tree_sss = visuals->tree_sss;
 
 		if (t.game.set.ismapeditormode != 1)

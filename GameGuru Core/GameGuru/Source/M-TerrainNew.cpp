@@ -7037,6 +7037,19 @@ void imgui_Customize_Weather_V2(int mode)
 			if (ImGui::windowTabVisible() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "How much trees and foliage sway (SetTreeWind). Wind Speed does not move trees");
 			ImGui::PopItemWidth();
 
+			ImGui::Text("Tree Sway Speed");
+			ImGui::SameLine(); ImGui::SetCursorPosX(fWickedStartX);
+			ImGui::PushItemWidth((float)iItemWidth);
+			if (ImGui::SliderFloat("##WeatherTreeWindSpeed", &t.visuals.tree_wind_speed, 0.0f, 12.0f, t.visuals.tree_wind_speed > 0 ? "%.2f" : "Tied to Tree Wind"))
+			{
+				t.gamevisuals.tree_wind_speed = t.visuals.tree_wind_speed;
+				extern void WickedCall_UpdateTreeWindSpeed(float speed);
+				WickedCall_UpdateTreeWindSpeed(t.visuals.tree_wind_speed);
+				g.projectmodified = 1;
+			}
+			if (ImGui::windowTabVisible() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "How fast trees and foliage sway (SetTreeWind's second value). At 0 the speed rises with Tree Wind, as before");
+			ImGui::PopItemWidth();
+
 
 			ImGui::Text("PP Alpha");
 			ImGui::SameLine(); ImGui::SetCursorPosX(fWickedStartX);

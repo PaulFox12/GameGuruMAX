@@ -1289,7 +1289,7 @@ float TreeWaveX(float posy, float posx)
 	float wind = baseWind * materialWindParam;
 
 	const float clamped = clamp((posy - 120) * 0.35, 0, posy);
-    const float swayspeed = wind * 6.0; // (0.85)
+    const float swayspeed = (g_xFrame_TreeWindSpeed > 0) ? g_xFrame_TreeWindSpeed * materialWindParam : wind * 6.0; // own speed (SetTreeWind's second value), else tied to the amount
     const float swayamount = wind * 0.35; //0.075
     const float time = g_xFrame_Time;
     const float sdat = sin((time * (swayspeed * 1.5)) + posx) + cos((time * (swayspeed * 0.8)) + posx) + sin((time * (swayspeed * 1.2)));
@@ -1306,7 +1306,7 @@ float TreeWaveZ(float posy, float posx)
 	float wind = baseWind * materialWindParam;
 
 	const float clamped = clamp((posy - 120) * 0.35, 0, posy);
-    const float swayspeed = wind * 6.0; // (0.85)
+    const float swayspeed = (g_xFrame_TreeWindSpeed > 0) ? g_xFrame_TreeWindSpeed * materialWindParam : wind * 6.0; // own speed (SetTreeWind's second value), else tied to the amount
     const float swayamount = wind * 0.20; //0.055
     const float time = g_xFrame_Time;
     const float sdat = sin((time * swayspeed) + posx) + cos((time * (swayspeed * 1.5)) + posx);

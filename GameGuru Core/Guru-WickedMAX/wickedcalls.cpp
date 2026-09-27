@@ -7548,6 +7548,16 @@ void WickedCall_UpdateTreeWind(float wind)
 	}
 }
 
+// tree and foliage sway speed, set apart from the amount; 0 ties it to the amount as before
+void WickedCall_UpdateTreeWindSpeed(float speed)
+{
+	wiScene::WeatherComponent* weather = wiScene::GetScene().weathers.GetComponent(g_weatherEntityID);
+	if (weather)
+	{
+		weather->tree_wind_speed = speed;
+	}
+}
+
 void WickedCall_UpdateWaterHeight(float height)
 {
 	wiScene::WeatherComponent* weather = wiScene::GetScene().weathers.GetComponent(g_weatherEntityID);
