@@ -2475,6 +2475,23 @@ GetTreeTransition : w, shadowW = GetTreeTransition()
 SetTreeShadowCascades : SetTreeShadowCascades ( billboard [, fullDetail] ) -- how many sun shadow cascades (0 to 5, nearest first) draw billboard and full detail tree shadows; negative or omitted keeps the current value
 GetTreeShadowCascades : billboard, fullDetail = GetTreeShadowCascades()
 
+SetBloom : SetBloom ( on [, strength [, threshold]] ) -- bloom on (1) or off (0), strength 0.1 to 3, threshold 0.1 to 10. For this level only; omitted or negative values keep the current ones
+GetBloom : on, strength, threshold = GetBloom()
+SetDepthOfField : SetDepthOfField ( on [, strength [, focalLength [, aperture]]] ) -- depth of field on or off, strength 1 to 20, focal length 0.001 to 800, aperture 0 to 1. For this level only
+GetDepthOfField : on, strength, focalLength, aperture = GetDepthOfField()
+SetLightShafts : SetLightShafts ( on ) -- sun light shafts on or off, for this level only
+GetLightShafts : on = GetLightShafts()
+SetLensFlare : SetLensFlare ( on ) -- sun lens flare on or off, for this level only
+GetLensFlare : on = GetLensFlare()
+SetWind : SetWind ( speed [, dirX, dirY, dirZ [, randomness]] ) -- weather wind (rain and snow drift): speed 0 to 5, direction -20 to 20 per axis, randomness 0 to 2. Tree sway is SetTreeWind
+GetWind : speed, dirX, dirY, dirZ, randomness = GetWind()
+SetWaterFog : SetWaterFog ( minDist, maxDist [, minAmount] ) -- how clear the water is: nearer than minDist the water fog is at minAmount (0 to 1, lower is clearer), beyond maxDist the water is opaque (0 to 100000 units). SetWaterTransparancy does nothing in MAX
+GetWaterFog : minDist, maxDist, minAmount = GetWaterFog()
+SetRawSoundDistanceScale : SetRawSoundDistanceScale ( id, units ) -- 3D distance for one sound: full volume within about this distance, fading beyond; 0 = the global setup.ini curvedistancescaler (default 250). id from GetEntityRawSound( e, slot )
+GetRawSoundDistanceScale : units = GetRawSoundDistanceScale ( id ) -- the distance scale this sound plays with
+SetEntityInstanceEmissive : SetEntityInstanceEmissive ( e, r, g, b [, strength] ) -- glow of this one instance, multiplying the entity's authored emissive colour and strength (each 0 to 1; 1,1,1,1 = as authored, strength 0 = off). Other instances of the same object keep theirs
+GetEntityInstanceEmissive : r, g, b, strength = GetEntityInstanceEmissive ( e )
+
 ***** The following five functions return multiple values, if you do not need them all just replace 
 ***** the ones you don't need with '_' for example : _, _, _, Ax, Ay, Az = GetEntityPosAng( e ) would
 ***** just give you last three of the 6 values returned
