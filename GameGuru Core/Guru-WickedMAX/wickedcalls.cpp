@@ -6301,6 +6301,51 @@ void WickedCall_SetSelectedObject(sObject* pObject)
 	return;
 }
 
+// per instance multiplier (0 to 1) on the materials' emissive colour and strength (alpha). Instanced entities share
+// their mesh and materials, but each has its own object components, so this changes one instance only
+void WickedCall_SetObjectEmissiveTint(sObject* pObject, float fRed, float fGreen, float fBlue, float fStrength)
+{
+	if (!pObject) return;
+	XMFLOAT4 tint = XMFLOAT4(max(0.0f, min(1.0f, fRed)), max(0.0f, min(1.0f, fGreen)), max(0.0f, min(1.0f, fBlue)), max(0.0f, min(1.0f, fStrength)));
+	uint64_t rootEntity = WickedCall_GetFirstRootEntityID(pObject);
+	if (rootEntity > 0)
+	{
+		wiScene::ObjectComponent* pWickedObject = wiScene::GetScene().objects.GetComponent(rootEntity);
+		if (pWickedObject) pWickedObject->emissiveColor = tint;
+	}
+	for (int iF = 0; iF < pObject->iFrameCount; iF++)
+	{
+		if (pObject->ppFrameList && pObject->ppFrameList[iF])
+		{
+			uint64_t objectEntity = pObject->ppFrameList[iF]->wickedobjindex;
+			if (objectEntity > 0 && rootEntity != objectEntity)
+			{
+				wiScene::ObjectComponent* pWickedObject = wiScene::GetScene().objects.GetComponent(objectEntity);
+				if (pWickedObject) pWickedObject->emissiveColor = tint;
+			}
+		}
+	}
+}
+
+bool WickedCall_GetObjectEmissiveTint(sObject* pObject, float* pfRed, float* pfGreen, float* pfBlue, float* pfStrength)
+{
+	if (!pObject) return false;
+	wiScene::ObjectComponent* pWickedObject = NULL;
+	uint64_t rootEntity = WickedCall_GetFirstRootEntityID(pObject);
+	if (rootEntity > 0) pWickedObject = wiScene::GetScene().objects.GetComponent(rootEntity);
+	for (int iF = 0; !pWickedObject && pObject->ppFrameList && iF < pObject->iFrameCount; iF++)
+	{
+		if (pObject->ppFrameList[iF] && pObject->ppFrameList[iF]->wickedobjindex > 0)
+			pWickedObject = wiScene::GetScene().objects.GetComponent(pObject->ppFrameList[iF]->wickedobjindex);
+	}
+	if (!pWickedObject) return false;
+	*pfRed = pWickedObject->emissiveColor.x;
+	*pfGreen = pWickedObject->emissiveColor.y;
+	*pfBlue = pWickedObject->emissiveColor.z;
+	*pfStrength = pWickedObject->emissiveColor.w;
+	return true;
+}
+
 void WickedCall_SetObjectHighlightColor(sObject* pObject, bool bHighlight, int highlightColorType)
 {
 	uint64_t rootEntity = WickedCall_GetFirstRootEntityID(pObject);

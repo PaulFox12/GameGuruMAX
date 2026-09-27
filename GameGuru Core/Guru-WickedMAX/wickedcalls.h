@@ -195,6 +195,8 @@ uint32_t WickedCall_GetTextureHeight(void* ptex);
 void WickedCall_SetObjectOutline(sObject* pObject, float fHighlight);
 bool WickedCall_GetObjectOutline(sObject* pObject);
 void WickedCall_SetObjectHighlightColor(sObject* pObject, bool bHighlight, int highlightColorType);
+void WickedCall_SetObjectEmissiveTint(sObject* pObject, float fRed, float fGreen, float fBlue, float fStrength);
+bool WickedCall_GetObjectEmissiveTint(sObject* pObject, float* pfRed, float* pfGreen, float* pfBlue, float* pfStrength);
 void WickedCall_SetObjectHighlightRed(sObject* pObject, bool bHighlight);
 void WickedCall_SetObjectHighlightBlue(sObject* pObject, bool bHighlight);
 void WickedCall_RenderEditorFunctions(void);

@@ -11511,6 +11511,44 @@ int FirePlayerWeapon(lua_State *L)
 	return 0;
 }
 
+// SetEntityInstanceEmissive(e, r, g, b [, strength]): per instance multiplier, 0 to 1, on the entity's emissive colour
+// and strength as authored (1,1,1,1 = unchanged, strength 0 = no glow). Unlike the material setters it changes this
+// instance only, not every instance of the same object
+int SetEntityInstanceEmissive ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 4 ) return 0;
+	int e = lua_tointeger(L, 1);
+	if ( !LuaEntityIDValid ( L, e, 1 ) ) return 0;
+	float fStrength = 1.0f;
+	if ( n >= 5 ) fStrength = lua_tonumber(L, 5);
+	int iObj = t.entityelement[e].obj;
+	if ( iObj > 0 && ObjectExist ( iObj ) == 1 )
+		WickedCall_SetObjectEmissiveTint ( GetObjectData ( iObj ), lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4), fStrength );
+	return 0;
+}
+
+int GetEntityInstanceEmissive ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int e = lua_tointeger(L, 1);
+	float fR = 0, fG = 0, fB = 0, fStrength = 0;
+	if ( LuaEntityIDValid ( L, e, 1 ) )
+	{
+		int iObj = t.entityelement[e].obj;
+		if ( iObj > 0 && ObjectExist ( iObj ) == 1 )
+			WickedCall_GetObjectEmissiveTint ( GetObjectData ( iObj ), &fR, &fG, &fB, &fStrength );
+	}
+	lua_pushnumber ( L, fR );
+	lua_pushnumber ( L, fG );
+	lua_pushnumber ( L, fB );
+	lua_pushnumber ( L, fStrength );
+	return 4;
+}
+
 int SetAttachmentVisible ( lua_State *L )
 {
 	lua = L;
@@ -14591,6 +14629,8 @@ void addFunctions()
 	lua_register(lua, "GetFlashLightPosition", GetFlashLightPosition);
 
 	lua_register(lua, "SetAttachmentVisible" , SetAttachmentVisible );
+	lua_register(lua, "SetEntityInstanceEmissive" , SetEntityInstanceEmissive );
+	lua_register(lua, "GetEntityInstanceEmissive" , GetEntityInstanceEmissive );
 	lua_register(lua, "SetOcclusion" , SetOcclusion );
 	lua_register(lua, "SetPlayerWeapons", SetPlayerWeapons);
 	lua_register(lua, "FirePlayerWeapon", FirePlayerWeapon);
