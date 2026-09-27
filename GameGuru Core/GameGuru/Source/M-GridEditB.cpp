@@ -7655,6 +7655,48 @@ void LuaPostEffects_Clear(void* pVisualsToRestore)
 	if (old.iLensFlare >= 0) master_renderer->setLensFlareEnabled(visuals->bLensFlare);
 }
 
+// clouds, tree wind, wind, water colour, water fog and the LUT set from Lua are kept in t.gamevisuals, which the end
+// of a test game overwrites, so they never reach the editor. A full visuals push applies t.visuals, so the ones a
+// script has set are applied again after it, until the level ends
+bool g_bLuaSetClouds = false;
+bool g_bLuaSetTreeWind = false;
+bool g_bLuaSetWind = false;
+bool g_bLuaSetWaterColor = false;
+bool g_bLuaSetWaterFog = false;
+bool g_bLuaSetLUT = false;
+
+void LuaGameVisuals_Apply(void* pPushedVisuals)
+{
+	if (pPushedVisuals == &t.gamevisuals) return;
+	if (g_bLuaSetClouds)
+	{
+		// the pushed sky decides whether clouds show at all; only the cloud values are the script's
+		visualstype clouds = *(visualstype*)pPushedVisuals;
+		clouds.SkyCloudiness = t.gamevisuals.SkyCloudiness;
+		clouds.SkyCloudCoverage = t.gamevisuals.SkyCloudCoverage;
+		clouds.SkyCloudHeight = t.gamevisuals.SkyCloudHeight;
+		clouds.SkyCloudThickness = t.gamevisuals.SkyCloudThickness;
+		clouds.SkyCloudSpeed = t.gamevisuals.SkyCloudSpeed;
+		Wicked_Update_Cloud(&clouds);
+	}
+	if (g_bLuaSetTreeWind) WickedCall_UpdateTreeWind(t.gamevisuals.tree_wind);
+	if (g_bLuaSetWind) Wicked_Update_Wind(&t.gamevisuals);
+	if (g_bLuaSetWaterColor) WickedCall_UpdateWaterColor(t.gamevisuals.WaterRed_f, t.gamevisuals.WaterGreen_f, t.gamevisuals.WaterBlue_f);
+	if (g_bLuaSetWaterFog) WickedCall_UpdateWaterFog(t.gamevisuals.WaterFogMinDist, t.gamevisuals.WaterFogMaxDist, t.gamevisuals.WaterFogMinAmount);
+	if (g_bLuaSetLUT) Wicked_Update_LUT(&t.gamevisuals);
+}
+
+// at each level start and when a test game ends
+void LuaGameVisuals_Clear(void)
+{
+	g_bLuaSetClouds = false;
+	g_bLuaSetTreeWind = false;
+	g_bLuaSetWind = false;
+	g_bLuaSetWaterColor = false;
+	g_bLuaSetWaterFog = false;
+	g_bLuaSetLUT = false;
+}
+
 // change only the colour grading LUT. Wicked_Update_Visuals would also push every other visual value (fog, sun,
 // exposure, clouds...) back to the pushed struct and set vsync. LUTs once used stay loaded (the resource manager only
 // holds weak references), so switching back to one does not load it from disk again
@@ -8086,6 +8128,8 @@ void Wicked_Update_Visuals(void *voidvisual)
 		GGTrees::ggtrees_draw_enabled = 0;
 	}
 
+	// values a game script set keep them through this push
+	LuaGameVisuals_Apply(voidvisual);
 }
 
 void Wicked_Update_Visibles(void* voidvisual)

@@ -7683,6 +7683,8 @@ int SetShaderVariable ( lua_State *L )
 
 //PE: Control cloud shader
 void Wicked_Update_Cloud(void* visual);
+// set when a script changes these, so a full visuals push applies them again (M-GridEditB.cpp LuaGameVisuals_Apply)
+extern bool g_bLuaSetClouds, g_bLuaSetTreeWind, g_bLuaSetWind, g_bLuaSetWaterColor, g_bLuaSetWaterFog, g_bLuaSetLUT;
 int GetCloudDensity(lua_State* L)
 {
 	lua_pushnumber(L, t.gamevisuals.SkyCloudiness);
@@ -7693,6 +7695,7 @@ int SetCloudDensity(lua_State* L)
 	int n = LUA_GETTOP(L);
 	if (n < 1) return 0;
 	t.gamevisuals.SkyCloudiness = lua_tonumber(L, 1);
+	g_bLuaSetClouds = true;
 	Wicked_Update_Cloud((void*) &t.gamevisuals);
 	return 0;
 }
@@ -7706,6 +7709,7 @@ int SetCloudCoverage(lua_State* L)
 	int n = LUA_GETTOP(L);
 	if (n < 1) return 0;
 	t.gamevisuals.SkyCloudCoverage = lua_tonumber(L, 1);
+	g_bLuaSetClouds = true;
 	Wicked_Update_Cloud((void*)&t.gamevisuals);
 	return 0;
 }
@@ -7719,6 +7723,7 @@ int SetCloudHeight(lua_State* L)
 	int n = LUA_GETTOP(L);
 	if (n < 1) return 0;
 	t.gamevisuals.SkyCloudHeight = lua_tonumber(L, 1);
+	g_bLuaSetClouds = true;
 	Wicked_Update_Cloud((void*)&t.gamevisuals);
 	return 0;
 }
@@ -7732,6 +7737,7 @@ int SetCloudThickness(lua_State* L)
 	int n = LUA_GETTOP(L);
 	if (n < 1) return 0;
 	t.gamevisuals.SkyCloudThickness = lua_tonumber(L, 1);
+	g_bLuaSetClouds = true;
 	Wicked_Update_Cloud((void*)&t.gamevisuals);
 	return 0;
 }
@@ -7745,6 +7751,7 @@ int SetCloudSpeed(lua_State* L)
 	int n = LUA_GETTOP(L);
 	if (n < 1) return 0;
 	t.gamevisuals.SkyCloudSpeed = lua_tonumber(L, 1);
+	g_bLuaSetClouds = true;
 	Wicked_Update_Cloud((void*)&t.gamevisuals);
 	return 0;
 }
@@ -7757,6 +7764,7 @@ int SetTreeWind(lua_State* L)
 	t.gamevisuals.tree_wind = lua_tonumber(L, 1);
 	//void WickedCall_UpdateTreeWind(float wind)
 	WickedCall_UpdateTreeWind(t.gamevisuals.tree_wind);
+	g_bLuaSetTreeWind = true;
 	return 0;
 }
 int GetTreeWind(lua_State* L)
@@ -7783,6 +7791,7 @@ int SetWaterShaderColor(lua_State *L)
 	t.gamevisuals.WaterGreen_f = lua_tonumber(L, 2);
 	t.gamevisuals.WaterBlue_f = lua_tonumber(L, 3);
 	WickedCall_UpdateWaterColor(t.gamevisuals.WaterRed_f, t.gamevisuals.WaterGreen_f, t.gamevisuals.WaterBlue_f);
+	g_bLuaSetWaterColor = true;
 	return 0;
 #else
 	t.visuals.WaterRed_f = lua_tonumber(L, 1);
@@ -7810,18 +7819,20 @@ int SetWaterFog(lua_State *L)
 	float fMinDist = max(0.0f, min(100000.0f, (float)lua_tonumber(L, 1)));
 	float fMaxDist = max(0.0f, min(100000.0f, (float)lua_tonumber(L, 2)));
 	if (fMaxDist <= fMinDist) fMaxDist = fMinDist + 0.1f;
-	t.visuals.WaterFogMinDist = fMinDist;
-	t.visuals.WaterFogMaxDist = fMaxDist;
-	if (n >= 3) t.visuals.WaterFogMinAmount = max(0.0f, min(1.0f, (float)lua_tonumber(L, 3)));
+	// kept in t.gamevisuals like the water colour, so a test game's value never reaches the editor
+	t.gamevisuals.WaterFogMinDist = fMinDist;
+	t.gamevisuals.WaterFogMaxDist = fMaxDist;
+	if (n >= 3) t.gamevisuals.WaterFogMinAmount = max(0.0f, min(1.0f, (float)lua_tonumber(L, 3)));
 	extern void WickedCall_UpdateWaterFog(float fMinDist, float fMaxDist, float fMinAmount);
-	WickedCall_UpdateWaterFog(t.visuals.WaterFogMinDist, t.visuals.WaterFogMaxDist, t.visuals.WaterFogMinAmount);
+	WickedCall_UpdateWaterFog(t.gamevisuals.WaterFogMinDist, t.gamevisuals.WaterFogMaxDist, t.gamevisuals.WaterFogMinAmount);
+	g_bLuaSetWaterFog = true;
 	return 0;
 }
 int GetWaterFog(lua_State *L)
 {
-	lua_pushnumber(L, t.visuals.WaterFogMinDist);
-	lua_pushnumber(L, t.visuals.WaterFogMaxDist);
-	lua_pushnumber(L, t.visuals.WaterFogMinAmount);
+	lua_pushnumber(L, t.gamevisuals.WaterFogMinDist);
+	lua_pushnumber(L, t.gamevisuals.WaterFogMaxDist);
+	lua_pushnumber(L, t.gamevisuals.WaterFogMinAmount);
 	return 3;
 }
 int SetWaterTransparancy(lua_State *L)
@@ -12101,30 +12112,32 @@ int GetLensFlare(lua_State* L)
 // t.visuals, which a test game puts back when it ends
 extern void Wicked_Update_Wind(void* visual);
 
-// SetWind(speed [, dirX, dirY, dirZ [, randomness]]): omitted arguments keep their values; ranges as the editor's sliders
+// SetWind(speed [, dirX, dirY, dirZ [, randomness]]): omitted arguments keep their values; ranges as the editor's sliders.
+// Kept in t.gamevisuals like the cloud values, so a test game's wind never reaches the editor
 int SetWind(lua_State* L)
 {
 	int n = LUA_GETTOP(L);
 	if (n < 1) return 0;
-	t.visuals.wind_speed = max(0.0f, min(5.0f, (float)lua_tonumber(L, 1)));
+	t.gamevisuals.wind_speed = max(0.0f, min(5.0f, (float)lua_tonumber(L, 1)));
 	if (n >= 4)
 	{
-		t.visuals.wind_direction_x = max(-20.0f, min(20.0f, (float)lua_tonumber(L, 2)));
-		t.visuals.wind_direction_y = max(-20.0f, min(20.0f, (float)lua_tonumber(L, 3)));
-		t.visuals.wind_direction_z = max(-20.0f, min(20.0f, (float)lua_tonumber(L, 4)));
+		t.gamevisuals.wind_direction_x = max(-20.0f, min(20.0f, (float)lua_tonumber(L, 2)));
+		t.gamevisuals.wind_direction_y = max(-20.0f, min(20.0f, (float)lua_tonumber(L, 3)));
+		t.gamevisuals.wind_direction_z = max(-20.0f, min(20.0f, (float)lua_tonumber(L, 4)));
 	}
-	if (n >= 5) t.visuals.wind_randomness = max(0.0f, min(2.0f, (float)lua_tonumber(L, 5)));
-	Wicked_Update_Wind((void*)&t.visuals);
+	if (n >= 5) t.gamevisuals.wind_randomness = max(0.0f, min(2.0f, (float)lua_tonumber(L, 5)));
+	Wicked_Update_Wind((void*)&t.gamevisuals);
+	g_bLuaSetWind = true;
 	return 0;
 }
 
 int GetWind(lua_State* L)
 {
-	lua_pushnumber(L, t.visuals.wind_speed);
-	lua_pushnumber(L, t.visuals.wind_direction_x);
-	lua_pushnumber(L, t.visuals.wind_direction_y);
-	lua_pushnumber(L, t.visuals.wind_direction_z);
-	lua_pushnumber(L, t.visuals.wind_randomness);
+	lua_pushnumber(L, t.gamevisuals.wind_speed);
+	lua_pushnumber(L, t.gamevisuals.wind_direction_x);
+	lua_pushnumber(L, t.gamevisuals.wind_direction_y);
+	lua_pushnumber(L, t.gamevisuals.wind_direction_z);
+	lua_pushnumber(L, t.gamevisuals.wind_randomness);
 	return 5;
 }
 
@@ -12314,6 +12327,7 @@ int lua_set_lut(lua_State* L)
 		// only the LUT: the full Wicked_Update_Visuals push also reset script-set exposure, fog, sun and ambience to the
 		// level values and recreated the swap chain (vsync), which showed as a blip
 		Wicked_Update_LUT(&t.gamevisuals);
+		g_bLuaSetLUT = true;
 	}
 
 	t.e = storee;
