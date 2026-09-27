@@ -11914,7 +11914,8 @@ int GetGrassScale(lua_State* L)
 void Wicked_Update_Visuals(void* voidvisual);
 int lua_get_lut(lua_State* L)
 {
-	std::string retstr = t.visuals.ColorGradingLUT.Get();
+	// SetLutTo writes t.gamevisuals, read it from there
+	std::string retstr = t.gamevisuals.ColorGradingLUT.Get();
 	if(retstr.length() > 0)
 		lua_pushstring(lua, retstr.c_str());
 	else
