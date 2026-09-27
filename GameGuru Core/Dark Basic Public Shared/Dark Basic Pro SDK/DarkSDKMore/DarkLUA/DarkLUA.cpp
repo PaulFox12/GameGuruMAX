@@ -12097,6 +12097,37 @@ int GetLensFlare(lua_State* L)
 	return 1;
 }
 
+// the weather wind (rain, snow and Wicked wind; tree wind is SetTreeWind). Like the ambience and fog setters it changes
+// t.visuals, which a test game puts back when it ends
+extern void Wicked_Update_Wind(void* visual);
+
+// SetWind(speed [, dirX, dirY, dirZ [, randomness]]): omitted arguments keep their values; ranges as the editor's sliders
+int SetWind(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	t.visuals.wind_speed = max(0.0f, min(5.0f, (float)lua_tonumber(L, 1)));
+	if (n >= 4)
+	{
+		t.visuals.wind_direction_x = max(-20.0f, min(20.0f, (float)lua_tonumber(L, 2)));
+		t.visuals.wind_direction_y = max(-20.0f, min(20.0f, (float)lua_tonumber(L, 3)));
+		t.visuals.wind_direction_z = max(-20.0f, min(20.0f, (float)lua_tonumber(L, 4)));
+	}
+	if (n >= 5) t.visuals.wind_randomness = max(0.0f, min(2.0f, (float)lua_tonumber(L, 5)));
+	Wicked_Update_Wind((void*)&t.visuals);
+	return 0;
+}
+
+int GetWind(lua_State* L)
+{
+	lua_pushnumber(L, t.visuals.wind_speed);
+	lua_pushnumber(L, t.visuals.wind_direction_x);
+	lua_pushnumber(L, t.visuals.wind_direction_y);
+	lua_pushnumber(L, t.visuals.wind_direction_z);
+	lua_pushnumber(L, t.visuals.wind_randomness);
+	return 5;
+}
+
 
 bool bActivatePromptXYOffset = false;
 bool bActivatePromptOffset3D = false;
@@ -14945,6 +14976,8 @@ void addFunctions()
 	lua_register(lua, "GetLightShafts", GetLightShafts);
 	lua_register(lua, "SetLensFlare", SetLensFlare);
 	lua_register(lua, "GetLensFlare", GetLensFlare);
+	lua_register(lua, "SetWind", SetWind);
+	lua_register(lua, "GetWind", GetWind);
 
 	lua_register(lua, "SetLutTo", lua_set_lut);
 	lua_register(lua, "GetLut", lua_get_lut);

@@ -7470,6 +7470,18 @@ void Wicked_Update_LightColors(void* visual)
 	WickedCall_SetSunColors(visuals->SunRed_f / 255.0, visuals->SunGreen_f / 255.0, visuals->SunBlue_f / 255.0, visuals->SunIntensity_f, 1.0f, t.visuals.fSunShadowBias);
 }
 
+void Wicked_Update_Wind(void* visual)
+{
+	visualstype* visuals = (visualstype*)visual;
+	wiScene::WeatherComponent* weather = wiScene::GetScene().weathers.GetComponent(g_weatherEntityID);
+	if (weather)
+	{
+		weather->windDirection = XMFLOAT3(visuals->wind_direction_x, visuals->wind_direction_y, visuals->wind_direction_z);
+		weather->windSpeed = visuals->wind_speed;
+		weather->windRandomness = visuals->wind_randomness;
+	}
+}
+
 void Wicked_Update_Cloud(void* visual)
 {
 	visualstype* visuals = (visualstype*)visual;
