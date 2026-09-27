@@ -1107,16 +1107,19 @@ void GGTrees_ChangeDensity( int density)
 		pInstance->SetData(j, chosenType, 1);
 		pInstance->SetScale(Random(ggtrees_global_params.paint_scale_random_low, ggtrees_global_params.paint_scale_random_high));
 		int test = j % 100;
-		if (test >= ggtrees_global_params.paint_density)
+		// a slot outside the tree area is in no chunk, so it stays hidden and free for the Add tool
+		if (test >= ggtrees_global_params.paint_density || !GGTrees_GetChunk(pInstance->x, pInstance->z))
 		{
 			pInstance->SetVisible(0);
-			pInvisibleTrees.AddItem(j);
 		}
-		else
-		{
-			if (!pInstance->IsVisible()) pInvisibleTrees.RemoveItem(pInstance->GetID());
-			pInstance->SetVisible(1);
-		}
+	}
+
+	// rebuild the list of hidden slots. It was updated per tree, but SetData above shows every tree first, so trees shown
+	// here stayed in the list and trees hidden again were added twice; the Add tool could then move a visible tree
+	pInvisibleTrees.Clear();
+	for (uint32_t j = 0; j < numTotalTrees; j++)
+	{
+		if (!pAllTrees[j].IsVisible()) pInvisibleTrees.AddItem(j);
 	}
 }
 
