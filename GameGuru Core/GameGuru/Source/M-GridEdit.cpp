@@ -15830,7 +15830,7 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	ggtrees_global_params.tree_shadow_range_high = ggtrees_editor_lod_params.tree_shadow_range_high;
 
 	// nor post effects set from Lua: put back the editor's own. Lua's clouds, wind, water and LUT are already gone
-	// with t.gamevisuals; stop applying them again
+	// with t.gamevisuals; stop applying them again, and put each entity's glow back to full
 	extern void LuaPostEffects_Clear(void* pVisualsToRestore);
 	LuaPostEffects_Clear(&t.visuals);
 	extern void LuaGameVisuals_Clear(void);
