@@ -27248,6 +27248,19 @@ void DisplayFPEBehavior(bool readonly, int entid, entityeleproftype* edit_gridel
 	}
 }
 
+// Allow Bullet Holes tick for a placement, shown ticked when entity_allowsbulletholes allows holes; a change is stored
+// as 1 (yes) or 2 (no), over the placement default (0: allowbulletholes in the .fpe, else static entities only)
+void DisplayAllowBulletHolesCheckbox(int elementID)
+{
+	if (elementID <= 0 || elementID >= t.entityelement.size()) return;
+	bool bAllowBulletHole = entity_allowsbulletholes(elementID);
+	if (ImGui::Checkbox("Allow Bullet Holes ?", &bAllowBulletHole))
+	{
+		t.entityelement[elementID].iAllowBuletHole = bAllowBulletHole ? 1 : 2;
+	}
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("If set shots leave bullet holes on this object. Set by allowbulletholes in its .fpe, else on for static objects only");
+}
+
 void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_grideleprof, int elementID)
 {
 	ImGui::Indent(10);
@@ -27965,21 +27978,7 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 				g_bChangedGameCollectionList = false;
 			}
 
-			if (elementID > 0 && elementID < t.entityelement.size() )
-			{
-				// 0 = as the object's .fpe allowbulletholes (older levels' unticked box), 1 = yes, 2 = no (see entity_allowsbulletholes)
-				int iAllowBulletHole = t.entityelement[elementID].iAllowBuletHole;
-				if (iAllowBulletHole < 0 || iAllowBulletHole > 2) iAllowBulletHole = 0;
-				const char* pObjectDefault = "Object Default (No)";
-				if (t.entityprofile[t.entityelement[elementID].bankindex].allowbulletholes == 1) pObjectDefault = "Object Default (Yes)";
-				const char* bullethole_items[] = { pObjectDefault, "Yes", "No" };
-				ImGui::TextCenter("Allow Bullet Holes");
-				if (ImGui::Combo("##AllowBulletHoles", &iAllowBulletHole, bullethole_items, IM_ARRAYSIZE(bullethole_items)))
-				{
-					t.entityelement[elementID].iAllowBuletHole = iAllowBulletHole;
-				}
-				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Whether shots leave bullet holes on this object. Object Default uses allowbulletholes in its .fpe");
-			}
+			DisplayAllowBulletHolesCheckbox(elementID);
 
 			ImGui::Indent(-10);
 		}
@@ -27990,6 +27989,7 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 		ImGui::Text("NOTE: Static objects are always immobile");
 		ImGui::Text("and cannot be collected by the player");
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("When the object is set to static, it cannot be set as a collectable or move in any way");
+		DisplayAllowBulletHolesCheckbox(elementID);
 		ImGui::Indent(-10);
 	}
 }

@@ -3143,14 +3143,16 @@ void entity_gettrueplayerpos(void)
 	}
 }
 
-// whether a bullet hole may be left on entity e: always on a static entity; otherwise its Allow Bullet Holes setting,
-// 1 yes, 2 no, 0 (the default, and an older level's unticked box) as the object's .fpe allowbulletholes
+// whether a bullet hole may be left on entity e: its Allow Bullet Holes tick once set in the editor, 1 yes, 2 no; until
+// then (0, also every unticked placement saved before the tick could be cleared) allowbulletholes in its .fpe, and
+// without that key static entities only
 bool entity_allowsbulletholes(int e)
 {
-	if (t.entityelement[e].staticflag == 1) return true;
 	if (t.entityelement[e].iAllowBuletHole == 1) return true;
-	if (t.entityelement[e].iAllowBuletHole == 0) return t.entityprofile[t.entityelement[e].bankindex].allowbulletholes == 1;
-	return false;
+	if (t.entityelement[e].iAllowBuletHole == 2) return false;
+	int iAllowBulletHoles = t.entityprofile[t.entityelement[e].bankindex].allowbulletholes;
+	if (iAllowBulletHoles != -1) return iAllowBulletHoles == 1;
+	return t.entityelement[e].staticflag == 1;
 }
 
 // a shot from a script's weapon, detected as entity_hasbulletrayhit detects the player's: terrain first, then the entities with

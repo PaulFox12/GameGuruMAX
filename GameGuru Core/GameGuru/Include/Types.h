@@ -6142,7 +6142,7 @@ struct entityprofiletype
 		 lod1distance = 0;
 		 disablebatch = 0;
 		 materialindex = 0;
-		 allowbulletholes = 0;
+		 allowbulletholes = -1;
 		 notanoccluder = 0;
 		 forcesimpleobstacle = 0;
 		 forceobstaclepolysize = 0.0f;

@@ -2397,7 +2397,7 @@ void entity_loaddata ( void )
 						if (t.entityprofile[t.entid].materialindex == -1) t.entityprofile[t.entid].materialindex = 0; // repair!
 					}
 
-					// default for placements whose Allow Bullet Holes is left to the object (see entity_allowsbulletholes)
+					// Allow Bullet Holes until set per placement (-1 when absent: static entities only, see entity_allowsbulletholes)
 					cmpStrConst( t_field_s, "allowbulletholes" );
 					if (matched) t.entityprofile[t.entid].allowbulletholes = t.value1;
 
@@ -7854,6 +7854,7 @@ void entity_assignentityparticletodecalelement ( void )
 void entity_addentitytomap_core ( void )
 {
 	// called from _entity_addentitytomap and also _game_masterroot
+	bool bDroppedBackInSameElement = false;
 	if ( t.gridentityoverwritemode == 0 )
 	{
 		// First see if we have a prfeference (when click object to cursor, ideally want it dropped back in same t.e
@@ -7863,6 +7864,7 @@ void entity_addentitytomap_core ( void )
 			if (t.entityelement[t.gridentitypreferelementindex].maintype == 0)
 			{
 				t.tokay = t.gridentitypreferelementindex;
+				bDroppedBackInSameElement = true;
 			}
 			t.gridentitypreferelementindex = 0;
 		}
@@ -7952,6 +7954,13 @@ void entity_addentitytomap_core ( void )
 	t.entityelement[t.e].maintype=t.entitymaintype;
 	t.entityelement[t.e].bankindex=t.entitybankindex;
 	t.entityelement[t.e].staticflag=t.gridentitystaticmode;
+	if (t.gridentityoverwritemode == 0 && bDroppedBackInSameElement == false)
+	{
+		// a new placement starts with Allow Bullet Holes unset, which follows its .fpe (entity_allowsbulletholes), rather
+		// than the tick of a deleted object that used this element; one dropped back into its own element, or restored
+		// by undo, keeps its setting
+		t.entityelement[t.e].iAllowBuletHole = 0;
+	}
 	t.entityelement[t.e].iHasParentIndex=t.gridentityhasparent;
 	t.entityelement[t.e].x=t.gridentityposx_f;
 	t.entityelement[t.e].z=t.gridentityposz_f;
