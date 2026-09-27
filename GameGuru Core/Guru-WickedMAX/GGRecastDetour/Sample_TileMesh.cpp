@@ -748,7 +748,9 @@ bool Sample_TileMesh::handleBuild()
 		return false;
 	}
 	
-	status = m_navQuery->init(m_navMesh, 2048);
+	// search nodes per path query; 2048 can run out on long routes. A route that cannot be reached searches until they
+	// run out, so this also bounds the cost of such a query
+	status = m_navQuery->init(m_navMesh, 16384);
 	if (dtStatusFailed(status))
 	{
 		tileLog(RC_LOG_ERROR, "buildTiledNavigation: Could not init Detour navmesh query");

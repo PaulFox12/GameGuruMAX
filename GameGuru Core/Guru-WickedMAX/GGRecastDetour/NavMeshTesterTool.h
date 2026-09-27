@@ -50,7 +50,9 @@ class NavMeshTesterTool : public SampleTool
 
 	int m_straightPathOptions;
 	
-	static const int MAX_POLYS = 256;
+	// polygons in one path (and points in its straight path); 256 was about 14,000 units of terrain navmesh, so a long
+	// route came back cut short
+	static const int MAX_POLYS = 4096;
 	static const int MAX_SMOOTH = 2048;
 	
 	dtPolyRef m_startRef;

@@ -1134,7 +1134,25 @@ void NavMeshTesterTool::recalc()
 				   m_spos[0],m_spos[1],m_spos[2], m_epos[0],m_epos[1],m_epos[2],
 				   m_filter.getIncludeFlags(), m_filter.getExcludeFlags()); 
 #endif
-			m_navQuery->findPath(m_startRef, m_endRef, m_spos, m_epos, &m_filter, m_polys, &m_npolys, MAX_POLYS);
+			dtStatus pathStatus = m_navQuery->findPath(m_startRef, m_endRef, m_spos, m_epos, &m_filter, m_polys, &m_npolys, MAX_POLYS);
+
+			// log a path cut short by the search or path size limits (not by a blocked or missing route), a limited number of times
+			if (dtStatusDetail(pathStatus, DT_OUT_OF_NODES) || dtStatusDetail(pathStatus, DT_BUFFER_TOO_SMALL))
+			{
+				static int iPathLimitLogCount = 0;
+				if (iPathLimitLogCount < 50)
+				{
+					iPathLimitLogCount++;
+					extern void timestampactivity(int i, char* desc_s);
+					char pLogLine[512];
+					sprintf_s(pLogLine, 512, "Navmesh path cut short:%s%s %d polygons, from %.0f,%.0f to %.0f,%.0f",
+						dtStatusDetail(pathStatus, DT_OUT_OF_NODES) ? " ran out of search nodes," : "",
+						dtStatusDetail(pathStatus, DT_BUFFER_TOO_SMALL) ? " longer than MAX_POLYS," : "",
+						m_npolys, m_spos[0], m_spos[2], m_epos[0], m_epos[2]);
+					timestampactivity(0, pLogLine);
+				}
+			}
+
 			m_nstraightPath = 0;
 			if (m_npolys)
 			{
