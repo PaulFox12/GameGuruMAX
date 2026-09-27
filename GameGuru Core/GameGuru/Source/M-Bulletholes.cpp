@@ -18,6 +18,13 @@ struct sBulletHole
 	float fLifeCounter;
 	float fRadius;
 	GGVECTOR3 vecWorldPos;
+
+	// the entity the hole was made on (0 for terrain), its object, and where that object stood when hit: the hole is
+	// part of one world-space mesh and cannot follow it, so it is removed when the entity moves, hides or goes
+	int iOwnerEntity;
+	int iOwnerObject;
+	GGVECTOR3 vecOwnerPos;
+	GGVECTOR3 vecOwnerAngle;
 };
 std::vector<sBulletHole> g_bulletholes;
 bool g_bulletholeavailable[BULLETHOLESMAX];
@@ -117,7 +124,7 @@ void bulletholes_changesinglehole (int iVertIndex, float fNX, float fNY, float f
 	UnlockVertexData();
 }
 
-void bulletholes_add (int iMaterialIndex, float fX, float fY, float fZ, float fNX, float fNY, float fNZ)
+void bulletholes_add (int iMaterialIndex, float fX, float fY, float fZ, float fNX, float fNY, float fNZ, int iOwnerEntity)
 {
 	// no holes for silent materials
 	if (iMaterialIndex <= 0)
@@ -215,6 +222,21 @@ void bulletholes_add (int iMaterialIndex, float fX, float fY, float fZ, float fN
 		bullethole.fLifeCounter = 2000.0f;
 		bullethole.fRadius = fBulletHoleRadius;
 		bullethole.vecWorldPos = vecPointInWorldSpace;
+		bullethole.iOwnerEntity = 0;
+		bullethole.iOwnerObject = 0;
+		bullethole.vecOwnerPos = GGVECTOR3(0, 0, 0);
+		bullethole.vecOwnerAngle = GGVECTOR3(0, 0, 0);
+		if (iOwnerEntity > 0 && iOwnerEntity < (int)t.entityelement.size())
+		{
+			int iObj = t.entityelement[iOwnerEntity].obj;
+			if (iObj > 0 && ObjectExist(iObj) == 1)
+			{
+				bullethole.iOwnerEntity = iOwnerEntity;
+				bullethole.iOwnerObject = iObj;
+				bullethole.vecOwnerPos = GGVECTOR3(ObjectPositionX(iObj), ObjectPositionY(iObj), ObjectPositionZ(iObj));
+				bullethole.vecOwnerAngle = GGVECTOR3(ObjectAngleX(iObj), ObjectAngleY(iObj), ObjectAngleZ(iObj));
+			}
+		}
 		g_bulletholes.push_back(bullethole);
 		g_bulletholeavailable[iBulletSlot] = true;
 
@@ -232,13 +254,48 @@ void bulletholes_add (int iMaterialIndex, float fX, float fY, float fZ, float fN
 	}
 }
 
+// true while the entity a hole was made on is still there, shown, and where it was when hit (within a few units
+// and degrees, so a settling physics body does not count as moving)
+static bool bulletholes_ownerunchanged (sBulletHole* pBulletHole)
+{
+	int e = pBulletHole->iOwnerEntity;
+	if (e >= (int)t.entityelement.size()) return false;
+	int iObj = t.entityelement[e].obj;
+	if (iObj != pBulletHole->iOwnerObject || ObjectExist(iObj) == 0 || GetVisible(iObj) == 0) return false;
+	float fDX = ObjectPositionX(iObj) - pBulletHole->vecOwnerPos.x;
+	float fDY = ObjectPositionY(iObj) - pBulletHole->vecOwnerPos.y;
+	float fDZ = ObjectPositionZ(iObj) - pBulletHole->vecOwnerPos.z;
+	if (fDX*fDX + fDY*fDY + fDZ*fDZ > 4.0f*4.0f) return false;
+	float fAngleDiff[3] = { ObjectAngleX(iObj) - pBulletHole->vecOwnerAngle.x, ObjectAngleY(iObj) - pBulletHole->vecOwnerAngle.y, ObjectAngleZ(iObj) - pBulletHole->vecOwnerAngle.z };
+	for (int a = 0; a < 3; a++)
+	{
+		float fDiff = fmod(fabs(fAngleDiff[a]), 360.0f);
+		if (fDiff > 180.0f) fDiff = 360.0f - fDiff;
+		if (fDiff > 2.0f) return false;
+	}
+	return true;
+}
+
 void bulletholes_update (void)
 {
 #ifdef OPTICK_ENABLE
 	OPTICK_EVENT();
 #endif
-	// go through all bulletholes in list and remove those that have expired
 	bool bUpdateTheObject = false;
+
+	// holes on an entity that has moved, turned, hidden (a wreck swap hides it) or gone since the hit are removed,
+	// all of them in this one update
+	for (int b = (int)g_bulletholes.size() - 1; b >= 0; b--)
+	{
+		sBulletHole* pBulletHole = &g_bulletholes[b];
+		if (pBulletHole->iOwnerEntity == 0 || bulletholes_ownerunchanged(pBulletHole) == true) continue;
+		bulletholes_changesinglehole (pBulletHole->iVertIndexStart, 0, 0, 0);
+		g_bulletholeavailable[pBulletHole->iVertIndexStart / 6] = false;
+		g_bulletholes.erase(g_bulletholes.begin() + b);
+		bUpdateTheObject = true;
+	}
+
+	// go through all bulletholes in list and remove those that have expired
 	for (int b = 0; b < g_bulletholes.size(); b++)
 	{
 		sBulletHole* pBulletHole = &g_bulletholes[b];
