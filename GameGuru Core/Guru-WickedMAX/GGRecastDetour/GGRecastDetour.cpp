@@ -340,6 +340,28 @@ bool DoesLineGoThroughBlocker (float fFromOrigX, float fFromOrigY, float fFromOr
 					float fDoorMaxZ = g_BlockerList[iDoorIndex].maxZ;
 					float fCenterX = fDoorMinX + ((fDoorMaxX - fDoorMinX) / 2);
 					float fCenterZ = fDoorMinZ + ((fDoorMaxZ - fDoorMinZ) / 2);
+
+					// quick out, same result: the test below turns the segment about the box centre, which keeps its
+					// distance from the centre, and samples points along it. A segment wholly above or below the box, or
+					// further from the centre (in XZ) than the box corners, cannot pass through it. The path search
+					// calls this for every step it considers, so skipping the turn and the sampling matters.
+					if ((fFromOrigY < fDoorMinY && fToOrigY < fDoorMinY) || (fFromOrigY > fDoorMaxY && fToOrigY > fDoorMaxY))
+						continue;
+					float fHalfX = (fDoorMaxX - fDoorMinX) / 2;
+					float fHalfZ = (fDoorMaxZ - fDoorMinZ) / 2;
+					float fReach = sqrtf((fHalfX * fHalfX) + (fHalfZ * fHalfZ)) + 1.0f;
+					float fSegX = fToOrigX - fFromOrigX;
+					float fSegZ = fToOrigZ - fFromOrigZ;
+					float fSegLenSqr = (fSegX * fSegX) + (fSegZ * fSegZ);
+					float fT = 0.0f;
+					if (fSegLenSqr > 0.0f) fT = (((fCenterX - fFromOrigX) * fSegX) + ((fCenterZ - fFromOrigZ) * fSegZ)) / fSegLenSqr;
+					if (fT < 0.0f) fT = 0.0f;
+					if (fT > 1.0f) fT = 1.0f;
+					float fNearX = fFromOrigX + (fSegX * fT) - fCenterX;
+					float fNearZ = fFromOrigZ + (fSegZ * fT) - fCenterZ;
+					if ((fNearX * fNearX) + (fNearZ * fNearZ) > fReach * fReach)
+						continue;
+
 					float fFromX = fFromOrigX;
 					float fFromY = fFromOrigY;
 					float fFromZ = fFromOrigZ;
