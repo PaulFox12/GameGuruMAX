@@ -7523,6 +7523,10 @@ int* g_pIntersectDatabaseLastResult = NULL;
 bool g_bForceActualCheckNextTime = false;
 
 //This version combines the orignal method with the shortlist of boxes checked to provide the best of both versions
+// objects IntersectAllEx also leaves out of its full-accuracy pick (main thread only), besides iIgnoreObjNo; the Lua
+// intersect commands fill it for one call from an ignore table and empty it afterwards
+std::vector<int> g_IntersectExtraIgnoreObjects;
+
 DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, float fY, float fZ, float fNewX, float fNewY, float fNewZ, int iIgnoreObjNo, int iStaticOnly, int iIndexInIntersectDatabase, int iLifeInMilliseconds, int iIgnorePlayerCapsule, bool bFullWickedAccuracy, bool bThreadSafe)
 {
 	// shiny new system for intersect tests
@@ -7664,6 +7668,15 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 			sObject* pIgnoreObject = NULL;
 			if (iIgnoreObjNo > 0) pIgnoreObject = GetObjectData(iIgnoreObjNo);
 			if (pIgnoreObject) WickedCall_SetObjectRenderLayer(pIgnoreObject, GGRENDERLAYERS_CURSOROBJECT);
+			if (!bThreadSafe)
+			{
+				// and any further objects the caller wants ignored (g_IntersectExtraIgnoreObjects, main thread only)
+				for (int i = 0; i < (int)g_IntersectExtraIgnoreObjects.size(); i++)
+				{
+					int iObj = g_IntersectExtraIgnoreObjects[i];
+					if (iObj > 0 && iObj != iIgnoreObjNo && ObjectExist(iObj) == 1) WickedCall_SetObjectRenderLayer(GetObjectData(iObj), GGRENDERLAYERS_CURSOROBJECT);
+				}
+			}
 			sObject* pGunObject = NULL;
 			if (g_iCurrentGunObj > 0 && ObjectExist(g_iCurrentGunObj) == 1)
 			{
@@ -7755,6 +7768,14 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 
 			// we can extend this to exclude MANY objects - and have an 'exclude from ray' flag instead of using GGRENDERLAYERS (optimization op)
 			if (pIgnoreObject) WickedCall_SetObjectRenderLayer(pIgnoreObject, GGRENDERLAYERS_NORMAL);
+			if (!bThreadSafe)
+			{
+				for (int i = 0; i < (int)g_IntersectExtraIgnoreObjects.size(); i++)
+				{
+					int iObj = g_IntersectExtraIgnoreObjects[i];
+					if (iObj > 0 && iObj != iIgnoreObjNo && ObjectExist(iObj) == 1) WickedCall_SetObjectRenderLayer(GetObjectData(iObj), GGRENDERLAYERS_NORMAL);
+				}
+			}
 			if (pGunObject) WickedCall_SetObjectRenderLayer(pGunObject, GGRENDERLAYERS_NORMAL);
 		}
 	}

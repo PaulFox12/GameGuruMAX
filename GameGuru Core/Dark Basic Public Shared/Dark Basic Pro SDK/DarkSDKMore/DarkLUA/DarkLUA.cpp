@@ -6193,6 +6193,28 @@ int GetRayCollisionZ ( lua_State *L )
 	return 1;
 }
 
+// the ignore argument of the intersect commands: an object number, or a table of object numbers
+static void LuaReadIntersectIgnore(lua_State* L, int iArg, std::vector<int>& ignore)
+{
+	if (lua_istable(L, iArg))
+	{
+		for (int i = 1; i <= 256; i++)
+		{
+			lua_rawgeti(L, iArg, i);
+			bool bEnd = lua_isnil(L, -1);
+			int iObj = bEnd ? 0 : (int)lua_tonumber(L, -1);
+			lua_pop(L, 1);
+			if (bEnd) break;
+			if (iObj > 0) ignore.push_back(iObj);
+		}
+	}
+	else
+	{
+		int iObj = lua_tonumber(L, iArg);
+		if (iObj > 0) ignore.push_back(iObj);
+	}
+}
+
 int IntersectCore (lua_State* L, int iMode)
 {
 	#ifdef OPTICK_ENABLE
@@ -6214,7 +6236,12 @@ int IntersectCore (lua_State* L, int iMode)
 	float fNewX = lua_tonumber(L, 4);
 	float fNewY = lua_tonumber(L, 5);
 	float fNewZ = lua_tonumber(L, 6);
-	int iIgnoreObjNo = lua_tonumber(L, 7);
+
+	// the object to ignore, or a table of them: the first goes to IntersectAllEx, the rest to its extra ignore list
+	std::vector<int> ignore;
+	LuaReadIntersectIgnore(L, 7, ignore);
+	int iIgnoreObjNo = 0;
+	if (ignore.size() > 0) iIgnoreObjNo = ignore[0];
 
 	// use a database to store recent results, and pull from that before redoing a real intersect test
 	int iIndexInIntersectDatabase = 0;
@@ -6256,6 +6283,9 @@ int IntersectCore (lua_State* L, int iMode)
 	}
 
 	// do the expensive ray cast
+	extern std::vector<int> g_IntersectExtraIgnoreObjects;
+	g_IntersectExtraIgnoreObjects.clear();
+	for (int i = 1; i < (int)ignore.size(); i++) g_IntersectExtraIgnoreObjects.push_back(ignore[i]);
 	int tthitvalue = 0;
 	if ( iIgnoreTerrain == 0 && iLifeInMilliseconds != -1 && ODERayTerrain(fX, fY, fZ, fNewX, fNewY, fNewZ, true) == 1)
 	{
@@ -6294,6 +6324,7 @@ int IntersectCore (lua_State* L, int iMode)
 					g_pGlob->checklist[6].fvaluea = fGroundNX;
 					g_pGlob->checklist[6].fvalueb = fGroundNY;
 					g_pGlob->checklist[6].fvaluec = fGroundNZ;
+					g_pGlob->checklist[0].valueb = -1; // no limb on terrain (GetIntersectCollisionLimb)
 					g_pGlob->checklistqty = 7;
 				}
 			}
@@ -6302,8 +6333,79 @@ int IntersectCore (lua_State* L, int iMode)
 	bool bFullWickedAccuracy = true;
 	if (iMode == 2) bFullWickedAccuracy = false;
 	if (tthitvalue == 0 ) tthitvalue = IntersectAllEx(g.entityviewstartobj, g.entityviewendobj, fX, fY, fZ, fNewX, fNewY, fNewZ, iIgnoreObjNo, iMode, iIndexInIntersectDatabase, iLifeInMilliseconds, iIgnorePlayerCapsule, bFullWickedAccuracy);
+	g_IntersectExtraIgnoreObjects.clear();
 	lua_pushnumber ( L, tthitvalue );
 	return 1;
+}
+
+// IntersectRay(x1, y1, z1, x2, y2, z2 [, ignore [, flags]]): one full-accuracy pick with all its results. ignore is an
+// object number or a table of them. flags add up: 1 also hits terrain (the ground, not trees), 2 passes through
+// entities whose collisionmode is 11, as the player's bullets do. Returns obj (0 none, -1 terrain or other geometry),
+// e (0 if not an entity), x, y, z, nx, ny, nz (the end of the ray and 0,0,0 when nothing was hit), limb (-1 none)
+int IntersectRay ( lua_State* L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 6 ) return 0;
+	float fX = lua_tonumber(L, 1), fY = lua_tonumber(L, 2), fZ = lua_tonumber(L, 3);
+	float fEndX = lua_tonumber(L, 4), fEndY = lua_tonumber(L, 5), fEndZ = lua_tonumber(L, 6);
+	std::vector<int> ignore;
+	if ( n >= 7 ) LuaReadIntersectIgnore(L, 7, ignore);
+	int iFlags = 0;
+	if ( n >= 8 ) iFlags = lua_tointeger(L, 8);
+
+	int iHitObj = 0, iHitE = 0, iLimb = -1;
+	float fHitX = fEndX, fHitY = fEndY, fHitZ = fEndZ, fNX = 0, fNY = 0, fNZ = 0;
+
+	// the ground first, which shortens the ray
+	if ( (iFlags & 1) && ODERayTerrain(fX, fY, fZ, fEndX, fEndY, fEndZ, false) == 1 )
+	{
+		fEndX = fHitX = ODEGetRayCollisionX(); fEndY = fHitY = ODEGetRayCollisionY(); fEndZ = fHitZ = ODEGetRayCollisionZ();
+		fNX = ODEGetRayNormalX(); fNY = ODEGetRayNormalY(); fNZ = ODEGetRayNormalZ();
+		iHitObj = -1;
+	}
+
+	// then the objects up to it, passing collisionmode 11 entities if asked (a few at most)
+	extern std::vector<int> g_IntersectExtraIgnoreObjects;
+	for ( int iTry = 0; iTry < 8; iTry++ )
+	{
+		g_IntersectExtraIgnoreObjects.clear();
+		for (int i = 1; i < (int)ignore.size(); i++) g_IntersectExtraIgnoreObjects.push_back(ignore[i]);
+		int iIgnoreObjNo = ignore.size() > 0 ? ignore[0] : 0;
+		int iObj = IntersectAllEx(g.entityviewstartobj, g.entityviewendobj, fX, fY, fZ, fEndX, fEndY, fEndZ, iIgnoreObjNo, 0, 0, 0, 0, true);
+		g_IntersectExtraIgnoreObjects.clear();
+		if ( iObj == 0 ) break;
+		int iObjE = 0;
+		if ( iObj > 0 )
+		{
+			for ( int e = 1; e <= g.entityelementlist; e++ )
+			{
+				if ( t.entityelement[e].obj == iObj ) { iObjE = e; break; }
+			}
+			if ( (iFlags & 2) && iObjE > 0 && t.entityprofile[t.entityelement[iObjE].bankindex].collisionmode == 11 )
+			{
+				ignore.push_back(iObj);
+				continue;
+			}
+		}
+		iHitObj = iObj;
+		iHitE = iObjE;
+		fHitX = ChecklistFValueA(6); fHitY = ChecklistFValueB(6); fHitZ = ChecklistFValueC(6);
+		fNX = ChecklistFValueA(7); fNY = ChecklistFValueB(7); fNZ = ChecklistFValueC(7);
+		iLimb = ( iObj > 0 ) ? ChecklistValueB(1) : -1;
+		break;
+	}
+
+	lua_pushinteger(L, iHitObj);
+	lua_pushinteger(L, iHitE);
+	lua_pushnumber(L, fHitX);
+	lua_pushnumber(L, fHitY);
+	lua_pushnumber(L, fHitZ);
+	lua_pushnumber(L, fNX);
+	lua_pushnumber(L, fNY);
+	lua_pushnumber(L, fNZ);
+	lua_pushinteger(L, iLimb);
+	return 9;
 }
 
 int IntersectGetLastHitBone(lua_State* L)
@@ -14579,6 +14681,7 @@ void addFunctions()
 	lua_register(lua, "GetRayCollisionY" , GetRayCollisionY );
 	lua_register(lua, "GetRayCollisionZ" , GetRayCollisionZ );
 	lua_register(lua, "IntersectAll" , IntersectAll );
+	lua_register(lua, "IntersectRay" , IntersectRay );
 	lua_register(lua, "IntersectStatic", IntersectStatic);
 	lua_register(lua, "IntersectStaticPerformant", IntersectStaticPerformant);
 	lua_register(lua, "IntersectAllIncludeTerrain", IntersectAllIncludeTerrain);
