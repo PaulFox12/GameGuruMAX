@@ -128,6 +128,9 @@ const float treeArea = 200000.0f; // from edge to edge in world units, i.e. 2000
 const uint32_t numTotalTrees = 400000;
 const uint32_t treeSplit = 16;
 
+// full detail trees per type per frame (1000 was too few in dense forest)
+#define GGTREES_MAX_HIGH_DETAIL_PER_TYPE 8192
+
 const uint32_t numTreeChunks = treeSplit * treeSplit;
 const uint32_t numTreesPerChunk = numTotalTrees / numTreeChunks;
 const float treeAreaPerChunk = treeArea / treeSplit;
@@ -1191,8 +1194,8 @@ void GGTrees_Init()
 	{
 		bTreeTextureUploaded[i] = false;
 		bTreeTextureForceUploaded[i] = false;
-		treeInstancesHigh[i] = new InstanceTreeGPU[1000];
-		treeInstancesHighShadow[i] = new InstanceTreeGPU[1000];
+		treeInstancesHigh[i] = new InstanceTreeGPU[GGTREES_MAX_HIGH_DETAIL_PER_TYPE];
+		treeInstancesHighShadow[i] = new InstanceTreeGPU[GGTREES_MAX_HIGH_DETAIL_PER_TYPE];
 	}
 	last_paint_tree_bitfield = ggtrees_global_params.paint_tree_bitfield;
 	GGTrees_LoadTextures(true);
@@ -1221,8 +1224,8 @@ void GGTrees_Init()
 			GGTrees_LoadTextureDDSIntoSlice( path, &texBranchesHigh, i );
 		}
 
-		treeInstancesHigh[ i ] = new InstanceTreeGPU[ 1000 ];
-		treeInstancesHighShadow[ i ] = new InstanceTreeGPU[ 1000 ];
+		treeInstancesHigh[ i ] = new InstanceTreeGPU[ GGTREES_MAX_HIGH_DETAIL_PER_TYPE ];
+		treeInstancesHighShadow[ i ] = new InstanceTreeGPU[ GGTREES_MAX_HIGH_DETAIL_PER_TYPE ];
 	}
 #endif
 
@@ -2236,7 +2239,7 @@ void GGTrees_UpdateFrustumCulling( wiScene::CameraComponent* camera )
 				{
 					// add tree to draw list
 					uint32_t index = numTreeInstancesHigh[ treeType ];
-					if ( index < 999 )
+					if ( index < GGTREES_MAX_HIGH_DETAIL_PER_TYPE )
 					{
 						// only if fit within dynamic array
 						treeInstancesHigh[treeType][index].x = pInstance->x;
@@ -2469,7 +2472,7 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 			{
 				// add tree to shadow draw list
 				uint32_t index = numTreeInstancesHighShadow[treeType];
-				if (index < 999)
+				if (index < GGTREES_MAX_HIGH_DETAIL_PER_TYPE)
 				{
 					// only if fit within dynamic array
 					treeInstancesHighShadow[treeType][index].x = pInstance->x;
@@ -2708,7 +2711,7 @@ void GGTrees_Update( float camX, float camY, float camZ, CommandList cmd, bool b
 			{
 				// add tree to shadow draw list
 				uint32_t index = numTreeInstancesHighShadow[ treeType ];
-				if (index < 999)
+				if (index < GGTREES_MAX_HIGH_DETAIL_PER_TYPE)
 				{
 					// only if fit within dynamic array
 					treeInstancesHighShadow[treeType][index].x = pInstance->x;
