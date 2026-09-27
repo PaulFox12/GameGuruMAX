@@ -3155,12 +3155,21 @@ static int LUA_GETTOP(lua_State* L)
 	 if (n < 1) return 0;
 	 int iNewE = -1;
 	 int iEntityIndex = lua_tonumber(L, 1);
-	 if (iEntityIndex > 0)
+	 if (iEntityIndex > 0 && LuaEntityIDValid(L, iEntityIndex, 1))
 	 {
-		 iNewE = SpawnNewEntityCore(iEntityIndex);
-		 vSpawnList.push_back(iNewE);
 		 char pMsg[256];
-		 sprintf(pMsg, "SpawnNewEntityCore : %d from %d", iNewE, iEntityIndex);
+		 if (t.entityelement[iEntityIndex].bankindex > 0)
+		 {
+			 int iArraySizeBefore = g.entityelementmax;
+			 iNewE = SpawnNewEntityCore(iEntityIndex);
+			 vSpawnList.push_back(iNewE);
+			 sprintf(pMsg, "SpawnNewEntityCore : %d from %d (entity array %d%s)", iNewE, iEntityIndex, g.entityelementmax, g.entityelementmax != iArraySizeBefore ? ", grown" : "");
+		 }
+		 else
+		 {
+			 // a deleted spawn's slot has no entity bank entry to copy
+			 sprintf(pMsg, "SpawnNewEntity ignored %d: no entity in that slot", iEntityIndex);
+		 }
 		 timestampactivity(0, pMsg);
 	 }
 	 lua_pushinteger (L, iNewE);
