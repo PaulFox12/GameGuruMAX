@@ -2790,6 +2790,9 @@ void entity_applydamage ( void )
 		if (t.entityelement[t.ttte].health <= 0)
 			t.entityelement[t.ttte].health = 1;
 
+	// the player's hit record: the damage as subtracted and the health after the clamps (only while a player entry is open)
+	playerhit_adddamage(t.ttte, t.tdamage, iHealthBefore, t.entityelement[t.ttte].health);
+
 	// when health drops to zero
 	if (t.entityelement[t.ttte].health <= 0)
 	{
@@ -3155,6 +3158,127 @@ bool entity_allowsbulletholes(int e)
 	return t.entityelement[e].staticflag == 1;
 }
 
+// the player's hit record, read by Lua (GetPlayerHitSeq / GetPlayerHit): one entry for each ray the player's held weapon
+// resolves (gun_shoot_oneray opens it around entity_hasbulletrayhit), and one for each entity a player projectile's blast
+// damages (weapon_projectileresult_make). Only damage done while an entry is open is recorded, so other rays and
+// explosions stay out. Entries are kept in a ring and reading does not remove them
+static const int PLAYERHIT_RINGSIZE = 128;
+static sPlayerHit g_PlayerHitRing[PLAYERHIT_RINGSIZE];
+static int g_iPlayerHitSeq = 0;
+static int g_iPlayerHitOpenMode = 0; // 0 none, 1 a ray (entry g_iPlayerHitOpenSeq), 2 a blast
+static int g_iPlayerHitOpenSeq = 0;
+static sPlayerHit g_PlayerHitBlast;
+
+void playerhit_clear(void)
+{
+	memset(g_PlayerHitRing, 0, sizeof(g_PlayerHitRing));
+	g_iPlayerHitSeq = 0;
+	g_iPlayerHitOpenMode = 0;
+	g_iPlayerHitOpenSeq = 0;
+}
+
+static sPlayerHit* playerhit_new(void)
+{
+	g_iPlayerHitSeq++;
+	sPlayerHit* pHit = &g_PlayerHitRing[g_iPlayerHitSeq % PLAYERHIT_RINGSIZE];
+	memset(pHit, 0, sizeof(sPlayerHit));
+	pHit->iSeq = g_iPlayerHitSeq;
+	pHit->iLimb = -1;
+	return pHit;
+}
+
+void playerhit_openray(int iKind, int iShot, int iGunID, float fOX, float fOY, float fOZ)
+{
+	sPlayerHit* pHit = playerhit_new();
+	pHit->iKind = iKind;
+	pHit->iShot = iShot;
+	pHit->iGunID = iGunID;
+	pHit->fOX = fOX; pHit->fOY = fOY; pHit->fOZ = fOZ;
+	g_iPlayerHitOpenMode = 1;
+	g_iPlayerHitOpenSeq = pHit->iSeq;
+}
+
+void playerhit_openblast(int iShot, int iGunID, float fX, float fY, float fZ)
+{
+	memset(&g_PlayerHitBlast, 0, sizeof(sPlayerHit));
+	g_PlayerHitBlast.iHit = 2;
+	g_PlayerHitBlast.iLimb = -1;
+	g_PlayerHitBlast.iKind = 4;
+	g_PlayerHitBlast.iShot = iShot;
+	g_PlayerHitBlast.iGunID = iGunID;
+	g_PlayerHitBlast.fX = g_PlayerHitBlast.fOX = fX;
+	g_PlayerHitBlast.fY = g_PlayerHitBlast.fOY = fY;
+	g_PlayerHitBlast.fZ = g_PlayerHitBlast.fOZ = fZ;
+	g_iPlayerHitOpenMode = 2;
+	g_iPlayerHitOpenSeq = g_iPlayerHitSeq + 1;
+}
+
+void playerhit_close(void)
+{
+	g_iPlayerHitOpenMode = 0;
+}
+
+sPlayerHit* playerhit_get(int iSeq)
+{
+	if (iSeq <= 0 || iSeq > g_iPlayerHitSeq || iSeq <= g_iPlayerHitSeq - PLAYERHIT_RINGSIZE) return NULL;
+	sPlayerHit* pHit = &g_PlayerHitRing[iSeq % PLAYERHIT_RINGSIZE];
+	if (pHit->iSeq != iSeq) return NULL;
+	return pHit;
+}
+
+int playerhit_getseq(void)
+{
+	return g_iPlayerHitSeq;
+}
+
+// what the open ray met, written at the end of entity_hasbulletrayhit
+static void playerhit_setray(int iHit, int e, float fX, float fY, float fZ, float fNX, float fNY, float fNZ, int iMaterial, int iHole, int iLimb)
+{
+	if (g_iPlayerHitOpenMode != 1) return;
+	sPlayerHit* pHit = playerhit_get(g_iPlayerHitOpenSeq);
+	if (!pHit) return;
+	pHit->iHit = iHit;
+	pHit->e = e;
+	if (pHit->e == 0 && pHit->iDamageE > 0) pHit->e = pHit->iDamageE;
+	pHit->fX = fX; pHit->fY = fY; pHit->fZ = fZ;
+	pHit->fNX = fNX; pHit->fNY = fNY; pHit->fNZ = fNZ;
+	pHit->iMaterial = iMaterial;
+	pHit->iHole = iHole;
+	pHit->iLimb = iLimb;
+}
+
+// damage entity_applydamage did while an entry is open: to the open ray's entry, or for a blast one entry per entity
+void playerhit_adddamage(int e, int iDamage, int iHealthBefore, int iHealthAfter)
+{
+	sPlayerHit* pHit = NULL;
+	if (g_iPlayerHitOpenMode == 1)
+	{
+		pHit = playerhit_get(g_iPlayerHitOpenSeq);
+	}
+	else if (g_iPlayerHitOpenMode == 2)
+	{
+		for (int iSeq = g_iPlayerHitOpenSeq; iSeq <= g_iPlayerHitSeq && pHit == NULL; iSeq++)
+		{
+			sPlayerHit* pBlastHit = playerhit_get(iSeq);
+			if (pBlastHit && pBlastHit->e == e) pHit = pBlastHit;
+		}
+		if (pHit == NULL)
+		{
+			pHit = playerhit_new();
+			int iSeq = pHit->iSeq;
+			*pHit = g_PlayerHitBlast;
+			pHit->iSeq = iSeq;
+			pHit->e = e;
+		}
+	}
+	if (!pHit) return;
+	if (pHit->iDamageE == 0) pHit->iHealthBefore = iHealthBefore;
+	pHit->iDamageE = e;
+	pHit->iDamage += iDamage;
+	pHit->iHealthAfter = iHealthAfter;
+	pHit->iKilled = (pHit->iHealthBefore > 0 && iHealthAfter <= 0) ? 1 : 0;
+}
+
 // a shot from a script's weapon, detected as entity_hasbulletrayhit detects the player's: terrain first, then the entities with
 // full Wicked accuracy, physics shapes for collisionoverride and collisionmode 11 entities, and the material of the entity hit.
 // With bLeaveHole it leaves a bullet hole under the same rules. Returns 0 for no hit, 1 for terrain, 2 for an object
@@ -3264,6 +3388,8 @@ void entity_hasbulletrayhit(void)
 
 	// first cast a ray at any terrain
 	GGVECTOR3 vecRayHitNormal = GGVECTOR3(0, 0, 0);
+	int iPlayerHitClass = 0; // for the player's hit record: 0 none, 1 terrain, 2 entity, 3 other object, 4 passed through
+	int iPlayerHitE = 0;
 	if (ODERayTerrain(t.brayx1_f, t.brayy1_f, t.brayz1_f, t.brayx2_f, t.brayy2_f, t.brayz2_f, false) == 1)
 	{
 		//  and shorten the ray if we hit terra firma!
@@ -3274,6 +3400,7 @@ void entity_hasbulletrayhit(void)
 		vecRayHitNormal = GGVECTOR3(ODEGetRayNormalX(), ODEGetRayNormalY(), ODEGetRayNormalZ());
 		// LEELEE = need to get TERRAIN MATERIAL ID HERE TOO!!
 		t.tttriggerdecalimpact = 10;
+		iPlayerHitClass = 1;
 	}
 	
 	// Character creator can override the limb hit, to make the cc head report the head limb of the main character
@@ -3452,6 +3579,13 @@ void entity_hasbulletrayhit(void)
 			}
 		}
 		if ( t.tmaterialvalue >= 0 ) t.tttriggerdecalimpact = 10+t.tmaterialvalue;
+
+		// for the player's hit record: an entity, another object, or passed through (collisionmode 11 or the physics shape missed)
+		if ( t.tfoundentityindexhit > 0 ) iPlayerHitE = t.tfoundentityindexhit;
+		if ( t.tcollisionwithphysics == 2 )
+			iPlayerHitClass = 4;
+		else
+			iPlayerHitClass = ( iPlayerHitE > 0 ) ? 2 : 3;
 	}
 
 	// ensure material index never goes negative
@@ -3618,6 +3752,7 @@ void entity_hasbulletrayhit(void)
 	}
 
 	// if hitting a material, leave a bullethole (not for melee combat)
+	int iPlayerHitHole = 0;
 	if (t.gun[t.gunid].settings.ismelee == 0 && g.firemodes[t.gunid][g.firemode].settings.noscorch == 0)
 	{
 		if (t.tttriggerdecalimpact >= 10 && t.tttriggerdecalimpact != 16 && t.bulletrayhite >= 0 )
@@ -3626,6 +3761,7 @@ void entity_hasbulletrayhit(void)
 			{
 				int iMaterialIndex = t.tttriggerdecalimpact - 10;
 				bulletholes_add(iMaterialIndex, t.brayx2_f, t.brayy2_f, t.brayz2_f, vecRayHitNormal.x, vecRayHitNormal.y, vecRayHitNormal.z, t.bulletrayhite);
+				if (iMaterialIndex > 0) iPlayerHitHole = 1;
 			}
 		}
 	}
@@ -3660,6 +3796,9 @@ void entity_hasbulletrayhit(void)
 		entity_triggerdecalatimpact (t.brayx2_f, t.brayy2_f, t.brayz2_f);
 	}
 	t.tfromtheplayer = 0;
+
+	// the player's hit record (when gun_shoot_oneray has an entry open): what this ray met
+	playerhit_setray(iPlayerHitClass, iPlayerHitE, t.brayx2_f, t.brayy2_f, t.brayz2_f, vecRayHitNormal.x, vecRayHitNormal.y, vecRayHitNormal.z, t.tmaterialvalue, iPlayerHitHole, t.bulletraylimbhit);
 }
 
 void entity_hitentity ( int e, int obj )

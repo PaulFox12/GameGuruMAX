@@ -3907,6 +3907,8 @@ void game_preparelevel_finally ( void )
 	LuaGameVisuals_Clear();
 	// the terrain under the water, so waves stay off low land (the terrain is final by now)
 	WickedCall_UpdateWaterShoreMap();
+	// the player's hit record starts empty on every level
+	playerhit_clear();
 	lua_launchallinitscripts ( );
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );
 

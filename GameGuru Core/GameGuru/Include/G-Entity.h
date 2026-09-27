@@ -29,6 +29,33 @@ void entity_applydecalfordamage (int ee, float fX, float fY, float fZ);
 void entity_gettruecamera ( void );
 void entity_gettrueplayerpos(void);
 bool entity_allowsbulletholes ( int e );
+struct sPlayerHit
+{
+	int iSeq;
+	int iHit;
+	int e;
+	float fX, fY, fZ;
+	float fNX, fNY, fNZ;
+	int iMaterial;
+	int iHole;
+	int iLimb;
+	int iDamage;
+	int iHealthBefore;
+	int iHealthAfter;
+	int iKilled;
+	int iKind;
+	int iShot;
+	int iGunID;
+	float fOX, fOY, fOZ;
+	int iDamageE;
+};
+void playerhit_clear ( void );
+void playerhit_openray ( int iKind, int iShot, int iGunID, float fOX, float fOY, float fOZ );
+void playerhit_openblast ( int iShot, int iGunID, float fX, float fY, float fZ );
+void playerhit_close ( void );
+void playerhit_adddamage ( int e, int iDamage, int iHealthBefore, int iHealthAfter );
+int playerhit_getseq ( void );
+sPlayerHit* playerhit_get ( int iSeq );
 struct sScriptBulletRayHit
 {
 	int e;

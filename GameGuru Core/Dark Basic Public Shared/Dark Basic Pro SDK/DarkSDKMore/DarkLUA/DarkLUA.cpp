@@ -11941,6 +11941,49 @@ int BulletRay ( lua_State *L )
 	return 10;
 }
 
+// GetPlayerHitSeq(): the newest entry in the player's hit record, 0 if none this level. Entries never repeat a number
+int GetPlayerHitSeq ( lua_State *L )
+{
+	lua = L;
+	lua_pushinteger(L, playerhit_getseq());
+	return 1;
+}
+
+// GetPlayerHit(seq): one entry of the player's hit record (G-Entity.cpp playerhit_*), nothing if not written yet or
+// older than the 128 kept. Returns hit (0 none, 1 terrain, 2 entity, 3 other object, 4 passed through), e, x, y, z,
+// nx, ny, nz, material, hole (the same first ten as BulletRay), then limb, damage, health before, health after,
+// killed, kind (1 round, 2 a later pellet of the pull, 3 melee, 4 a player projectile's hit or blast), shot, gunid,
+// and ox, oy, oz where the ray started. Reading does not remove the entry
+int GetPlayerHit ( lua_State *L )
+{
+	lua = L;
+	if ( LUA_GETTOP(L) < 1 ) return 0;
+	sPlayerHit* pHit = playerhit_get ( (int)lua_tointeger(L, 1) );
+	if ( !pHit ) return 0;
+	lua_pushinteger(L, pHit->iHit);
+	lua_pushinteger(L, pHit->e);
+	lua_pushnumber(L, pHit->fX);
+	lua_pushnumber(L, pHit->fY);
+	lua_pushnumber(L, pHit->fZ);
+	lua_pushnumber(L, pHit->fNX);
+	lua_pushnumber(L, pHit->fNY);
+	lua_pushnumber(L, pHit->fNZ);
+	lua_pushinteger(L, pHit->iMaterial);
+	lua_pushinteger(L, pHit->iHole);
+	lua_pushinteger(L, pHit->iLimb);
+	lua_pushinteger(L, pHit->iDamage);
+	lua_pushinteger(L, pHit->iHealthBefore);
+	lua_pushinteger(L, pHit->iHealthAfter);
+	lua_pushinteger(L, pHit->iKilled);
+	lua_pushinteger(L, pHit->iKind);
+	lua_pushinteger(L, pHit->iShot);
+	lua_pushinteger(L, pHit->iGunID);
+	lua_pushnumber(L, pHit->fOX);
+	lua_pushnumber(L, pHit->fOY);
+	lua_pushnumber(L, pHit->fOZ);
+	return 21;
+}
+
 // SetEntityInstanceEmissive(e, r, g, b [, strength]): per instance multiplier, 0 to 1, on the entity's emissive colour
 // and strength as authored (1,1,1,1 = unchanged, strength 0 = no glow). Unlike the material setters it changes this
 // instance only, not every instance of the same object
@@ -15196,6 +15239,8 @@ void addFunctions()
 	lua_register(lua, "SetEntityInstanceEmissive" , SetEntityInstanceEmissive );
 	lua_register(lua, "AddBulletHole" , AddBulletHole );
 	lua_register(lua, "BulletRay" , BulletRay );
+	lua_register(lua, "GetPlayerHitSeq" , GetPlayerHitSeq );
+	lua_register(lua, "GetPlayerHit" , GetPlayerHit );
 	lua_register(lua, "GetEntityInstanceEmissive" , GetEntityInstanceEmissive );
 	lua_register(lua, "SetOcclusion" , SetOcclusion );
 	lua_register(lua, "SetPlayerWeapons", SetPlayerWeapons);

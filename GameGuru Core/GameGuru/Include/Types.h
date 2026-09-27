@@ -1560,6 +1560,8 @@ struct weaponProjectileType
 	float fDecalFrame = 0;
 	float fDecalSpeed = 1.0f;
 	uint32_t WPE_Root = 0;
+	int iPlayerShot = -1; // a player projectile's trigger pull and gun, for the player's hit record
+	int iPlayerGunID = 0;
 
 	// Constructor
 	weaponProjectileType ( )

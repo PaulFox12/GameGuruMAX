@@ -1349,6 +1349,16 @@ void weapon_projectile_make ( bool bUsingVRForAngle, bool bDoNotAdvanceToAvoidPe
 	t.WeaponProjectile[t.tNewProj].soundIntervalStamp = t.tTimer;
 	t.WeaponProjectile[t.tNewProj].sourceEntity = t.tSourceEntity;
 
+	// a player projectile (source 0) records its trigger pull and gun for the player's hit record
+	extern int g_iPlayerGunShotCount;
+	t.WeaponProjectile[t.tNewProj].iPlayerShot = -1;
+	t.WeaponProjectile[t.tNewProj].iPlayerGunID = 0;
+	if ( t.tSourceEntity == 0 )
+	{
+		t.WeaponProjectile[t.tNewProj].iPlayerShot = g_iPlayerGunShotCount;
+		t.WeaponProjectile[t.tNewProj].iPlayerGunID = t.gunid;
+	}
+
 	//  Settings from weapon properties
 	t.WeaponProjectile[t.tNewProj].usespotlighting = g.firemodes[t.gunid][g.firemode].settings.usespotlighting;
 	if ( t.WeaponProjectileBase[t.tProjectileType].overridespotlighting != 0 ) 
@@ -1733,6 +1743,10 @@ void weapon_projectileresult_make (int customdecal )
 	// t.tDamage_f, tRadius#, tAICharacter etc.
 	// tSoundID, tSourceEntity
 	t.tResult = 0;
+
+	// the player's hit record: an entry for each entity a player projectile's hit or blast damages
+	if ( t.tSourceEntity == 0 && t.tProj > 0 && t.tProj <= g.weaponSystem.numProjectiles )
+		playerhit_openblast ( t.WeaponProjectile[t.tProj].iPlayerShot, t.WeaponProjectile[t.tProj].iPlayerGunID, t.tx_f, t.ty_f, t.tz_f );
 	int iCustomDecal = 0;
 	if (customdecal > 0)
 		iCustomDecal = customdecal;
@@ -1917,6 +1931,7 @@ void weapon_projectileresult_make (int customdecal )
 		}
 		break;
 	}
+	playerhit_close ( );
 }
 
 void weapon_loadsound ( void )
