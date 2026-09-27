@@ -7712,7 +7712,14 @@ void Wicked_Update_LUT(void* voidvisual)
 	static std::map<std::string, std::shared_ptr<wiResource>>* pLUTCache = new std::map<std::string, std::shared_ptr<wiResource>>();
 	std::string name = visuals->ColorGradingLUT.Get();
 	std::shared_ptr<wiResource>& lut = (*pLUTCache)[name];
-	if (!lut) lut = wiResourceManager::Load(name, wiResourceManager::IMPORT_COLORGRADINGLUT);
+	if (!lut)
+	{
+		// Wicked reads the file directly, so a LUT that is only in the writable folder needs its real path
+		char pRealPath[MAX_PATH];
+		strcpy_s(pRealPath, MAX_PATH, name.c_str());
+		GG_GetRealPath(pRealPath, 0);
+		lut = wiResourceManager::Load(pRealPath, wiResourceManager::IMPORT_COLORGRADINGLUT);
+	}
 	weather->colorGradingMapName = name;
 	weather->colorGradingMap = lut;
 }
@@ -7847,12 +7854,8 @@ void Wicked_Update_Visuals(void *voidvisual)
 		#endif
 
 		std::shared_ptr<wiResource> image = NULL;
-		master_renderer->setColorGradingEnabled(visuals->bColorGrading);
-		if (master_renderer->getColorGradingEnabled())
-		{
-			weather->colorGradingMapName = visuals->ColorGradingLUT.Get();
-			weather->colorGradingMap = wiResourceManager::Load(visuals->ColorGradingLUT.Get(), wiResourceManager::IMPORT_COLORGRADINGLUT);
-		}
+		// through the LUT cache, which also finds a LUT that is only in the writable folder
+		Wicked_Update_LUT(visuals);
 
 		master.bVsyncEnabled = visuals->bLevelVSyncEnabled;
 		if (g.gvsync == 0)
