@@ -3726,9 +3726,17 @@ int physics_getmaterialindex (float fX, float fZ)
 	return iMaterialIndex;
 }
 
+// where the last physics_rayintersecttree hit entered the nearest tree, and the surface normal there (ODERayTerrain
+// reports them as its collision point and normal)
+float g_fTreeRayHitX = 0, g_fTreeRayHitY = 0, g_fTreeRayHitZ = 0;
+float g_fTreeRayHitNX = 0, g_fTreeRayHitNY = 1, g_fTreeRayHitNZ = 0;
+
 int physics_rayintersecttree (float fX, float fY, float fZ, float fToX, float fToY, float fToZ)
 {
 	float fHeightOfTreeDetect = 200.0f; //LB: Can be improved with geometry awareness (slower)
+	double fNearestT = 2.0;
+	int iNearestTree = -1;
+	int iNearestEntry = 0; // how the ray enters the nearest tree: 0 it starts inside, 1 through the top or base, 2 through the side
 	for (int vti = 0; vti < g_VTreeObj.size(); vti++)
 	{
 		// an entry whose tree has left the scan area keeps its old position, skip it
@@ -3737,6 +3745,7 @@ int physics_rayintersecttree (float fX, float fY, float fZ, float fToX, float fT
 		// the tree is a cylinder of radius r and height fHeightOfTreeDetect; find the part of the ray (0 to 1)
 		// inside its height band, then the part within r of its centre in XZ, and hit if they overlap
 		double t0 = 0.0, t1 = 1.0;
+		int iEntry = 0;
 		double fBaseY = g_VTreeObj[vti].fY;
 		double dy = fToY - fY;
 		if (fabs(dy) < 1e-9)
@@ -3748,7 +3757,7 @@ int physics_rayintersecttree (float fX, float fY, float fZ, float fToX, float fT
 			double ta = (fBaseY - fY) / dy;
 			double tb = (fBaseY + fHeightOfTreeDetect - fY) / dy;
 			if (ta > tb) { double tmp = ta; ta = tb; tb = tmp; }
-			if (ta > t0) t0 = ta;
+			if (ta > t0) { t0 = ta; iEntry = 1; }
 			if (tb < t1) t1 = tb;
 			if (t0 > t1) continue;
 		}
@@ -3764,20 +3773,39 @@ int physics_rayintersecttree (float fX, float fY, float fZ, float fToX, float fT
 		if (a < 1e-9)
 		{
 			// vertical ray
-			if (c < 0) return 1; // hit a tree
-			continue;
+			if (c >= 0) continue;
 		}
-		double d = (b*b) - 4 * a * c;
-		if (d <= 0) continue;
-		double sq = sqrt(d);
-		double tc0 = (-b - sq) / (2 * a);
-		double tc1 = (-b + sq) / (2 * a);
-		if (tc0 > t0) t0 = tc0;
-		if (tc1 < t1) t1 = tc1;
-		if (t0 <= t1)
+		else
 		{
-			return 1; // hit a tree
+			double d = (b*b) - 4 * a * c;
+			if (d <= 0) continue;
+			double sq = sqrt(d);
+			double tc0 = (-b - sq) / (2 * a);
+			double tc1 = (-b + sq) / (2 * a);
+			if (tc0 > t0) { t0 = tc0; iEntry = 2; }
+			if (tc1 < t1) t1 = tc1;
+			if (t0 > t1) continue;
+		}
+
+		// hit a tree: keep the nearest
+		if (t0 < fNearestT)
+		{
+			fNearestT = t0;
+			iNearestTree = vti;
+			iNearestEntry = iEntry;
 		}
 	}
-	return 0;
+	if (iNearestTree < 0) return 0;
+
+	// where the ray enters the nearest tree, facing back along the ray
+	g_fTreeRayHitX = fX + (float)fNearestT * (fToX - fX);
+	g_fTreeRayHitY = fY + (float)fNearestT * (fToY - fY);
+	g_fTreeRayHitZ = fZ + (float)fNearestT * (fToZ - fZ);
+	GGVECTOR3 vecNormal = GGVECTOR3(fX - fToX, fY - fToY, fZ - fToZ);
+	if (iNearestEntry == 1) vecNormal = GGVECTOR3(0, (fToY > fY) ? -1.0f : 1.0f, 0);
+	if (iNearestEntry == 2) vecNormal = GGVECTOR3(g_fTreeRayHitX - g_VTreeObj[iNearestTree].fX, 0, g_fTreeRayHitZ - g_VTreeObj[iNearestTree].fZ);
+	if (GGVec3Length(&vecNormal) > 0.0001f) GGVec3Normalize(&vecNormal, &vecNormal);
+	else vecNormal = GGVECTOR3(0, 1, 0);
+	g_fTreeRayHitNX = vecNormal.x; g_fTreeRayHitNY = vecNormal.y; g_fTreeRayHitNZ = vecNormal.z;
+	return 1;
 }

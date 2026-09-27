@@ -6339,7 +6339,7 @@ int IntersectCore (lua_State* L, int iMode)
 }
 
 // IntersectRay(x1, y1, z1, x2, y2, z2 [, ignore [, flags]]): one full-accuracy pick with all its results. ignore is an
-// object number or a table of them. flags add up: 1 also hits terrain (the ground, not trees), 2 passes through
+// object number or a table of them. flags add up: 1 also hits terrain and tree trunks, 2 passes through
 // entities whose collisionmode is 11, as the player's bullets do. Returns obj (0 none, -1 terrain or other geometry),
 // e (0 if not an entity), x, y, z, nx, ny, nz (the end of the ray and 0,0,0 when nothing was hit), limb (-1 none)
 int IntersectRay ( lua_State* L )
@@ -12012,7 +12012,7 @@ int AddBulletHole ( lua_State *L )
 // BulletRay(x1, y1, z1, x2, y2, z2 [, ignoree [, holes [, terrainmaterial]]]): a script weapon's shot, detected as the player's
 // bullets are (entity_scriptbulletray). ignoree is the shooter's own entity (0 for none). holes 1 (default) leaves a bullet hole
 // under the player's rules, 0 only detects. terrainmaterial 0 (default) leaves no hole on terrain, as the player's guns; 1 to 15
-// uses that material. Returns hit (0 none, 1 terrain, 2 object), e (0 if not an entity), x, y, z, nx, ny, nz, material, hole (1/0)
+// uses that material. Returns hit (0 none, 1 terrain, 2 object, 5 tree), e (0 if not an entity), x, y, z, nx, ny, nz, material, hole (1/0)
 int BulletRay ( lua_State *L )
 {
 	lua = L;
@@ -12052,7 +12052,7 @@ int GetPlayerHitSeq ( lua_State *L )
 }
 
 // GetPlayerHit(seq): one entry of the player's hit record (G-Entity.cpp playerhit_*), nothing if not written yet or
-// older than the 128 kept. Returns hit (0 none, 1 terrain, 2 entity, 3 other object, 4 passed through), e, x, y, z,
+// older than the 128 kept. Returns hit (0 none, 1 terrain, 2 entity, 3 other object, 4 passed through, 5 tree), e, x, y, z,
 // nx, ny, nz, material, hole (the same first ten as BulletRay), then limb, damage, health before, health after,
 // killed, kind (1 round, 2 a later pellet of the pull, 3 melee, 4 a player projectile's hit or blast), shot, gunid,
 // and ox, oy, oz where the ray started. Reading does not remove the entry

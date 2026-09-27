@@ -3281,7 +3281,8 @@ void playerhit_adddamage(int e, int iDamage, int iHealthBefore, int iHealthAfter
 
 // a shot from a script's weapon, detected as entity_hasbulletrayhit detects the player's: terrain first, then the entities with
 // full Wicked accuracy, physics shapes for collisionoverride and collisionmode 11 entities, and the material of the entity hit.
-// With bLeaveHole it leaves a bullet hole under the same rules. Returns 0 for no hit, 1 for terrain, 2 for an object
+// With bLeaveHole it leaves a bullet hole under the same rules. Returns 0 for no hit, 1 for terrain, 2 for an object,
+// 5 for a tree
 int entity_scriptbulletray ( float fX1, float fY1, float fZ1, float fX2, float fY2, float fZ2, int iIgnoreObj, bool bLeaveHole, int iTerrainMaterial, sScriptBulletRayHit* pHit )
 {
 	int iHitType = 0;
@@ -3290,13 +3291,15 @@ int entity_scriptbulletray ( float fX1, float fY1, float fZ1, float fX2, float f
 	GGVECTOR3 vecHit = GGVECTOR3(fX2, fY2, fZ2);
 	GGVECTOR3 vecNormal = GGVECTOR3(0, 0, 0);
 
-	// terrain first, which shortens the ray (the player's guns treat terrain as material 0, no hole)
+	// terrain first, which shortens the ray (the player's guns treat terrain as material 0, no hole); a tree trunk is
+	// class 5 with no material
 	if (ODERayTerrain(fX1, fY1, fZ1, fX2, fY2, fZ2, false) == 1)
 	{
 		vecHit = GGVECTOR3(ODEGetRayCollisionX(), ODEGetRayCollisionY(), ODEGetRayCollisionZ());
 		vecNormal = GGVECTOR3(ODEGetRayNormalX(), ODEGetRayNormalY(), ODEGetRayNormalZ());
-		iHitType = 1;
-		iMaterial = iTerrainMaterial;
+		extern int g_iODERayTerrainHitTree;
+		iHitType = g_iODERayTerrainHitTree ? 5 : 1;
+		iMaterial = g_iODERayTerrainHitTree ? 0 : iTerrainMaterial;
 	}
 
 	// then the entities, up to the terrain hit
@@ -3388,7 +3391,7 @@ void entity_hasbulletrayhit(void)
 
 	// first cast a ray at any terrain
 	GGVECTOR3 vecRayHitNormal = GGVECTOR3(0, 0, 0);
-	int iPlayerHitClass = 0; // for the player's hit record: 0 none, 1 terrain, 2 entity, 3 other object, 4 passed through
+	int iPlayerHitClass = 0; // for the player's hit record: 0 none, 1 terrain, 2 entity, 3 other object, 4 passed through, 5 tree
 	int iPlayerHitE = 0;
 	if (ODERayTerrain(t.brayx1_f, t.brayy1_f, t.brayz1_f, t.brayx2_f, t.brayy2_f, t.brayz2_f, false) == 1)
 	{
@@ -3400,7 +3403,8 @@ void entity_hasbulletrayhit(void)
 		vecRayHitNormal = GGVECTOR3(ODEGetRayNormalX(), ODEGetRayNormalY(), ODEGetRayNormalZ());
 		// LEELEE = need to get TERRAIN MATERIAL ID HERE TOO!!
 		t.tttriggerdecalimpact = 10;
-		iPlayerHitClass = 1;
+		extern int g_iODERayTerrainHitTree;
+		iPlayerHitClass = g_iODERayTerrainHitTree ? 5 : 1;
 	}
 	
 	// Character creator can override the limb hit, to make the cc head report the head limb of the main character
