@@ -48,6 +48,7 @@ using namespace wiECS;
 using namespace wiAudio;
 std::string realname = "";
 float GetCurveDistanceScaler(void);
+float SoundCurveDistanceScaler ( sSoundData* pSound );
 #endif
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -1078,7 +1079,7 @@ DARKSDK void PlaySound ( int iID )
 	SoundComponent* sound = myscene.sounds.GetComponent(m_ptr->wickedEntity);
 	if (sound != nullptr)
 	{
-		sound->CurveDistanceScaler = GetCurveDistanceScaler();
+		sound->CurveDistanceScaler = SoundCurveDistanceScaler ( m_ptr );
 		sound->SetLooped(false);
 		if (sound->soundinstance.IsLooped())
 		{
@@ -1420,7 +1421,7 @@ DARKSDK void LoopSound ( int iID, int iStart, int iEnd, int iInitialPos )
 	SoundComponent* sound = myscene.sounds.GetComponent(m_ptr->wickedEntity);
 	if (sound != nullptr)
 	{
-		sound->CurveDistanceScaler = GetCurveDistanceScaler();
+		sound->CurveDistanceScaler = SoundCurveDistanceScaler ( m_ptr );
 		const bool looped = true; //true
 		sound->SetLooped(looped);
 		if (!sound->soundinstance.IsLooped())
@@ -1568,7 +1569,7 @@ DARKSDK void ResumeSound ( int iID )
 	SoundComponent* sound = myscene.sounds.GetComponent(m_ptr->wickedEntity);
 	if (sound != nullptr)
 	{
-		sound->CurveDistanceScaler = GetCurveDistanceScaler();
+		sound->CurveDistanceScaler = SoundCurveDistanceScaler ( m_ptr );
 		sound->Play();
 	}
 #else
@@ -1650,6 +1651,32 @@ uint32_t GetSoundFrequency(int iID)
 	}
 	return(0);
 }
+// the 3D distance scale a sound plays with: its own if one was set, else the global one
+float SoundCurveDistanceScaler ( sSoundData* pSound )
+{
+	if ( pSound && pSound->fCurveDistanceScaler > 0.0f ) return pSound->fCurveDistanceScaler;
+	return GetCurveDistanceScaler();
+}
+
+// fScale in world units (X3DAudio CurveDistanceScaler: the sound is at full volume within it and fades beyond), 0 = global
+DARKSDK void SetSoundDistanceScale ( int iID, float fScale )
+{
+	if ( iID < 1 || iID > MAXIMUMVALUE ) return;
+	if ( !UpdateSoundPtr ( iID ) ) return;
+	m_ptr->fCurveDistanceScaler = fScale > 0.0f ? fScale : 0.0f;
+#ifdef WICKEDAUDIO
+	SoundComponent* sound = GetScene().sounds.GetComponent(m_ptr->wickedEntity);
+	if ( sound != nullptr ) sound->CurveDistanceScaler = SoundCurveDistanceScaler ( m_ptr );
+#endif
+}
+
+DARKSDK float GetSoundDistanceScale ( int iID )
+{
+	if ( iID < 1 || iID > MAXIMUMVALUE ) return 0;
+	if ( !UpdateSoundPtr ( iID ) ) return 0;
+	return SoundCurveDistanceScaler ( m_ptr );
+}
+
 DARKSDK void SetSoundSpeed ( int iID, int iFrequency )
 {
 #ifdef WICKEDAUDIO

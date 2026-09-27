@@ -27,6 +27,7 @@ struct sSoundData
 	uint32_t wickedEntity;
 	char wickedFilename[1024];
 	bool bLoopRestart = false;
+	float fCurveDistanceScaler = 0; // 3D distance scale for this sound, 0 = the global one (setup.ini curvedistancescaler)
 
 	sSoundData ( )
 	{
@@ -45,6 +46,7 @@ struct sSoundData
 		wickedEntity = 0;
 		wickedFilename[0] = 0;
 		bLoopRestart = false;
+		fCurveDistanceScaler = 0;
 	}
 
 	~sSoundData ( )
