@@ -3059,10 +3059,10 @@ void GGTrees_UpdateFlatArea( int mode, int type, float posX, float posZ, float s
 	}
 	else if ( type == 1 )
 	{
-		float realMinX = posX - (sx / 2.0f);
-		float realMinZ = posZ - (sx / 2.0f);
-		float realMaxX = posX + (sx / 2.0f);
-		float realMaxZ = posZ + (sx / 2.0f);
+		realMinX = posX - (sx / 2.0f);
+		realMinZ = posZ - (sx / 2.0f);
+		realMaxX = posX + (sx / 2.0f);
+		realMaxZ = posZ + (sx / 2.0f);
 	}
 
 	for( uint32_t i = 0; i < numTreeChunks; i++ )

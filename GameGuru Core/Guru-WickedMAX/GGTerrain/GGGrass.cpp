@@ -1235,10 +1235,10 @@ void GGGrass_UpdateFlatArea( int mode, int type, float posX, float posZ, float s
 	}
 	else if ( type == 1 )
 	{
-		float realMinX = posX - (sx / 2.0f);
-		float realMinZ = posZ - (sx / 2.0f);
-		float realMaxX = posX + (sx / 2.0f);
-		float realMaxZ = posZ + (sx / 2.0f);
+		realMinX = posX - (sx / 2.0f);
+		realMinZ = posZ - (sx / 2.0f);
+		realMaxX = posX + (sx / 2.0f);
+		realMaxZ = posZ + (sx / 2.0f);
 	}
 
 	float fMinX = realMinX / ggterrain_global_render_params2.editable_size;
@@ -1306,7 +1306,7 @@ void GGGrass_UpdateFlatArea( int mode, int type, float posX, float posZ, float s
 				}
 				else if ( type == 1 )
 				{
-					float radius = sz / 2.0f;
+					float radius = sx / 2.0f;
 					float diffX = posX - fX;
 					float diffY = posZ - fZ;
 					float dist = diffX*diffX + diffY*diffY;
