@@ -2681,6 +2681,53 @@ static int LUA_GETTOP(lua_State* L)
 	 lua_pushnumber(L, vecOffset.z);
 	 return 3;
  }
+ // SetEntityLimbPivot(e, limb, x, y, z): the point in the limb's own space that its rotation turns about. 0,0,0 is the limb's
+ // origin, which on models whose parts were exported in place is the model's origin; GetEntityLimbBounds gives the limb's
+ // extent in the same space, so its centre is a rotor hub or a wheel axle
+ int SetEntityLimbPivot ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 5 ) return 0;
+	 int e = lua_tointeger(L, 1);
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, e, iLimb );
+	 if ( !pObject ) return 0;
+	 sFrame* pFrame = pObject->ppFrameList[iLimb];
+	 pFrame->vecPivot = GGVECTOR3 ( lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5) );
+	 RotateLimb ( t.entityelement[e].obj, iLimb, pFrame->vecRotation.x, pFrame->vecRotation.y, pFrame->vecRotation.z );
+	 WickedCall_UpdateLimbFromFrame ( pObject, iLimb );
+	 return 0;
+ }
+ int GetEntityLimbPivot ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 2 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 GGVECTOR3 vecPivot = pObject ? pObject->ppFrameList[iLimb]->vecPivot : GGVECTOR3(0, 0, 0);
+	 lua_pushnumber(L, vecPivot.x);
+	 lua_pushnumber(L, vecPivot.y);
+	 lua_pushnumber(L, vecPivot.z);
+	 return 3;
+ }
+ // GetEntityLimbBounds(e, limb): minx, miny, minz, maxx, maxy, maxz of the limb's mesh in its own space, nothing if it has no mesh
+ int GetEntityLimbBounds ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 2 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 if ( !pObject ) return 0;
+	 sMesh* pMesh = pObject->ppFrameList[iLimb]->pMesh;
+	 if ( !pMesh || pMesh->dwVertexCount == 0 ) return 0;
+	 lua_pushnumber(L, pMesh->Collision.vecMin.x);
+	 lua_pushnumber(L, pMesh->Collision.vecMin.y);
+	 lua_pushnumber(L, pMesh->Collision.vecMin.z);
+	 lua_pushnumber(L, pMesh->Collision.vecMax.x);
+	 lua_pushnumber(L, pMesh->Collision.vecMax.y);
+	 lua_pushnumber(L, pMesh->Collision.vecMax.z);
+	 return 6;
+ }
 
  // Entity Animation
  int SetEntityAnimation(lua_State *L)
@@ -14209,6 +14256,9 @@ void addFunctions()
 	lua_register(lua, "GetEntityLimbRotation", GetEntityLimbRotation);
 	lua_register(lua, "SetEntityLimbOffset", SetEntityLimbOffset);
 	lua_register(lua, "GetEntityLimbOffset", GetEntityLimbOffset);
+	lua_register(lua, "SetEntityLimbPivot", SetEntityLimbPivot);
+	lua_register(lua, "GetEntityLimbPivot", GetEntityLimbPivot);
+	lua_register(lua, "GetEntityLimbBounds", GetEntityLimbBounds);
 
 	lua_register(lua, "SetEntitySpawnAtStart", SetEntitySpawnAtStart);
 	lua_register(lua, "GetEntitySpawnAtStart", GetEntitySpawnAtStart);
