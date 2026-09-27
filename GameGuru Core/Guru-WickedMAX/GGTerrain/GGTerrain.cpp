@@ -3488,6 +3488,7 @@ public:
 				settingsUpdated = true;
 
 				ResetChunks();
+				GGTrees_InvalidateHeights( -1e20f, -1e20f, 1e20f, 1e20f );
 
 				if ( ggterrain_local_params.pHeightmapMain != ggterrain_global_params.pHeightmapMain && ggterrain_local_params.pHeightmapMain ) delete [] ggterrain_local_params.pHeightmapMain;
 				ggterrain_local_params.Copy( &ggterrain_global_params );
@@ -3548,6 +3549,7 @@ public:
 				ggterrain_extra_params.bTerrainChanged = true;
 				ggterrain_extra_params.iUpdateTrees = 2;
 				ggterrain_extra_params.iUpdateGrass = 2;
+				GGTrees_InvalidateHeights( -1e20f, -1e20f, 1e20f, 1e20f );
 			}
 			settingsUpdated = true;
 			ggterrain_local_render_params2.Copy( &ggterrain_global_render_params2 );
@@ -8315,6 +8317,7 @@ void GGTerrain_CheckReadBack(wiGraphics::CommandList cmd)
 void GGTerrain_InvalidateRegion( float minX, float minZ, float maxX, float maxZ, uint32_t flags )
 {
 	if (!ggterrain_initialised) return;
+	if ( flags & GGTERRAIN_INVALIDATE_CHUNKS ) GGTrees_InvalidateHeights( minX, minZ, maxX, maxZ );
 	GGTerrainLODSet* pLODs = ggterrain.GetNewLODs();
 	if ( !pLODs->IsGenerating() ) pLODs = ggterrain.GetCurrentLODs();
 

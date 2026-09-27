@@ -124,7 +124,11 @@ struct GGTree
 float treeMaxHeight = 1; // calculated at run time
 
 // tree instances
-const float treeArea = 200000.0f; // from edge to edge in world units, i.e. 2000 = -1000 to 1000
+// from edge to edge in world units, i.e. 2000 = -1000 to 1000. Covers the editable area of the terrain, never less
+// than the original 200000, see GGTrees_GetRequiredArea()
+#define GGTREES_MIN_AREA 200000.0f
+#define GGTREES_MAX_AREA 400000.0f
+float treeArea = GGTREES_MIN_AREA;
 const uint32_t numTotalTrees = 400000;
 const uint32_t treeSplit = 16;
 
@@ -134,7 +138,7 @@ const uint32_t treeSplit = 16;
 
 const uint32_t numTreeChunks = treeSplit * treeSplit;
 const uint32_t numTreesPerChunk = numTotalTrees / numTreeChunks;
-const float treeAreaPerChunk = treeArea / treeSplit;
+float treeAreaPerChunk = treeArea / treeSplit;
 
 uint32_t treeHighlighted = 0xFFFFFFFF;
 
@@ -329,6 +333,10 @@ GPUBuffer bufferInstancesHighEnvProbe[ numTreeTypes ];
 
 InstanceTree pAllTrees[ numTotalTrees ] = { 0 };
 UnorderedArray<uint32_t> pInvisibleTrees;
+
+// 1 when the tree's height is known. Trees outside the terrain LOD set get their height from the slower terrain
+// function once, and keep it until the terrain under them changes, see GGTrees_InvalidateHeights()
+uint8_t pTreeHeightValid[ numTotalTrees ] = { 0 };
 
 struct TreeChunk
 {
@@ -847,8 +855,86 @@ TreeChunk* GGTrees_GetChunk( float x, float z )
 	return &pTreeChunks[ index ];
 }
 
+// the tree area covers the editable area of the terrain, so levels up to +-100000 keep the original area and layout
+float GGTrees_GetRequiredArea()
+{
+	float area = ggterrain_global_render_params2.editable_size * 2;
+	if ( area < GGTREES_MIN_AREA ) area = GGTREES_MIN_AREA;
+	if ( area > GGTREES_MAX_AREA ) area = GGTREES_MAX_AREA;
+	return area;
+}
+
+void GGTrees_SetArea( float area )
+{
+	treeArea = area;
+	treeAreaPerChunk = treeArea / treeSplit;
+}
+
+// puts every tree in the chunk at its position, trees outside the tree area are hidden
+void GGTrees_SortIntoChunks()
+{
+	for( uint32_t i = 0; i < numTreeChunks; i++ )
+	{
+		pTreeChunks[ i ].pInstances.Clear();
+	}
+	pInvisibleTrees.Clear();
+
+	for( uint32_t i = 0; i < numTotalTrees; i++ )
+	{
+		InstanceTree* pInstance = &pAllTrees[ i ];
+		TreeChunk* pChunk = GGTrees_GetChunk( pInstance->x, pInstance->z );
+		if ( pChunk ) pChunk->pInstances.AddItem( pInstance );
+		else pInstance->SetVisible( 0 );
+
+		if ( !pInstance->IsVisible() ) pInvisibleTrees.AddItem( i );
+	}
+}
+
+// height and normal Y from the terrain function, for trees outside the terrain LOD set. Much slower than the LOD lookup
+int GGTrees_GetTerrainHeight( float x, float z, float* height, float* ny )
+{
+	const float step = 25.0f;
+	float h, hx0, hx1, hz0, hz1;
+	if ( !GGTerrain_GetHeight( x, z, &h, 1 ) ) return 0;
+	GGTerrain_GetHeight( x - step, z, &hx0, 1 );
+	GGTerrain_GetHeight( x + step, z, &hx1, 1 );
+	GGTerrain_GetHeight( x, z - step, &hz0, 1 );
+	GGTerrain_GetHeight( x, z + step, &hz1, 1 );
+
+	float dx = hx1 - hx0;
+	float dz = hz1 - hz0;
+	*height = h;
+	*ny = (step * 2) / sqrt( dx*dx + dz*dz + step*step*4 );
+	return 1;
+}
+
+// the terrain in this area has changed, trees outside the terrain LOD set must find their height again
+void GGTrees_InvalidateHeights( float minX, float minZ, float maxX, float maxZ )
+{
+	if (!ggtrees_initialised) return;
+	for( uint32_t i = 0; i < numTreeChunks; i++ )
+	{
+		TreeChunk* pChunk = &pTreeChunks[ i ];
+		if ( pChunk->pInstances.NumItems() == 0 ) continue;
+
+		AABB aabb;
+		pChunk->GetBounds( &aabb );
+		if ( minX > aabb._max.x || minZ > aabb._max.z || maxX < aabb._min.x || maxZ < aabb._min.z ) continue;
+
+		for( uint32_t j = 0; j < pChunk->pInstances.NumItems(); j++ )
+		{
+			InstanceTree* pInstance = pChunk->pInstances[ j ];
+			if ( pInstance->x < minX || pInstance->x > maxX || pInstance->z < minZ || pInstance->z > maxZ ) continue;
+			pTreeHeightValid[ pInstance - pAllTrees ] = 0;
+		}
+	}
+}
+
 void GGTrees_RepopulateInstances()
 {
+	GGTrees_SetArea( GGTrees_GetRequiredArea() );
+	memset( pTreeHeightValid, 0, sizeof(pTreeHeightValid) );
+
 	for( uint32_t i = 0; i < numTreeChunks; i++ )
 	{
 		pTreeChunks[ i ].pInstances.Clear();
@@ -1045,19 +1131,28 @@ int GGTrees_UpdateInstances( int accurate )
 	if (!ggtrees_initialised) return 0;
 	if ( !GGTerrain_IsReady() ) return 0;
 
+	// the editable area has grown past the tree area, e.g. the level size was changed in the editor
+	float area = GGTrees_GetRequiredArea();
+	if ( area > treeArea )
+	{
+		GGTrees_SetArea( area );
+		GGTrees_SortIntoChunks();
+	}
+
 	for( uint32_t j = 0; j < numTotalTrees; j++ )
 	{
 		InstanceTree* pInstance = &pAllTrees[ j ];
 
 		float height, nx, ny, nz;
-		if ( !GGTerrain_GetNormal( pInstance->x, pInstance->z, &nx, &ny, &nz ) )
+		if ( !GGTerrain_GetNormal( pInstance->x, pInstance->z, &nx, &ny, &nz )
+		  || !GGTerrain_GetHeight( pInstance->x, pInstance->z, &height, accurate ) )
 		{
-			continue;
+			// outside the terrain LOD set, use the terrain function once for trees on the level
+			if ( pTreeHeightValid[ j ] ) continue;
+			if ( !GGTrees_GetChunk( pInstance->x, pInstance->z ) ) continue;
+			if ( !GGTrees_GetTerrainHeight( pInstance->x, pInstance->z, &height, &ny ) ) continue;
 		}
-		if ( !GGTerrain_GetHeight( pInstance->x, pInstance->z, &height, accurate ) ) 
-		{
-			continue;
-		}
+		pTreeHeightValid[ j ] = 1;
 
 		float adjustment = (1 - ny) * 75 * pInstance->GetScaleFloat();
 		pInstance->y = height - 10 - adjustment;
@@ -1642,12 +1737,16 @@ int GGTrees_SetData( float* data )
 	data++;
 	dataInt++;
 
+	// the terrain settings are loaded first, so the tree area matches this level
+	GGTrees_SetArea( GGTrees_GetRequiredArea() );
+	memset( pTreeHeightValid, 0, sizeof(pTreeHeightValid) );
+
 	for( uint32_t i = 0; i < numTreeChunks; i++ )
 	{
 		pTreeChunks[ i ].pInstances.Clear();
 	}
 	pInvisibleTrees.Clear();
-	
+
 	for( uint32_t i = 0; i < numTotalTrees; i++ )
 	{
 		InstanceTree* pInstance = &pAllTrees[ i ];
@@ -1842,7 +1941,8 @@ void GGTrees_SetTreePosition( uint32_t treeID, float x, float z )
 
 	pInstance->x = x;
 	pInstance->z = z;
-	
+	pTreeHeightValid[ treeID ] = 0;
+
 	float height = 0;
 	float ny = 0;
 	GGTerrain_GetHeight( pInstance->x, pInstance->z, &height, 1 );

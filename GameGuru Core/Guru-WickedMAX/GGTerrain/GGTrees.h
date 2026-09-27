@@ -101,6 +101,7 @@ namespace GGTrees
 	void GGTrees_ChangeDensity(int density);
 	void GGTrees_RepopulateInstances();
 	int GGTrees_UpdateInstances(int accurate);
+	void GGTrees_InvalidateHeights( float minX, float minZ, float maxX, float maxZ ); // call when the terrain height changes
 	void GGTrees_HideAll();
 	void GGTrees_DeselectHighlightedTree(void);
 	void GGTrees_LockVisibility();
