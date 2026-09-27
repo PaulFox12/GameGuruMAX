@@ -1742,6 +1742,53 @@ int GGTrees_SetData( float* data )
 	return 1;
 }
 
+struct GGTreesLuaOverrides
+{
+	float lod_dist = 0;
+	float lod_dist_shadow = 0;
+	float lod_transition = 0;
+	float lod_transition_shadow = 0;
+	int tree_shadow_range = -1;
+	int tree_shadow_range_high = -1;
+};
+GGTreesLuaOverrides ggtrees_lua_overrides;
+
+void GGTrees_ApplyLuaOverrides()
+{
+	if ( ggtrees_lua_overrides.lod_dist > 0 ) ggtrees_global_params.lod_dist = ggtrees_lua_overrides.lod_dist;
+	if ( ggtrees_lua_overrides.lod_dist_shadow > 0 ) ggtrees_global_params.lod_dist_shadow = ggtrees_lua_overrides.lod_dist_shadow;
+	if ( ggtrees_lua_overrides.lod_transition > 0 ) ggtrees_global_params.lod_transition = ggtrees_lua_overrides.lod_transition;
+	if ( ggtrees_lua_overrides.lod_transition_shadow > 0 ) ggtrees_global_params.lod_transition_shadow = ggtrees_lua_overrides.lod_transition_shadow;
+	if ( ggtrees_lua_overrides.tree_shadow_range >= 0 ) ggtrees_global_params.tree_shadow_range = ggtrees_lua_overrides.tree_shadow_range;
+	if ( ggtrees_lua_overrides.tree_shadow_range_high >= 0 ) ggtrees_global_params.tree_shadow_range_high = ggtrees_lua_overrides.tree_shadow_range_high;
+}
+
+void GGTrees_SetLuaDistances( float lodDist, float lodDistShadow )
+{
+	if ( lodDist > 0 ) ggtrees_lua_overrides.lod_dist = lodDist;
+	if ( lodDistShadow > 0 ) ggtrees_lua_overrides.lod_dist_shadow = lodDistShadow;
+	GGTrees_ApplyLuaOverrides();
+}
+
+void GGTrees_SetLuaTransitions( float lodTransition, float lodTransitionShadow )
+{
+	if ( lodTransition > 0 ) ggtrees_lua_overrides.lod_transition = lodTransition;
+	if ( lodTransitionShadow > 0 ) ggtrees_lua_overrides.lod_transition_shadow = lodTransitionShadow;
+	GGTrees_ApplyLuaOverrides();
+}
+
+void GGTrees_SetLuaShadowCascades( int billboardCascades, int fullDetailCascades )
+{
+	if ( billboardCascades >= 0 ) ggtrees_lua_overrides.tree_shadow_range = billboardCascades;
+	if ( fullDetailCascades >= 0 ) ggtrees_lua_overrides.tree_shadow_range_high = fullDetailCascades;
+	GGTrees_ApplyLuaOverrides();
+}
+
+void GGTrees_ClearLuaOverrides()
+{
+	ggtrees_lua_overrides = GGTreesLuaOverrides();
+}
+
 void GGTrees_SetPerformanceMode( uint32_t mode )
 {
 	switch( mode )
@@ -1774,6 +1821,9 @@ void GGTrees_SetPerformanceMode( uint32_t mode )
 			ggtrees_global_params.tree_shadow_range = 4;
 		} break;
 	}
+
+	// a game that set its own tree distances keeps them through a quality change
+	GGTrees_ApplyLuaOverrides();
 }
 
 void GGTrees_SetTreePosition( uint32_t treeID, float x, float z ) 
@@ -2201,7 +2251,7 @@ void GGTrees_UpdateFrustumCulling( wiScene::CameraComponent* camera )
 		if ( cameraZ > aabb._max.z ) sqrDist += (cameraZ - aabb._max.z) * (cameraZ - aabb._max.z);
 		else if ( cameraZ < aabb._min.z ) sqrDist += (cameraZ - aabb._min.z) * (cameraZ - aabb._min.z);
 
-		float distLOD = ggtrees_global_params.lod_dist + (float)GGTREES_LOD_TRANSITION*2 + treeMaxHeight;
+		float distLOD = ggtrees_global_params.lod_dist + ggtrees_global_params.lod_transition*2 + treeMaxHeight;
 		float sqrDistLOD = distLOD * distLOD;
 
 		if ( sqrDist > sqrDistLOD ) continue;
@@ -2415,7 +2465,7 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 		if (camZ > aabb._max.z) sqrDist += (camZ - aabb._max.z) * (camZ - aabb._max.z);
 		else if (camZ < aabb._min.z) sqrDist += (camZ - aabb._min.z) * (camZ - aabb._min.z);
 
-		float distLODShadow = ggtrees_global_params.lod_dist_shadow + (float)GGTREES_LOD_SHADOW_TRANSITION * 2 + treeMaxHeight;
+		float distLODShadow = ggtrees_global_params.lod_dist_shadow + ggtrees_global_params.lod_transition_shadow * 2 + treeMaxHeight;
 		float sqrDistLODShadow = distLODShadow * distLODShadow;
 
 		if (sqrDist > sqrDistLODShadow) continue;
@@ -2572,6 +2622,8 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 
 	treeConstantData.tree_lodDist = ggtrees_global_params.lod_dist;
 	treeConstantData.tree_lodDistShadow = ggtrees_global_params.lod_dist_shadow;
+	treeConstantData.tree_lodTransition = ggtrees_global_params.lod_transition;
+	treeConstantData.tree_lodTransitionShadow = ggtrees_global_params.lod_transition_shadow;
 
 	wiRenderer::GetDevice()->UpdateBuffer(&treeConstantBuffer, &treeConstantData, cmd, sizeof(TreeCB));
 
@@ -2675,7 +2727,7 @@ void GGTrees_Update( float camX, float camY, float camZ, CommandList cmd, bool b
 		if ( camZ > aabb._max.z ) sqrDist += (camZ - aabb._max.z) * (camZ - aabb._max.z);
 		else if ( camZ < aabb._min.z ) sqrDist += (camZ - aabb._min.z) * (camZ - aabb._min.z);
 
-		float distLODShadow = ggtrees_global_params.lod_dist_shadow + (float)GGTREES_LOD_SHADOW_TRANSITION*2 + treeMaxHeight;
+		float distLODShadow = ggtrees_global_params.lod_dist_shadow + ggtrees_global_params.lod_transition_shadow*2 + treeMaxHeight;
 		float sqrDistLODShadow = distLODShadow * distLODShadow;
 
 		if ( sqrDist > sqrDistLODShadow ) continue;
@@ -2775,6 +2827,8 @@ void GGTrees_Update( float camX, float camY, float camZ, CommandList cmd, bool b
 
 	treeConstantData.tree_lodDist = ggtrees_global_params.lod_dist;
 	treeConstantData.tree_lodDistShadow = ggtrees_global_params.lod_dist_shadow;
+	treeConstantData.tree_lodTransition = ggtrees_global_params.lod_transition;
+	treeConstantData.tree_lodTransitionShadow = ggtrees_global_params.lod_transition_shadow;
 
 	wiRenderer::GetDevice()->UpdateBuffer( &treeConstantBuffer, &treeConstantData, cmd, sizeof(TreeCB) );
 
@@ -3083,7 +3137,7 @@ extern "C" void GGTrees_Draw_ShadowMap( const Frustum* frustum, int cascade, Com
 	}
 	
 	// high detail
-	if ( cascade < 3 )
+	if ( cascade < ggtrees_global_params.tree_shadow_range_high )
 	{
 		device->BindPipelineState( &psoTreesHighShadow, cmd );
 		device->BindResource( PS, &texTreeHigh, 52, cmd );

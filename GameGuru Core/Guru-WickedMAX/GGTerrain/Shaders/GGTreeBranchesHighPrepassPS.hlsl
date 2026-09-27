@@ -36,7 +36,7 @@ Output main( PixelIn IN )
 	float sqrDist = dot( viewDir, viewDir );
 
 	float noise = texNoise.Sample( samplerBilinearWrap, IN.uv*3 );
-	float limit = (noise * GGTREES_LOD_TRANSITION) + GGTREES_LOD_TRANSITION + tree_lodDist;
+	float limit = (noise * tree_lodTransition) + tree_lodTransition + tree_lodDist;
 	if ( sqrDist > limit*limit ) discard;
 
 	Output output;

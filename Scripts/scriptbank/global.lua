@@ -2468,6 +2468,13 @@ SetSkyTo : SetSkyTo ( str ) -- where str is the folder name of the sky you want 
 SetGrassDistance : SetGrassDistance ( d ) -- grass draw distance in world units (750 to 7000), kept until the next level loads. Rebuilds all grass, so call on events not every frame
 GetGrassDistance : d = GetGrassDistance() -- current grass draw distance in world units
 
+SetTreeDistance : SetTreeDistance ( d [, shadowD] ) -- distance where trees switch from full detail to billboards, and the same for their shadows (750 to 20000). Overrides the graphics quality presets; 0 or omitted keeps the current value
+GetTreeDistance : d, shadowD = GetTreeDistance()
+SetTreeTransition : SetTreeTransition ( w [, shadowW] ) -- width of the band where billboards and full detail trees cross fade (100 to 4000, default 500)
+GetTreeTransition : w, shadowW = GetTreeTransition()
+SetTreeShadowCascades : SetTreeShadowCascades ( billboard [, fullDetail] ) -- how many sun shadow cascades (0 to 5, nearest first) draw billboard and full detail tree shadows; negative or omitted keeps the current value
+GetTreeShadowCascades : billboard, fullDetail = GetTreeShadowCascades()
+
 ***** The following five functions return multiple values, if you do not need them all just replace 
 ***** the ones you don't need with '_' for example : _, _, _, Ax, Ay, Az = GetEntityPosAng( e ) would
 ***** just give you last three of the 6 values returned

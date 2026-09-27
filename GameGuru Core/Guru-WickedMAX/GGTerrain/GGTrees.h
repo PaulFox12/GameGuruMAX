@@ -33,6 +33,13 @@ namespace GGTrees
 		float lod_dist = 3000;
 		float lod_dist_shadow = 2500;
 
+		// width of the band where billboards and full detail trees cross fade (GGTREES_LOD_TRANSITION)
+		float lod_transition = 500;
+		float lod_transition_shadow = 500;
+
+		// shadow cascades that draw full detail tree shadows (billboard shadows use tree_shadow_range)
+		int tree_shadow_range_high = 3;
+
 		int hide_until_update = 0;
 
 	};
@@ -75,6 +82,13 @@ namespace GGTrees
 	int GGTrees_GetSnapshot(uint8_t* data);
 
 	void GGTrees_SetPerformanceMode( uint32_t mode );
+
+	// values set from Lua override the performance presets until cleared; a distance or width of 0 or less,
+	// or a negative cascade count, keeps the current value
+	void GGTrees_SetLuaDistances( float lodDist, float lodDistShadow );
+	void GGTrees_SetLuaTransitions( float lodTransition, float lodTransitionShadow );
+	void GGTrees_SetLuaShadowCascades( int billboardCascades, int fullDetailCascades );
+	void GGTrees_ClearLuaOverrides();
 	void GGTrees_Delete_Trees(float pickX, float pickZ, float radius);
 
 	void GGTrees_Init();

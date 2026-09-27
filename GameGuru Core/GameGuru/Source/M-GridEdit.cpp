@@ -113,6 +113,9 @@ using namespace GGTrees;
 #include "GGTerrain/GGGrass.h"
 using namespace GGGrass;
 
+// editor tree distances kept while a test game runs
+static GGTreesParams ggtrees_editor_lod_params;
+
 #include ".\..\..\Guru-WickedMAX\wickedcalls.h"
 #include "..\..\Guru-WickedMAX\master.h"
 #define USE_ENTITY_TOOL_WINDOW
@@ -15009,6 +15012,7 @@ void editor_previewmapormultiplayer_initcode ( int iUseVRTest )
 	t.visuals = t.gamevisuals;
 
 	gggrass_save_params = gggrass_global_params;
+	ggtrees_editor_lod_params = ggtrees_global_params;
 
 	if(pref.iTestGameGraphicsQuality != 2)
 		SetGlobalGraphicsSettings( pref.iTestGameGraphicsQuality );
@@ -15815,7 +15819,16 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	
 	gggrass_global_params = gggrass_save_params;
 
-	for (int iL = 0; iL < 32; iL++) 
+	// tree distances set by the test game (quality preset or Lua) must not stay in the editor
+	GGTrees::GGTrees_ClearLuaOverrides();
+	ggtrees_global_params.lod_dist = ggtrees_editor_lod_params.lod_dist;
+	ggtrees_global_params.lod_dist_shadow = ggtrees_editor_lod_params.lod_dist_shadow;
+	ggtrees_global_params.lod_transition = ggtrees_editor_lod_params.lod_transition;
+	ggtrees_global_params.lod_transition_shadow = ggtrees_editor_lod_params.lod_transition_shadow;
+	ggtrees_global_params.tree_shadow_range = ggtrees_editor_lod_params.tree_shadow_range;
+	ggtrees_global_params.tree_shadow_range_high = ggtrees_editor_lod_params.tree_shadow_range_high;
+
+	for (int iL = 0; iL < 32; iL++)
 	{
 		t.visuals.sTerrainTextures[iL] = t.gamevisuals.sTerrainTextures[iL];
 		t.visuals.sTerrainTexturesName[iL] = t.gamevisuals.sTerrainTexturesName[iL];

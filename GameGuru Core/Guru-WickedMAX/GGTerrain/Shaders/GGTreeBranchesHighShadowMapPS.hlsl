@@ -26,7 +26,7 @@ float4 main( PixelIn IN ) : SV_TARGET
 	float3 diff = tree_playerPos - IN.worldPos;
 	float sqrDist = dot( diff, diff );
 	float noise = texNoise.Sample( samplerBilinearWrap, IN.uv*3 );
-	float limit = (noise * GGTREES_LOD_SHADOW_TRANSITION) + tree_lodDistShadow + GGTREES_LOD_SHADOW_TRANSITION;
+	float limit = (noise * tree_lodTransitionShadow) + tree_lodDistShadow + tree_lodTransitionShadow;
 	if ( sqrDist > limit*limit ) discard;
 
 	return float4( 1, 1, 1, 1 );

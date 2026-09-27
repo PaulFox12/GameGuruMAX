@@ -66,6 +66,7 @@ using namespace Tracers;
 
 #include "..\GGTerrain\GGGrass.h"
 using namespace GGGrass;
+#include "..\GGTerrain\GGTrees.h"
 
 // Prototypes
 extern void DrawSpritesFirst(void);
@@ -12018,6 +12019,63 @@ int GetGrassDistance(lua_State* L)
 	lua_pushnumber(L, gggrass_global_params.lod_dist);
 	return 1;
 }
+// Tree detail controls. Values set here override the graphics quality presets (and survive a quality change) until the
+// editor's test game ends. An omitted or 0 argument keeps the current value.
+// SetTreeDistance(fullDetailDist [, shadowDist]) - where trees switch from full detail to billboards, 750 to 20000 units
+int SetTreeDistance(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	float fDist = lua_tonumber(L, 1);
+	float fShadowDist = (n >= 2) ? lua_tonumber(L, 2) : 0.0f;
+	if (fDist > 0) fDist = min(max(fDist, 750.0f), 20000.0f);
+	if (fShadowDist > 0) fShadowDist = min(max(fShadowDist, 750.0f), 20000.0f);
+	GGTrees::GGTrees_SetLuaDistances(fDist, fShadowDist);
+	return 0;
+}
+int GetTreeDistance(lua_State* L)
+{
+	lua_pushnumber(L, GGTrees::ggtrees_global_params.lod_dist);
+	lua_pushnumber(L, GGTrees::ggtrees_global_params.lod_dist_shadow);
+	return 2;
+}
+// SetTreeTransition(width [, shadowWidth]) - width of the band where billboards and full detail trees cross fade, 100 to 4000 units (default 500)
+int SetTreeTransition(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	float fWidth = lua_tonumber(L, 1);
+	float fShadowWidth = (n >= 2) ? lua_tonumber(L, 2) : 0.0f;
+	if (fWidth > 0) fWidth = min(max(fWidth, 100.0f), 4000.0f);
+	if (fShadowWidth > 0) fShadowWidth = min(max(fShadowWidth, 100.0f), 4000.0f);
+	GGTrees::GGTrees_SetLuaTransitions(fWidth, fShadowWidth);
+	return 0;
+}
+int GetTreeTransition(lua_State* L)
+{
+	lua_pushnumber(L, GGTrees::ggtrees_global_params.lod_transition);
+	lua_pushnumber(L, GGTrees::ggtrees_global_params.lod_transition_shadow);
+	return 2;
+}
+// SetTreeShadowCascades(billboardCascades [, fullDetailCascades]) - how many sun shadow cascades (0 to 5, nearest first) draw
+// tree shadows; a negative or omitted value keeps the current one
+int SetTreeShadowCascades(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	int iBillboard = lua_tonumber(L, 1);
+	int iFullDetail = (n >= 2) ? lua_tonumber(L, 2) : -1;
+	if (iBillboard > 5) iBillboard = 5;
+	if (iFullDetail > 5) iFullDetail = 5;
+	GGTrees::GGTrees_SetLuaShadowCascades(iBillboard, iFullDetail);
+	return 0;
+}
+int GetTreeShadowCascades(lua_State* L)
+{
+	lua_pushnumber(L, GGTrees::ggtrees_global_params.tree_shadow_range);
+	lua_pushnumber(L, GGTrees::ggtrees_global_params.tree_shadow_range_high);
+	return 2;
+}
 
 //PE: USE - SetLutTo("editors\\lut\\sephia.png")
 //PE: USE - string = GetLut()
@@ -14733,6 +14791,12 @@ void addFunctions()
 	lua_register(lua, "GetGrassScale", GetGrassScale);
 	lua_register(lua, "SetGrassDistance", SetGrassDistance);
 	lua_register(lua, "GetGrassDistance", GetGrassDistance);
+	lua_register(lua, "SetTreeDistance", SetTreeDistance);
+	lua_register(lua, "GetTreeDistance", GetTreeDistance);
+	lua_register(lua, "SetTreeTransition", SetTreeTransition);
+	lua_register(lua, "GetTreeTransition", GetTreeTransition);
+	lua_register(lua, "SetTreeShadowCascades", SetTreeShadowCascades);
+	lua_register(lua, "GetTreeShadowCascades", GetTreeShadowCascades);
 	lua_register(lua, "GunAnimationSetFrame", GunAnimationSetFrame);
 	lua_register(lua, "LoopGunAnimation", LoopGunAnimation);
 	lua_register(lua, "StopGunAnimation", StopGunAnimation);

@@ -219,7 +219,7 @@ GBuffer main( PixelIn IN )
 	float sqrDist = dot( surface.V, surface.V );
 
 	float noise = texNoise.Sample( samplerBilinearWrap, IN.uv*3 );
-	float limit = (noise * GGTREES_LOD_TRANSITION) + GGTREES_LOD_TRANSITION + tree_lodDist;
+	float limit = (noise * tree_lodTransition) + tree_lodTransition + tree_lodDist;
 	if ( sqrDist > limit*limit ) discard;
 
 	float dist = sqrt( sqrDist );

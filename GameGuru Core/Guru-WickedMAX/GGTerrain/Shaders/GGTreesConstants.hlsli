@@ -5,6 +5,7 @@
 
 #define GGTREES_REFLECTANCE   0.004
 
+// default widths of the billboard / full detail swap band, now set at run time through tree_lodTransition(Shadow)
 #define GGTREES_LOD_TRANSITION    500.0
 #define GGTREES_LOD_SHADOW_TRANSITION 500.0
 
@@ -43,8 +44,8 @@ cbuffer TreeCB : register( b2 )
 
 	float    tree_lodDist;
 	float    tree_lodDistShadow;
-	float    tree_padding1;
-	float    tree_padding2;
+	float    tree_lodTransition;
+	float    tree_lodTransitionShadow;
 };
 
 uint GetTreeType( uint data ) { return (data >> 11) & 0x3F; }
