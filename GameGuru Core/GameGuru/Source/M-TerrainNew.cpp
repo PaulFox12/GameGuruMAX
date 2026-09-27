@@ -7023,6 +7023,20 @@ void imgui_Customize_Weather_V2(int mode)
 			}
 			ImGui::PopItemWidth();
 
+			// the wind above only drifts rain, snow and dust; tree sway is this separate value (also in the tree tool)
+			ImGui::Text("Tree Wind");
+			ImGui::SameLine(); ImGui::SetCursorPosX(fWickedStartX);
+			ImGui::PushItemWidth((float)iItemWidth);
+			if (ImGui::SliderFloat("##WeatherTreeWind", &t.visuals.tree_wind, 0.0f, 1.0f, "%.2f"))
+			{
+				t.gamevisuals.tree_wind = t.visuals.tree_wind;
+				extern void WickedCall_UpdateTreeWind(float wind);
+				WickedCall_UpdateTreeWind(t.visuals.tree_wind);
+				g.projectmodified = 1;
+			}
+			if (ImGui::windowTabVisible() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "How much trees and foliage sway (SetTreeWind). Wind Speed does not move trees");
+			ImGui::PopItemWidth();
+
 
 			ImGui::Text("PP Alpha");
 			ImGui::SameLine(); ImGui::SetCursorPosX(fWickedStartX);
