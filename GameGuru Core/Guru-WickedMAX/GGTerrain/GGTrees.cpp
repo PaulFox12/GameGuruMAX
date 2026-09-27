@@ -1015,6 +1015,8 @@ void GGTrees_ChangeDensity( int density)
 			values >>= 1;
 		}
 
+		// keep flattened trees flattened (SetData clears every flag)
+		bool flattened = pInstance->IsFlattened();
 		pInstance->SetData(j, chosenType, 1);
 		pInstance->SetScale(Random(ggtrees_global_params.paint_scale_random_low, ggtrees_global_params.paint_scale_random_high));
 		int test = j % 100;
