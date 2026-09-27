@@ -83,12 +83,14 @@ namespace GGTrees
 	int GGTrees_GetSnapshot(uint8_t* data);
 
 	void GGTrees_SetPerformanceMode( uint32_t mode );
+	void GGTrees_ResetDistances(); // the stock tree distances, for a level saved without its own
 
 	// values set from Lua override the performance presets until cleared; a distance or width of 0 or less,
 	// or a negative cascade count, keeps the current value
 	void GGTrees_SetLuaDistances( float lodDist, float lodDistShadow );
 	void GGTrees_SetLuaTransitions( float lodTransition, float lodTransitionShadow );
 	void GGTrees_SetLuaShadowCascades( int billboardCascades, int fullDetailCascades );
+	void GGTrees_ApplyLuaOverrides();
 	void GGTrees_ClearLuaOverrides();
 	void GGTrees_Delete_Trees(float pickX, float pickZ, float radius);
 

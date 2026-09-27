@@ -1609,6 +1609,9 @@ void lua_losegame (void)
 	t.game.lostthegame = 1;
 }
 
+// also read when a level loads, so the player's choice outranks the level's own tree distances
+bool g_bGraphicsSettingsChangedByPlayer = false;
+
 void lua_setgamequality ( void )
 {
 	g.titlesettings.graphicsettingslevel = t.v;
@@ -1616,12 +1619,11 @@ void lua_setgamequality ( void )
 
 	if (g.titlesettings.graphicsettingslevel >= 1 && g.titlesettings.graphicsettingslevel <= 4)
 	{
-		static bool graphicsettings_changed = false;
 		//PE: If changed away from highest (user settings) always update from now on.
 		if (g.titlesettings.graphicsettingslevel != 3)
-			graphicsettings_changed = true;
+			g_bGraphicsSettingsChangedByPlayer = true;
 		//PE: Only change if player have changed the settings. else use "level designer" settings.
-		if(graphicsettings_changed)
+		if(g_bGraphicsSettingsChangedByPlayer)
 			SetGlobalGraphicsSettings( g.titlesettings.graphicsettingslevel - 1 );
 	}
 

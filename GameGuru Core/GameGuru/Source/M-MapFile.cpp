@@ -1039,7 +1039,15 @@ void mapfile_loadproject_fpm ( void )
 		cstr TerrainDataFile_s = "ggterrain.dat";
 		g_bNeedToConvertClassicPositionsToMAX = false;
 		if (FileExist(TerrainDataFile_s.Get()) == 0) g_bNeedToConvertClassicPositionsToMAX = true;
+		GGTrees::GGTrees_ResetDistances();
 		GGTerrainFile_LoadTerrainData(TerrainDataFile_s.Get(),false);
+
+		// the level's tree distances give way to a quality the player has chosen, and all of them to Lua's
+		extern bool g_bGraphicsSettingsChangedByPlayer;
+		if (t.game.gameisexe == 1 && g_bGraphicsSettingsChangedByPlayer)
+			GGTrees::GGTrees_SetPerformanceMode(g.titlesettings.graphicsettingslevel - 1);
+		else
+			GGTrees::GGTrees_ApplyLuaOverrides();
 		extern bool bTreeGlobalInit;
 		bTreeGlobalInit = false;
 

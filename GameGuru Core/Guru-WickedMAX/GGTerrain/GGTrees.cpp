@@ -1913,6 +1913,17 @@ void GGTrees_ClearLuaOverrides()
 	ggtrees_lua_overrides = GGTreesLuaOverrides();
 }
 
+void GGTrees_ResetDistances()
+{
+	GGTreesParams defaults;
+	ggtrees_global_params.lod_dist = defaults.lod_dist;
+	ggtrees_global_params.lod_dist_shadow = defaults.lod_dist_shadow;
+	ggtrees_global_params.lod_transition = defaults.lod_transition;
+	ggtrees_global_params.lod_transition_shadow = defaults.lod_transition_shadow;
+	ggtrees_global_params.tree_shadow_range = defaults.tree_shadow_range;
+	ggtrees_global_params.tree_shadow_range_high = defaults.tree_shadow_range_high;
+}
+
 void GGTrees_SetPerformanceMode( uint32_t mode )
 {
 	switch( mode )

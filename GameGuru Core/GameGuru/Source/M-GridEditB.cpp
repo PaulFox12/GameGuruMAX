@@ -6728,7 +6728,7 @@ void tab_tab_visuals(int iPage, int iMode)
 			bVisualUpdated = Shadows_Settings(fTabColumnWidth, bVisualUpdated);
 		}
 
-		if (iMode != 0) // tab tab only: test game values, not saved with the level
+		if (iMode != 0) // tab tab only
 		{
 			bool Vegetation_Distance_Settings(float fTabColumnWidth, bool bVisualUpdated);
 			bVisualUpdated = Vegetation_Distance_Settings(fTabColumnWidth, bVisualUpdated);
@@ -53471,8 +53471,11 @@ bool Global_Behaviors_Settings(float fTabColumnWidth, bool bVisualUpdated)
 	return(bVisualUpdated);
 }
 
-// tree and grass distances, for this test game only: the editor's values come back when it ends, and a game sets its
-// own with SetTreeDistance, SetTreeTransition, SetTreeShadowCascades and SetGrassDistance
+// tree and grass distances: like the other Tab Tab settings, a change is kept when the test game ends and saved
+// with the level; a game can still set its own with SetTreeDistance, SetTreeTransition, SetTreeShadowCascades
+// and SetGrassDistance
+extern GGTreesParams ggtrees_editor_lod_params;
+
 bool Vegetation_Distance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 {
 	int wflags = ImGuiTreeNodeFlags_None;
@@ -53485,39 +53488,64 @@ bool Vegetation_Distance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 
 		iLastOpenHeader = 36;
 
+		// only the value moved goes to the editor's copy, so a distance a script set is not saved with the level
 		tab_tab_Column_text("Tree Detail", fTabColumnWidth);
 		ImGui::PushItemWidth(-10);
-		ImGui::SliderFloat("##TabTabTreeLODDist", &ggtrees_global_params.lod_dist, 750.0f, 20000.0f, "%.0f");
+		if (ImGui::SliderFloat("##TabTabTreeLODDist", &ggtrees_global_params.lod_dist, 750.0f, 20000.0f, "%.0f"))
+		{
+			ggtrees_editor_lod_params.lod_dist = ggtrees_global_params.lod_dist;
+			g.projectmodified = 1;
+		}
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Distance where trees change from full detail to billboards (SetTreeDistance)");
 		ImGui::PopItemWidth();
 
 		tab_tab_Column_text("Tree Shadow", fTabColumnWidth);
 		ImGui::PushItemWidth(-10);
-		ImGui::SliderFloat("##TabTabTreeShadowLODDist", &ggtrees_global_params.lod_dist_shadow, 750.0f, 20000.0f, "%.0f");
+		if (ImGui::SliderFloat("##TabTabTreeShadowLODDist", &ggtrees_global_params.lod_dist_shadow, 750.0f, 20000.0f, "%.0f"))
+		{
+			ggtrees_editor_lod_params.lod_dist_shadow = ggtrees_global_params.lod_dist_shadow;
+			g.projectmodified = 1;
+		}
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Distance where tree shadows change from full detail to billboards (SetTreeDistance)");
 		ImGui::PopItemWidth();
 
 		tab_tab_Column_text("Tree Fade", fTabColumnWidth);
 		ImGui::PushItemWidth(-10);
-		ImGui::SliderFloat("##TabTabTreeTransition", &ggtrees_global_params.lod_transition, 100.0f, 4000.0f, "%.0f");
+		if (ImGui::SliderFloat("##TabTabTreeTransition", &ggtrees_global_params.lod_transition, 100.0f, 4000.0f, "%.0f"))
+		{
+			ggtrees_editor_lod_params.lod_transition = ggtrees_global_params.lod_transition;
+			g.projectmodified = 1;
+		}
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Width of the band where full detail trees and billboards cross fade (SetTreeTransition)");
 		ImGui::PopItemWidth();
 
 		tab_tab_Column_text("Shadow Fade", fTabColumnWidth);
 		ImGui::PushItemWidth(-10);
-		ImGui::SliderFloat("##TabTabTreeShadowTransition", &ggtrees_global_params.lod_transition_shadow, 100.0f, 4000.0f, "%.0f");
+		if (ImGui::SliderFloat("##TabTabTreeShadowTransition", &ggtrees_global_params.lod_transition_shadow, 100.0f, 4000.0f, "%.0f"))
+		{
+			ggtrees_editor_lod_params.lod_transition_shadow = ggtrees_global_params.lod_transition_shadow;
+			g.projectmodified = 1;
+		}
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Width of the band where full detail and billboard tree shadows cross fade (SetTreeTransition)");
 		ImGui::PopItemWidth();
 
 		tab_tab_Column_text("Billboard Shd", fTabColumnWidth);
 		ImGui::PushItemWidth(-10);
-		ImGui::SliderInt("##TabTabTreeShadowRange", &ggtrees_global_params.tree_shadow_range, 0, 5);
+		if (ImGui::SliderInt("##TabTabTreeShadowRange", &ggtrees_global_params.tree_shadow_range, 0, 5))
+		{
+			ggtrees_editor_lod_params.tree_shadow_range = ggtrees_global_params.tree_shadow_range;
+			g.projectmodified = 1;
+		}
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Sun shadow cascades, nearest first, that draw billboard tree shadows (SetTreeShadowCascades)");
 		ImGui::PopItemWidth();
 
 		tab_tab_Column_text("Detail Shd", fTabColumnWidth);
 		ImGui::PushItemWidth(-10);
-		ImGui::SliderInt("##TabTabTreeShadowRangeHigh", &ggtrees_global_params.tree_shadow_range_high, 0, 5);
+		if (ImGui::SliderInt("##TabTabTreeShadowRangeHigh", &ggtrees_global_params.tree_shadow_range_high, 0, 5))
+		{
+			ggtrees_editor_lod_params.tree_shadow_range_high = ggtrees_global_params.tree_shadow_range_high;
+			g.projectmodified = 1;
+		}
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Sun shadow cascades, nearest first, that draw full detail tree shadows (SetTreeShadowCascades)");
 		ImGui::PopItemWidth();
 
@@ -53529,7 +53557,12 @@ bool Vegetation_Distance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::PushItemWidth(-10);
 		ImGui::SliderFloat("##TabTabGrassLODDist", &fGrassDistance, 750.0f, 7000.0f, "%.0f");
 		bGrassSliderActive = ImGui::IsItemActive();
-		if (ImGui::IsItemDeactivatedAfterEdit()) gggrass_global_params.lod_dist = fGrassDistance;
+		if (ImGui::IsItemDeactivatedAfterEdit())
+		{
+			gggrass_global_params.lod_dist = fGrassDistance;
+			gggrass_save_params.lod_dist = fGrassDistance;
+			g.projectmodified = 1;
+		}
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Grass draw distance, applied when the slider is released (SetGrassDistance)");
 		ImGui::PopItemWidth();
 

@@ -5561,6 +5561,12 @@ char* GGTerrain_SaveSettings(int water_height)
 	output += ",\n  \"water_height\": ";        output += std::to_string(water_height);
 	output += ",\n  \"water_dist\": ";			output += std::to_string(ggtrees_global_params.water_dist);
 	output += ",\n  \"grass_draw_dist\": ";		output += std::to_string(gggrass_global_params.lod_dist);
+	output += ",\n  \"tree_lod_dist\": ";		output += std::to_string(ggtrees_global_params.lod_dist);
+	output += ",\n  \"tree_lod_dist_shadow\": ";		output += std::to_string(ggtrees_global_params.lod_dist_shadow);
+	output += ",\n  \"tree_lod_transition\": ";		output += std::to_string(ggtrees_global_params.lod_transition);
+	output += ",\n  \"tree_lod_transition_shadow\": ";		output += std::to_string(ggtrees_global_params.lod_transition_shadow);
+	output += ",\n  \"tree_shadow_range\": ";		output += std::to_string(ggtrees_global_params.tree_shadow_range);
+	output += ",\n  \"tree_shadow_range_high\": ";		output += std::to_string(ggtrees_global_params.tree_shadow_range_high);
 	output += ",\n  \"paint_density\": ";		output += std::to_string(ggtrees_global_params.paint_density);
 	output += ",\n  \"paint_scale_random_low\": ";		output += std::to_string(ggtrees_global_params.paint_scale_random_low);
 	output += ",\n  \"paint_scale_random_high\": ";		output += std::to_string(ggtrees_global_params.paint_scale_random_high);
@@ -5710,6 +5716,18 @@ int GGTerrain_LoadSettings( const char* settingsJSON, bool bRestoreWater)
 	if (pElement) { ggtrees_global_params.water_dist = ((JSONNumber*)pElement)->m_fValue; }
 	pElement = pObject->GetElement("grass_draw_dist");
 	if (pElement) { gggrass_global_params.lod_dist = ((JSONNumber*)pElement)->m_fValue; }
+	pElement = pObject->GetElement("tree_lod_dist");
+	if (pElement) { ggtrees_global_params.lod_dist = ((JSONNumber*)pElement)->m_fValue; }
+	pElement = pObject->GetElement("tree_lod_dist_shadow");
+	if (pElement) { ggtrees_global_params.lod_dist_shadow = ((JSONNumber*)pElement)->m_fValue; }
+	pElement = pObject->GetElement("tree_lod_transition");
+	if (pElement) { ggtrees_global_params.lod_transition = ((JSONNumber*)pElement)->m_fValue; }
+	pElement = pObject->GetElement("tree_lod_transition_shadow");
+	if (pElement) { ggtrees_global_params.lod_transition_shadow = ((JSONNumber*)pElement)->m_fValue; }
+	pElement = pObject->GetElement("tree_shadow_range");
+	if (pElement) { ggtrees_global_params.tree_shadow_range = ((JSONNumber*)pElement)->m_iValue; }
+	pElement = pObject->GetElement("tree_shadow_range_high");
+	if (pElement) { ggtrees_global_params.tree_shadow_range_high = ((JSONNumber*)pElement)->m_iValue; }
 	pElement = pObject->GetElement("paint_density");
 	if (pElement) { ggtrees_global_params.paint_density = ((JSONNumber*)pElement)->m_iValue; }
 	pElement = pObject->GetElement("paint_scale_random_low");
