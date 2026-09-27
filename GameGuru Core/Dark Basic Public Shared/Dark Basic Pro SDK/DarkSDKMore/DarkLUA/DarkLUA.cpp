@@ -11638,6 +11638,31 @@ int FirePlayerWeapon(lua_State *L)
 	return 0;
 }
 
+// AddBulletHole(x, y, z, nx, ny, nz [, material [, e]]): a bullet hole where a script's shot hit, as the player's gunfire
+// leaves one. material is an entity profile's materialindex (1 stone, 2 metal, 3 wood, 4 glass; default 1; 0 leaves
+// none). With e, the hole obeys the same rules as gunfire: only on a static entity or one that allows bullet holes, and
+// it goes when that entity moves, hides or is removed. Returns 1 if a hole was requested, 0 if a rule refused it
+int AddBulletHole ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 6 ) return 0;
+	float fNX = lua_tonumber(L, 4), fNY = lua_tonumber(L, 5), fNZ = lua_tonumber(L, 6);
+	float fLength = sqrtf ( fNX*fNX + fNY*fNY + fNZ*fNZ );
+	int iMaterial = 1;
+	if ( n >= 7 ) iMaterial = max ( 0, min ( 15, (int)lua_tointeger(L, 7) ) );
+	int e = 0;
+	if ( n >= 8 ) e = lua_tointeger(L, 8);
+	bool bAllowed = fLength > 0.0001f && iMaterial > 0 && ObjectExist ( g.bulletholesobject ) == 1;
+	if ( bAllowed && e != 0 )
+	{
+		bAllowed = LuaEntityIDValid ( L, e, 1 ) && ( t.entityelement[e].staticflag == 1 || t.entityelement[e].iAllowBuletHole == 1 );
+	}
+	if ( bAllowed ) bulletholes_add ( iMaterial, lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3), fNX / fLength, fNY / fLength, fNZ / fLength, e );
+	lua_pushinteger(L, bAllowed ? 1 : 0);
+	return 1;
+}
+
 // SetEntityInstanceEmissive(e, r, g, b [, strength]): per instance multiplier, 0 to 1, on the entity's emissive colour
 // and strength as authored (1,1,1,1 = unchanged, strength 0 = no glow). Unlike the material setters it changes this
 // instance only, not every instance of the same object
@@ -14881,6 +14906,7 @@ void addFunctions()
 
 	lua_register(lua, "SetAttachmentVisible" , SetAttachmentVisible );
 	lua_register(lua, "SetEntityInstanceEmissive" , SetEntityInstanceEmissive );
+	lua_register(lua, "AddBulletHole" , AddBulletHole );
 	lua_register(lua, "GetEntityInstanceEmissive" , GetEntityInstanceEmissive );
 	lua_register(lua, "SetOcclusion" , SetOcclusion );
 	lua_register(lua, "SetPlayerWeapons", SetPlayerWeapons);
