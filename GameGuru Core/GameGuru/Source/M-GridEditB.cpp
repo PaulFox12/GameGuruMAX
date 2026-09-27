@@ -6728,6 +6728,12 @@ void tab_tab_visuals(int iPage, int iMode)
 			bVisualUpdated = Shadows_Settings(fTabColumnWidth, bVisualUpdated);
 		}
 
+		if (iMode != 0) // tab tab only: test game values, not saved with the level
+		{
+			bool Vegetation_Distance_Settings(float fTabColumnWidth, bool bVisualUpdated);
+			bVisualUpdated = Vegetation_Distance_Settings(fTabColumnWidth, bVisualUpdated);
+		}
+
 		// Control all in-game debugging options 
 		if (pref.iEnableDeveloperProperties && iMode != 0) //PE: Now only in tab tab (iMode != 0))
 		{
@@ -53463,6 +53469,73 @@ bool Global_Behaviors_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::Indent(-10);
 	}
 	return(bVisualUpdated);
+}
+
+// tree and grass distances, for this test game only: the editor's values come back when it ends, and a game sets its
+// own with SetTreeDistance, SetTreeTransition, SetTreeShadowCascades and SetGrassDistance
+bool Vegetation_Distance_Settings(float fTabColumnWidth, bool bVisualUpdated)
+{
+	int wflags = ImGuiTreeNodeFlags_None;
+	if (pref.bAutoClosePropertySections && iLastOpenHeader != 36)
+		ImGui::SetNextItemOpen(false, ImGuiCond_Always);
+
+	if (ImGui::StyleCollapsingHeader("Tree and Grass Distances", wflags))
+	{
+		ImGui::Indent(10);
+
+		iLastOpenHeader = 36;
+
+		tab_tab_Column_text("Tree Detail", fTabColumnWidth);
+		ImGui::PushItemWidth(-10);
+		ImGui::SliderFloat("##TabTabTreeLODDist", &ggtrees_global_params.lod_dist, 750.0f, 20000.0f, "%.0f");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Distance where trees change from full detail to billboards (SetTreeDistance)");
+		ImGui::PopItemWidth();
+
+		tab_tab_Column_text("Tree Shadow", fTabColumnWidth);
+		ImGui::PushItemWidth(-10);
+		ImGui::SliderFloat("##TabTabTreeShadowLODDist", &ggtrees_global_params.lod_dist_shadow, 750.0f, 20000.0f, "%.0f");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Distance where tree shadows change from full detail to billboards (SetTreeDistance)");
+		ImGui::PopItemWidth();
+
+		tab_tab_Column_text("Tree Fade", fTabColumnWidth);
+		ImGui::PushItemWidth(-10);
+		ImGui::SliderFloat("##TabTabTreeTransition", &ggtrees_global_params.lod_transition, 100.0f, 4000.0f, "%.0f");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Width of the band where full detail trees and billboards cross fade (SetTreeTransition)");
+		ImGui::PopItemWidth();
+
+		tab_tab_Column_text("Shadow Fade", fTabColumnWidth);
+		ImGui::PushItemWidth(-10);
+		ImGui::SliderFloat("##TabTabTreeShadowTransition", &ggtrees_global_params.lod_transition_shadow, 100.0f, 4000.0f, "%.0f");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Width of the band where full detail and billboard tree shadows cross fade (SetTreeTransition)");
+		ImGui::PopItemWidth();
+
+		tab_tab_Column_text("Billboard Shd", fTabColumnWidth);
+		ImGui::PushItemWidth(-10);
+		ImGui::SliderInt("##TabTabTreeShadowRange", &ggtrees_global_params.tree_shadow_range, 0, 5);
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Sun shadow cascades, nearest first, that draw billboard tree shadows (SetTreeShadowCascades)");
+		ImGui::PopItemWidth();
+
+		tab_tab_Column_text("Detail Shd", fTabColumnWidth);
+		ImGui::PushItemWidth(-10);
+		ImGui::SliderInt("##TabTabTreeShadowRangeHigh", &ggtrees_global_params.tree_shadow_range_high, 0, 5);
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Sun shadow cascades, nearest first, that draw full detail tree shadows (SetTreeShadowCascades)");
+		ImGui::PopItemWidth();
+
+		// a new grass distance rebuilds all the grass, so it is applied when the slider is released, not on every step
+		static float fGrassDistance = 0.0f;
+		static bool bGrassSliderActive = false;
+		if (!bGrassSliderActive) fGrassDistance = gggrass_global_params.lod_dist;
+		tab_tab_Column_text("Grass", fTabColumnWidth);
+		ImGui::PushItemWidth(-10);
+		ImGui::SliderFloat("##TabTabGrassLODDist", &fGrassDistance, 750.0f, 7000.0f, "%.0f");
+		bGrassSliderActive = ImGui::IsItemActive();
+		if (ImGui::IsItemDeactivatedAfterEdit()) gggrass_global_params.lod_dist = fGrassDistance;
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Grass draw distance, applied when the slider is released (SetGrassDistance)");
+		ImGui::PopItemWidth();
+
+		ImGui::Indent(-10);
+	}
+	return bVisualUpdated;
 }
 
 bool Shadows_Settings(float fTabColumnWidth, bool bVisualUpdated)
