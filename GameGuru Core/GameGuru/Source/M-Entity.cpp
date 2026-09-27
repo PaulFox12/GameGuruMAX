@@ -9068,6 +9068,13 @@ void entity_updateparticleemitter ( int e )
 	}
 }
 
+// pad size: a rect uses the footprint width, a circle the larger side (same on create and update)
+static float entity_autoflattenpadsizex (int iAutoFlattenMode, float sx, float sz)
+{
+	if (iAutoFlattenMode == 1) return sx;
+	return (sx > sz) ? sx : sz;
+}
+
 void entity_updateautoflatten (int e, int obj)
 {
 	int entid = t.entityelement[e].bankindex;
@@ -9129,7 +9136,7 @@ void entity_updateautoflatten (int e, int obj)
 						LastSizeX = sx;
 						LastSizeZ = sz;
 						iLastFlattenID = iFlattenID;
-						GGTerrain_UpdateFlatArea(iFlattenID, x, z, angDeg, sx, sz, t.entityelement[e].y);
+						GGTerrain_UpdateFlatArea(iFlattenID, x, z, angDeg, entity_autoflattenpadsizex(iAutoFlattenMode, sx, sz), sz, t.entityelement[e].y);
 					}
 				}
 			}
@@ -9207,14 +9214,13 @@ void entity_autoFlattenWhenAdded(int e, int obj)
 					}
 					else
 					{
-						float s = ObjectSize(t.entityelement[e].obj, 1) * 1.05f + g_fFlattenMargin;
-						t.entityelement[e].eleprof.iFlattenID = GGTerrain_AddFlatCircle(x, z, s, t.entityelement[e].y);
+						t.entityelement[e].eleprof.iFlattenID = GGTerrain_AddFlatCircle(x, z, entity_autoflattenpadsizex(iAutoFlattenMode, sx, sz), t.entityelement[e].y);
 					}
 				}
 			}
 			else
 			{
-				GGTerrain_UpdateFlatArea(t.entityelement[e].eleprof.iFlattenID, x, z, angDeg, sx, sz, t.entityelement[e].y);
+				GGTerrain_UpdateFlatArea(t.entityelement[e].eleprof.iFlattenID, x, z, angDeg, entity_autoflattenpadsizex(iAutoFlattenMode, sx, sz), sz, t.entityelement[e].y);
 			}
 		}
 		else
