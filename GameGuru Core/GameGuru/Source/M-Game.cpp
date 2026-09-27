@@ -3900,6 +3900,9 @@ void game_preparelevel_finally ( void )
 	// each level starts with its own grass distance until a script sets one
 	extern float g_fGrassDistanceOverride;
 	g_fGrassDistanceOverride = 0.0f;
+	// and its own post effects until a script sets them
+	extern void LuaPostEffects_Clear(void* pVisualsToRestore);
+	LuaPostEffects_Clear(NULL);
 	lua_launchallinitscripts ( );
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );
 

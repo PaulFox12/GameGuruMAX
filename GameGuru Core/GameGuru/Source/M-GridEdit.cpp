@@ -15821,6 +15821,10 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 
 	// tree distances set by the test game (quality preset or Lua) must not stay in the editor
 	GGTrees::GGTrees_ClearLuaOverrides();
+
+	// nor post effects set from Lua: put back the editor's own
+	extern void LuaPostEffects_Clear(void* pVisualsToRestore);
+	LuaPostEffects_Clear(&t.visuals);
 	ggtrees_global_params.lod_dist = ggtrees_editor_lod_params.lod_dist;
 	ggtrees_global_params.lod_dist_shadow = ggtrees_editor_lod_params.lod_dist_shadow;
 	ggtrees_global_params.lod_transition = ggtrees_editor_lod_params.lod_transition;

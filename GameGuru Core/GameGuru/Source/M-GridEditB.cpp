@@ -7516,6 +7516,125 @@ void Wicked_Update_Cloud(void* visual)
 	}
 }
 
+// post effects set from Lua for the running game. A value below 0 keeps the level's own setting. They are kept apart
+// from t.visuals / t.gamevisuals so nothing reaches the editor or the saved level, and re-applied after every visuals
+// push; cleared at each level start and when a test game ends
+struct sLuaPostEffects
+{
+	int iBloom = -1;
+	float fBloomStrength = -1;
+	float fBloomThreshold = -1;
+	int iDOF = -1;
+	float fDOFStrength = -1;
+	float fDOFFocalLength = -1;
+	float fDOFApertureSize = -1;
+	int iLightShafts = -1;
+	int iLensFlare = -1;
+};
+sLuaPostEffects g_LuaPostEffects;
+
+static float LuaPostEffects_Clamp(float fValue, float fMin, float fMax)
+{
+	if (fValue < fMin) return fMin;
+	if (fValue > fMax) return fMax;
+	return fValue;
+}
+
+void LuaPostEffects_Apply(void)
+{
+	if (!master_renderer) return;
+	sLuaPostEffects* p = &g_LuaPostEffects;
+	if (p->iBloom >= 0) master_renderer->setBloomEnabled(p->iBloom != 0);
+	if (p->fBloomStrength >= 0) master_renderer->setBloomStrength(p->fBloomStrength);
+	if (p->fBloomThreshold >= 0) master_renderer->setBloomThreshold(p->fBloomThreshold);
+	if (p->iDOF >= 0) master_renderer->setDepthOfFieldEnabled(p->iDOF != 0);
+	if (p->fDOFStrength >= 0) master_renderer->setDepthOfFieldStrength(p->fDOFStrength);
+	if (p->fDOFFocalLength >= 0 || p->fDOFApertureSize >= 0)
+	{
+		wiScene::CameraComponent& camera = wiScene::GetCamera();
+		if (p->fDOFFocalLength >= 0) camera.focal_length = p->fDOFFocalLength;
+		if (p->fDOFApertureSize >= 0) camera.aperture_size = p->fDOFApertureSize;
+		camera.UpdateCamera();
+		camera.SetDirty();
+	}
+	if (p->iLightShafts >= 0) master_renderer->setLightShaftsEnabled(p->iLightShafts != 0);
+	if (p->iLensFlare >= 0) master_renderer->setLensFlareEnabled(p->iLensFlare != 0);
+}
+
+// values below 0 keep the current setting; ranges as the editor's sliders
+void LuaPostEffects_SetBloom(int iEnabled, float fStrength, float fThreshold)
+{
+	if (iEnabled >= 0) g_LuaPostEffects.iBloom = iEnabled ? 1 : 0;
+	if (fStrength >= 0) g_LuaPostEffects.fBloomStrength = LuaPostEffects_Clamp(fStrength, 0.1f, 3.0f);
+	if (fThreshold >= 0) g_LuaPostEffects.fBloomThreshold = LuaPostEffects_Clamp(fThreshold, 0.1f, 10.0f);
+	LuaPostEffects_Apply();
+}
+
+void LuaPostEffects_GetBloom(int* piEnabled, float* pfStrength, float* pfThreshold)
+{
+	*piEnabled = (master_renderer && master_renderer->getBloomEnabled()) ? 1 : 0;
+	*pfStrength = master_renderer ? master_renderer->getBloomStrength() : 0;
+	*pfThreshold = master_renderer ? master_renderer->getBloomThreshold() : 0;
+}
+
+void LuaPostEffects_SetDepthOfField(int iEnabled, float fStrength, float fFocalLength, float fApertureSize)
+{
+	if (iEnabled >= 0) g_LuaPostEffects.iDOF = iEnabled ? 1 : 0;
+	if (fStrength >= 0) g_LuaPostEffects.fDOFStrength = LuaPostEffects_Clamp(fStrength, 1.0f, 20.0f);
+	if (fFocalLength >= 0) g_LuaPostEffects.fDOFFocalLength = LuaPostEffects_Clamp(fFocalLength, 0.001f, 800.0f);
+	if (fApertureSize >= 0) g_LuaPostEffects.fDOFApertureSize = LuaPostEffects_Clamp(fApertureSize, 0.0f, 1.0f);
+	LuaPostEffects_Apply();
+}
+
+void LuaPostEffects_GetDepthOfField(int* piEnabled, float* pfStrength, float* pfFocalLength, float* pfApertureSize)
+{
+	wiScene::CameraComponent& camera = wiScene::GetCamera();
+	*piEnabled = (master_renderer && master_renderer->getDepthOfFieldEnabled()) ? 1 : 0;
+	*pfStrength = master_renderer ? master_renderer->getDepthOfFieldStrength() : 0;
+	*pfFocalLength = camera.focal_length;
+	*pfApertureSize = camera.aperture_size;
+}
+
+void LuaPostEffects_SetLightShafts(int iEnabled)
+{
+	if (iEnabled >= 0) g_LuaPostEffects.iLightShafts = iEnabled ? 1 : 0;
+	LuaPostEffects_Apply();
+}
+
+void LuaPostEffects_SetLensFlare(int iEnabled)
+{
+	if (iEnabled >= 0) g_LuaPostEffects.iLensFlare = iEnabled ? 1 : 0;
+	LuaPostEffects_Apply();
+}
+
+// forget the Lua values; with pVisualsToRestore (the editor's own visuals, at the end of a test game) put back the
+// effects that Lua changed
+void LuaPostEffects_Clear(void* pVisualsToRestore)
+{
+	sLuaPostEffects old = g_LuaPostEffects;
+	g_LuaPostEffects = sLuaPostEffects();
+	visualstype* visuals = (visualstype*)pVisualsToRestore;
+	if (!visuals || !master_renderer) return;
+	if (old.iBloom >= 0 || old.fBloomStrength >= 0 || old.fBloomThreshold >= 0)
+	{
+		master_renderer->setBloomEnabled(visuals->bBloomEnabled);
+		master_renderer->setBloomStrength(visuals->fsetBloomStrength);
+		master_renderer->setBloomThreshold(visuals->fsetBloomThreshold);
+	}
+	if (old.iDOF >= 0 || old.fDOFStrength >= 0 || old.fDOFFocalLength >= 0 || old.fDOFApertureSize >= 0)
+	{
+		wiScene::CameraComponent& camera = wiScene::GetCamera();
+		camera.focal_length = visuals->fDOFFocalLength;
+		camera.aperture_size = visuals->fDOFApertureSize;
+		camera.UpdateCamera();
+		camera.SetDirty();
+		master_renderer->setDepthOfFieldStrength(visuals->fDOFStrength);
+		master_renderer->setDepthOfFieldEnabled(visuals->bDOF);
+	}
+	if (old.iLightShafts >= 0) master_renderer->setLightShaftsEnabled(visuals->bLightShafts);
+	if (old.iLensFlare >= 0) master_renderer->setLensFlareEnabled(visuals->bLensFlare);
+}
+
 void Wicked_Update_Visuals(void *voidvisual)
 {
 	visualstype* visuals = (visualstype *) voidvisual;
@@ -7758,7 +7877,10 @@ void Wicked_Update_Visuals(void *voidvisual)
 		master_renderer->setLightShaftsEnabled(visuals->bLightShafts);
 
 		master_renderer->setLensFlareEnabled(visuals->bLensFlare);
-		
+
+		// post effects a game script set keep their values through this push
+		LuaPostEffects_Apply();
+
 		if (old_iMSAASampleCount != visuals->iMSAASampleCount) {
 			//PE: Will also resize buffers , so only when needed.
 			old_iMSAASampleCount = visuals->iMSAASampleCount;
