@@ -11899,6 +11899,40 @@ int AddBulletHole ( lua_State *L )
 	return 1;
 }
 
+// BulletRay(x1, y1, z1, x2, y2, z2 [, ignoree [, holes [, terrainmaterial]]]): a script weapon's shot, detected as the player's
+// bullets are (entity_scriptbulletray). ignoree is the shooter's own entity (0 for none). holes 1 (default) leaves a bullet hole
+// under the player's rules, 0 only detects. terrainmaterial 0 (default) leaves no hole on terrain, as the player's guns; 1 to 15
+// uses that material. Returns hit (0 none, 1 terrain, 2 object), e (0 if not an entity), x, y, z, nx, ny, nz, material, hole (1/0)
+int BulletRay ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 6 ) return 0;
+	int iIgnoreObj = 0;
+	if ( n >= 7 )
+	{
+		int iIgnoreE = lua_tointeger(L, 7);
+		if ( iIgnoreE > 0 && LuaEntityIDValid ( L, iIgnoreE, 1 ) ) iIgnoreObj = t.entityelement[iIgnoreE].obj;
+	}
+	bool bLeaveHole = true;
+	if ( n >= 8 ) bLeaveHole = lua_tointeger(L, 8) != 0;
+	int iTerrainMaterial = 0;
+	if ( n >= 9 ) iTerrainMaterial = max ( 0, min ( 15, (int)lua_tointeger(L, 9) ) );
+	sScriptBulletRayHit hit;
+	int iHit = entity_scriptbulletray ( lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5), lua_tonumber(L, 6), iIgnoreObj, bLeaveHole, iTerrainMaterial, &hit );
+	lua_pushinteger(L, iHit);
+	lua_pushinteger(L, hit.e);
+	lua_pushnumber(L, hit.fX);
+	lua_pushnumber(L, hit.fY);
+	lua_pushnumber(L, hit.fZ);
+	lua_pushnumber(L, hit.fNX);
+	lua_pushnumber(L, hit.fNY);
+	lua_pushnumber(L, hit.fNZ);
+	lua_pushinteger(L, hit.iMaterial);
+	lua_pushinteger(L, hit.bHole ? 1 : 0);
+	return 10;
+}
+
 // SetEntityInstanceEmissive(e, r, g, b [, strength]): per instance multiplier, 0 to 1, on the entity's emissive colour
 // and strength as authored (1,1,1,1 = unchanged, strength 0 = no glow). Unlike the material setters it changes this
 // instance only, not every instance of the same object
@@ -15152,6 +15186,7 @@ void addFunctions()
 	lua_register(lua, "SetAttachmentVisible" , SetAttachmentVisible );
 	lua_register(lua, "SetEntityInstanceEmissive" , SetEntityInstanceEmissive );
 	lua_register(lua, "AddBulletHole" , AddBulletHole );
+	lua_register(lua, "BulletRay" , BulletRay );
 	lua_register(lua, "GetEntityInstanceEmissive" , GetEntityInstanceEmissive );
 	lua_register(lua, "SetOcclusion" , SetOcclusion );
 	lua_register(lua, "SetPlayerWeapons", SetPlayerWeapons);

@@ -28,6 +28,15 @@ void entity_applydamage ( void );
 void entity_applydecalfordamage (int ee, float fX, float fY, float fZ);
 void entity_gettruecamera ( void );
 void entity_gettrueplayerpos(void);
+struct sScriptBulletRayHit
+{
+	int e;
+	float fX, fY, fZ;
+	float fNX, fNY, fNZ;
+	int iMaterial;
+	bool bHole;
+};
+int entity_scriptbulletray ( float fX1, float fY1, float fZ1, float fX2, float fY2, float fZ2, int iIgnoreObj, bool bLeaveHole, int iTerrainMaterial, sScriptBulletRayHit* pHit );
 void entity_hasbulletrayhit ( void );
 void entity_hitentity ( int e, int obj );
 void entity_triggerdecalatimpact ( float fX, float fY, float fZ );

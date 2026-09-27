@@ -3143,6 +3143,104 @@ void entity_gettrueplayerpos(void)
 	}
 }
 
+// a shot from a script's weapon, detected as entity_hasbulletrayhit detects the player's: terrain first, then the entities with
+// full Wicked accuracy, physics shapes for collisionoverride and collisionmode 11 entities, and the material of the entity hit.
+// With bLeaveHole it leaves a bullet hole under the same rules. Returns 0 for no hit, 1 for terrain, 2 for an object
+int entity_scriptbulletray ( float fX1, float fY1, float fZ1, float fX2, float fY2, float fZ2, int iIgnoreObj, bool bLeaveHole, int iTerrainMaterial, sScriptBulletRayHit* pHit )
+{
+	int iHitType = 0;
+	int iHitE = 0;
+	int iMaterial = 0;
+	GGVECTOR3 vecHit = GGVECTOR3(fX2, fY2, fZ2);
+	GGVECTOR3 vecNormal = GGVECTOR3(0, 0, 0);
+
+	// terrain first, which shortens the ray (the player's guns treat terrain as material 0, no hole)
+	if (ODERayTerrain(fX1, fY1, fZ1, fX2, fY2, fZ2, false) == 1)
+	{
+		vecHit = GGVECTOR3(ODEGetRayCollisionX(), ODEGetRayCollisionY(), ODEGetRayCollisionZ());
+		vecNormal = GGVECTOR3(ODEGetRayNormalX(), ODEGetRayNormalY(), ODEGetRayNormalZ());
+		iHitType = 1;
+		iMaterial = iTerrainMaterial;
+	}
+
+	// then the entities, up to the terrain hit
+	int iHitObj = IntersectAllEx(g.entityviewstartobj, g.entityviewendobj, fX1, fY1, fZ1, vecHit.x, vecHit.y, vecHit.z, iIgnoreObj, 0, 0, 0, 0, true);
+	if (iHitObj > 0 && iHitObj != iIgnoreObj && ObjectExist(iHitObj) == 1)
+	{
+		int iFoundE = 0;
+		for (int e = 1; e <= g.entityelementlist; e++)
+		{
+			if (t.entityelement[e].obj == iHitObj)
+			{
+				iFoundE = e; break;
+			}
+		}
+		int iEntID = 0;
+		if (iFoundE > 0) iEntID = t.entityelement[iFoundE].bankindex;
+
+		// objects that use physics collision over geometry collision
+		int iCollisionWithPhysics = 0;
+		if (iFoundE > 0 && (t.entityprofile[iEntID].collisionoverride == 1 || t.entityprofile[iEntID].collisionmode == 11))
+		{
+			if (t.entityprofile[iEntID].collisionmode == 11)
+				iCollisionWithPhysics = 2;
+			else if (ODERayTerrainEx(fX1, fY1, fZ1, vecHit.x, vecHit.y, vecHit.z, 2, false) == 1)
+				iCollisionWithPhysics = 1;
+			else
+				iCollisionWithPhysics = 2;
+		}
+
+		// 2 = hit the geometry but missed the physics shape (foliage), so the shot passes as it does for the player
+		if (iCollisionWithPhysics != 2)
+		{
+			if (iCollisionWithPhysics == 1)
+			{
+				vecHit = GGVECTOR3(ODEGetRayCollisionX(), ODEGetRayCollisionY(), ODEGetRayCollisionZ());
+				vecNormal = GGVECTOR3(ODEGetRayNormalX(), ODEGetRayNormalY(), ODEGetRayNormalZ());
+			}
+			else
+			{
+				vecHit = GGVECTOR3(ChecklistFValueA(6), ChecklistFValueB(6), ChecklistFValueC(6));
+				vecNormal = GGVECTOR3(ChecklistFValueA(7), ChecklistFValueB(7), ChecklistFValueC(7));
+			}
+			iHitType = 2;
+			iHitE = iFoundE;
+			iMaterial = 0;
+			if (iFoundE > 0)
+			{
+				if (!t.entityelement[iFoundE].eleprof.bUseFPESettings && t.entityelement[iFoundE].eleprof.iMaterialSoundIndex > 0)
+					iMaterial = t.entityelement[iFoundE].eleprof.iMaterialSoundIndex;
+				else
+					iMaterial = t.entityprofile[iEntID].materialindex;
+			}
+		}
+	}
+
+	// bullet hole, under the player's rules: not material 6, only terrain, a static entity or one that allows holes, and a
+	// violent character bleeds instead
+	bool bHole = false;
+	if (bLeaveHole && iHitType > 0 && iMaterial > 0 && iMaterial != 6)
+	{
+		bool bAllowed = (iHitE == 0 || t.entityelement[iHitE].staticflag == 1 || t.entityelement[iHitE].iAllowBuletHole == 1);
+		if (iHitE > 0 && t.entityprofile[t.entityelement[iHitE].bankindex].ischaracter == 1 && t.entityelement[iHitE].eleprof.isviolent != 0) bAllowed = false;
+		if (bAllowed)
+		{
+			bulletholes_add(iMaterial, vecHit.x, vecHit.y, vecHit.z, vecNormal.x, vecNormal.y, vecNormal.z, iHitE);
+			bHole = true;
+		}
+	}
+
+	if (pHit)
+	{
+		pHit->e = iHitE;
+		pHit->fX = vecHit.x; pHit->fY = vecHit.y; pHit->fZ = vecHit.z;
+		pHit->fNX = vecNormal.x; pHit->fNY = vecNormal.y; pHit->fNZ = vecNormal.z;
+		pHit->iMaterial = iMaterial;
+		pHit->bHole = bHole;
+	}
+	return iHitType;
+}
+
 void entity_hasbulletrayhit(void)
 {
 	// bulletray is x1#,y1#,z1#,x2#,y2#,z2#,bulletrayhit,gunrange#,t.bulletfinalstrengthmod(1),bulletisinfactmeleestrike
