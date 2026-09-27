@@ -3272,7 +3272,10 @@ void playerhit_adddamage(int e, int iDamage, int iHealthBefore, int iHealthAfter
 		}
 	}
 	if (!pHit) return;
-	if (pHit->iDamageE == 0) pHit->iHealthBefore = iHealthBefore;
+	if (pHit->iDamageE == 0)
+		pHit->iHealthBefore = iHealthBefore;
+	else
+		pHit->iDamage -= iHealthBefore - pHit->iHealthAfter; // health changed between the hits (a destroyed entity's is reset to 0), so the entry keeps before - damage = after
 	pHit->iDamageE = e;
 	pHit->iDamage += iDamage;
 	pHit->iHealthAfter = iHealthAfter;
