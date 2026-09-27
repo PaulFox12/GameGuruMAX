@@ -4340,10 +4340,9 @@ void ODESetBodyAngle ( int iObjectNumber, float fXRot, float fYRot, float fZRot 
 	// change position of physics object
 	if ( pPhyObject->body )
 	{
+		btTransform oldTrans = pPhyObject->body->getWorldTransform();
 		btTransform worldTrans;
 		worldTrans.setIdentity();
-		btVector3 vecPos = pPhyObject->body->getWorldTransform().getOrigin();
-		worldTrans.setOrigin(vecPos);
 		GGQUATERNION QuatAroundX(1,0,0,fXRot);
 		GGQUATERNION QuatAroundY(0,1,0,fYRot);
 		GGQUATERNION QuatAroundZ(0,0,1,fZRot);
@@ -4353,7 +4352,21 @@ void ODESetBodyAngle ( int iObjectNumber, float fXRot, float fYRot, float fZRot 
 		GGQuaternionRotationAxis(&QuatAroundZ,&GGVECTOR3(0,0,1),GGToRadian(fZRot));
 		GGQUATERNION finalOrientation = QuatAroundX * QuatAroundY * QuatAroundZ;
 		worldTrans.setRotation(btQuaternion(finalOrientation.x,finalOrientation.y,finalOrientation.z,finalOrientation.w));
+
+		// turn about the object's pivot, keeping the body's offset from it
+		btVector3 vecPos = oldTrans.getOrigin();
+		sObject* pObject = GetObjectData(iObjectNumber);
+		if ( pObject )
+		{
+			btVector3 vecPivot(pObject->position.vecPosition.x/gSc, pObject->position.vecPosition.y/gSc, pObject->position.vecPosition.z/gSc);
+			btVector3 vecLocalOffset = oldTrans.getBasis().transpose() * (vecPos - vecPivot);
+			vecPos = vecPivot + (worldTrans.getBasis() * vecLocalOffset);
+		}
+		worldTrans.setOrigin(vecPos);
 		pPhyObject->body->setWorldTransform(worldTrans);
+
+		// static bodies need their bounds updated by hand
+		if ( pPhyObject->body->isStaticObject() && g_dynamicsWorld ) g_dynamicsWorld->updateSingleAabb(pPhyObject->body);
 	}
 	else
 	{
