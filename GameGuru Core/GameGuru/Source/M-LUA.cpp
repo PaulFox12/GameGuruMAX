@@ -397,6 +397,11 @@ void lua_loop_begin ( void )
 	if ( t.gunmode >= 101 && t.gunmode <= 120 ) iGunIsFiring = 1;
 	if ( t.gunmode >= 1020 && t.gunmode <= 1023 ) iGunIsFiring = 2;
 	LuaSetInt (  "g_PlayerGunFired", iGunIsFiring );
+	// rounds that left the barrel since the last update: 0 on a dry trigger pull, which g_PlayerGunFired also reports
+	extern int g_iPlayerGunShotCount;
+	static int iLastPlayerGunShotCount = 0;
+	LuaSetInt (  "g_PlayerGunShotThisFrame", g_iPlayerGunShotCount - iLastPlayerGunShotCount );
+	iLastPlayerGunShotCount = g_iPlayerGunShotCount;
 	LuaSetInt (  "g_PlayerGunAmmoCount", t.slidersmenuvalue[t.slidersmenunames.weapon][1].value );
 	LuaSetInt (  "g_PlayerGunClipCount", t.slidersmenuvalue[t.slidersmenunames.weapon][2].value );
 

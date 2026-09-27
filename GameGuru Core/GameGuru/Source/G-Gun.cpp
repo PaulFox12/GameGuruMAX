@@ -4032,11 +4032,16 @@ void gun_updatebulletvisibility ( void )
 	}
 }
 
+// every round (or throw) the player's gun has fired; Lua gets the number fired each frame as g_PlayerGunShotThisFrame
+int g_iPlayerGunShotCount = 0;
+
 void gun_shoot ( void )
 {
 	//  When fire Line (  active )
 	if ( t.gunshoot == 1 ) 
 	{
+		g_iPlayerGunShotCount++;
+
 		//  170315 - 020 - stop invincible if you shoot
 		g.mp.invincibleTimer = 0;
 
