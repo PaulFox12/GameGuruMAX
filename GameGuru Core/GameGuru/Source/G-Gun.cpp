@@ -4279,12 +4279,15 @@ void gun_shoot ( void )
 			t.gunshoot=0;
 		}
 
-		// 200918 - trigger ai sound so enemies can pick up the shot
-		t.tradius_f=2000;
-		g.aidetectnearbymode = 1;
-		g.aidetectnearbycount = 60*4;
-		g.aidetectnearbymodeX_f = CameraPositionX();
-		g.aidetectnearbymodeZ_f = CameraPositionZ();
+		// 200918 - trigger ai sound so enemies can pick up the shot (a melee strike makes none)
+		if ( t.gun[t.gunid].weapontype < 51 && t.gun[t.gunid].settings.ismelee == 0 )
+		{
+			t.tradius_f=2000;
+			g.aidetectnearbymode = 1;
+			g.aidetectnearbycount = 60*4;
+			g.aidetectnearbymodeX_f = CameraPositionX();
+			g.aidetectnearbymodeZ_f = CameraPositionZ();
+		}
 	}
 
 	// And can iterate more gunshoot rays if required
@@ -4404,8 +4407,8 @@ void gun_shoot_oneray ( void )
 		}
 	}
 
-	// any shot may be heard out there!
-	if (g.firemodes[t.gunid][g.firemode].settings.noscorch == 0)
+	// any shot may be heard out there! (not a melee strike)
+	if (g.firemodes[t.gunid][g.firemode].settings.noscorch == 0 && t.gun[t.gunid].weapontype < 51 && t.gun[t.gunid].settings.ismelee == 0)
 	{
 		// if a scorchy shooty bullety thing
 		t.tsx_f = CameraPositionX(0);
