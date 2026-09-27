@@ -670,6 +670,33 @@ namespace
 			}
 		}
 
+		// No detail edge qualified. Recast flags a boundary edge only within 0.001 units of the polygon outline
+		// (getEdgeFlags), which float rounding exceeds at large world coordinates, so a polygon can have none;
+		// or pos is not a number. Use the polygon outline instead, and failing that its first vertex, rather than
+		// interpolating between null pointers.
+		if (!pmin)
+		{
+			for (int k = 0, j = (int)poly->vertCount - 1; k < (int)poly->vertCount; j = k++)
+			{
+				const float* va = &tile->verts[poly->verts[j] * 3];
+				const float* vb = &tile->verts[poly->verts[k] * 3];
+				float t;
+				float d = dtDistancePtSegSqr2D(pos, va, vb, t);
+				if (d < dmin)
+				{
+					dmin = d;
+					tmin = t;
+					pmin = va;
+					pmax = vb;
+				}
+			}
+			if (!pmin)
+			{
+				dtVcopy(closest, &tile->verts[poly->verts[0] * 3]);
+				return;
+			}
+		}
+
 		dtVlerp(closest, pmin, pmax, tmin);
 	}
 }
