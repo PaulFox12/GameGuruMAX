@@ -1651,7 +1651,12 @@ void lua_setgamemusicvolume ( void )
 }
 void lua_setloadingresource ( void )
 {
-	t.loadingresource[t.e] = t.v;
+	// slot 0 holds how many of slots 1 onwards are in use, and the loading page reads that many
+	int iSlots = sizeof(t.loadingresource) / sizeof(t.loadingresource[0]);
+	if ( t.e < 0 || t.e >= iSlots ) return;
+	int iValue = t.v;
+	if ( t.e == 0 && iValue > iSlots - 1 ) iValue = iSlots - 1;
+	t.loadingresource[t.e] = iValue;
 }
 
 void lua_set_sky(void)
