@@ -6158,8 +6158,12 @@ bool WickedCall_SentRay2(float originx, float originy, float originz, float dire
 	return false;
 }
 
+// the limb (frame index) of the object the last WickedCall_SentRay4 hit, -1 if none; IntersectAllEx reports it
+int g_iWickedCallRayLimbHit = -1;
+
 bool WickedCall_SentRay4(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly)
 {
+	g_iWickedCallRayLimbHit = -1;
 	// ray cast specifically used by game loop to find accurate position of animating objects (performant?)
 	RAY pickRay;
 	XMFLOAT3 direction_inverse;
@@ -6189,6 +6193,17 @@ bool WickedCall_SentRay4(float originx, float originy, float originz, float dire
 		{
 			sObject* pHitObject = m_ObjectManager.FindObjectFromWickedObjectEntityID(hit.entity);
 			if (pHitObject) *pdwObjectNumberHit = pHitObject->dwObjectNumber;
+			if (pHitObject && pHitObject->ppFrameList)
+			{
+				for (int iFrame = 0; iFrame < pHitObject->iFrameCount; iFrame++)
+				{
+					if (pHitObject->ppFrameList[iFrame] && pHitObject->ppFrameList[iFrame]->wickedobjindex == hit.entity)
+					{
+						g_iWickedCallRayLimbHit = iFrame;
+						break;
+					}
+				}
+			}
 			*pOutX = hit.position.x;
 			*pOutY = hit.position.y;
 			*pOutZ = hit.position.z;

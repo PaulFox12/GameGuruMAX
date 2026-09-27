@@ -6434,6 +6434,13 @@ int GetIntersectCollisionNZ ( lua_State *L )
 	lua_pushnumber ( L, ChecklistFValueC(7) );
 	return 1;
 }
+// GetIntersectCollisionLimb(): the limb of the object the last intersect hit, numbered as GetLimbName numbers them; -1 when
+// it hit terrain or the pick was not the full-accuracy one (IntersectAllEx fills it from WickedCall_SentRay4)
+int GetIntersectCollisionLimb ( lua_State *L )
+{
+	lua_pushinteger ( L, ChecklistValueB(1) );
+	return 1;
+}
 int PositionCamera ( lua_State *L )
 {
 	lua = L;
@@ -14538,6 +14545,7 @@ void addFunctions()
 	lua_register(lua, "GetIntersectCollisionNX" , GetIntersectCollisionNX );
 	lua_register(lua, "GetIntersectCollisionNY" , GetIntersectCollisionNY );
 	lua_register(lua, "GetIntersectCollisionNZ" , GetIntersectCollisionNZ );
+	lua_register(lua, "GetIntersectCollisionLimb" , GetIntersectCollisionLimb );
 	lua_register(lua, "IntersectGetLastHitBone", IntersectGetLastHitBone);
 	lua_register(lua, "IntersectGetLastHitFrame", IntersectGetLastHitFrame);
 
