@@ -7527,6 +7527,18 @@ void WickedCall_UpdateWaterColor(float red, float green, float blue)
 }
 
 
+// water fog decides how far into the water you can see (the ocean shader ignores the water colour's alpha)
+void WickedCall_UpdateWaterFog(float fMinDist, float fMaxDist, float fMinAmount)
+{
+	wiScene::WeatherComponent* weather = wiScene::GetScene().weathers.GetComponent(g_weatherEntityID);
+	if (weather)
+	{
+		weather->oceanParameters.fogMinDist = fMinDist;
+		weather->oceanParameters.fogMaxDist = fMaxDist;
+		weather->oceanParameters.fogMinAmount = fMinAmount;
+	}
+}
+
 void WickedCall_UpdateTreeWind(float wind)
 {
 	wiScene::WeatherComponent* weather = wiScene::GetScene().weathers.GetComponent(g_weatherEntityID);

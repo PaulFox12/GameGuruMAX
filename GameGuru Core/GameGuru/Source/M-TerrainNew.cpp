@@ -6532,12 +6532,12 @@ void imgui_Customize_Water_V2(int mode)
 				ImGui::OpenPopup("##pickV2WickedWaterColor");
 			if (ImGui::BeginPopup("##pickV2WickedWaterColor", ImGuiWindowFlags_NoMove))
 			{
-				if (ImGui::ColorPicker4("##pickerV2WickedWaterColor", (float*)&mycolor, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoSmallPreview))
+				// no alpha: the ocean shader uses only the colour; how clear the water is comes from the water fog settings
+				if (ImGui::ColorPicker4("##pickerV2WickedWaterColor", (float*)&mycolor, ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoSmallPreview))
 				{
 					t.gamevisuals.WaterRed_f = t.visuals.WaterRed_f = mycolor.x * 255.0;
 					t.gamevisuals.WaterGreen_f = t.visuals.WaterGreen_f = mycolor.y * 255.0;
 					t.gamevisuals.WaterBlue_f = t.visuals.WaterBlue_f = mycolor.z * 255.0;
-					t.gamevisuals.WaterAlpha_f = t.visuals.WaterAlpha_f = mycolor.w * 255.0;
 
 					g.projectmodified = 1;
 					Wicked_Update_Visuals((void *)&t.visuals);
@@ -6591,7 +6591,7 @@ void imgui_Customize_Water_V2(int mode)
 
 
 				ImGui::TextCenter("Water Fog Start");
-				if (ImGui::MaxSliderInputFloat("##fWaterFogMinDist", &t.visuals.WaterFogMinDist, 0.0f, 100000.0f, "Closer than this distance under water will have the minimum amount of fog"))
+				if (ImGui::MaxSliderInputFloat("##fWaterFogMinDist", &t.visuals.WaterFogMinDist, 0.0f, 100000.0f, "Water clarity: closer than this distance under water will have the minimum amount of fog (Lua SetWaterFog)"))
 				{
 					if (t.visuals.WaterFogMinDist > t.visuals.WaterFogMaxDist) t.visuals.WaterFogMaxDist = t.visuals.WaterFogMinDist;
 					t.gamevisuals.WaterFogMinDist = t.visuals.WaterFogMinDist;
@@ -6600,7 +6600,7 @@ void imgui_Customize_Water_V2(int mode)
 				}
 
 				ImGui::TextCenter("Water Fog Maximum");
-				if (ImGui::MaxSliderInputFloat("##fWaterFogMaxDist", &t.visuals.WaterFogMaxDist, 0.0f, 100000.0f, "After this distance under water it will be completely opaque"))
+				if (ImGui::MaxSliderInputFloat("##fWaterFogMaxDist", &t.visuals.WaterFogMaxDist, 0.0f, 100000.0f, "Water clarity: after this distance under water it will be completely opaque (Lua SetWaterFog)"))
 				{
 					if (t.visuals.WaterFogMinDist > t.visuals.WaterFogMaxDist) t.visuals.WaterFogMinDist = t.visuals.WaterFogMaxDist;
 					t.gamevisuals.WaterFogMaxDist = t.visuals.WaterFogMaxDist;
@@ -6609,7 +6609,7 @@ void imgui_Customize_Water_V2(int mode)
 				}
 
 				ImGui::TextCenter("Water Fog Minimum");
-				if (ImGui::MaxSliderInputFloat("##fWaterFogMinAmount", &t.visuals.WaterFogMinAmount, 0.0f, 1.0f, "The minimum amount of under water fog that will always be present regardless of distance"))
+				if (ImGui::MaxSliderInputFloat("##fWaterFogMinAmount", &t.visuals.WaterFogMinAmount, 0.0f, 1.0f, "Water clarity: the minimum amount of under water fog that will always be present regardless of distance, lower is clearer (Lua SetWaterFog)"))
 				{
 					t.gamevisuals.WaterFogMinAmount = t.visuals.WaterFogMinAmount;
 					Wicked_Update_Visuals((void*)&t.visuals);

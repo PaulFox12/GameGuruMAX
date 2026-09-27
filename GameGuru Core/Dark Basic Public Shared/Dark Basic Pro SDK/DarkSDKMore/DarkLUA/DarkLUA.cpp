@@ -7800,6 +7800,30 @@ int SetWaterWaveIntensity(lua_State *L)
 	SetEffectConstantV(t.terrain.effectstartindex + 1, "nWaterScale", g.terrainvectorindex);
 	return 0;
 }
+// SetWaterFog(minDist, maxDist [, minAmount]): how clear the water is. Closer than minDist the water fog is at its
+// minimum amount (0 to 1, lower = clearer), beyond maxDist the water is opaque; distances in world units, 0 to 100000,
+// as the editor's water fog sliders. SetWaterTransparancy writes a legacy value the water no longer uses
+int SetWaterFog(lua_State *L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 2) return 0;
+	float fMinDist = max(0.0f, min(100000.0f, (float)lua_tonumber(L, 1)));
+	float fMaxDist = max(0.0f, min(100000.0f, (float)lua_tonumber(L, 2)));
+	if (fMaxDist <= fMinDist) fMaxDist = fMinDist + 0.1f;
+	t.visuals.WaterFogMinDist = fMinDist;
+	t.visuals.WaterFogMaxDist = fMaxDist;
+	if (n >= 3) t.visuals.WaterFogMinAmount = max(0.0f, min(1.0f, (float)lua_tonumber(L, 3)));
+	extern void WickedCall_UpdateWaterFog(float fMinDist, float fMaxDist, float fMinAmount);
+	WickedCall_UpdateWaterFog(t.visuals.WaterFogMinDist, t.visuals.WaterFogMaxDist, t.visuals.WaterFogMinAmount);
+	return 0;
+}
+int GetWaterFog(lua_State *L)
+{
+	lua_pushnumber(L, t.visuals.WaterFogMinDist);
+	lua_pushnumber(L, t.visuals.WaterFogMaxDist);
+	lua_pushnumber(L, t.visuals.WaterFogMinAmount);
+	return 3;
+}
 int SetWaterTransparancy(lua_State *L)
 {
 	t.visuals.WaterTransparancy_f = lua_tonumber(L, 1);
@@ -14685,6 +14709,8 @@ void addFunctions()
 	lua_register(lua, "SetWaterColor", SetWaterShaderColor);
 	lua_register(lua, "SetWaterWaveIntensity", SetWaterWaveIntensity);
 	lua_register(lua, "SetWaterTransparancy", SetWaterTransparancy);
+	lua_register(lua, "SetWaterFog", SetWaterFog);
+	lua_register(lua, "GetWaterFog", GetWaterFog);
 	lua_register(lua, "SetWaterReflection", SetWaterReflection);
 	lua_register(lua, "SetWaterReflectionSparkleIntensity", SetWaterReflectionSparkleIntensity);
 	lua_register(lua, "SetWaterFlowDirection", SetWaterFlowDirection);
