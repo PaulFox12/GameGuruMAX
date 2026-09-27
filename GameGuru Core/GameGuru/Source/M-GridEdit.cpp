@@ -15653,6 +15653,20 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.FogB_f = t.gamevisuals.FogB_f;
 	t.visuals.FogA_f = t.gamevisuals.FogA_f;
 
+	// and sun, ambience and exposure set by scripts (they write only t.visuals)
+	t.visuals.SunIntensity_f = t.gamevisuals.SunIntensity_f;
+	t.visuals.SunRed_f = t.gamevisuals.SunRed_f;
+	t.visuals.SunGreen_f = t.gamevisuals.SunGreen_f;
+	t.visuals.SunBlue_f = t.gamevisuals.SunBlue_f;
+	t.visuals.SunAngleX = t.gamevisuals.SunAngleX;
+	t.visuals.SunAngleY = t.gamevisuals.SunAngleY;
+	t.visuals.SunAngleZ = t.gamevisuals.SunAngleZ;
+	t.visuals.AmbienceIntensity_f = t.gamevisuals.AmbienceIntensity_f;
+	t.visuals.AmbienceRed_f = t.gamevisuals.AmbienceRed_f;
+	t.visuals.AmbienceGreen_f = t.gamevisuals.AmbienceGreen_f;
+	t.visuals.AmbienceBlue_f = t.gamevisuals.AmbienceBlue_f;
+	t.visuals.fExposure = t.gamevisuals.fExposure;
+
 	// remember game states for next time
 	visuals_save ( );
 
