@@ -748,9 +748,10 @@ bool Sample_TileMesh::handleBuild()
 		return false;
 	}
 	
-	// search nodes per path query; 2048 can run out on long routes. A route that cannot be reached searches until they
-	// run out, so this also bounds the cost of such a query
-	status = m_navQuery->init(m_navMesh, 16384);
+	// search nodes per path query (was 2048). A route that cannot be reached searches until they run out, so this bounds
+	// the cost of such a query: on the Hired Gun level 16384 nodes took up to 15 ms. Long routes come back partial and
+	// are walked in legs (the game's AI steers 1,500 unit legs), so 4096 is enough
+	status = m_navQuery->init(m_navMesh, 4096);
 	if (dtStatusFailed(status))
 	{
 		tileLog(RC_LOG_ERROR, "buildTiledNavigation: Could not init Detour navmesh query");
