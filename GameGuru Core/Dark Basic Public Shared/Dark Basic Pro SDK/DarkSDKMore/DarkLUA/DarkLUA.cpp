@@ -156,21 +156,56 @@ bool LuaEntityIDValid ( lua_State* L, int iEntityID, int iMinID )
 	if ( g.gproducelogfiles > 0 )
 	{
 		static std::unordered_set<std::string> invalidEntityCallsLogged;
+
+		// the call info only names functions called by their global name, so a command called through a local or
+		// pcall is looked up in the globals table instead
+		std::string name = "?";
 		lua_Debug ar;
-		const char* pName = "?";
-		if ( lua_getstack ( L, 0, &ar ) && lua_getinfo ( L, "n", &ar ) && ar.name ) pName = ar.name;
-		luaL_where ( L, 1 );
-		luaL_where ( L, 2 );
-		const char* pWhere1 = lua_tostring ( L, -2 );
-		const char* pWhere2 = lua_tostring ( L, -1 );
-		std::string key = std::string(pName) + pWhere1 + pWhere2;
-		if ( invalidEntityCallsLogged.insert(key).second )
+		if ( lua_getstack ( L, 0, &ar ) && lua_getinfo ( L, "nf", &ar ) )
+		{
+			if ( ar.name )
+			{
+				name = ar.name;
+			}
+			else
+			{
+				lua_pushglobaltable ( L );
+				lua_pushnil ( L );
+				while ( lua_next ( L, -2 ) )
+				{
+					if ( lua_type ( L, -2 ) == LUA_TSTRING && lua_rawequal ( L, -1, -4 ) )
+					{
+						name = lua_tostring ( L, -2 );
+						lua_pop ( L, 2 );
+						break;
+					}
+					lua_pop ( L, 1 );
+				}
+				lua_pop ( L, 1 );
+			}
+			lua_pop ( L, 1 );
+		}
+
+		// the first two script lines up the stack, skipping C frames such as pcall
+		std::string where;
+		int iScriptFrames = 0;
+		for ( int level = 1; iScriptFrames < 2 && lua_getstack ( L, level, &ar ); level++ )
+		{
+			if ( lua_getinfo ( L, "Sl", &ar ) && ar.currentline > 0 )
+			{
+				char pFrame[300];
+				snprintf ( pFrame, sizeof(pFrame), "%s%s:%d", iScriptFrames ? " < " : "", ar.short_src, ar.currentline );
+				where += pFrame;
+				iScriptFrames++;
+			}
+		}
+
+		if ( invalidEntityCallsLogged.insert(name + where).second )
 		{
 			char pLog[1024];
-			snprintf ( pLog, sizeof(pLog), "Lua %s ignored invalid entity %d (valid %d to %d) at %s %s", pName, iEntityID, iMinID, (int)t.entityelement.size()-1, pWhere1, pWhere2 );
+			snprintf ( pLog, sizeof(pLog), "Lua %s ignored invalid entity %d (valid %d to %d) at %s", name.c_str(), iEntityID, iMinID, (int)t.entityelement.size()-1, where.c_str() );
 			timestampactivity ( 0, pLog );
 		}
-		lua_pop ( L, 2 );
 	}
 	return false;
 }
