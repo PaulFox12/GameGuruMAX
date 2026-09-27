@@ -306,6 +306,11 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 {
 	bool bStandalone = bForceGeneration;
 
+	// must still reset nav mesh system for new run (blocker list), also when the cached vertices below are used
+	g_RecastDetour.ResetBlockerSystem();
+	g_RecastDetour.ResetTokenDropSystem();
+	g_RecastDetour.SetWaterTableY(t.terrain.waterliney_f);
+
 	if (bStandalone)
 	{
 		//PE: Check if we got the raw pVertices size numVertices,  under fpm name.
@@ -428,11 +433,6 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 
 	// toggling trees means recalcing for tree obstacles
 	dSuperHash += (int)t.terrain.waterliney_f;
-
-	// must still reset nav mesh system for new run (blocker list)
-	g_RecastDetour.ResetBlockerSystem();
-	g_RecastDetour.ResetTokenDropSystem();
-	g_RecastDetour.SetWaterTableY(t.terrain.waterliney_f);
 
 	// exit early if no change detected in static arrangement
 	static double dLastSuperHash = -1;
