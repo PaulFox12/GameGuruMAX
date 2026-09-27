@@ -971,6 +971,9 @@ void mapfile_loadproject_fpm ( void )
 		cstr old_tree_data_name = "4800000.tre"; //PE: Tree format 1.0. Make sure it deleted.
 		if (FileExist(old_tree_data_name.Get()) == 1) DeleteAFile(old_tree_data_name.Get());
 
+		cstr old_size_tree_data_name = "4800004.tre"; // 400,000 tree slots
+		if (FileExist(old_size_tree_data_name.Get()) == 1) DeleteAFile(old_size_tree_data_name.Get());
+
 		uint32_t grass_data_size = GGGrass::GGGrass_GetDataSize();
 		cstr grass_data_name = cstr((int)grass_data_size) + cstr(".gra");
 		if (FileExist(grass_data_name.Get()) == 1) DeleteAFile(grass_data_name.Get());
@@ -1120,6 +1123,15 @@ void mapfile_loadproject_fpm ( void )
 			{
 				cstr tree_data_name = cstr((int)tree_data_size) + cstr(".tre");
 				cstr old_tree_data_name = "4800000.tre"; //PE: Tree format 1.0
+
+				// a level saved with 400,000 tree slots loads into the first slots, the rest stay hidden
+				GGTrees::GGTrees_GetEmptyData((float*)data);
+				cstr old_size_tree_data_name = "4800004.tre";
+				if (FileExist(tree_data_name.Get()) == 0 && FileExist(old_size_tree_data_name.Get()) == 1)
+				{
+					tree_data_name = old_size_tree_data_name;
+				}
+
 				bool bConvertOldFormat = false;
 				if (FileExist(old_tree_data_name.Get()) == 1)
 				{

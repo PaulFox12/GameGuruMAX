@@ -129,7 +129,9 @@ float treeMaxHeight = 1; // calculated at run time
 #define GGTREES_MIN_AREA 200000.0f
 #define GGTREES_MAX_AREA 400000.0f
 float treeArea = GGTREES_MIN_AREA;
-const uint32_t numTotalTrees = 400000;
+// Hired Gun: 700,000 slots (stock 400,000) so a large level can be covered at forest density. The tree file is named
+// after its size (8400004.tre); a level with only a 400,000 slot file (4800004.tre) loads into the first slots
+const uint32_t numTotalTrees = 700000;
 const uint32_t treeSplit = 16;
 
 // full detail trees per type per frame (draw and shadow lists). A tree inside lod_dist has no billboard, so any tree
@@ -961,7 +963,7 @@ void GGTrees_RepopulateInstances()
 	float halfArea = treeArea * 0.5f;
 
 	// start with sorted array
-	uint32_t treeLocation[ numTotalTrees ];
+	std::vector<uint32_t> treeLocation( numTotalTrees );
 	for( uint32_t z = 0; z < iGridZ; z++ )
 	{
 		for( uint32_t x = 0; x < iGridX; x++ )
@@ -1561,9 +1563,11 @@ bool GGTrees_GetDefaultDataV2(char *filename)
 {
 	if (!filename) return(false);
 	bool bRet = false;
-	char *data = new char[4800004];
+	uint32_t dataSize = GGTrees_GetDataSize() * 4;
+	char *data = new char[dataSize];
 	if (data)
 	{
+		GGTrees_GetEmptyData((float*)data);
 		if (FileExist(filename) == 1)
 		{
 			// Open file to be read
@@ -1572,7 +1576,7 @@ bool GGTrees_GetDefaultDataV2(char *filename)
 			{
 				// Read file into memory
 				DWORD bytesread;
-				ReadFile(hreadfile, data, 4800004, &bytesread, NULL);
+				ReadFile(hreadfile, data, dataSize, &bytesread, NULL);
 				CloseHandle(hreadfile);
 				GGTrees::GGTrees_SetData((float*)data);
 				bRet = true;
@@ -1682,6 +1686,24 @@ uint32_t GGTrees_GetDataSize()
 }
 
 #define GGTREES_CURRENT_VERSION 3
+
+// fills data with every tree hidden and outside any tree area, so a smaller tree file read over it leaves the
+// remaining slots unused
+void GGTrees_GetEmptyData( float* data )
+{
+	uint32_t* dataInt = (uint32_t*) data;
+	dataInt[ 0 ] = GGTREES_CURRENT_VERSION;
+
+	data++;
+	dataInt++;
+
+	for( uint32_t i = 0; i < numTotalTrees; i++ )
+	{
+		data[ i * 3 + 0 ] = GGTREES_MAX_AREA;
+		data[ i * 3 + 1 ] = GGTREES_MAX_AREA;
+		dataInt[ i * 3 + 2 ] = 0;
+	}
+}
 
 int GGTrees_GetData( float* data )
 {
