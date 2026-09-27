@@ -1931,13 +1931,24 @@ void entity_lua_setrotationz ( void )
 	entity_lua_rotateupdate ( );
 }
 
+void entity_lua_resetbodyangle ( int iObj, float fX, float fY, float fZ )
+{
+	// a static body is created turned by the profile's fixnewy (physics_setupobject), so it keeps that turn
+	if ( t.entityelement[t.e].staticflag == 1 || t.entityelement[t.e].eleprof.isimmobile == 1 )
+	{
+		int entid = t.entityelement[t.e].bankindex;
+		if ( entid > 0 ) fY += t.entityprofile[entid].fixnewy;
+	}
+	ODESetBodyAngle ( iObj, fX, fY, fZ );
+}
+
 void entity_lua_resetrotationx ( void )
 {
 	t.entityelement[t.e].rx = t.v_f;
-	if (  t.entityelement[t.e].usingphysicsnow == 1 ) 
+	if (  t.entityelement[t.e].usingphysicsnow == 1 )
 	{
 		t.tobj=t.entityelement[t.e].obj;
-		ODESetBodyAngle ( t.tobj,t.v_f, ObjectAngleY(t.tobj), ObjectAngleZ(t.tobj) );
+		entity_lua_resetbodyangle ( t.tobj,t.v_f, ObjectAngleY(t.tobj), ObjectAngleZ(t.tobj) );
 		RotateObject ( t.tobj, t.v_f, ObjectAngleY(t.tobj), ObjectAngleZ(t.tobj) );
 	}
 	else
@@ -1956,7 +1967,7 @@ void entity_lua_resetrotationy ( void )
 	if (  t.entityelement[t.e].usingphysicsnow == 1 ) 
 	{
 		t.tobj=t.entityelement[t.e].obj;
-		ODESetBodyAngle ( t.tobj, ObjectAngleX(t.tobj), t.v_f, ObjectAngleZ(t.tobj) );
+		entity_lua_resetbodyangle ( t.tobj, ObjectAngleX(t.tobj), t.v_f, ObjectAngleZ(t.tobj) );
 		RotateObject ( t.tobj, ObjectAngleX(t.tobj), t.v_f, ObjectAngleZ(t.tobj) );
 	}
 	else
@@ -1980,7 +1991,7 @@ void entity_lua_resetrotationz ( void )
 	if (  t.entityelement[t.e].usingphysicsnow == 1 ) 
 	{
 		t.tobj=t.entityelement[t.e].obj;
-		ODESetBodyAngle ( t.tobj, ObjectAngleX(t.tobj), ObjectAngleY(t.tobj), t.v_f );
+		entity_lua_resetbodyangle ( t.tobj, ObjectAngleX(t.tobj), ObjectAngleY(t.tobj), t.v_f );
 		RotateObject ( t.tobj, ObjectAngleX(t.tobj), ObjectAngleY(t.tobj), t.v_f );
 	}
 	else
