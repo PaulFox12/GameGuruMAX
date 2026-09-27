@@ -1108,6 +1108,7 @@ void GGTrees_ChangeDensity( int density)
 		bool flattened = pInstance->IsFlattened();
 		pInstance->SetData(j, chosenType, 1);
 		pInstance->SetScale(Random(ggtrees_global_params.paint_scale_random_low, ggtrees_global_params.paint_scale_random_high));
+		if (flattened) pInstance->SetFlattened(1);
 		int test = j % 100;
 		// a slot outside the tree area is in no chunk, so it stays hidden and free for the Add tool
 		if (test >= ggtrees_global_params.paint_density || !GGTrees_GetChunk(pInstance->x, pInstance->z))
