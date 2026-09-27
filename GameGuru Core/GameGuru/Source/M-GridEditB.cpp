@@ -27967,11 +27967,18 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 
 			if (elementID > 0 && elementID < t.entityelement.size() )
 			{
-				bool bAllowBulletHole = t.entityelement[elementID].iAllowBuletHole;
-				if (ImGui::Checkbox("Allow Bullet Holes ?", &bAllowBulletHole))
+				// 0 = as the object's .fpe allowbulletholes (older levels' unticked box), 1 = yes, 2 = no (see entity_allowsbulletholes)
+				int iAllowBulletHole = t.entityelement[elementID].iAllowBuletHole;
+				if (iAllowBulletHole < 0 || iAllowBulletHole > 2) iAllowBulletHole = 0;
+				const char* pObjectDefault = "Object Default (No)";
+				if (t.entityprofile[t.entityelement[elementID].bankindex].allowbulletholes == 1) pObjectDefault = "Object Default (Yes)";
+				const char* bullethole_items[] = { pObjectDefault, "Yes", "No" };
+				ImGui::TextCenter("Allow Bullet Holes");
+				if (ImGui::Combo("##AllowBulletHoles", &iAllowBulletHole, bullethole_items, IM_ARRAYSIZE(bullethole_items)))
 				{
-					t.entityelement[elementID].iAllowBuletHole = bAllowBulletHole;
+					t.entityelement[elementID].iAllowBuletHole = iAllowBulletHole;
 				}
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Whether shots leave bullet holes on this object. Object Default uses allowbulletholes in its .fpe");
 			}
 
 			ImGui::Indent(-10);

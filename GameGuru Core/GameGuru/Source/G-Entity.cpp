@@ -3143,6 +3143,16 @@ void entity_gettrueplayerpos(void)
 	}
 }
 
+// whether a bullet hole may be left on entity e: always on a static entity; otherwise its Allow Bullet Holes setting,
+// 1 yes, 2 no, 0 (the default, and an older level's unticked box) as the object's .fpe allowbulletholes
+bool entity_allowsbulletholes(int e)
+{
+	if (t.entityelement[e].staticflag == 1) return true;
+	if (t.entityelement[e].iAllowBuletHole == 1) return true;
+	if (t.entityelement[e].iAllowBuletHole == 0) return t.entityprofile[t.entityelement[e].bankindex].allowbulletholes == 1;
+	return false;
+}
+
 // a shot from a script's weapon, detected as entity_hasbulletrayhit detects the player's: terrain first, then the entities with
 // full Wicked accuracy, physics shapes for collisionoverride and collisionmode 11 entities, and the material of the entity hit.
 // With bLeaveHole it leaves a bullet hole under the same rules. Returns 0 for no hit, 1 for terrain, 2 for an object
@@ -3221,7 +3231,7 @@ int entity_scriptbulletray ( float fX1, float fY1, float fZ1, float fX2, float f
 	bool bHole = false;
 	if (bLeaveHole && iHitType > 0 && iMaterial > 0 && iMaterial != 6)
 	{
-		bool bAllowed = (iHitE == 0 || t.entityelement[iHitE].staticflag == 1 || t.entityelement[iHitE].iAllowBuletHole == 1);
+		bool bAllowed = (iHitE == 0 || entity_allowsbulletholes(iHitE));
 		if (iHitE > 0 && t.entityprofile[t.entityelement[iHitE].bankindex].ischaracter == 1 && t.entityelement[iHitE].eleprof.isviolent != 0) bAllowed = false;
 		if (bAllowed)
 		{
@@ -3610,7 +3620,7 @@ void entity_hasbulletrayhit(void)
 	{
 		if (t.tttriggerdecalimpact >= 10 && t.tttriggerdecalimpact != 16 && t.bulletrayhite >= 0 )
 		{
-			if (t.bulletrayhite == 0 || t.entityelement[t.bulletrayhite].staticflag == 1 || t.entityelement[t.bulletrayhite].iAllowBuletHole == 1 )
+			if (t.bulletrayhite == 0 || entity_allowsbulletholes(t.bulletrayhite) )
 			{
 				int iMaterialIndex = t.tttriggerdecalimpact - 10;
 				bulletholes_add(iMaterialIndex, t.brayx2_f, t.brayy2_f, t.brayz2_f, vecRayHitNormal.x, vecRayHitNormal.y, vecRayHitNormal.z, t.bulletrayhite);

@@ -5742,6 +5742,7 @@ struct entityprofiletype
 	float forceobstaclesliceminsize;
 	int notanoccluder;
 	int materialindex;
+	int allowbulletholes;
 	int disablebatch;
 	int lod1distance;
 	int lod2distance;
@@ -6141,6 +6142,7 @@ struct entityprofiletype
 		 lod1distance = 0;
 		 disablebatch = 0;
 		 materialindex = 0;
+		 allowbulletholes = 0;
 		 notanoccluder = 0;
 		 forcesimpleobstacle = 0;
 		 forceobstaclepolysize = 0.0f;

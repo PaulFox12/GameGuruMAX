@@ -3172,6 +3172,7 @@ static int LUA_GETTOP(lua_State* L)
 	t.entityelement[t.e].soundset4 = t.entityelement[iEntityIndex].soundset4;
 	t.entityelement[t.e].soundset5 = t.entityelement[iEntityIndex].soundset5;
 	t.entityelement[t.e].soundset6 = t.entityelement[iEntityIndex].soundset6;
+	t.entityelement[t.e].iAllowBuletHole = t.entityelement[iEntityIndex].iAllowBuletHole;
 	// clones always show at start
 	t.entityelement[t.e].eleprof.spawnatstart = 1;
 	iNewE = t.e;
@@ -11892,7 +11893,7 @@ int AddBulletHole ( lua_State *L )
 	bool bAllowed = fLength > 0.0001f && iMaterial > 0 && ObjectExist ( g.bulletholesobject ) == 1;
 	if ( bAllowed && e != 0 )
 	{
-		bAllowed = LuaEntityIDValid ( L, e, 1 ) && ( t.entityelement[e].staticflag == 1 || t.entityelement[e].iAllowBuletHole == 1 );
+		bAllowed = LuaEntityIDValid ( L, e, 1 ) && entity_allowsbulletholes ( e );
 	}
 	if ( bAllowed ) bulletholes_add ( iMaterial, lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3), fNX / fLength, fNY / fLength, fNZ / fLength, e );
 	lua_pushinteger(L, bAllowed ? 1 : 0);

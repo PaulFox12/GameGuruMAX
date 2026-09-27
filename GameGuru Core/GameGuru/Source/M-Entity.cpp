@@ -2397,6 +2397,10 @@ void entity_loaddata ( void )
 						if (t.entityprofile[t.entid].materialindex == -1) t.entityprofile[t.entid].materialindex = 0; // repair!
 					}
 
+					// default for placements whose Allow Bullet Holes is left to the object (see entity_allowsbulletholes)
+					cmpStrConst( t_field_s, "allowbulletholes" );
+					if (matched) t.entityprofile[t.entid].allowbulletholes = t.value1;
+
 					//  LOD and BITBOB system
 					cmpStrConst( t_field_s, "disablebatch" );
 					if (  matched  )  t.entityprofile[t.entid].disablebatch = t.value1;
