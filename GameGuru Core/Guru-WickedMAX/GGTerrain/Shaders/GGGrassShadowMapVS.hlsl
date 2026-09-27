@@ -35,6 +35,7 @@ VertexOut main( VertexIn IN )
  
 	float4 pos = float4( posOrig, 1.0 );
 	pos.xyz = pos.xyz + IN.offset;
+	pos.xyz += GrassWindOffset( IN.offset.xz, IN.position.y, posOrig.y ); // shadows lean with the blades
 	OUT.worldPos = pos.xyz;
 	OUT.position = mul( g_xCamera_VP, pos );
 	OUT.uv = IN.uv;

@@ -57,6 +57,7 @@ VertexOut main( VertexIn IN )
 	pos.w = 1;
 	 
 	pos.xyz += IN.offset;
+	pos.xyz += GrassWindOffset( IN.offset.xz, IN.position.y, posOrig.y );
 	/*
 	float offset = (IN.instanceID & 0x7F) * 16;
 	float dist = length( g_xCamera_CamPos - pos.xyz );

@@ -1736,6 +1736,18 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 		grassConstantData.grass_type[ i ].cosTime = cos( time + (i * 0.1f) );
 	}
 
+	// the foliage wind (SetTreeWind, Tab Tab Tree Wind) bends the grass along the weather wind direction; the sway speed
+	// follows the trees' rule: its own value if set, otherwise tied to the amount
+	const wiScene::WeatherComponent& weather = wiScene::GetScene().weather;
+	float fWindX = weather.windDirection.x;
+	float fWindZ = weather.windDirection.z;
+	float fWindLength = sqrtf( fWindX*fWindX + fWindZ*fWindZ );
+	if ( fWindLength > 0.001f ) { fWindX /= fWindLength; fWindZ /= fWindLength; }
+	else { fWindX = 0.7071f; fWindZ = 0.7071f; }
+	float fSwaySpeed = weather.tree_wind_speed > 0 ? weather.tree_wind_speed : weather.tree_wind * 6.0f;
+	grassConstantData.grass_wind = XMFLOAT4( fWindX, fWindZ, weather.tree_wind, fSwaySpeed );
+	grassConstantData.grass_windTime = time;
+
 	grassConstantData.grass_lodDist = gggrass_global_params.lod_dist;
 	grassConstantData.grass_scale = gggrass_global_params.grass_scale;
 	grassConstantData.grass_flags = 0;

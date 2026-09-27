@@ -7034,7 +7034,7 @@ void imgui_Customize_Weather_V2(int mode)
 				WickedCall_UpdateTreeWind(t.visuals.tree_wind);
 				g.projectmodified = 1;
 			}
-			if (ImGui::windowTabVisible() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "How much trees and foliage sway (SetTreeWind). Wind Speed does not move trees");
+			if (ImGui::windowTabVisible() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "How much trees, foliage and grass sway (SetTreeWind). Wind Speed does not move them; Wind Direction sets which way grass leans");
 			ImGui::PopItemWidth();
 
 			ImGui::Text("Tree Sway Speed");
@@ -7047,7 +7047,7 @@ void imgui_Customize_Weather_V2(int mode)
 				WickedCall_UpdateTreeWindSpeed(t.visuals.tree_wind_speed);
 				g.projectmodified = 1;
 			}
-			if (ImGui::windowTabVisible() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "How fast trees and foliage sway (SetTreeWind's second value). At 0 the speed rises with Tree Wind, as before");
+			if (ImGui::windowTabVisible() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "How fast trees, foliage and grass sway (SetTreeWind's second value). At 0 the speed rises with Tree Wind, as before");
 			ImGui::PopItemWidth();
 
 

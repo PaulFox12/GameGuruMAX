@@ -41,13 +41,28 @@ cbuffer GrassCB : register( b2 )
 	float grass_lodDist;
 	uint grass_flags;
 	float grass_scale;
-	float grass_padding2;
+	float grass_windTime; // seconds, for the wind ripple
+
+	float4 grass_wind; // xy: wind direction on x and z (normalised), z: sway amount (the tree wind), w: sway speed
 };
 
 // shader only
 #ifndef __cplusplus
 	uint GetGrassType( uint data ) { return data & 0xFF; }
 	uint GetGrassVariation( uint data ) { return (data >> 8) & 31; } // must result in a value less than GGGRASS_NUM_TYPES to have enough cosTime entries
+
+	// world-space bend of a blade vertex from the wind: the blade leans along the wind direction, most at the tip, and
+	// the lean swells and eases as gusts roll across the field; the vertex also drops a little so the blade keeps
+	// roughly its length. Zero when there is no wind, so calm grass is unchanged.
+	// heightFraction is 0 at the root and 1 at the tip, bladeHeight the vertex's height above the root in world units
+	float3 GrassWindOffset( float2 rootPosXZ, float heightFraction, float bladeHeight )
+	{
+		if ( grass_wind.z <= 0 || bladeHeight <= 0 ) return float3( 0, 0, 0 );
+		float phase = dot( rootPosXZ, grass_wind.xy ) * (6.2832 / 1200.0); // one gust every ~1200 units along the wind
+		float gust = 0.6 + 0.4 * sin( grass_windTime * grass_wind.w * 1.3 - phase );
+		float lean = grass_wind.z * gust * heightFraction * bladeHeight;
+		return float3( grass_wind.x * lean, -0.5 * lean * lean / bladeHeight, grass_wind.y * lean );
+	}
 #endif
 
 //#endif // GGTREES_CONSTANTS_FULL_DECL
