@@ -4715,6 +4715,31 @@ void WickedCall_UpdateLimbsOfObject(sObject* pObject)
 	}
 }
 
+// one limb moved from Lua (RotateLimb / OffsetLimb write the frame's user matrix): give its Wicked transform the local
+// matrix the DBO renderer used, the user matrix times the frame's original matrix from the model file
+// (WickedCall_UpdateLimbsOfObject rebuilds from the user values alone, which suits Environment Builder objects only)
+void WickedCall_UpdateLimbFromFrame(sObject* pObject, int iLimb)
+{
+	if (!pObject || !pObject->ppFrameList || iLimb < 0 || iLimb >= pObject->iFrameCount) return;
+	sFrame* pFrame = pObject->ppFrameList[iLimb];
+	if (!pFrame) return;
+
+	// a mesh skinned to an armature keeps an identity transform under it (WickedCall_LoadNode); its bones move instead
+	if (pFrame->pMesh && pFrame->pMesh->dwBoneCount > 0) return;
+
+	TransformComponent* pTransform = wiScene::GetScene().transforms.GetComponent(pFrame->wickedobjindex);
+	if (!pTransform) return;
+
+	GGMATRIX matLocal = pFrame->matUserMatrix * pFrame->matOriginal;
+	pTransform->world._11 = matLocal._11; pTransform->world._12 = matLocal._12; pTransform->world._13 = matLocal._13; pTransform->world._14 = matLocal._14;
+	pTransform->world._21 = matLocal._21; pTransform->world._22 = matLocal._22; pTransform->world._23 = matLocal._23; pTransform->world._24 = matLocal._24;
+	pTransform->world._31 = matLocal._31; pTransform->world._32 = matLocal._32; pTransform->world._33 = matLocal._33; pTransform->world._34 = matLocal._34;
+	pTransform->world._41 = matLocal._41; pTransform->world._42 = matLocal._42; pTransform->world._43 = matLocal._43; pTransform->world._44 = matLocal._44;
+	pTransform->ApplyTransform();
+	pTransform->UpdateTransform();
+	pTransform->SetDirty();
+}
+
 void WickedCall_UpdateSceneForPick(void)
 {
 	// when position/rot/etc an object, and then need to instantly
