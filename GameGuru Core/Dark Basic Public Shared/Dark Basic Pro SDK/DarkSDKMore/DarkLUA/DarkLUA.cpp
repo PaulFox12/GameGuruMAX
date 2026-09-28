@@ -6003,6 +6003,17 @@ int GetVideoMemoryUsed ( lua_State *L )
 	lua_pushnumber ( L, fBudgetMB );
 	return 2;
 }
+// GetDrawCalls(): the last frame's draw calls in the main pass, in the shadow passes and for transparent objects, and
+// the triangles the main pass drew
+int GetDrawCalls ( lua_State *L )
+{
+	lua = L;
+	lua_pushinteger ( L, wiProfiler::GetDrawCalls() );
+	lua_pushinteger ( L, wiProfiler::GetDrawCallsShadows() );
+	lua_pushinteger ( L, wiProfiler::GetDrawCallsTransparent() );
+	lua_pushinteger ( L, wiProfiler::GetPolygons() );
+	return 4;
+}
 int GetPlrObjectPositionX ( lua_State *L )
 {
 	lua = L;
@@ -14830,6 +14841,7 @@ void addFunctions()
 	lua_register(lua, "WrapValue" , WrapValue );
 	lua_register(lua, "GetElapsedTime" , GetElapsedTime );
 	lua_register(lua, "GetVideoMemoryUsed" , GetVideoMemoryUsed );
+	lua_register(lua, "GetDrawCalls" , GetDrawCalls );
 	lua_register(lua, "GetPlrObjectPositionX" , GetPlrObjectPositionX );
 	lua_register(lua, "GetPlrObjectPositionY" , GetPlrObjectPositionY );
 	lua_register(lua, "GetPlrObjectPositionZ" , GetPlrObjectPositionZ );
