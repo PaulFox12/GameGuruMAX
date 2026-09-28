@@ -31,7 +31,36 @@ bool g_bulletholeavailable[BULLETHOLESMAX];
 GGVECTOR3 g_vecBulletHoleQuad[4];
 GGVECTOR3 g_vecBulletHoleQuadUV[4];
 
+// the bullet hole mesh has changed and the renderer's copy must follow; bulletholes_update refreshes it once a frame. The
+// first refresh after bulletholes_init rebuilds the whole Wicked object (texture, transparency, render layer), later ones
+// copy the vertices into its mesh, as rebuilding the object for every hole cost about 10 ms a hole
+bool g_bBulletHolesDirty = false;
+bool g_bBulletHolesFullRebuild = true;
+
 // functions
+
+void bulletholes_refreshobject (void)
+{
+	if (ObjectExist(g.bulletholesobject) == 0) return;
+	sObject* pObject = GetObjectData(g.bulletholesobject);
+	if (!pObject) return;
+	if (g_bBulletHolesFullRebuild == true || pObject->iMeshCount < 1 || !pObject->ppMeshList || !pObject->ppMeshList[0])
+	{
+		WickedCall_RemoveObject(pObject);
+		WickedCall_AddObject(pObject);
+		WickedCall_TextureObject(pObject, NULL);
+		WickedCall_SetObjectCastShadows(pObject, false);
+		WickedCall_SetObjectTransparent(pObject);
+		WickedCall_SetObjectRenderLayer(pObject, GGRENDERLAYERS_CURSOROBJECT);
+		g_bBulletHolesFullRebuild = false;
+	}
+	else
+	{
+		// positions, normals and UVs; recreating the render data also refits the mesh bounds to the holes
+		WickedCall_UpdateMeshVertexData(pObject->ppMeshList[0], true);
+	}
+	g_bBulletHolesDirty = false;
+}
 
 void bulletholes_init (void)
 {
@@ -75,6 +104,9 @@ void bulletholes_init (void)
 
 	//  clear all bulletholes
 	bulletholes_clearall();
+
+	// the first change in this level rebuilds the renderer's object
+	g_bBulletHolesFullRebuild = true;
 }
 
 void bulletholes_clearall (void)
@@ -95,6 +127,7 @@ void bulletholes_clearall (void)
 	// clear the list
 	g_bulletholes.clear();
 	memset(g_bulletholeavailable, 0, sizeof(g_bulletholeavailable));
+	g_bBulletHolesDirty = true;
 }
 
 void bulletholes_changesinglehole (int iVertIndex, float fNX, float fNY, float fNZ)
@@ -240,17 +273,9 @@ void bulletholes_add (int iMaterialIndex, float fX, float fY, float fZ, float fN
 		g_bulletholes.push_back(bullethole);
 		g_bulletholeavailable[iBulletSlot] = true;
 
-		// add vert data to represent this bullet hole
+		// add vert data to represent this bullet hole, seen after the next bulletholes_update
 		bulletholes_changesinglehole (bullethole.iVertIndexStart, fNX, fNY, fNZ);
-
-		// update object to see change
-		sObject* pObject = GetObjectData(g.bulletholesobject);
-		WickedCall_RemoveObject(pObject);
-		WickedCall_AddObject(pObject);
-		WickedCall_TextureObject(pObject, NULL);
-		WickedCall_SetObjectCastShadows(pObject, false);
-		WickedCall_SetObjectTransparent(pObject);
-		WickedCall_SetObjectRenderLayer(pObject, GGRENDERLAYERS_CURSOROBJECT);
+		g_bBulletHolesDirty = true;
 	}
 }
 
@@ -317,16 +342,10 @@ void bulletholes_update (void)
 			break;
 		}
 	}
-	if (bUpdateTheObject == true)
-	{
-		// update object to see change
-		sObject* pObject = GetObjectData(g.bulletholesobject);
-		WickedCall_RemoveObject(pObject);
-		WickedCall_AddObject(pObject);
-		WickedCall_TextureObject(pObject, NULL);
-		WickedCall_SetObjectCastShadows(pObject, false);
-		WickedCall_SetObjectTransparent(pObject);
-	}
+	if (bUpdateTheObject == true) g_bBulletHolesDirty = true;
+
+	// show this frame's new, expired and removed holes in one refresh
+	if (g_bBulletHolesDirty == true) bulletholes_refreshobject();
 }
 
 void bulletholes_free (void)

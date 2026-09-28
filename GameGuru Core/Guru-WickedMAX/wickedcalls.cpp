@@ -3568,6 +3568,12 @@ void WickedCall_GetLimbData(sObject* pObject, int iLimbID, float* pX, float* pY,
 
 void WickedCall_UpdateMeshVertexData(sMesh* pDBOMesh)
 {
+	WickedCall_UpdateMeshVertexData(pDBOMesh, false);
+}
+
+// bNormals also copies the normals (the positions and UVs are always copied)
+void WickedCall_UpdateMeshVertexData(sMesh* pDBOMesh, bool bNormals)
+{
 	if (pDBOMesh)
 	{
 		wiScene::MeshComponent* mesh = wiScene::GetScene().meshes.GetComponent(pDBOMesh->wickedmeshindex);
@@ -3594,6 +3600,14 @@ void WickedCall_UpdateMeshVertexData(sMesh* pDBOMesh)
 					pos.y = *(float*)((float*)pDBOMesh->pVertexData + offsetMap.dwY + (offsetMap.dwSize * v));
 					pos.z = *(float*)((float*)pDBOMesh->pVertexData + offsetMap.dwZ + (offsetMap.dwSize * v));
 					mesh->vertex_positions[v] = pos;
+				}
+				if (bNormals && offsetMap.dwNZ > 0)
+				{
+					XMFLOAT3 normal = XMFLOAT3(0, 0, 0);
+					normal.x = *(float*)((float*)pDBOMesh->pVertexData + offsetMap.dwNX + (offsetMap.dwSize * v));
+					normal.y = *(float*)((float*)pDBOMesh->pVertexData + offsetMap.dwNY + (offsetMap.dwSize * v));
+					normal.z = *(float*)((float*)pDBOMesh->pVertexData + offsetMap.dwNZ + (offsetMap.dwSize * v));
+					mesh->vertex_normals[v] = normal;
 				}
 				if (offsetMap.dwTU[0] > 0)
 				{

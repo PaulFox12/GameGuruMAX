@@ -225,6 +225,7 @@ void WickedCall_GetLimbDataEx(sObject* pObject, int iLimbID, bool bAdjustLimb, f
 void WickedCall_GetLimbLocalPosAndRot(sObject* pObject, int iLimbID, float* pX, float* pY, float* pZ, float* pQAX, float* pQAY, float* pQAZ, float* pQAW);
 void WickedCall_GetLimbData(sObject* pObject, int iLimbID, float* pX, float* pY, float* pZ, float* pQAX, float* pQAY, float* pQAZ, float* pQAW);
 void WickedCall_UpdateMeshVertexData(sMesh* pMesh);
+void WickedCall_UpdateMeshVertexData(sMesh* pMesh, bool bNormals);
 void WickedCall_SetObjectAlpha(sObject* pObject, float fPercentage);
 float WickedCall_GetObjectAlpha(sObject* pObject);
 void WickedCall_SetObjectCastShadows(sObject* pObject, bool bCastShadow);
