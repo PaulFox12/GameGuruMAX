@@ -165,6 +165,8 @@ struct sObjectList
 	float fRaised;
 	btScalar fMass;
 	int iResponseMode;
+	btVector3 vecUnfrozenLinearFactor; // restored on unfreeze
+	btVector3 vecUnfrozenAngularFactor;
 };
 std::vector < sObjectList > g_PhyObjectList;
 
@@ -4337,6 +4339,28 @@ void ODESetBodyResponse ( int iObjectNumber, int iResponseMode )
 	sObjectList* pPhyObject = ODEFindID ( iObjectNumber );
 	if ( pPhyObject )
 	{
+		// freeze: stop the body and zero its factors so nothing moves it; unfreeze restores them
+		if ( pPhyObject->body )
+		{
+			bool bWasFrozen = pPhyObject->iResponseMode > 0;
+			bool bFreeze = iResponseMode > 0;
+			if ( bFreeze && !bWasFrozen )
+			{
+				pPhyObject->vecUnfrozenLinearFactor = pPhyObject->body->getLinearFactor();
+				pPhyObject->vecUnfrozenAngularFactor = pPhyObject->body->getAngularFactor();
+				pPhyObject->body->setLinearFactor ( btVector3 ( 0, 0, 0 ) );
+				pPhyObject->body->setAngularFactor ( btVector3 ( 0, 0, 0 ) );
+				pPhyObject->body->setLinearVelocity ( btVector3 ( 0, 0, 0 ) );
+				pPhyObject->body->setAngularVelocity ( btVector3 ( 0, 0, 0 ) );
+			}
+			if ( !bFreeze && bWasFrozen )
+			{
+				pPhyObject->body->setLinearFactor ( pPhyObject->vecUnfrozenLinearFactor );
+				pPhyObject->body->setAngularFactor ( pPhyObject->vecUnfrozenAngularFactor );
+				pPhyObject->body->activate();
+			}
+		}
+
 		// simply calls setlinearvelocity in physics update each cycle
 		pPhyObject->iResponseMode = iResponseMode;
 	}
