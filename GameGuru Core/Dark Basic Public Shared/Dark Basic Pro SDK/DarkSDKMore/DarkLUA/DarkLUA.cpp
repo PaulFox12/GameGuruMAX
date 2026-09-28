@@ -12157,6 +12157,40 @@ int GetEntityInstanceEmissive ( lua_State *L )
 	return 4;
 }
 
+// SetEntityInstanceTint(e, r, g, b): per instance multiplier, 0 to 1, on the entity's base colour (1,1,1 = unchanged), e.g.
+// to darken a wreck or colour one vehicle. Unlike the material setters it changes this instance only
+int SetEntityInstanceTint ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 4 ) return 0;
+	int e = lua_tointeger(L, 1);
+	if ( !LuaEntityIDValid ( L, e, 1 ) ) return 0;
+	int iObj = t.entityelement[e].obj;
+	if ( iObj > 0 && ObjectExist ( iObj ) == 1 )
+		WickedCall_SetObjectColorTint ( GetObjectData ( iObj ), lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4) );
+	return 0;
+}
+
+int GetEntityInstanceTint ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int e = lua_tointeger(L, 1);
+	float fR = 1, fG = 1, fB = 1;
+	if ( LuaEntityIDValid ( L, e, 1 ) )
+	{
+		int iObj = t.entityelement[e].obj;
+		if ( iObj > 0 && ObjectExist ( iObj ) == 1 )
+			WickedCall_GetObjectColorTint ( GetObjectData ( iObj ), &fR, &fG, &fB );
+	}
+	lua_pushnumber ( L, fR );
+	lua_pushnumber ( L, fG );
+	lua_pushnumber ( L, fB );
+	return 3;
+}
+
 int SetAttachmentVisible ( lua_State *L )
 {
 	lua = L;
@@ -15381,6 +15415,8 @@ void addFunctions()
 	lua_register(lua, "GetPlayerHitSeq" , GetPlayerHitSeq );
 	lua_register(lua, "GetPlayerHit" , GetPlayerHit );
 	lua_register(lua, "GetEntityInstanceEmissive" , GetEntityInstanceEmissive );
+	lua_register(lua, "SetEntityInstanceTint" , SetEntityInstanceTint );
+	lua_register(lua, "GetEntityInstanceTint" , GetEntityInstanceTint );
 	lua_register(lua, "SetOcclusion" , SetOcclusion );
 	lua_register(lua, "SetPlayerWeapons", SetPlayerWeapons);
 	lua_register(lua, "FirePlayerWeapon", FirePlayerWeapon);

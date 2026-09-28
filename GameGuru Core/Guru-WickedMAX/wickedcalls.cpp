@@ -6373,6 +6373,49 @@ void WickedCall_SetObjectEmissiveTint(sObject* pObject, float fRed, float fGreen
 	}
 }
 
+// per instance colour multiplier (ObjectComponent::color) on every Wicked object of this DBO object; the alpha is kept
+void WickedCall_SetObjectColorTint(sObject* pObject, float fRed, float fGreen, float fBlue)
+{
+	if (!pObject) return;
+	uint64_t rootEntity = WickedCall_GetFirstRootEntityID(pObject);
+	for (int iF = -1; iF < pObject->iFrameCount; iF++)
+	{
+		uint64_t objectEntity = rootEntity;
+		if (iF >= 0)
+		{
+			if (!pObject->ppFrameList || !pObject->ppFrameList[iF]) continue;
+			objectEntity = pObject->ppFrameList[iF]->wickedobjindex;
+			if (objectEntity == rootEntity) continue;
+		}
+		if (objectEntity == 0) continue;
+		wiScene::ObjectComponent* pWickedObject = wiScene::GetScene().objects.GetComponent(objectEntity);
+		if (pWickedObject)
+		{
+			pWickedObject->color.x = max(0.0f, min(1.0f, fRed));
+			pWickedObject->color.y = max(0.0f, min(1.0f, fGreen));
+			pWickedObject->color.z = max(0.0f, min(1.0f, fBlue));
+		}
+	}
+}
+
+bool WickedCall_GetObjectColorTint(sObject* pObject, float* pfRed, float* pfGreen, float* pfBlue)
+{
+	if (!pObject) return false;
+	wiScene::ObjectComponent* pWickedObject = NULL;
+	uint64_t rootEntity = WickedCall_GetFirstRootEntityID(pObject);
+	if (rootEntity > 0) pWickedObject = wiScene::GetScene().objects.GetComponent(rootEntity);
+	for (int iF = 0; !pWickedObject && pObject->ppFrameList && iF < pObject->iFrameCount; iF++)
+	{
+		if (pObject->ppFrameList[iF] && pObject->ppFrameList[iF]->wickedobjindex > 0)
+			pWickedObject = wiScene::GetScene().objects.GetComponent(pObject->ppFrameList[iF]->wickedobjindex);
+	}
+	if (!pWickedObject) return false;
+	*pfRed = pWickedObject->color.x;
+	*pfGreen = pWickedObject->color.y;
+	*pfBlue = pWickedObject->color.z;
+	return true;
+}
+
 bool WickedCall_GetObjectEmissiveTint(sObject* pObject, float* pfRed, float* pfGreen, float* pfBlue, float* pfStrength)
 {
 	if (!pObject) return false;

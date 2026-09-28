@@ -7700,13 +7700,16 @@ void LuaGameVisuals_Clear(void)
 	g_bLuaSetWaterFog = false;
 	g_bLuaSetLUT = false;
 
-	// a glow set per instance (SetEntityInstanceEmissive) lives on the entity's object, which a test game shares with
-	// the editor, so put every placed entity back to full glow
+	// a glow or tint set per instance (SetEntityInstanceEmissive, SetEntityInstanceTint) lives on the entity's object, which
+	// a test game shares with the editor, so put every placed entity back to full glow and no tint
 	for (int e = 1; e <= g.entityelementlist; e++)
 	{
 		int iObj = t.entityelement[e].obj;
 		if (iObj > 0 && ObjectExist(iObj) == 1)
+		{
 			WickedCall_SetObjectEmissiveTint(GetObjectData(iObj), 1.0f, 1.0f, 1.0f, 1.0f);
+			WickedCall_SetObjectColorTint(GetObjectData(iObj), 1.0f, 1.0f, 1.0f);
+		}
 	}
 }
 
