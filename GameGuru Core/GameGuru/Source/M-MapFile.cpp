@@ -3829,8 +3829,6 @@ void mapfile_savestandalone_stage4 ( void )
 
 	t.setuparr_s[t.i] = ""; t.setuparr_s[t.i] = t.setuparr_s[t.i] + "enableplrspeedmods=" + Str(g.globals.enableplrspeedmods); ++t.i;
 	t.setuparr_s[t.i] = ""; t.setuparr_s[t.i] = t.setuparr_s[t.i] + "disableweaponjams=" + Str(g.globals.disableweaponjams); ++t.i;
-	t.setuparr_s[t.i] = ""; t.setuparr_s[t.i] = t.setuparr_s[t.i] + "defaultbulletholes=" + Str(g_iDefaultBulletHoles); ++t.i;
-	t.setuparr_s[t.i] = ""; t.setuparr_s[t.i] = t.setuparr_s[t.i] + "defaultclearvegetation=" + Str(g_iDefaultClearVegetation); ++t.i;
 	//PE: Add new setup.ini functions.
 	t.setuparr_s[t.i] = ""; t.setuparr_s[t.i] = t.setuparr_s[t.i] + "ConvertToDDS=1"; ++t.i;
 	t.setuparr_s[t.i] = ""; t.setuparr_s[t.i] = t.setuparr_s[t.i] + "ConvertToDDSMaxsize=2048"; ++t.i;

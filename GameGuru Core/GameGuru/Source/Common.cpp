@@ -2442,12 +2442,6 @@ void FPSC_LoadSETUPINI (bool bUseMySystemFolder)
 					// DOCDOC: disableweaponjams = Disables the capability of weapons to 'jam' while being repeatedly fired
 					t.tryfield_s = "disableweaponjams"; if (t.field_s == t.tryfield_s)  g.globals.disableweaponjams = t.value1;
 
-					// DOCDOC: defaultbulletholes = Where neither an object's Allow Bullet Holes tick nor its .fpe says, 0 static objects take bullet holes (default), 1 all but characters do, 2 none do
-					t.tryfield_s = "defaultbulletholes"; if (t.field_s == t.tryfield_s)  g_iDefaultBulletHoles = t.value1;
-
-					// DOCDOC: defaultclearvegetation = Where neither an object's Clear Grass and Trees tick nor its .fpe says, 0 large static objects clear the grass and trees under them (default), 1 all but markers, characters and decals do, 2 none do
-					t.tryfield_s = "defaultclearvegetation"; if (t.field_s == t.tryfield_s)  g_iDefaultClearVegetation = t.value1;
-
 					// DOCDOC: adapterordinal = Force the choice of DirectX Adapter to use. Set 1-98 to choose an adapter at that index, 99 to prefer the first non-Intel adapter from the list. Default is 0.
 					t.tryfield_s = "adapterordinal"; if (t.field_s == t.tryfield_s)  g.gadapterordinal = t.value1;
 

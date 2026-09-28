@@ -10587,20 +10587,20 @@ void ProcessPreferences(void)
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Turn on and off the auto save system");
 
+			ImGui::Text("");
+			ImGui::Text("New Objects Placed (objects already placed keep their own settings)");
 			const char* pDefaultChoices[] = { "Automatic", "On", "Off" };
 			ImGui::PushItemWidth(ImGui::GetFontSize() * 8.0f);
-			if (ImGui::Combo("Bullet Holes Where Objects Do Not Say", &g_iDefaultBulletHoles, pDefaultChoices, 3))
+			if (ImGui::Combo("Allow Bullet Holes, if the .fpe does not say", &g_iDefaultBulletHoles, pDefaultChoices, 3))
 			{
 				SaveExtraSettingsFile();
 			}
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "For objects whose Allow Bullet Holes box was never changed and whose .fpe has no allowbulletholes line. Automatic: static objects only. On: every object but characters. Exported games use this too");
-			if (ImGui::Combo("Clear Grass and Trees Where Objects Do Not Say", &g_iDefaultClearVegetation, pDefaultChoices, 3))
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "How the Allow Bullet Holes box starts on objects placed from now on whose .fpe has no allowbulletholes line; objects already placed keep theirs. Automatic: static objects only. On: every object but characters");
+			if (ImGui::Combo("Clear Grass and Trees, if the .fpe does not say", &g_iDefaultClearVegetation, pDefaultChoices, 3))
 			{
 				SaveExtraSettingsFile();
-				// the level being edited follows at once
-				entity_createvegetationareas();
 			}
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "For objects whose Clear Grass and Trees box was never changed and whose .fpe has no clearvegetation line. Automatic: static objects at least 3m across and 2.5m tall. On: every object but markers, characters and decals. Exported games use this too");
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "How the Clear Grass and Trees box starts on objects placed from now on whose .fpe has no clearvegetation line; objects already placed keep theirs. Automatic: static objects at least 3m across and 2.5m tall. On: every object but markers, characters and decals");
 			ImGui::PopItemWidth();
 
 			if (g_iDevToolsOpen)
