@@ -284,7 +284,6 @@ void WickedCall_CreateDecal(sObject* pObject);
 uint32_t WickedCall_LoadWiScene(char* filename, bool attached, char* changename, char* changenameto);
 
 void WickedCall_PerformEmitterAction(int iAction, uint32_t emitter_root);
-void WickedCall_SetEmitterEffectScales(uint32_t emitter_root, float fOpacity, float fSize, float fRed, float fGreen, float fBlue);
 void WickedCall_UpdateEmitters(void);
 uint32_t WickedCall_LoadWPE(char* filename);
 uint32_t WickedCall_CreateEmitter(std::string& name, float posX, float posY, float posZ, uint32_t proot);
