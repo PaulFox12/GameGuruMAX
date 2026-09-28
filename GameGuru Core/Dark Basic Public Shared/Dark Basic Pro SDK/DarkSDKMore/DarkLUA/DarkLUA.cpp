@@ -3883,7 +3883,15 @@ int AIEntityGoToPosition(lua_State *L)
 	int iObj = lua_tointeger(L, 1);
 	float fGoToX = lua_tonumber(L, 2);
 #ifdef WICKEDENGINE
-	// No subsystem for AI in MAX
+	// not supported in MAX, log it once
+	static bool bWarnedNoAI = false;
+	if ( bWarnedNoAI == false )
+	{
+		bWarnedNoAI = true;
+		char pMsg[256];
+		strcpy ( pMsg, "AIEntityGoToPosition does nothing in MAX (no DarkAI): move with RDFindPath / StartMoveAndRotateToXYZ" );
+		timestampactivity ( 0, pMsg );
+	}
 #else
 	if ( n == 3 )
 	{
@@ -10409,7 +10417,7 @@ int SetRotationYSlowly ( lua_State *L )
 	entity_lua_rotatetoanglecore ( fDestAngle, 0.0f );
 	t.e = iStoreE;
 	t.v = fStoreV;
-	return 1;
+	return 0; // nothing to return
 }
 
 
