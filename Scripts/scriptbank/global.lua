@@ -2509,7 +2509,7 @@ GetEntityLimbBounds : minx, miny, minz, maxx, maxy, maxz = GetEntityLimbBounds (
 GetEntityLimbParent : limb = GetEntityLimbParent ( e, limb ) -- the limb this one hangs from, -1 at the top
 GetEntityLimbBoneCount : n = GetEntityLimbBoneCount ( e, limb ) -- how many bones the limb's mesh is skinned to, 0 if it is not skinned
 GetEntityLimbBone : limb, name = GetEntityLimbBone ( e, limb, n ) -- the limb that is bone n (0 to count-1) of the limb's skinned mesh, and its name; -1, "" if none
-SetEntityLimbAlpha : SetEntityLimbAlpha ( e, limb, percent [, children] ) -- fades one limb, 0 to 100 (100 = as made); children 1 also the limbs under it (a rotor frame with blade limbs). The renderer dithers it rather than blending, and a faded limb keeps its shadow, so HideLimb it once faded out. Back to 100 at each level start
+SetEntityLimbAlpha : SetEntityLimbAlpha ( e, limb, percent [, children] ) -- fades one limb, 0 to 100 (100 = as made); children 1 also the limbs under it (a rotor frame with blade limbs). The renderer dithers it rather than blending, and a faded limb keeps its shadow, so hide it once faded out with HideLimb(e, limb + 1) (HideLimb counts limbs from 1, these calls from 0). Back to 100 at each level start
 GetEntityLimbAlpha : percent = GetEntityLimbAlpha ( e, limb ) -- the limb's alpha, or that of the first limb under it with a mesh; 100 if none
 
 IntersectRay : obj, e, x, y, z, nx, ny, nz, limb = IntersectRay ( x1, y1, z1, x2, y2, z2 [, ignore [, flags] ] ) -- one full-accuracy pick with all its results: obj 0 none, -1 terrain or other geometry; e 0 if not an entity; limb -1 none. ignore is an object number or a table of them; flags 1 hits the ground first, 2 passes through entities with collisionmode 11
