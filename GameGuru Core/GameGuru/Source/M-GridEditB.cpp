@@ -27294,6 +27294,45 @@ void DisplayClearVegetationCheckbox(int elementID)
 	if (ImGui::IsItemHovered()) ImGui::SetTooltip("If set grass and trees under this object are hidden, without flattening the terrain. Set by clearvegetation in its .fpe, else on for static objects at least 3m across and 2.5m tall");
 }
 
+// the static mode the General tab shows: 0 static, 1 physics on, 2 physics off
+static int CollisionStaticMode(int e)
+{
+	if (t.entityelement[e].staticflag == 1) return 0;
+	if (t.entityelement[e].eleprof.physics) return 1;
+	return 2;
+}
+
+// whether physics_setupobject builds this collision shape in a static mode. A static body builds them all but the
+// character capsule, which is never static. A moving one builds a box, sphere, cylinder, convex hull, hull
+// decomposition or capsule; it turns polygon and collision mesh into a box, and tree collision into a static body.
+// With physics off no shape is built, so only No Collision changes anything (shots pass through). Is Immobile makes
+// the body of a physics-on entity static
+static bool CollisionShapeSuits(int iShape, int iStaticMode, bool bImmobile)
+{
+	if (iStaticMode == 1 && bImmobile) iStaticMode = 0;
+	if (iStaticMode == 0) return iShape != 21;
+	if (iStaticMode == 1) return iShape == 0 || iShape == 2 || iShape == 3 || iShape == 9 || iShape == 10 || iShape == 21 || iShape == 11;
+	return iShape == 0 || iShape == 11;
+}
+
+// when the static mode of entity e changed (or Is Immobile), a collision shape from the General tab's list that the
+// mode can't build is set to Box, and the tab says so. Physics off keeps its shape, as none is built. Shapes the list
+// doesn't offer (importer shapes, hybrid) are left alone
+static int g_iCollisionShapeResetElement = 0;
+static int g_iCollisionShapeResetTime = 0;
+static void CollisionShapeFitStaticMode(int e)
+{
+	int iShape = t.entityprofile[t.entityelement[e].bankindex].collisionmode;
+	if (t.entityelement[e].eleprof.iOverrideCollisionMode != -1) iShape = t.entityelement[e].eleprof.iOverrideCollisionMode;
+	bool bListed = (iShape <= 3 || (iShape >= 8 && iShape <= 11) || iShape == 21 || (iShape >= 50 && iShape < 60));
+	int iStaticMode = CollisionStaticMode(e);
+	if (!bListed || iStaticMode == 2) return;
+	if (CollisionShapeSuits(iShape >= 50 && iShape < 60 ? 50 : iShape, iStaticMode, t.entityelement[e].eleprof.isimmobile != 0)) return;
+	t.entityelement[e].eleprof.iOverrideCollisionMode = 0;
+	g_iCollisionShapeResetElement = e;
+	g_iCollisionShapeResetTime = Timer();
+}
+
 void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_grideleprof, int elementID)
 {
 	ImGui::Indent(10);
@@ -27372,26 +27411,9 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 	{
 		if (g.gentitytogglingoff == 0)
 		{
-			int iShape = t.entityprofile[entid].collisionmode;
-			if (edit_grideleprof->iOverrideCollisionMode != -1) iShape = edit_grideleprof->iOverrideCollisionMode;
-			if (iShape == 9 || iShape == 10 )
-			{
-				// static only - hulls cannot be made dynamic at this time!
-				const char* items[] = { "Static Hull" };
-				int item_current = 0;
-				ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX(), ImGui::GetCursorPosY() + 3));
-				ImGui::Text("Static mode");
-				ImGui::SameLine();
-				ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX(), ImGui::GetCursorPosY() - 3));
-				ImGui::SetCursorPos(ImVec2(fPropertiesColoumWidth, ImGui::GetCursorPosY()));
-				ImGui::PushItemWidth(-10);
-				if (ImGui::Combo("##combostaticPhysics3", &item_current, items, IM_ARRAYSIZE(items)))
-				{
-					// nothing to choose
-				}
-				ImGui::PopItemWidth();
-			}
-			else
+			// the static mode decides which collision shapes are offered, not the other way round: convex hulls and hull
+			// decompositions can move too (physics_setupobject builds them dynamic), and a shape the chosen mode can't
+			// build is set to Box (CollisionShapeFitStaticMode)
 			{
 				t.tokay = 1;
 				if (ObjectExist(g.entitybankoffset + entid) == 1)
@@ -27404,8 +27426,8 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 				if (t.tokay == 1 || bRubberbandActive)
 				{
 					//Static , physics on , physics off.
-					const char* items[] = { "Static", "Physics on", "Physics off" };
-					const char* itemsAll[] = { "Change All To" , "Static", "Physics on", "Physics off" };
+					const char* items[] = { "Yes - Static", "No - Physics On", "No - Physics Off" };
+					const char* itemsAll[] = { "Change All To" , "Yes - Static", "No - Physics On", "No - Physics Off" };
 					const char** Selected = items;
 					int iArraySize = 3;
 
@@ -27455,6 +27477,7 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 					if (ImGui::Combo("##combostaticPhysics", &item_current, Selected, iArraySize))
 					{
 						//Change.
+						int iOldStaticMode = CollisionStaticMode(elementID);
 						if (iIndexCount == 1 && item_current == 0)
 						{
 							//Ignore change all.
@@ -27479,6 +27502,7 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 							t.entityelement[elementID].staticflag = 0;
 							edit_grideleprof->physics = 0;
 						}
+						if (CollisionStaticMode(elementID) != iOldStaticMode) CollisionShapeFitStaticMode(elementID);
 
 						if (bRubberbandActive)
 						{
@@ -27486,6 +27510,7 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 							for (int i = 0; i < (int)g.entityrubberbandlist.size(); i++)
 							{
 								int e = g.entityrubberbandlist[i].e;
+								int iOldEntityStaticMode = CollisionStaticMode(e);
 								int masterid = t.entityelement[e].bankindex;
 								int ok = 1;
 								if (ObjectExist(g.entitybankoffset + masterid) == 1)
@@ -27519,6 +27544,7 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 									t.entityelement[e].staticflag = 0;
 									t.entityelement[e].eleprof.physics = 0;
 								}
+								if (CollisionStaticMode(e) != iOldEntityStaticMode) CollisionShapeFitStaticMode(e);
 
 							}
 						}
@@ -27536,7 +27562,7 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 					if (bDisplayPhysics)
 					{
 						//Animated Only physics on/off cant be static.
-						const char* items[] = { "Physics on", "Physics off" };
+						const char* items[] = { "No - Physics On", "No - Physics Off" };
 						int item_current = 0;
 						if (edit_grideleprof->physics)
 							item_current = 0;
@@ -27544,7 +27570,7 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 							item_current = 1;
 
 						ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX(), ImGui::GetCursorPosY() + 3));
-						ImGui::Text("Physics");
+						ImGui::Text("Static mode");
 						ImGui::SameLine();
 						ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX(), ImGui::GetCursorPosY() - 3));
 						ImGui::SetCursorPos(ImVec2(fPropertiesColoumWidth, ImGui::GetCursorPosY()));
@@ -27552,6 +27578,7 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 						if (ImGui::Combo("##combostaticPhysics2", &item_current, items, IM_ARRAYSIZE(items)))
 						{
 							//Change.
+							int iOldStaticMode = CollisionStaticMode(elementID);
 							if (item_current == 0)
 							{
 								t.entityelement[elementID].staticflag = 0;
@@ -27563,6 +27590,7 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 								t.entityelement[elementID].staticflag = 0;
 								edit_grideleprof->physics = 0;
 							}
+							if (CollisionStaticMode(elementID) != iOldStaticMode) CollisionShapeFitStaticMode(elementID);
 						}
 						ImGui::PopItemWidth();
 					}
@@ -27721,7 +27749,7 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 		ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX(), ImGui::GetCursorPosY() - 3));
 		ImGui::PushItemWidth(-10);
 		char* pCollisionShapes[10] = { "Box","Polygon","Sphere","Cylinder","Convex Hull","Character Collision","Tree Collision","No Collision","Hull Decomp","Collision Mesh" };
-		char pSelectedCollision[64];
+		char pSelectedCollision[64] = ""; // shapes the list doesn't name (tree variants 51-59, importer shapes) show blank
 
 		ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
 		ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 1.0f);
@@ -27771,8 +27799,10 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 				//PE: Used by many where polygon is needed with a "behaviour" , platforms ... explodeable ... isimmobile == 1 ... Is Collectable ...
 				//PE: https://github.com/TheGameCreators/GameGuruMAX/commit/a1929f0a832db7b799d53a01955837b15a8d2d5c
 
-				// Don't display certtain collision modes for dynamic objects!
-				if (i == 1 && t.entityelement[elementID].staticflag == 0) continue;
+				// only the shapes the static mode above builds (Is Immobile makes a physics-on body static, so polygon stays
+				// available there)
+				int iCollisionModeOfItem[10] = { 0, 1, 2, 3, 9, 21, 50, 11, 10, 8 };
+				if (!CollisionShapeSuits(iCollisionModeOfItem[i], CollisionStaticMode(elementID), edit_grideleprof->isimmobile != 0)) continue;
 
 				// get collision shape name
 				char* pCollisionShapeName = pCollisionShapes[i];
@@ -27801,17 +27831,22 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 						case 9: iCollisionSelection = 8; break;
 					}
 					edit_grideleprof->iOverrideCollisionMode = iCollisionSelection;
-					if (iCollisionSelection == 8 || iCollisionSelection == 9 || iCollisionSelection == 10)
-					{
-						t.entityelement[elementID].staticflag = 1;
-						edit_grideleprof->physics = 1;
-					}
 				}
 				if (is_selected) ImGui::SetItemDefaultFocus();
 			}
 			ImGui::EndCombo();
 		}
-		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set the collision type the object will use for physics");
+		if (ImGui::IsItemHovered())
+		{
+			if (CollisionStaticMode(elementID) == 2)
+				ImGui::SetTooltip("With physics off no collision shape is built. No Collision lets shots pass through the object");
+			else
+				ImGui::SetTooltip("Set the collision type the object will use for physics (only the shapes the static mode builds are listed)");
+		}
+		if (g_iCollisionShapeResetElement == elementID && Timer() - g_iCollisionShapeResetTime < 6000)
+		{
+			ImGui::TextWrapped("The collision shape is now Box: the shape before can't be built in this static mode");
+		}
 		ImGui::Indent(-100);
 		ImGui::PopItemWidth();
 		ImGui::PopItemFlag();
@@ -27821,7 +27856,9 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 
 	// Is Immobile a useful tick to have in general and especially for freezing character positions in place for specific animations to work
 	ImGui::Indent(10);
+	int iWasImmobile = edit_grideleprof->isimmobile;
 	edit_grideleprof->isimmobile = imgui_setpropertylist2(t.group, t.controlindex, Str(edit_grideleprof->isimmobile), t.strarr_s[457].Get(), t.strarr_s[247].Get(), 0);
+	if (edit_grideleprof->isimmobile != iWasImmobile) CollisionShapeFitStaticMode(elementID);
 	ImGui::Indent(-10);
 
 	// Character Has Weapon
