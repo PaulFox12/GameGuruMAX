@@ -2710,23 +2710,76 @@ static int LUA_GETTOP(lua_State* L)
 	 lua_pushnumber(L, vecPivot.z);
 	 return 3;
  }
- // GetEntityLimbBounds(e, limb): minx, miny, minz, maxx, maxy, maxz of the limb's mesh in its own space, nothing if it has no mesh
+ // grows a box, in the space of the limb asked about, by a limb's mesh box and with bChildren by those of the limbs under it
+ // (their rest pose: each child's matOriginal carries it into its parent's space)
+ static void LuaAddLimbBounds ( sFrame* pFrame, GGMATRIX& matToLimb, bool bChildren, GGVECTOR3& vecMin, GGVECTOR3& vecMax, bool& bAny )
+ {
+	 sMesh* pMesh = pFrame->pMesh;
+	 if ( pMesh && pMesh->dwVertexCount > 0 )
+	 {
+		 for ( int iCorner = 0; iCorner < 8; iCorner++ )
+		 {
+			 GGVECTOR3 vecCorner = GGVECTOR3 ( (iCorner & 1) ? pMesh->Collision.vecMax.x : pMesh->Collision.vecMin.x,
+											   (iCorner & 2) ? pMesh->Collision.vecMax.y : pMesh->Collision.vecMin.y,
+											   (iCorner & 4) ? pMesh->Collision.vecMax.z : pMesh->Collision.vecMin.z );
+			 GGVec3TransformCoord ( &vecCorner, &vecCorner, &matToLimb );
+			 if ( !bAny ) { vecMin = vecCorner; vecMax = vecCorner; bAny = true; }
+			 vecMin.x = min ( vecMin.x, vecCorner.x ); vecMin.y = min ( vecMin.y, vecCorner.y ); vecMin.z = min ( vecMin.z, vecCorner.z );
+			 vecMax.x = max ( vecMax.x, vecCorner.x ); vecMax.y = max ( vecMax.y, vecCorner.y ); vecMax.z = max ( vecMax.z, vecCorner.z );
+		 }
+	 }
+	 if ( bChildren )
+	 {
+		 for ( sFrame* pChild = pFrame->pChild; pChild; pChild = pChild->pSibling )
+		 {
+			 GGMATRIX matChildToLimb = pChild->matOriginal * matToLimb;
+			 LuaAddLimbBounds ( pChild, matChildToLimb, true, vecMin, vecMax, bAny );
+		 }
+	 }
+ }
+ // GetEntityLimbBounds(e, limb [, children]): minx, miny, minz, maxx, maxy, maxz of the limb's mesh in its own space; with
+ // children 1 also the limbs under it (a rotor frame with blade limbs), nothing if there is no mesh
  int GetEntityLimbBounds ( lua_State* L )
+ {
+	 lua = L;
+	 int n = LUA_GETTOP(L);
+	 if ( n < 2 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 bool bChildren = ( n >= 3 && lua_tointeger(L, 3) != 0 );
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 if ( !pObject ) return 0;
+	 GGMATRIX matIdentity;
+	 GGMatrixIdentity ( &matIdentity );
+	 GGVECTOR3 vecMin = GGVECTOR3(0, 0, 0), vecMax = GGVECTOR3(0, 0, 0);
+	 bool bAny = false;
+	 LuaAddLimbBounds ( pObject->ppFrameList[iLimb], matIdentity, bChildren, vecMin, vecMax, bAny );
+	 if ( !bAny ) return 0;
+	 lua_pushnumber(L, vecMin.x);
+	 lua_pushnumber(L, vecMin.y);
+	 lua_pushnumber(L, vecMin.z);
+	 lua_pushnumber(L, vecMax.x);
+	 lua_pushnumber(L, vecMax.y);
+	 lua_pushnumber(L, vecMax.z);
+	 return 6;
+ }
+ // GetEntityLimbParent(e, limb): the limb this one hangs from, -1 for the top of the hierarchy or a bad id
+ int GetEntityLimbParent ( lua_State* L )
  {
 	 lua = L;
 	 if ( LUA_GETTOP(L) < 2 ) return 0;
 	 int iLimb = lua_tointeger(L, 2);
+	 int iParent = -1;
 	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
-	 if ( !pObject ) return 0;
-	 sMesh* pMesh = pObject->ppFrameList[iLimb]->pMesh;
-	 if ( !pMesh || pMesh->dwVertexCount == 0 ) return 0;
-	 lua_pushnumber(L, pMesh->Collision.vecMin.x);
-	 lua_pushnumber(L, pMesh->Collision.vecMin.y);
-	 lua_pushnumber(L, pMesh->Collision.vecMin.z);
-	 lua_pushnumber(L, pMesh->Collision.vecMax.x);
-	 lua_pushnumber(L, pMesh->Collision.vecMax.y);
-	 lua_pushnumber(L, pMesh->Collision.vecMax.z);
-	 return 6;
+	 if ( pObject )
+	 {
+		 sFrame* pParent = pObject->ppFrameList[iLimb]->pParent;
+		 for ( int i = 0; pParent && i < pObject->iFrameCount; i++ )
+		 {
+			 if ( pObject->ppFrameList[i] == pParent ) { iParent = i; break; }
+		 }
+	 }
+	 lua_pushinteger(L, iParent);
+	 return 1;
  }
 
  // Entity Animation
@@ -14513,6 +14566,7 @@ void addFunctions()
 	lua_register(lua, "SetEntityLimbPivot", SetEntityLimbPivot);
 	lua_register(lua, "GetEntityLimbPivot", GetEntityLimbPivot);
 	lua_register(lua, "GetEntityLimbBounds", GetEntityLimbBounds);
+	lua_register(lua, "GetEntityLimbParent", GetEntityLimbParent);
 
 	lua_register(lua, "SetEntitySpawnAtStart", SetEntitySpawnAtStart);
 	lua_register(lua, "GetEntitySpawnAtStart", GetEntitySpawnAtStart);
