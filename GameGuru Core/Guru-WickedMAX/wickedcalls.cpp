@@ -4142,6 +4142,61 @@ void WickedCall_GetObjectBaseColor(sObject* pObject, int* r, int* g, int* b)
 	}
 }
 
+// each mesh's own copy of its base colour made the same as the material it renders with (ResetEntityMaterial); instanced
+// meshes, which use their master object's materials, are left alone
+void WickedCall_CopyMaterialColorsToMeshes(sObject* pObject)
+{
+	if (!pObject || !pObject->ppMeshList) return;
+	for (int iMesh = 0; iMesh < pObject->iMeshCount; iMesh++)
+	{
+		sMesh* pMesh = pObject->ppMeshList[iMesh];
+		if (!pMesh || (pMesh->bInstanced && pMesh->wickedmaterialindex == 0 && pMesh->master_wickedmaterialindex > 0)) continue;
+		wiScene::MeshComponent* mesh = wiScene::GetScene().meshes.GetComponent(pMesh->wickedmeshindex);
+		if (!mesh || mesh->subsets.empty()) continue;
+		wiScene::MaterialComponent* pObjectMaterial = wiScene::GetScene().materials.GetComponent(mesh->subsets[0].materialID);
+		if (!pObjectMaterial) continue;
+		pMesh->mMaterial.Diffuse.r = pObjectMaterial->baseColor.x;
+		pMesh->mMaterial.Diffuse.g = pObjectMaterial->baseColor.y;
+		pMesh->mMaterial.Diffuse.b = pObjectMaterial->baseColor.z;
+		pMesh->mMaterial.Diffuse.a = pObjectMaterial->baseColor.w;
+	}
+}
+
+// one mesh's (material slot's) base or emissive colour, 0 to 255, as the object-wide setters and getters do for them all
+void WickedCall_SetMeshBaseColor(sMesh* pMesh, int r, int g, int b)
+{
+	if (!pMesh) return;
+	pMesh->mMaterial.Diffuse.r = r / 255.0f;
+	pMesh->mMaterial.Diffuse.g = g / 255.0f;
+	pMesh->mMaterial.Diffuse.b = b / 255.0f;
+	WickedCall_SetMeshMaterial(pMesh, true);
+}
+
+void WickedCall_GetMeshBaseColor(sMesh* pMesh, int* r, int* g, int* b)
+{
+	if (!pMesh) return;
+	*r = pMesh->mMaterial.Diffuse.r * 255.0f;
+	*g = pMesh->mMaterial.Diffuse.g * 255.0f;
+	*b = pMesh->mMaterial.Diffuse.b * 255.0f;
+}
+
+void WickedCall_SetMeshEmissiveColor(sMesh* pMesh, int r, int g, int b)
+{
+	if (!pMesh) return;
+	pMesh->mMaterial.Emissive.r = r / 255.0f;
+	pMesh->mMaterial.Emissive.g = g / 255.0f;
+	pMesh->mMaterial.Emissive.b = b / 255.0f;
+	WickedCall_SetMeshMaterial(pMesh, false);
+}
+
+void WickedCall_GetMeshEmissiveColor(sMesh* pMesh, int* r, int* g, int* b)
+{
+	if (!pMesh) return;
+	*r = pMesh->mMaterial.Emissive.r * 255.0f;
+	*g = pMesh->mMaterial.Emissive.g * 255.0f;
+	*b = pMesh->mMaterial.Emissive.b * 255.0f;
+}
+
 void WickedCall_SetObjectEmissiveColor(sObject* pObject, int r, int g, int b)
 {
 	for (int iMesh = 0; iMesh < pObject->iMeshCount; iMesh++)

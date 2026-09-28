@@ -82,6 +82,8 @@ void entity_updatelightobjtype (int obj, int spotlight);
 void entity_updatelightobj (int e, int obj);
 void entity_preparedepth(int entid, int obj);
 void entity_prepareobj ( void );
+void entity_applymaterial ( int tentid, int tte, int tobj );
+void entity_resetmaterial ( int e );
 void entity_calculateentityLODdistances ( int tentid, int tobj, int iModifier );
 void entity_setupcharobjsettings ( void );
 void entity_resettodefaultanimation ( void );

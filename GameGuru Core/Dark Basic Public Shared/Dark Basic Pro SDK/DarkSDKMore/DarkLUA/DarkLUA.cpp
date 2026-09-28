@@ -13089,6 +13089,81 @@ int GetMaterialData(lua_State *L, int mode)
 		return 1;
 	}
 }
+// ResetEntityMaterial(e): puts back the entity's materials as the level load gave them, mesh by mesh (its .fpe's, or its
+// element's own): textures, base and emissive colour, emissive strength, roughness, metalness, reflectance, normal
+// strength, alpha and transparency. Like the material setters it changes every entity of the model, as they share their
+// materials; the per-instance values (SetEntityInstanceEmissive, the tint, limb alpha) are left alone
+int ResetEntityMaterial (lua_State *L)
+{
+	lua = L;
+	if (LUA_GETTOP(L) < 1) return 0;
+	int iEntityID = lua_tointeger(L, 1);
+	if (!LuaEntityIDValid(L, iEntityID, 1)) return 0;
+	entity_resetmaterial(iEntityID);
+	return 0;
+}
+// the entity's mesh (material slot) number slot, 0 to GetEntityMeshCount(e) - 1, or NULL
+static sMesh* LuaEntityMesh (lua_State *L, int iEntityID, int iSlot)
+{
+	if (!LuaEntityIDValid(L, iEntityID, 1)) return NULL;
+	int iObjID = t.entityelement[iEntityID].obj;
+	if (!ConfirmObjectInstance (iObjID)) return NULL;
+	sObject* pObject = g_ObjectList[iObjID];
+	if (!pObject || !pObject->ppMeshList || iSlot < 0 || iSlot >= pObject->iMeshCount) return NULL;
+	return pObject->ppMeshList[iSlot];
+}
+// GetEntityMeshCount(e): how many meshes (material slots) the entity's object has, numbered from 0
+int GetEntityMeshCount (lua_State *L)
+{
+	lua = L;
+	int iCount = 0;
+	if (LUA_GETTOP(L) >= 1)
+	{
+		int iEntityID = lua_tointeger(L, 1);
+		if (LuaEntityIDValid(L, iEntityID, 1))
+		{
+			int iObjID = t.entityelement[iEntityID].obj;
+			if (ConfirmObjectInstance (iObjID) && g_ObjectList[iObjID]) iCount = g_ObjectList[iObjID]->iMeshCount;
+		}
+	}
+	lua_pushinteger(L, iCount);
+	return 1;
+}
+// SetEntityMeshBaseColor(e, slot, r, g, b) / SetEntityMeshEmissiveColor(e, slot, r, g, b): one material slot's colour,
+// 0 to 255, where SetEntityBaseColor / SetEntityEmissiveColor set every slot's. Model-wide, as those are
+static int SetEntityMeshColor (lua_State *L, bool bEmissive)
+{
+	lua = L;
+	if (LUA_GETTOP(L) < 5) return 0;
+	sMesh* pMesh = LuaEntityMesh(L, lua_tointeger(L, 1), lua_tointeger(L, 2));
+	if (!pMesh) return 0;
+	int r = lua_tointeger(L, 3), g = lua_tointeger(L, 4), b = lua_tointeger(L, 5);
+	if (bEmissive) WickedCall_SetMeshEmissiveColor(pMesh, r, g, b); else WickedCall_SetMeshBaseColor(pMesh, r, g, b);
+	return 0;
+}
+// GetEntityMeshBaseColor(e, slot) / GetEntityMeshEmissiveColor(e, slot): one material slot's colour, r, g, b (0 to 255),
+// where GetEntityBaseColor / GetEntityEmissiveColor read only slot 0's
+static int GetEntityMeshColor (lua_State *L, bool bEmissive)
+{
+	lua = L;
+	int r = 0, g = 0, b = 0;
+	if (LUA_GETTOP(L) >= 2)
+	{
+		sMesh* pMesh = LuaEntityMesh(L, lua_tointeger(L, 1), lua_tointeger(L, 2));
+		if (pMesh)
+		{
+			if (bEmissive) WickedCall_GetMeshEmissiveColor(pMesh, &r, &g, &b); else WickedCall_GetMeshBaseColor(pMesh, &r, &g, &b);
+		}
+	}
+	lua_pushinteger(L, r);
+	lua_pushinteger(L, g);
+	lua_pushinteger(L, b);
+	return 3;
+}
+int SetEntityMeshBaseColor (lua_State *L) { return SetEntityMeshColor (L, false); }
+int GetEntityMeshBaseColor (lua_State *L) { return GetEntityMeshColor (L, false); }
+int SetEntityMeshEmissiveColor (lua_State *L) { return SetEntityMeshColor (L, true); }
+int GetEntityMeshEmissiveColor (lua_State *L) { return GetEntityMeshColor (L, true); }
 int SetEntityBaseColor (lua_State *L) { return SetMaterialData (L, 0); }
 int GetEntityBaseColor (lua_State *L) { return GetMaterialData (L, 0); }
 int SetEntityBaseAlpha (lua_State *L) { return SetMaterialData (L, 1); }
@@ -16290,6 +16365,12 @@ void addFunctions()
 
 	// material commands
 	lua_register(lua, "SetEntityBaseColor", SetEntityBaseColor);
+	lua_register(lua, "ResetEntityMaterial", ResetEntityMaterial);
+	lua_register(lua, "GetEntityMeshCount", GetEntityMeshCount);
+	lua_register(lua, "SetEntityMeshBaseColor", SetEntityMeshBaseColor);
+	lua_register(lua, "GetEntityMeshBaseColor", GetEntityMeshBaseColor);
+	lua_register(lua, "SetEntityMeshEmissiveColor", SetEntityMeshEmissiveColor);
+	lua_register(lua, "GetEntityMeshEmissiveColor", GetEntityMeshEmissiveColor);
 	lua_register(lua, "GetEntityBaseColor", GetEntityBaseColor);
 	lua_register(lua, "SetEntityBaseAlpha", SetEntityBaseAlpha);
 	lua_register(lua, "GetEntityBaseAlpha", GetEntityBaseAlpha);

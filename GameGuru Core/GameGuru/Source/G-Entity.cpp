@@ -4805,6 +4805,112 @@ void entity_preparedepth( int entid, int obj)
 }
 
 int iInstancedTotal = 0;
+
+// puts an entity's authored materials on its object, mesh by mesh, as its .fpe gives them, or its element's own WEMaterial
+// when it has one: textures, base and emissive colour, emissive strength, roughness, metalness, reflectance, normal
+// strength, alpha and transparency. Instanced meshes are left alone, as they use their model's master object's
+// materials. entity_prepareobj does it for each new entity object, and entity_resetmaterial when a script asks
+void entity_applymaterial ( int tentid, int tte, int tobj )
+{
+	if (t.entityelement[tte].eleprof.WEMaterial.MaterialActive)
+	{
+		WickedSetEntityId(tentid);
+		WickedSetElementId(tte);
+	}
+	if (!t.entityprofile[tentid].bIsDecal)
+		SetAlphaMappingOn(tobj, 100);
+	WickedSetEntityId(-1);
+	WickedSetElementId(0);
+
+	// set transparency mode (after 'set alpha mapping on' as it messes with transparency flag)
+	if ( t.entityprofile[tentid].ismarker == 0 )
+	{
+		// PE: Wicked material can overwrite objects settings.
+		// LB: always prepare object with TextureMesh!
+		// LB: need to restore ALL WEMaterial settings here when preparing the object
+		WickedSetEntityId(tentid);
+		WickedSetElementId(tte);
+		// LB: apply WEMaterial to all meshes of this object, not just the first one
+		// LB: Setting object transparency defaults here (so not everything is transparent), but the TextureMesh can then set per-mesh transparency :)
+		SetObjectTransparency(tobj, t.entityelement[tte].eleprof.WEMaterial.bTransparency[0]);
+		sObject* pObject = g_ObjectList[tobj];
+		for (int iMeshIndex = 0; iMeshIndex < pObject->iMeshCount; iMeshIndex++)
+		{
+			sMesh* pMesh = pObject->ppMeshList[iMeshIndex];
+			if (pMesh)
+			{
+				// set properties of mesh
+				WickedSetMeshNumber(iMeshIndex);
+
+				// sets ALL properties of each mesh from WEMaterial
+				if (pMesh->bInstanced && pMesh->wickedmaterialindex == 0 && pMesh->master_wickedmaterialindex > 0 )
+				{
+					//PE: No need to texture Instanced objects.
+					iInstancedTotal++;
+				}
+				else
+				{
+					// from WE materials
+					WickedCall_TextureMesh(pMesh);
+
+					// and must restore mesh transparency flag
+					bool bTransparent = WickedGetTransparent();
+					pMesh->bTransparency = bTransparent;
+				}
+			}
+		}
+		WickedSetEntityId(-1);
+		WickedSetElementId(0);
+	}
+	else
+	{
+		sObject* pObject = g_ObjectList[tobj];
+		if (pObject)
+		{
+			WickedCall_TextureObject(pObject, NULL);
+		}
+	}
+}
+
+// ResetEntityMaterial: an entity's materials as the level load gave them, after scripts have changed them. Materials are
+// shared by every entity of a model, as the material setters' changes are, so it resets them for all of those; the
+// per-instance values (SetEntityInstanceEmissive, the tint, limb alpha) are left alone. An instanced entity's meshes use
+// its model's master object's materials, which are set again as the entity bank sets them up
+void entity_resetmaterial ( int e )
+{
+	if (e <= 0 || e >= (int)t.entityelement.size()) return;
+	int entid = t.entityelement[e].bankindex;
+	int obj = t.entityelement[e].obj;
+	if (entid <= 0 || obj <= 0 || ObjectExist(obj) == 0) return;
+	sObject* pObject = GetObjectData(obj);
+	if (!pObject) return;
+
+	bool bInstanced = false;
+	for (int iMeshIndex = 0; iMeshIndex < pObject->iMeshCount; iMeshIndex++)
+	{
+		sMesh* pMesh = pObject->ppMeshList[iMeshIndex];
+		if (pMesh && pMesh->bInstanced && pMesh->wickedmaterialindex == 0 && pMesh->master_wickedmaterialindex > 0) bInstanced = true;
+	}
+	if (bInstanced)
+	{
+		int iMasterObj = g.entitybankoffset + entid;
+		if (ObjectExist(iMasterObj) == 1)
+		{
+			sObject* pMasterObject = GetObjectData(iMasterObj);
+			WickedSetEntityId(entid);
+			WickedSetElementId(0);
+			WickedCall_TextureObject(pMasterObject, NULL);
+			WickedSetEntityId(-1);
+			WickedCall_CopyMaterialColorsToMeshes(pMasterObject);
+		}
+	}
+	entity_applymaterial(entid, e, obj);
+
+	// a base colour the .fpe leaves white is not written to the meshes' own copy, where a colour a script set would linger
+	// and come back with the next material change
+	WickedCall_CopyMaterialColorsToMeshes(pObject);
+}
+
 void entity_prepareobj ( void )
 {
 	//  takes tte, tobj and tentid
@@ -4908,64 +5014,7 @@ void entity_prepareobj ( void )
 
 		// no collision and full alpha multiplier
 		SetObjectCollisionOff ( t.tobj );
-		if (t.entityelement[t.tte].eleprof.WEMaterial.MaterialActive)
-		{
-			WickedSetEntityId(t.tentid);
-			WickedSetElementId(t.tte);
-		}
-		if (!t.entityprofile[t.tentid].bIsDecal)
-			SetAlphaMappingOn(t.tobj, 100);
-		WickedSetEntityId(-1);
-		WickedSetElementId(0);
-
-		// set transparency mode (after 'set alpha mapping on' as it messes with transparency flag)
-		if ( t.entityprofile[t.tentid].ismarker == 0 ) 
-		{
-			// PE: Wicked material can overwrite objects settings.
-			// LB: always prepare object with TextureMesh!
-			// LB: need to restore ALL WEMaterial settings here when preparing the object
-			WickedSetEntityId(t.tentid);
-			WickedSetElementId(t.tte);
-			// LB: apply WEMaterial to all meshes of this object, not just the first one
-			// LB: Setting object transparency defaults here (so not everything is transparent), but the TextureMesh can then set per-mesh transparency :)
-			SetObjectTransparency(t.tobj, t.entityelement[t.tte].eleprof.WEMaterial.bTransparency[0]);
-			sObject* pObject = g_ObjectList[t.tobj];
-			for (int iMeshIndex = 0; iMeshIndex < pObject->iMeshCount; iMeshIndex++)
-			{
-				sMesh* pMesh = pObject->ppMeshList[iMeshIndex];
-				if (pMesh)
-				{
-					// set properties of mesh
-					WickedSetMeshNumber(iMeshIndex);
-
-					// sets ALL properties of each mesh from WEMaterial
-					if (pMesh->bInstanced && pMesh->wickedmaterialindex == 0 && pMesh->master_wickedmaterialindex > 0 )
-					{
-						//PE: No need to texture Instanced objects.
-						iInstancedTotal++;
-					}
-					else
-					{
-						// from WE materials
-						WickedCall_TextureMesh(pMesh);
-
-						// and must restore mesh transparency flag
-						bool bTransparent = WickedGetTransparent();
-						pMesh->bTransparency = bTransparent;
-					}
-				}
-			}
-			WickedSetEntityId(-1);
-			WickedSetElementId(0);
-		}
-		else
-		{
-			sObject* pObject = g_ObjectList[t.tobj];
-			if (pObject)
-			{
-				WickedCall_TextureObject(pObject, NULL);
-			}
-		}
+		entity_applymaterial ( t.tentid, t.tte, t.tobj );
 
 		// handle zdepth mode of this entity
 		entity_preparedepth(t.tentid, t.tobj);
