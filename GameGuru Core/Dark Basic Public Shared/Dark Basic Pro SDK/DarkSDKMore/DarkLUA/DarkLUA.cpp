@@ -7168,6 +7168,66 @@ int EulerToQuat(lua_State *L)
 	lua_pushnumber( L, ( sr * sysp ) + ( cr * cycp ) );  // q.w
 	return 4;
 }
+// QuatToEuler and EulerToQuat work in radians and turn pitch and roll the opposite way to the engine's angles (they
+// agree with each other). AnglesToQuat and QuatToAngles use the engine's own: degrees, rotated X then Y then Z, as
+// SetRotation and GetEntityAngleX/Y/Z and every object, with quaternions as QuatMultiply and QuatSLERP take them
+int AnglesToQuat(lua_State *L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 3) return 0;
+	GGMATRIX matRotateX, matRotateY, matRotateZ;
+	GGMatrixRotationX( &matRotateX, GGToRadian( lua_tonumber( L, 1 ) ) );
+	GGMatrixRotationY( &matRotateY, GGToRadian( lua_tonumber( L, 2 ) ) );
+	GGMatrixRotationZ( &matRotateZ, GGToRadian( lua_tonumber( L, 3 ) ) );
+	GGMATRIX m = matRotateX * matRotateY * matRotateZ;
+
+	// the quaternion GGMatrixRotationQuaternion turns back into this matrix
+	float x, y, z, w;
+	float fTrace = m._11 + m._22 + m._33;
+	if ( fTrace > 0.0f )
+	{
+		float s = sqrtf( fTrace + 1.0f ) * 2.0f;
+		w = 0.25f * s; x = ( m._23 - m._32 ) / s; y = ( m._31 - m._13 ) / s; z = ( m._12 - m._21 ) / s;
+	}
+	else if ( m._11 > m._22 && m._11 > m._33 )
+	{
+		float s = sqrtf( 1.0f + m._11 - m._22 - m._33 ) * 2.0f;
+		w = ( m._23 - m._32 ) / s; x = 0.25f * s; y = ( m._12 + m._21 ) / s; z = ( m._31 + m._13 ) / s;
+	}
+	else if ( m._22 > m._33 )
+	{
+		float s = sqrtf( 1.0f + m._22 - m._11 - m._33 ) * 2.0f;
+		w = ( m._31 - m._13 ) / s; x = ( m._12 + m._21 ) / s; y = 0.25f * s; z = ( m._23 + m._32 ) / s;
+	}
+	else
+	{
+		float s = sqrtf( 1.0f + m._33 - m._11 - m._22 ) * 2.0f;
+		w = ( m._12 - m._21 ) / s; x = ( m._31 + m._13 ) / s; y = ( m._23 + m._32 ) / s; z = 0.25f * s;
+	}
+	lua_pushnumber( L, x );
+	lua_pushnumber( L, y );
+	lua_pushnumber( L, z );
+	lua_pushnumber( L, w );
+	return 4;
+}
+int QuatToAngles(lua_State *L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 4) return 0;
+	GGQUATERNION q( lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4) );
+	float fLength = sqrtf( q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w );
+	if ( fLength > 0.0f ) { q.x /= fLength; q.y /= fLength; q.z /= fLength; q.w /= fLength; }
+	GGMATRIX matRotation;
+	GGMatrixRotationQuaternion( &matRotation, &q );
+	// the engine's matrix to angles, as an object's free rotation is turned back into its angles
+	extern void AnglesFromMatrix( GGMATRIX* pmatMatrix, GGVECTOR3* pVecAngles );
+	GGVECTOR3 vecAngles = GGVECTOR3( 0, 0, 0 );
+	AnglesFromMatrix( &matRotation, &vecAngles );
+	lua_pushnumber( L, vecAngles.x );
+	lua_pushnumber( L, vecAngles.y );
+	lua_pushnumber( L, vecAngles.z );
+	return 3;
+}
 int QuatSLERP(lua_State *L)
 {
 	int n = LUA_GETTOP(L);
@@ -15223,6 +15283,8 @@ void addFunctions()
 	// quaternion library functions
 	lua_register(lua, "QuatToEuler",  QuatToEuler );
 	lua_register(lua, "EulerToQuat",  EulerToQuat );
+	lua_register(lua, "AnglesToQuat", AnglesToQuat );
+	lua_register(lua, "QuatToAngles", QuatToAngles );
 	lua_register(lua, "QuatMultiply", QuatMultiply );
 	lua_register(lua, "QuatSLERP",    QuatSLERP );
 	lua_register(lua, "QuatLERP",     QuatLERP );
