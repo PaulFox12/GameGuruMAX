@@ -2825,6 +2825,33 @@ static int LUA_GETTOP(lua_State* L)
 	 lua_pushstring(L, pBoneName);
 	 return 2;
  }
+ // SetEntityLimbAlpha(e, limb, percent [, children]): fades the limb, 0 to 100 (100 = as made), with children 1 also the limbs
+ // under it (a rotor frame with blade limbs). The renderer dithers the fade rather than blending it, and a faded limb keeps
+ // its shadow, so hide a limb that has faded out (HideLimb). A skinned mesh fades as its own limb, not through its bones
+ int SetEntityLimbAlpha ( lua_State* L )
+ {
+	 lua = L;
+	 int n = LUA_GETTOP(L);
+	 if ( n < 3 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 bool bChildren = ( n >= 4 && lua_tointeger(L, 4) != 0 );
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 if ( !pObject ) return 0;
+	 WickedCall_SetLimbAlpha ( pObject, iLimb, lua_tonumber(L, 3) / 100.0f, bChildren );
+	 return 0;
+ }
+ // GetEntityLimbAlpha(e, limb): the limb's alpha, 0 to 100, or that of the first limb under it with a mesh; 100 if none
+ int GetEntityLimbAlpha ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 2 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 float fAlpha = 1.0f;
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 if ( pObject ) fAlpha = WickedCall_GetLimbAlpha ( pObject, iLimb );
+	 lua_pushnumber(L, fAlpha * 100.0f);
+	 return 1;
+ }
 
  // Entity Animation
  int SetEntityAnimation(lua_State *L)
@@ -14784,6 +14811,8 @@ void addFunctions()
 	lua_register(lua, "GetEntityLimbParent", GetEntityLimbParent);
 	lua_register(lua, "GetEntityLimbBoneCount", GetEntityLimbBoneCount);
 	lua_register(lua, "GetEntityLimbBone", GetEntityLimbBone);
+	lua_register(lua, "SetEntityLimbAlpha", SetEntityLimbAlpha);
+	lua_register(lua, "GetEntityLimbAlpha", GetEntityLimbAlpha);
 
 	lua_register(lua, "SetEntitySpawnAtStart", SetEntitySpawnAtStart);
 	lua_register(lua, "GetEntitySpawnAtStart", GetEntitySpawnAtStart);

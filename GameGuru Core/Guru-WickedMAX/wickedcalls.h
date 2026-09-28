@@ -200,6 +200,8 @@ void WickedCall_SetObjectEmissiveTint(sObject* pObject, float fRed, float fGreen
 bool WickedCall_GetObjectEmissiveTint(sObject* pObject, float* pfRed, float* pfGreen, float* pfBlue, float* pfStrength);
 void WickedCall_SetObjectColorTint(sObject* pObject, float fRed, float fGreen, float fBlue);
 bool WickedCall_GetObjectColorTint(sObject* pObject, float* pfRed, float* pfGreen, float* pfBlue);
+void WickedCall_SetLimbAlpha(sObject* pObject, int iLimb, float fAlpha, bool bChildren);
+float WickedCall_GetLimbAlpha(sObject* pObject, int iLimb);
 void WickedCall_SetObjectHighlightRed(sObject* pObject, bool bHighlight);
 void WickedCall_SetObjectHighlightBlue(sObject* pObject, bool bHighlight);
 void WickedCall_RenderEditorFunctions(void);

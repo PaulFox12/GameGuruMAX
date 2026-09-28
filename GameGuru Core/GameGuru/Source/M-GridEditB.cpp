@@ -7700,8 +7700,9 @@ void LuaGameVisuals_Clear(void)
 	g_bLuaSetWaterFog = false;
 	g_bLuaSetLUT = false;
 
-	// a glow or tint set per instance (SetEntityInstanceEmissive, SetEntityInstanceTint) lives on the entity's object, which
-	// a test game shares with the editor, so put every placed entity back to full glow and no tint
+	// a glow, tint or limb alpha set per instance (SetEntityInstanceEmissive, SetEntityInstanceTint, SetEntityLimbAlpha) lives
+	// on the entity's object, which a test game shares with the editor, so put every placed entity back to full glow, no tint
+	// and every limb as made
 	for (int e = 1; e <= g.entityelementlist; e++)
 	{
 		int iObj = t.entityelement[e].obj;
@@ -7709,6 +7710,7 @@ void LuaGameVisuals_Clear(void)
 		{
 			WickedCall_SetObjectEmissiveTint(GetObjectData(iObj), 1.0f, 1.0f, 1.0f, 1.0f);
 			WickedCall_SetObjectColorTint(GetObjectData(iObj), 1.0f, 1.0f, 1.0f);
+			WickedCall_SetLimbAlpha(GetObjectData(iObj), -1, 1.0f, false);
 		}
 	}
 

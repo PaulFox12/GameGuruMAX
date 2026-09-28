@@ -6450,6 +6450,68 @@ bool WickedCall_GetObjectEmissiveTint(sObject* pObject, float* pfRed, float* pfG
 	return true;
 }
 
+// a limb's alpha on its own Wicked object (ObjectComponent::color.w). Below 1 the renderer fades the object by dithering it
+// in the depth prepass (forceAlphatestForDithering), with no blend mode change; the instance data carries color.w times
+// itself, so color.w is the square root of the alpha. Shadows are not dithered
+static void WickedCall_SetFrameAlpha(sFrame* pFrame, float fColorW, bool bChildren)
+{
+	if (pFrame->wickedobjindex > 0)
+	{
+		wiScene::ObjectComponent* pWickedObject = wiScene::GetScene().objects.GetComponent(pFrame->wickedobjindex);
+		if (pWickedObject) pWickedObject->color.w = fColorW;
+	}
+	if (bChildren)
+	{
+		for (sFrame* pChild = pFrame->pChild; pChild; pChild = pChild->pSibling)
+			WickedCall_SetFrameAlpha(pChild, fColorW, true);
+	}
+}
+
+// fAlpha 0 to 1 (1 = as made); bChildren also the limbs under it; iLimb -1 is every Wicked object of this DBO object
+void WickedCall_SetLimbAlpha(sObject* pObject, int iLimb, float fAlpha, bool bChildren)
+{
+	if (!pObject || !pObject->ppFrameList) return;
+	float fColorW = sqrt(max(0.0f, min(1.0f, fAlpha)));
+	if (iLimb == -1)
+	{
+		uint64_t rootEntity = WickedCall_GetFirstRootEntityID(pObject);
+		wiScene::ObjectComponent* pWickedObject = NULL;
+		if (rootEntity > 0) pWickedObject = wiScene::GetScene().objects.GetComponent(rootEntity);
+		if (pWickedObject) pWickedObject->color.w = fColorW;
+		for (int iF = 0; iF < pObject->iFrameCount; iF++)
+		{
+			if (pObject->ppFrameList[iF]) WickedCall_SetFrameAlpha(pObject->ppFrameList[iF], fColorW, false);
+		}
+		return;
+	}
+	if (iLimb < 0 || iLimb >= pObject->iFrameCount || !pObject->ppFrameList[iLimb]) return;
+	WickedCall_SetFrameAlpha(pObject->ppFrameList[iLimb], fColorW, bChildren);
+}
+
+// the limb's own Wicked object, or the first one under it (a rotor frame without a mesh)
+static wiScene::ObjectComponent* WickedCall_FindFrameObject(sFrame* pFrame)
+{
+	if (pFrame->wickedobjindex > 0)
+	{
+		wiScene::ObjectComponent* pWickedObject = wiScene::GetScene().objects.GetComponent(pFrame->wickedobjindex);
+		if (pWickedObject) return pWickedObject;
+	}
+	for (sFrame* pChild = pFrame->pChild; pChild; pChild = pChild->pSibling)
+	{
+		wiScene::ObjectComponent* pWickedObject = WickedCall_FindFrameObject(pChild);
+		if (pWickedObject) return pWickedObject;
+	}
+	return NULL;
+}
+
+float WickedCall_GetLimbAlpha(sObject* pObject, int iLimb)
+{
+	if (!pObject || !pObject->ppFrameList || iLimb < 0 || iLimb >= pObject->iFrameCount || !pObject->ppFrameList[iLimb]) return 1.0f;
+	wiScene::ObjectComponent* pWickedObject = WickedCall_FindFrameObject(pObject->ppFrameList[iLimb]);
+	if (!pWickedObject) return 1.0f;
+	return pWickedObject->color.w * pWickedObject->color.w;
+}
+
 void WickedCall_SetObjectHighlightColor(sObject* pObject, bool bHighlight, int highlightColorType)
 {
 	uint64_t rootEntity = WickedCall_GetFirstRootEntityID(pObject);
