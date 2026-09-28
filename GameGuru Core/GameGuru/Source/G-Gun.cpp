@@ -6383,11 +6383,12 @@ int preparegun ( int gunid, int index)
 	SetObjectFrame (  index,g.firemodes[gunid][0].action.show.s );
 	HideObject (  index );
 
-	// guns cast no shadows!
+	// guns cast no shadows, and take no projected decals (the gun is not an entity, so SetEntityReceivesDecals can't reach it)
 	sObject* pObject = GetObjectData(index);
 	if (pObject) 
 	{
 		WickedCall_SetObjectCastShadows(pObject, false);
+		WickedCall_SetObjectReceivesDecals(pObject, false);
 	}
 	if (ObjectExist(index))
 	{

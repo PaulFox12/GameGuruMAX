@@ -130,6 +130,9 @@ void hud_scanforhudlayers ( void )
 						//PE: Should be set so camera near dont clip hud.
 						DisableObjectZDepth(t.hudlayersbankoffsetindex);
 
+						// a HUD layer takes no projected decals, as the gun takes none
+						WickedCall_SetObjectReceivesDecals(GetObjectData(t.hudlayersbankoffsetindex), false);
+
 						//  any any rogue marker limbs (until artist can consolidate and remove)
 						PerformCheckListForLimbs (  t.hudlayersbankoffsetindex );
 						for ( t.c = 1 ; t.c<=  ChecklistQuantity(); t.c++ )
