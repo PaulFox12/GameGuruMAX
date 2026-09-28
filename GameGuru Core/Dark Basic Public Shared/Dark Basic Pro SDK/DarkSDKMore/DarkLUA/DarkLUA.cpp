@@ -6192,6 +6192,22 @@ int GetRayCollisionZ ( lua_State *L )
 	lua_pushnumber ( L, ODEGetRayCollisionZ() );
 	return 1;
 }
+// GetRayNormalX/Y/Z(): the surface normal where the last RayTerrain hit, the ground or a tree trunk
+int GetRayNormalX ( lua_State *L )
+{
+	lua_pushnumber ( L, ODEGetRayNormalX() );
+	return 1;
+}
+int GetRayNormalY ( lua_State *L )
+{
+	lua_pushnumber ( L, ODEGetRayNormalY() );
+	return 1;
+}
+int GetRayNormalZ ( lua_State *L )
+{
+	lua_pushnumber ( L, ODEGetRayNormalZ() );
+	return 1;
+}
 
 // the ignore argument of the intersect commands: an object number, or a table of object numbers
 static void LuaReadIntersectIgnore(lua_State* L, int iArg, std::vector<int>& ignore)
@@ -14680,6 +14696,9 @@ void addFunctions()
 	lua_register(lua, "GetRayCollisionX" , GetRayCollisionX );
 	lua_register(lua, "GetRayCollisionY" , GetRayCollisionY );
 	lua_register(lua, "GetRayCollisionZ" , GetRayCollisionZ );
+	lua_register(lua, "GetRayNormalX" , GetRayNormalX );
+	lua_register(lua, "GetRayNormalY" , GetRayNormalY );
+	lua_register(lua, "GetRayNormalZ" , GetRayNormalZ );
 	lua_register(lua, "IntersectAll" , IntersectAll );
 	lua_register(lua, "IntersectRay" , IntersectRay );
 	lua_register(lua, "IntersectStatic", IntersectStatic);
