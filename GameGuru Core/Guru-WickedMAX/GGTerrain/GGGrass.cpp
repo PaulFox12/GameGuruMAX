@@ -91,6 +91,17 @@ float grassAreaPerChunk = grassRadius * 2 / (grassSplit-2);
 int gggrass_defer_instance_updates = 0; // see GGGrass_DeferInstanceUpdates
 bool gggrass_instance_update_pending = false;
 
+// boxes no blade is drawn in, set from Lua (SetGrassKillBox): the grass vertex shaders collapse a blade whose root is
+// inside one, so it can follow a vehicle every frame without touching the grass map
+struct GrassKillBox
+{
+	bool bActive = false;
+	float x = 0, y = 0, z = 0;
+	float halfX = 0, halfY = 0, halfZ = 0;
+	float yawDegrees = 0;
+};
+GrassKillBox gggrass_killboxes[ GGGRASS_MAX_KILLBOXES ];
+
 struct InstanceGrass
 {
 	float x, y, z;
@@ -1264,8 +1275,17 @@ void GGGrass_UpdateFlatArea( int mode, int type, float posX, float posZ, float s
 
 	if ( fMinX > 0 ) minX = (int) fMinX;
 	if ( fMinZ > 0 ) minY = (int) fMinZ;
-	if ( fMaxX < (float) GGGRASS_MAP_SIZE ) maxX = (int) fMaxX;
-	if ( fMaxZ < (float) GGGRASS_MAP_SIZE ) maxY = (int) fMaxZ;
+	if ( fMaxX < (float) GGGRASS_MAP_SIZE ) maxX = (int) fMaxX + 1; // up to the cell the far edge lies in
+	if ( fMaxZ < (float) GGGRASS_MAP_SIZE ) maxY = (int) fMaxZ + 1;
+
+	// a blade is placed anywhere in its cell and looks the cell up (GGGrass_GetGrassMap), so every cell the shape
+	// overlaps is cleared; testing only the cell's corner left up to a cell of blades inside the shape on two sides.
+	// The cell is a square of half size fHalfCell around its centre
+	float fHalfCell = ggterrain_global_render_params2.editable_size / GGGRASS_MAP_SIZE;
+	float ca = cos( angle * 3.14156265358979f / 180.0f );
+	float sa = sin( angle * 3.14156265358979f / 180.0f );
+	float fAbsCa = fabsf( ca );
+	float fAbsSa = fabsf( sa );
 
 	// don't allow drawing of the border pixels so clamp mode will always read 0
 	if ( maxX >= 1 && maxY >= 1 && minX < GGGRASS_MAP_SIZE-2 && minY < GGGRASS_MAP_SIZE-2 )
@@ -1288,12 +1308,12 @@ void GGGrass_UpdateFlatArea( int mode, int type, float posX, float posZ, float s
 				fZ = fZ / GGGRASS_MAP_SIZE;
 				fZ = fZ * 2 - 1;
 				fZ = fZ * ggterrain_global_render_params2.editable_size;
+				fX += fHalfCell; // the cell's centre
+				fZ += fHalfCell;
 
 				if ( type == 0 )
 				{
-					float ca = cos( angle * 3.14156265358979f / 180.0f );
-					float sa = sin( angle * 3.14156265358979f / 180.0f );
-
+					// the turned rect and the cell square overlap unless a gap shows along one of their four axes
 					float fpX = fX - posX;
 					float fpZ = fZ - posZ;
 
@@ -1302,16 +1322,20 @@ void GGGrass_UpdateFlatArea( int mode, int type, float posX, float posZ, float s
 
 					float halfX = sx / 2.0f;
 					float halfZ = sz / 2.0f;
-					if ( faX < -halfX ) continue;
-					if ( faX >  halfX ) continue;
-					if ( faZ < -halfZ ) continue;
-					if ( faZ >  halfZ ) continue;
+					float fCellAlongRect = fHalfCell * (fAbsCa + fAbsSa);
+					if ( fabsf( faX ) > halfX + fCellAlongRect ) continue;
+					if ( fabsf( faZ ) > halfZ + fCellAlongRect ) continue;
+					if ( fabsf( fpX ) > fHalfCell + halfX * fAbsCa + halfZ * fAbsSa ) continue;
+					if ( fabsf( fpZ ) > fHalfCell + halfX * fAbsSa + halfZ * fAbsCa ) continue;
 				}
 				else if ( type == 1 )
 				{
+					// the circle and the cell square overlap when the square's nearest point is within the radius
 					float radius = sx / 2.0f;
-					float diffX = posX - fX;
-					float diffY = posZ - fZ;
+					float diffX = fabsf( posX - fX ) - fHalfCell;
+					float diffY = fabsf( posZ - fZ ) - fHalfCell;
+					if ( diffX < 0 ) diffX = 0;
+					if ( diffY < 0 ) diffY = 0;
 					float dist = diffX*diffX + diffY*diffY;
 					if ( dist > radius*radius ) continue;
 				}
@@ -1328,6 +1352,27 @@ void GGGrass_UpdateFlatArea( int mode, int type, float posX, float posZ, float s
 
 	if ( gggrass_defer_instance_updates > 0 ) gggrass_instance_update_pending = true;
 	else GGGrass_UpdateInstances();
+}
+
+// slot 0 to GGGRASS_MAX_KILLBOXES-1; the box is centred on x, y, z, reaches half its size each way along its own axes, and
+// is turned by yawDegrees about Y as an object is. A blade whose root is inside is not drawn
+void GGGrass_SetKillBox( int slot, float x, float y, float z, float halfX, float halfY, float halfZ, float yawDegrees )
+{
+	if ( slot < 0 || slot >= GGGRASS_MAX_KILLBOXES ) return;
+	GrassKillBox& box = gggrass_killboxes[ slot ];
+	box.bActive = true;
+	box.x = x; box.y = y; box.z = z;
+	box.halfX = fabsf( halfX ); box.halfY = fabsf( halfY ); box.halfZ = fabsf( halfZ );
+	box.yawDegrees = yawDegrees;
+}
+
+// slot -1 clears them all
+void GGGrass_ClearKillBox( int slot )
+{
+	for( int i = 0; i < GGGRASS_MAX_KILLBOXES; i++ )
+	{
+		if ( slot == -1 || slot == i ) gggrass_killboxes[ i ].bActive = false;
+	}
 }
 
 // rebuilding the grass instances places every one again (numTotalGrass), so a run of flat area changes, such as a
@@ -1768,6 +1813,18 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 	float fSwaySpeed = weather.tree_wind_speed > 0 ? weather.tree_wind_speed : weather.tree_wind * 6.0f;
 	grassConstantData.grass_wind = XMFLOAT4( fWindX, fWindZ, weather.tree_wind, fSwaySpeed );
 	grassConstantData.grass_windTime = time;
+
+	// the active kill boxes, packed to the front; each yaw goes as its cos and sin
+	grassConstantData.grass_killbox_count = 0;
+	for( int i = 0; i < GGGRASS_MAX_KILLBOXES; i++ )
+	{
+		const GrassKillBox& box = gggrass_killboxes[ i ];
+		if ( !box.bActive ) continue;
+		uint32_t n = grassConstantData.grass_killbox_count++;
+		float yaw = box.yawDegrees * 3.14159265f / 180.0f;
+		grassConstantData.grass_killbox_centre[ n ] = XMFLOAT4( box.x, box.y, box.z, cosf( yaw ) );
+		grassConstantData.grass_killbox_half[ n ] = XMFLOAT4( box.halfX, box.halfY, box.halfZ, sinf( yaw ) );
+	}
 
 	grassConstantData.grass_lodDist = gggrass_global_params.lod_dist;
 	grassConstantData.grass_scale = gggrass_global_params.grass_scale;

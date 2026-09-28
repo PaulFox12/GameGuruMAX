@@ -7711,6 +7711,9 @@ void LuaGameVisuals_Clear(void)
 			WickedCall_SetObjectColorTint(GetObjectData(iObj), 1.0f, 1.0f, 1.0f);
 		}
 	}
+
+	// and the grass a script hid (SetGrassKillBox) comes back in the editor
+	GGGrass_ClearKillBox(-1);
 }
 
 // change only the colour grading LUT. Wicked_Update_Visuals would also push every other visual value (fog, sun,

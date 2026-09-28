@@ -13063,6 +13063,32 @@ int GetGrassDistance(lua_State* L)
 	lua_pushnumber(L, gggrass_global_params.lod_dist);
 	return 1;
 }
+// SetGrassKillBox(slot, x, y, z, halfx, halfy, halfz [, yaw]) - slot 1 to 8: no grass blade whose root is inside the box is
+// drawn (under a vehicle, say). The box is centred on x, y, z, reaches half its size each way and is turned by yaw degrees
+// about Y, as an object's angle Y is; move it every frame to follow something. Cleared at level start and test game end
+int SetGrassKillBox(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 7) return 0;
+	int iSlot = lua_tointeger(L, 1);
+	if (iSlot < 1 || iSlot > GGGRASS_MAX_KILLBOXES) return 0;
+	float fYaw = 0.0f;
+	if (n >= 8) fYaw = lua_tonumber(L, 8);
+	GGGrass_SetKillBox(iSlot - 1, lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5), lua_tonumber(L, 6), lua_tonumber(L, 7), fYaw);
+	return 0;
+}
+// ClearGrassKillBox([slot]) - the grass comes back in that slot's box, or in every box without a slot
+int ClearGrassKillBox(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	int iSlot = 0;
+	if (n >= 1) iSlot = lua_tointeger(L, 1);
+	if (iSlot == 0)
+		GGGrass_ClearKillBox(-1);
+	else if (iSlot >= 1 && iSlot <= GGGRASS_MAX_KILLBOXES)
+		GGGrass_ClearKillBox(iSlot - 1);
+	return 0;
+}
 // Tree detail controls. Values set here override the graphics quality presets (and survive a quality change) until the
 // editor's test game ends. An omitted or 0 argument keeps the current value.
 // SetTreeDistance(fullDetailDist [, shadowDist]) - where trees switch from full detail to billboards, 750 to 20000 units
@@ -15888,6 +15914,8 @@ void addFunctions()
 	lua_register(lua, "GetGrassScale", GetGrassScale);
 	lua_register(lua, "SetGrassDistance", SetGrassDistance);
 	lua_register(lua, "GetGrassDistance", GetGrassDistance);
+	lua_register(lua, "SetGrassKillBox", SetGrassKillBox);
+	lua_register(lua, "ClearGrassKillBox", ClearGrassKillBox);
 	lua_register(lua, "SetTreeDistance", SetTreeDistance);
 	lua_register(lua, "GetTreeDistance", GetTreeDistance);
 	lua_register(lua, "SetTreeTransition", SetTreeTransition);

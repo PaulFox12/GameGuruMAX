@@ -58,6 +58,7 @@ VertexOut main( VertexIn IN )
 	 
 	pos.xyz += IN.offset;
 	pos.xyz += GrassWindOffset( IN.offset.xz, IN.position.y, posOrig.y );
+	if ( GrassInKillBox( IN.offset ) ) pos.xyz = IN.offset; // inside a kill box: the whole blade at its root, so nothing is drawn
 	/*
 	float offset = (IN.instanceID & 0x7F) * 16;
 	float dist = length( g_xCamera_CamPos - pos.xyz );

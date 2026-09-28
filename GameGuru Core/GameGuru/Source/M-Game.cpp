@@ -23,6 +23,7 @@
 using namespace GPUParticles;
 #include "GGTerrain\GGTerrain.h"
 #include "GGTerrain\GGTrees.h"
+#include "GGTerrain\GGGrass.h"
 using namespace GGTerrain;
 using namespace GGTrees;
 #include "GGRecastDetour.h"
@@ -3907,8 +3908,9 @@ void game_preparelevel_finally ( void )
 	LuaGameVisuals_Clear();
 	// the terrain under the water, so waves stay off low land (the terrain is final by now)
 	WickedCall_UpdateWaterShoreMap();
-	// the player's hit record starts empty on every level
+	// the player's hit record starts empty on every level, and so do the grass kill boxes (SetGrassKillBox)
 	playerhit_clear();
+	GGGrass::GGGrass_ClearKillBox(-1);
 	lua_launchallinitscripts ( );
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );
 
