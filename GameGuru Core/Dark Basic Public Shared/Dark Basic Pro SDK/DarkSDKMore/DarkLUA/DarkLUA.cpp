@@ -8191,6 +8191,167 @@ int AddProjectedDecal(lua_State *L)
 	lua_pushinteger(L, iID);
 	return 1;
 }
+// the length of the line between two points
+static float BlastDecalDistance(const float* pA, const float* pB)
+{
+	float fDX = pB[0] - pA[0], fDY = pB[1] - pA[1], fDZ = pB[2] - pA[2];
+	return sqrtf(fDX * fDX + fDY * fDY + fDZ * fDZ);
+}
+
+// a short ray for a blast decal: how far along it the first static surface lies (a static entity or the ground), as a
+// fraction of its length (1 for none), with that surface's normal in pNormal. Tree trunks don't count, as they take no
+// decals
+static float BlastDecalRay(const float* pFrom, const float* pDir, float fLength, float* pNormal)
+{
+	float fTo[3] = { pFrom[0] + pDir[0] * fLength, pFrom[1] + pDir[1] * fLength, pFrom[2] + pDir[2] * fLength };
+	float fNearest = 1.0f;
+	extern int g_iODERayTerrainHitTree;
+	if (ODERayTerrain(pFrom[0], pFrom[1], pFrom[2], fTo[0], fTo[1], fTo[2], false) == 1 && g_iODERayTerrainHitTree == 0)
+	{
+		float fHit[3] = { ODEGetRayCollisionX(), ODEGetRayCollisionY(), ODEGetRayCollisionZ() };
+		fNearest = BlastDecalDistance(pFrom, fHit) / fLength;
+		pNormal[0] = ODEGetRayNormalX(); pNormal[1] = ODEGetRayNormalY(); pNormal[2] = ODEGetRayNormalZ();
+		fTo[0] = fHit[0]; fTo[1] = fHit[1]; fTo[2] = fHit[2];
+	}
+	int iObj = IntersectAllEx(g.entityviewstartobj, g.entityviewendobj, pFrom[0], pFrom[1], pFrom[2], fTo[0], fTo[1], fTo[2], 0, 1, 0, 0, 1, true);
+	if (iObj > 0)
+	{
+		float fHit[3] = { ChecklistFValueA(6), ChecklistFValueB(6), ChecklistFValueC(6) };
+		float fAlong = BlastDecalDistance(pFrom, fHit) / fLength;
+		if (fAlong < fNearest)
+		{
+			fNearest = fAlong;
+			pNormal[0] = ChecklistFValueA(7); pNormal[1] = ChecklistFValueB(7); pNormal[2] = ChecklistFValueC(7);
+		}
+	}
+	return fNearest;
+}
+
+// AddBlastDecal(image, x, y, z, radius [, life [, opacity [, nx, ny, nz [, rays]]]]): a scorch round a blast at x, y, z
+// that lands on every surface within radius facing the blast, the floor and both walls of a corner alike, each taking the
+// texture from the direction it faces most (triplanar), so none is stretched; it fades out towards the radius. nx, ny, nz
+// is the normal of the surface hit (up by default): the centre is lifted off it by a quarter of the radius, or the surface
+// itself would face across the centre and stay clean. opacity is 0 to 100, and life as AddProjectedDecal's. Unless rays
+// is 0, short rays against static entities and the ground (up to about 26, once) turn the decal square to the nearest
+// wall and find the first surface along each of its six axes, so a floor under a slab or a wall behind a wall stays clean.
+// It is one of the projected decals: the same ids, limit and level clearing, and RemoveProjectedDecal,
+// SetProjectedDecalOpacity, SetProjectedDecalGrass (the circle goes round x, y, z), SetProjectedDecalFacing (0.1 unless
+// set, towards the centre) and SetProjectedDecalBlend work on it. Returns its id, 0 if the texture did not load
+int AddBlastDecal(lua_State *L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 5) return 0;
+	const char* pImage = lua_tostring(L, 1);
+	if (!pImage) return 0;
+	float fHit[3] = { (float)lua_tonumber(L, 2), (float)lua_tonumber(L, 3), (float)lua_tonumber(L, 4) };
+	float fRadius = lua_tonumber(L, 5);
+	if (fRadius < 1.0f) fRadius = 1.0f;
+	float fLife = -1, fOpacity = 1;
+	if (n >= 6) { fLife = lua_tonumber(L, 6); if (fLife <= 0) fLife = -1; }
+	if (n >= 7) fOpacity = lua_tonumber(L, 7) / 100.0f;
+	float fN[3] = { 0, 1, 0 };
+	if (n >= 10)
+	{
+		float fNX = lua_tonumber(L, 8), fNY = lua_tonumber(L, 9), fNZ = lua_tonumber(L, 10);
+		float fLength = sqrtf(fNX * fNX + fNY * fNY + fNZ * fNZ);
+		if (fLength > 0.000001f) { fN[0] = fNX / fLength; fN[1] = fNY / fLength; fN[2] = fNZ / fLength; }
+	}
+	bool bRays = (n < 11 || lua_tointeger(L, 11) != 0);
+
+	// the centre, off the surface hit
+	float fCentre[3] = { fHit[0] + fN[0] * fRadius * 0.25f, fHit[1] + fN[1] * fRadius * 0.25f, fHit[2] + fN[2] * fRadius * 0.25f };
+
+	// the box's axes: Y up, and X square to the wall hit, or else to the nearest wall round the centre, so a corner's
+	// faces each meet one of its planes squarely; otherwise the world's
+	float fAxes[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+	const float fWorldDirs[4][3] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
+	float fWorldRays[4] = { 1, 1, 1, 1 };
+	bool bWorldAxes = true;
+	if (fabsf(fN[1]) < 0.7f)
+	{
+		float fLength = sqrtf(fN[0] * fN[0] + fN[2] * fN[2]);
+		fAxes[0][0] = fN[0] / fLength; fAxes[0][1] = 0; fAxes[0][2] = fN[2] / fLength;
+		bWorldAxes = false;
+	}
+	else if (bRays)
+	{
+		float fNearestWall = 1.0f;
+		for (int i = 0; i < 4; i++)
+		{
+			float fWallN[3] = { 0, 0, 0 };
+			fWorldRays[i] = BlastDecalRay(fCentre, fWorldDirs[i], fRadius, fWallN);
+			float fAcross = sqrtf(fWallN[0] * fWallN[0] + fWallN[2] * fWallN[2]);
+			if (fWorldRays[i] < fNearestWall && fabsf(fWallN[1]) < 0.7f && fAcross > 0.1f)
+			{
+				fNearestWall = fWorldRays[i];
+				fAxes[0][0] = fWallN[0] / fAcross; fAxes[0][1] = 0; fAxes[0][2] = fWallN[2] / fAcross;
+			}
+		}
+		if (fAxes[0][0] < 0.9999f) bWorldAxes = false;
+	}
+	fAxes[2][0] = -fAxes[0][2]; fAxes[2][1] = 0; fAxes[2][2] = fAxes[0][0];
+
+	// how far the first surface lies along each of the box's six axes, 5 bits each (+x, -x, +y, -y, +z, -z; 31 for none). A
+	// surface counts only if four more rays beside the first, half the radius off either way along the other two axes,
+	// all meet it within a twentieth of the radius: a flat face across the axis, not a post, a step or a slope
+	uint32_t iOcclusion = ~0u;
+	if (bRays)
+	{
+		iOcclusion = 0;
+		for (int iAxis = 0; iAxis < 3; iAxis++)
+		{
+			for (int iSide = 0; iSide < 2; iSide++)
+			{
+				float fSign = iSide == 0 ? 1.0f : -1.0f;
+				float fDir[3] = { fAxes[iAxis][0] * fSign, fAxes[iAxis][1] * fSign, fAxes[iAxis][2] * fSign };
+				float fHitN[3] = { 0, 0, 0 };
+				float fFirst;
+				if (bWorldAxes && iAxis != 1 && fabsf(fN[1]) >= 0.7f)
+					fFirst = fWorldRays[(iAxis == 0 ? 0 : 2) + iSide];
+				else
+					fFirst = BlastDecalRay(fCentre, fDir, fRadius, fHitN);
+				uint32_t iCode = 31;
+				if (fFirst < 1.0f)
+				{
+					float fNearest = fFirst, fFarthest = fFirst;
+					bool bFlat = true;
+					for (int iBeside = 0; iBeside < 4 && bFlat; iBeside++)
+					{
+						int iAcross = (iAxis + 1 + iBeside / 2) % 3;
+						float fOffset = (iBeside & 1) ? -0.5f * fRadius : 0.5f * fRadius;
+						float fFrom[3] = { fCentre[0] + fAxes[iAcross][0] * fOffset, fCentre[1] + fAxes[iAcross][1] * fOffset, fCentre[2] + fAxes[iAcross][2] * fOffset };
+						float fAlong = BlastDecalRay(fFrom, fDir, fRadius, fHitN);
+						if (fAlong >= 1.0f) bFlat = false;
+						if (fAlong < fNearest) fNearest = fAlong;
+						if (fAlong > fFarthest) fFarthest = fAlong;
+					}
+					if (bFlat && fFarthest - fNearest <= 0.05f)
+					{
+						iCode = (uint32_t)ceilf(fFarthest * 30.0f);
+						if (iCode > 30) iCode = 30;
+					}
+				}
+				iOcclusion |= iCode << ((iAxis * 2 + iSide) * 5);
+			}
+		}
+	}
+
+	char pImagePath[MAX_PATH];
+	strcpy_s(pImagePath, MAX_PATH, pImage);
+	int iID = WickedCall_AddBlastDecal(pImagePath, fCentre[0], fCentre[1], fCentre[2], fRadius, &fAxes[0][0], iOcclusion, fLife, fHit[0], fHit[1], fHit[2]);
+	if (iID > 0 && fOpacity < 1.0f) WickedCall_SetProjectedDecalOpacity(iID, fOpacity);
+	lua_pushinteger(L, iID);
+	return 1;
+}
+// SetProjectedDecalBlend(id, power): how sharply a blast decal's surfaces take the texture from the direction they face
+// most, 1 to 64 (8 unless set). Higher leaves fewer surfaces blending two or three directions (fewer samples, and no
+// ghosted double image on a slope); too high shows a seam where the direction changes
+int SetProjectedDecalBlend(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 2) return 0;
+	WickedCall_SetProjectedDecalBlend(lua_tointeger(L, 1), lua_tonumber(L, 2));
+	return 0;
+}
 // RemoveProjectedDecal(id): removes it at once; -1 removes them all
 int RemoveProjectedDecal(lua_State *L)
 {
@@ -15401,6 +15562,8 @@ void addFunctions()
 	lua_register(lua, "GetDecalLimit", GetDecalLimit);
 	lua_register(lua, "GetDecalStats", GetDecalStats);
 	lua_register(lua, "AddProjectedDecal", AddProjectedDecal);
+	lua_register(lua, "AddBlastDecal", AddBlastDecal);
+	lua_register(lua, "SetProjectedDecalBlend", SetProjectedDecalBlend);
 	lua_register(lua, "RemoveProjectedDecal", RemoveProjectedDecal);
 	lua_register(lua, "SetProjectedDecalOpacity", SetProjectedDecalOpacity);
 	lua_register(lua, "SetProjectedDecalFacing", SetProjectedDecalFacing);

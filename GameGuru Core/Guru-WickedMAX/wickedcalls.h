@@ -205,6 +205,8 @@ int WickedCall_AddProjectedDecal(LPSTR pImage, float fX, float fY, float fZ, flo
 void WickedCall_RemoveProjectedDecal(int iID);
 void WickedCall_SetProjectedDecalOpacity(int iID, float fOpacity);
 void WickedCall_SetProjectedDecalFacing(int iID, float fCutoff);
+int WickedCall_AddBlastDecal(LPSTR pImage, float fX, float fY, float fZ, float fRadius, const float* pAxes, uint32_t iOcclusion, float fLife, float fGroundX, float fGroundY, float fGroundZ);
+void WickedCall_SetProjectedDecalBlend(int iID, float fSharpness);
 void WickedCall_SetProjectedDecalGrass(int iID, float fRadius);
 void WickedCall_SetProjectedDecalLimit(int iLimit);
 int WickedCall_GetProjectedDecalLimit(void);

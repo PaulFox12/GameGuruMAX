@@ -6535,6 +6535,8 @@ float WickedCall_GetLimbAlpha(sObject* pObject, int iLimb)
 #define PROJECTEDDECAL_NORECEIVE_LAYER (1u << 30) // a model whose materials carry only this bit takes no decals
 #define PROJECTEDDECAL_MAX 96
 #define PROJECTEDDECAL_FACING 0.2f // the facing cutoff a new decal starts with (SetProjectedDecalFacing)
+#define BLASTDECAL_FACING 0.1f // a blast decal's, towards its centre
+#define BLASTDECAL_SHARPNESS 8.0f // the power sharpening a blast decal's triplanar blend (SetProjectedDecalBlend)
 struct sProjectedDecal
 {
 	int iID = 0;
@@ -6578,12 +6580,13 @@ static void WickedCall_ApplyProjectedDecalOpacity(sProjectedDecal& decal)
 // nx, ny, nz the surface normal it projects along (0, 1, 0 onto the ground), fSpinDegrees its turn about that normal,
 // fDepth how far along the normal it reaches in all (it fades out towards both ends), fLife seconds before it fades out
 // and goes (below 0 for never). Returns its id, 0 if the texture did not load
-int WickedCall_AddProjectedDecal(LPSTR pImage, float fX, float fY, float fZ, float fSize, float fNX, float fNY, float fNZ, float fSpinDegrees, float fDepth, float fLife)
+// a new decal entity with its texture, room made for it under the limit (the oldest go first); INVALID_ENTITY if the
+// texture did not load
+static wiECS::Entity WickedCall_CreateProjectedDecalEntity(LPSTR pImage)
 {
 	std::shared_ptr<wiResource> image = WickedCall_LoadImage(pImage);
-	if (!image || !image->texture.IsValid()) return 0;
+	if (!image || !image->texture.IsValid()) return wiECS::INVALID_ENTITY;
 
-	// the oldest go first past the limit
 	while ((int)g_ProjectedDecals.size() >= g_iProjectedDecalLimit && !g_ProjectedDecals.empty()) WickedCall_RemoveProjectedDecalAt(0);
 
 	wiScene::Scene& scene = wiScene::GetScene();
@@ -6602,6 +6605,28 @@ int WickedCall_AddProjectedDecal(LPSTR pImage, float fX, float fY, float fZ, flo
 	// only surfaces facing along the normal take it, so it doesn't reach through a thin wall or streak an upright face
 	wiScene::DecalComponent* pDecalComponent = scene.decals.GetComponent(entity);
 	if (pDecalComponent) pDecalComponent->facing = PROJECTEDDECAL_FACING;
+	return entity;
+}
+
+// lists a new decal (vecPosition is where its grass circle goes) and returns its id
+static int WickedCall_ListProjectedDecal(wiECS::Entity entity, float fLife, XMFLOAT3 vecPosition)
+{
+	sProjectedDecal decal;
+	decal.iID = g_iProjectedDecalNextID++;
+	decal.entity = entity;
+	decal.fLife = fLife;
+	decal.fFade = fLife >= 0 ? min(2.0f, fLife * 0.5f) : 0.0f;
+	decal.vecPosition = vecPosition;
+	g_ProjectedDecals.push_back(decal);
+	WickedCall_ApplyProjectedDecalOpacity(g_ProjectedDecals.back());
+	return decal.iID;
+}
+
+int WickedCall_AddProjectedDecal(LPSTR pImage, float fX, float fY, float fZ, float fSize, float fNX, float fNY, float fNZ, float fSpinDegrees, float fDepth, float fLife)
+{
+	wiECS::Entity entity = WickedCall_CreateProjectedDecalEntity(pImage);
+	if (entity == wiECS::INVALID_ENTITY) return 0;
+	wiScene::Scene& scene = wiScene::GetScene();
 
 	// the box's Z along the normal, its X and Y across the surface, turned by the spin
 	XMVECTOR vecZ = XMVectorSet(fNX, fNY, fNZ, 0);
@@ -6629,15 +6654,57 @@ int WickedCall_AddProjectedDecal(LPSTR pImage, float fX, float fY, float fZ, flo
 		transform->UpdateTransform();
 	}
 
-	sProjectedDecal decal;
-	decal.iID = g_iProjectedDecalNextID++;
-	decal.entity = entity;
-	decal.fLife = fLife;
-	decal.fFade = fLife >= 0 ? min(2.0f, fLife * 0.5f) : 0.0f;
-	decal.vecPosition = XMFLOAT3(fX, fY, fZ);
-	g_ProjectedDecals.push_back(decal);
-	WickedCall_ApplyProjectedDecalOpacity(g_ProjectedDecals.back());
-	return decal.iID;
+	return WickedCall_ListProjectedDecal(entity, fLife, XMFLOAT3(fX, fY, fZ));
+}
+
+// a blast decal (AddBlastDecal in Lua; GGDecalHF.hlsli): a cube of half-size fRadius round the centre fX, fY, fZ, turned
+// to pAxes (its X, Y and Z, unit and at right angles, 9 floats), that paints the sphere inside it on every surface facing
+// the centre, each taking the texture from the box's planes it faces most. iOcclusion holds how far the first surface lies
+// along each of its six axes. fGroundX, fGroundY, fGroundZ is the point hit, where its grass circle goes
+int WickedCall_AddBlastDecal(LPSTR pImage, float fX, float fY, float fZ, float fRadius, const float* pAxes, uint32_t iOcclusion, float fLife, float fGroundX, float fGroundY, float fGroundZ)
+{
+	wiECS::Entity entity = WickedCall_CreateProjectedDecalEntity(pImage);
+	if (entity == wiECS::INVALID_ENTITY) return 0;
+	wiScene::Scene& scene = wiScene::GetScene();
+
+	wiScene::DecalComponent* pDecalComponent = scene.decals.GetComponent(entity);
+	if (pDecalComponent)
+	{
+		pDecalComponent->blast = true;
+		pDecalComponent->facing = BLASTDECAL_FACING;
+		pDecalComponent->blend_sharpness = BLASTDECAL_SHARPNESS;
+		pDecalComponent->occlusion = iOcclusion;
+	}
+
+	XMMATRIX matRotation = XMMATRIX(XMVectorSet(pAxes[0], pAxes[1], pAxes[2], 0), XMVectorSet(pAxes[3], pAxes[4], pAxes[5], 0), XMVectorSet(pAxes[6], pAxes[7], pAxes[8], 0), XMVectorSet(0, 0, 0, 1));
+	XMFLOAT4 quaternion;
+	XMStoreFloat4(&quaternion, XMQuaternionRotationMatrix(matRotation));
+	if (fRadius < 1.0f) fRadius = 1.0f;
+	wiScene::TransformComponent* transform = scene.transforms.GetComponent(entity);
+	if (transform)
+	{
+		transform->ClearTransform();
+		transform->Scale(XMFLOAT3(fRadius, fRadius, fRadius));
+		transform->Rotate(quaternion);
+		transform->Translate(XMFLOAT3(fX, fY, fZ));
+		transform->UpdateTransform();
+	}
+
+	return WickedCall_ListProjectedDecal(entity, fLife, XMFLOAT3(fGroundX, fGroundY, fGroundZ));
+}
+
+// how sharply a blast decal's surfaces take the texture from the plane they face most: a power, 1 to 64 (8 unless set).
+// Higher leaves fewer surfaces blending two or three planes (fewer samples, no ghosted double image on a slope); too high
+// shows a seam where the plane changes
+void WickedCall_SetProjectedDecalBlend(int iID, float fSharpness)
+{
+	sProjectedDecal* pDecal = WickedCall_FindProjectedDecal(iID);
+	if (!pDecal) return;
+	wiScene::DecalComponent* pDecalComponent = wiScene::GetScene().decals.GetComponent(pDecal->entity);
+	if (!pDecalComponent) return;
+	if (fSharpness < 1.0f) fSharpness = 1.0f;
+	if (fSharpness > 64.0f) fSharpness = 64.0f;
+	pDecalComponent->blend_sharpness = fSharpness;
 }
 
 // the cosine a surface's normal must face along the decal's normal by to take it (GGDecalHF.hlsli); -1 or below lets
