@@ -7934,6 +7934,23 @@ uint32_t WickedCall_LoadWPE(char* filename)
 }
 
 //iAction = 1 Burst all. 2 = Pause. - 3 = Resume. - 4 = Restart - 5 - visible - 6 = not visible. - 7 = pause emit - 8 = resume emit
+// opacity and size scales and a colour tint (1 = as made) on every emitter of a Wicked particle effect
+void WickedCall_SetEmitterEffectScales(uint32_t emitter_root, float fOpacity, float fSize, float fRed, float fGreen, float fBlue)
+{
+	Scene& scene = wiScene::GetScene();
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(scene.emitters.GetEntity(i));
+		if (hier && hier->parentID == emitter_root)
+		{
+			wiEmittedParticle& emitter = scene.emitters[i];
+			emitter.opacity_scale = max(0.0f, fOpacity);
+			emitter.size_scale = max(0.0f, fSize);
+			emitter.color_tint = XMFLOAT3(max(0.0f, fRed), max(0.0f, fGreen), max(0.0f, fBlue));
+		}
+	}
+}
+
 void WickedCall_PerformEmitterAction(int iAction, uint32_t emitter_root)
 {
 

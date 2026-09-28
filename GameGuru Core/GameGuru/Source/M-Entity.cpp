@@ -8855,6 +8855,19 @@ void newparticle_updateparticleemitter ( newparticletype* pParticle, float fScal
 			Scene& scene = wiScene::GetScene();
 			TransformComponent* root_tranform = scene.transforms.GetComponent(iParticleEmitter);
 
+			// the Effect* setters that have a Wicked emitter equivalent: opacity, particle size and colour (EffectSetColor
+			// is 0-255); speed, lifespan, bounce and floor reflection have none
+			float fOpacity = 1.0f, fSize = 1.0f, fRed = 1.0f, fGreen = 1.0f, fBlue = 1.0f;
+			if (pParticle->bParticle_OpacityChange) fOpacity = pParticle->fParticle_Opacity;
+			if (pParticle->bParticle_SizeChange) fSize = pParticle->bParticle_Size;
+			if (pParticle->bParticle_ColorChange)
+			{
+				fRed = pParticle->fParticle_R / 255.0f;
+				fGreen = pParticle->fParticle_G / 255.0f;
+				fBlue = pParticle->fParticle_B / 255.0f;
+			}
+			WickedCall_SetEmitterEffectScales(iParticleEmitter, fOpacity, fSize, fRed, fGreen, fBlue);
+
 			if (bShowThisParticle)
 			{
 				if (pParticle->bParticle_Fire == true)
