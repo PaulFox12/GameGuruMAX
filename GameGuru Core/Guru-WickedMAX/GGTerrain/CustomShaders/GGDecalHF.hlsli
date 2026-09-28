@@ -13,6 +13,8 @@
 //   how far the first surface lies along each of the box's six axes (5 bits each from bit 0: +x, -x, +y, -y, +z, -z, in
 //   30ths of the radius, 31 for none), and a point further along the axis nearest its direction from the centre lies
 //   behind that surface and stays clean
+// This file is in both GameGuru's CustomShaders and Wicked's shaders folder (for Wicked's own objectHF.hlsli, which the
+// offline shader compiler builds), and the two copies must stay the same
 
 // the geometric normal of the surface being shaded (before normal mapping), set by the pixel shader before its lighting
 static float3 decal_faceN = float3(0, 1, 0);
@@ -28,64 +30,58 @@ inline float4 GGBlastDecalSample(in float2 planePos, in float2 planeDX, in float
 inline float4 GGBlastDecalColor(in ShaderEntity decal, in float4x4 decalProjection, in float4 texMulAdd, in float3 boxPos, in float3 P, in float3 P_dx, in float3 P_dy, out float edgeBlend)
 {
 	edgeBlend = 0;
+	float4 decalColor = 0;
 
-	// the sphere, fading out over its outer quarter
-	const float dist = length(boxPos);
-	[branch]
-	if (dist >= 1)
-		return 0;
-	float blend = 1 - smoothstep(0.75, 1, dist);
-
-	// surfaces facing the centre, fading in over the 0.1 past the cutoff
+	// the sphere, fading out over its outer quarter (none from its edge out), on surfaces facing the centre, fading in over
+	// the 0.1 past the cutoff
 	const float3 toCentre = decal.position - P;
 	const float lenToCentre = length(toCentre);
 	const float facing = lenToCentre > 0.001 ? dot(decal_faceN, toCentre) / lenToCentre : 1;
-	blend *= saturate((facing - decal.GetConeAngleCos()) * 10);
-	[branch]
-	if (blend <= 0)
-		return 0;
+	float blend = (1 - smoothstep(0.75, 1, length(boxPos))) * saturate((facing - decal.GetConeAngleCos()) * 10);
 
 	// nothing behind the first surface along the box's axis nearest the point's direction from the centre
 	const float3 absPos = abs(boxPos);
 	const uint axis = absPos.x >= absPos.y ? (absPos.x >= absPos.z ? 0 : 2) : (absPos.y >= absPos.z ? 1 : 2);
 	const float along = axis == 0 ? boxPos.x : (axis == 1 ? boxPos.y : boxPos.z);
 	const uint firstSurface = (decal.userdata >> ((axis * 2 + (along < 0 ? 1 : 0)) * 5)) & 31;
-	[branch]
 	if (firstSurface < 31 && abs(along) > firstSurface / 30.0 + 0.06)
-		return 0;
+		blend = 0;
 
-	// triplanar: each plane weighted by how squarely the surface faces it, sharpened, and planes under 0.01 skipped
-	const float3 boxN = normalize(mul((float3x3)decalProjection, decal_faceN));
-	const float sharpness = max(1, decal.GetDirection().x);
-	float3 weights = pow(abs(boxN), float3(sharpness, sharpness, sharpness));
-	weights /= weights.x + weights.y + weights.z;
-	const float3 boxDX = mul((float3x3)decalProjection, P_dx);
-	const float3 boxDY = mul((float3x3)decalProjection, P_dy);
-	float4 decalColor = 0;
-	float weightSum = 0;
 	[branch]
-	if (weights.x > 0.01)
+	if (blend > 0)
 	{
-		decalColor += weights.x * GGBlastDecalSample(boxPos.zy, boxDX.zy, boxDY.zy, texMulAdd);
-		weightSum += weights.x;
-	}
-	[branch]
-	if (weights.y > 0.01)
-	{
-		decalColor += weights.y * GGBlastDecalSample(boxPos.xz, boxDX.xz, boxDY.xz, texMulAdd);
-		weightSum += weights.y;
-	}
-	[branch]
-	if (weights.z > 0.01)
-	{
-		decalColor += weights.z * GGBlastDecalSample(boxPos.xy, boxDX.xy, boxDY.xy, texMulAdd);
-		weightSum += weights.z;
-	}
-	decalColor /= weightSum;
+		// triplanar: each plane weighted by how squarely the surface faces it, sharpened, and planes under 0.01 skipped
+		const float3 boxN = normalize(mul((float3x3)decalProjection, decal_faceN));
+		const float sharpness = max(1, decal.GetDirection().x);
+		float3 weights = pow(abs(boxN), float3(sharpness, sharpness, sharpness));
+		weights /= weights.x + weights.y + weights.z;
+		const float3 boxDX = mul((float3x3)decalProjection, P_dx);
+		const float3 boxDY = mul((float3x3)decalProjection, P_dy);
+		float weightSum = 0;
+		[branch]
+		if (weights.x > 0.01)
+		{
+			decalColor += weights.x * GGBlastDecalSample(boxPos.zy, boxDX.zy, boxDY.zy, texMulAdd);
+			weightSum += weights.x;
+		}
+		[branch]
+		if (weights.y > 0.01)
+		{
+			decalColor += weights.y * GGBlastDecalSample(boxPos.xz, boxDX.xz, boxDY.xz, texMulAdd);
+			weightSum += weights.y;
+		}
+		[branch]
+		if (weights.z > 0.01)
+		{
+			decalColor += weights.z * GGBlastDecalSample(boxPos.xy, boxDX.xy, boxDY.xy, texMulAdd);
+			weightSum += weights.z;
+		}
+		decalColor /= max(weightSum, 0.0001);
 
-	edgeBlend = blend;
-	decalColor.a *= blend;
-	decalColor *= decal.GetColor();
+		edgeBlend = blend;
+		decalColor.a *= blend;
+		decalColor *= decal.GetColor();
+	}
 	return decalColor;
 }
 
@@ -94,39 +90,40 @@ inline float4 GGBlastDecalColor(in ShaderEntity decal, in float4x4 decalProjecti
 inline float4 GGDecalColor(in ShaderEntity decal, in float3 P, in float3 P_dx, in float3 P_dy, out float edgeBlend)
 {
 	edgeBlend = 0;
+	float4 decalColor = 0;
 	float4x4 decalProjection = MatrixArray[decal.GetMatrixIndex()];
 	const float4 texMulAdd = decalProjection[3];
 	decalProjection[3] = float4(0, 0, 0, 1);
 	const float3 clipSpacePos = mul(decalProjection, float4(P, 1)).xyz;
+
 	[branch]
 	if (decal.GetFlags() & ENTITY_FLAG_DECAL_BLAST)
-		return GGBlastDecalColor(decal, decalProjection, texMulAdd, clipSpacePos, P, P_dx, P_dy, edgeBlend);
-
-	const float3 uvw = clipSpacePos.xyz * float3(0.5, -0.5, 0.5) + 0.5;
-	[branch]
-	if (!is_saturated(uvw))
-		return 0;
-
-	float facingBlend = 1;
-	[branch]
-	if (decal.GetFlags() & ENTITY_FLAG_DECAL_FACING)
 	{
-		// the decal's Z in world space is the gradient of its box's z
-		const float facing = dot(decal_faceN, normalize(decalProjection[2].xyz));
-		facingBlend = saturate((facing - decal.GetConeAngleCos()) * 10);
-		[branch]
-		if (facingBlend <= 0)
-			return 0;
+		decalColor = GGBlastDecalColor(decal, decalProjection, texMulAdd, clipSpacePos, P, P_dx, P_dy, edgeBlend);
 	}
-
-	// mipmapping needs to be performed by hand:
-	const float2 decalDX = mul(P_dx, (float3x3)decalProjection).xy * texMulAdd.xy;
-	const float2 decalDY = mul(P_dy, (float3x3)decalProjection).xy * texMulAdd.xy;
-	float4 decalColor = texture_decalatlas.SampleGrad(sampler_linear_clamp, uvw.xy * texMulAdd.xy + texMulAdd.zw, decalDX, decalDY);
-	// blend out if close to cube Z:
-	edgeBlend = (1 - pow(saturate(abs(clipSpacePos.z)), 8)) * facingBlend;
-	decalColor.a *= edgeBlend;
-	decalColor *= decal.GetColor();
+	else
+	{
+		const float3 uvw = clipSpacePos.xyz * float3(0.5, -0.5, 0.5) + 0.5;
+		float facingBlend = 1;
+		if (decal.GetFlags() & ENTITY_FLAG_DECAL_FACING)
+		{
+			// the decal's Z in world space is the gradient of its box's z
+			const float facing = dot(decal_faceN, normalize(decalProjection[2].xyz));
+			facingBlend = saturate((facing - decal.GetConeAngleCos()) * 10);
+		}
+		[branch]
+		if (is_saturated(uvw) && facingBlend > 0)
+		{
+			// mipmapping needs to be performed by hand:
+			const float2 decalDX = mul(P_dx, (float3x3)decalProjection).xy * texMulAdd.xy;
+			const float2 decalDY = mul(P_dy, (float3x3)decalProjection).xy * texMulAdd.xy;
+			decalColor = texture_decalatlas.SampleGrad(sampler_linear_clamp, uvw.xy * texMulAdd.xy + texMulAdd.zw, decalDX, decalDY);
+			// blend out if close to cube Z:
+			edgeBlend = (1 - pow(saturate(abs(clipSpacePos.z)), 8)) * facingBlend;
+			decalColor.a *= edgeBlend;
+			decalColor *= decal.GetColor();
+		}
+	}
 	return decalColor;
 }
 
