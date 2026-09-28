@@ -11628,6 +11628,96 @@ int WParticleEffectGetOpacity(lua_State* L)
 	return 0;
 }
 
+//WParticleEffectSetSize(EffectID,Size) - Size in percent of the particle size the effect was made with (100 = as made).
+int WParticleEffectSetSize(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 2) return 0;
+	Entity root = lua_tonumber(L, 1);
+	float fSize = max(0.0f, (float)lua_tonumber(L, 2) / 100.0f);
+
+	Scene& scene = wiScene::GetScene();
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		if (hier && hier->parentID == root)
+		{
+			scene.emitters[i].size_scale = fSize;
+		}
+	}
+	return 0;
+}
+
+//WParticleEffectGetSize(EffectID) - Returns the size in percent set by WParticleEffectSetSize (100 by default), nil if the effect has no emitters.
+int WParticleEffectGetSize(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	Entity root = lua_tonumber(L, 1);
+
+	Scene& scene = wiScene::GetScene();
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		if (hier && hier->parentID == root)
+		{
+			lua_pushnumber(L, scene.emitters[i].size_scale * 100.0f);
+			return 1;
+		}
+	}
+	return 0;
+}
+
+//WParticleEffectSetColor(EffectID,Red,Green,Blue) - 0 to 255 each, multiplying the colour the effect was made with (255,255,255 = as made).
+int WParticleEffectSetColor(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 4) return 0;
+	Entity root = lua_tonumber(L, 1);
+	XMFLOAT3 tint = XMFLOAT3(max(0.0f, (float)lua_tonumber(L, 2) / 255.0f), max(0.0f, (float)lua_tonumber(L, 3) / 255.0f), max(0.0f, (float)lua_tonumber(L, 4) / 255.0f));
+
+	Scene& scene = wiScene::GetScene();
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		if (hier && hier->parentID == root)
+		{
+			scene.emitters[i].color_tint = tint;
+		}
+	}
+	return 0;
+}
+
+//WParticleEffectGetColor(EffectID) - Returns Red,Green,Blue set by WParticleEffectSetColor (255,255,255 by default), nothing if the effect has no emitters.
+int WParticleEffectGetColor(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	Entity root = lua_tonumber(L, 1);
+
+	Scene& scene = wiScene::GetScene();
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		if (hier && hier->parentID == root)
+		{
+			lua_pushnumber(L, scene.emitters[i].color_tint.x * 255.0f);
+			lua_pushnumber(L, scene.emitters[i].color_tint.y * 255.0f);
+			lua_pushnumber(L, scene.emitters[i].color_tint.z * 255.0f);
+			return 3;
+		}
+	}
+	return 0;
+}
+
 //WParticleEffectGetBounds(EffectID) - Returns MinX,MinY,MinZ,MaxX,MaxY,MaxZ of the world area the effect's particles are born in, as of the last frame (particles then move by their speed and gravity). Nothing if the effect has no emitters.
 int WParticleEffectGetBounds(lua_State* L)
 {
@@ -15505,6 +15595,10 @@ void addFunctions()
 	lua_register(lua, "WParticleEffectClearKillBoxes", WParticleEffectClearKillBoxes);
 	lua_register(lua, "WParticleEffectSetOpacity", WParticleEffectSetOpacity);
 	lua_register(lua, "WParticleEffectGetOpacity", WParticleEffectGetOpacity);
+	lua_register(lua, "WParticleEffectSetSize", WParticleEffectSetSize);
+	lua_register(lua, "WParticleEffectGetSize", WParticleEffectGetSize);
+	lua_register(lua, "WParticleEffectSetColor", WParticleEffectSetColor);
+	lua_register(lua, "WParticleEffectGetColor", WParticleEffectGetColor);
 	lua_register(lua, "WParticleEffectGetBounds", WParticleEffectGetBounds);
 #endif
 
