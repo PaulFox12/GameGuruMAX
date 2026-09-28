@@ -77,6 +77,7 @@ namespace GGGrass
 	void GGGrass_DeferInstanceUpdates( int defer ); // 1 to start, 0 to end: flat area changes in between update the grass instances once, at the end
 	void GGGrass_SetKillBox( int slot, float x, float y, float z, float halfX, float halfY, float halfZ, float yawDegrees ); // no blade is drawn inside, slot 0 to GGGRASS_MAX_KILLBOXES-1
 	void GGGrass_ClearKillBox( int slot ); // -1 clears them all
+	void GGGrass_SetKillCircles( const float* pCircles, int count ); // x, y, z, radius each; the nearest fill the kill shapes the boxes leave
 }
 
 #endif // _H_GGGRAS

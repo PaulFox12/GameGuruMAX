@@ -29,6 +29,7 @@ struct GrassType
 #define GGGRASS_FLAGS_SIMPLE_PBR  0x0001 // increase performance by simplifying the PBR shader but with lower quality
 
 #define GGGRASS_MAX_KILLBOXES 8 // boxes set from Lua (SetGrassKillBox) that no blade is drawn in, such as under a vehicle
+#define GGGRASS_MAX_KILLSHAPES 16 // those boxes, then the nearest circles the engine clears (under a projected decal)
 
 #ifdef __cplusplus
 struct GrassCB
@@ -51,8 +52,8 @@ cbuffer GrassCB : register( b2 )
 	float grass_killbox_pad1;
 	float grass_killbox_pad2;
 	float grass_killbox_pad3;
-	float4 grass_killbox_centre[ GGGRASS_MAX_KILLBOXES ]; // xyz: world centre, w: cos of the box's yaw
-	float4 grass_killbox_half[ GGGRASS_MAX_KILLBOXES ]; // xyz: half size along the box's own axes, w: sin of its yaw
+	float4 grass_killbox_centre[ GGGRASS_MAX_KILLSHAPES ]; // xyz: world centre, w: cos of the box's yaw
+	float4 grass_killbox_half[ GGGRASS_MAX_KILLSHAPES ]; // xyz: half size along the box's own axes, w: sin of its yaw; x below 0 is a circle of radius -x
 };
 
 // shader only
@@ -73,13 +74,19 @@ cbuffer GrassCB : register( b2 )
 		return float3( grass_wind.x * lean, -0.5 * lean * lean / bladeHeight, grass_wind.y * lean );
 	}
 
-	// true when a blade's root lies inside one of the kill boxes (a box turned by its yaw about Y), so the blade is not
-	// drawn: the caller puts every vertex at the root
+	// true when a blade's root lies inside one of the kill boxes (a box turned by its yaw about Y) or kill circles (a
+	// radius on x and z, half height on y), so the blade is not drawn: the caller puts every vertex at the root
 	bool GrassInKillBox( float3 rootPos )
 	{
 		for ( uint i = 0; i < grass_killbox_count; i++ )
 		{
 			float3 d = rootPos - grass_killbox_centre[ i ].xyz;
+			if ( grass_killbox_half[ i ].x < 0 )
+			{
+				float radius = -grass_killbox_half[ i ].x;
+				if ( dot( d.xz, d.xz ) <= radius * radius && abs( d.y ) <= grass_killbox_half[ i ].y ) return true;
+				continue;
+			}
 			float c = grass_killbox_centre[ i ].w;
 			float s = grass_killbox_half[ i ].w;
 			float3 local = float3( d.x * c - d.z * s, d.y, d.x * s + d.z * c );

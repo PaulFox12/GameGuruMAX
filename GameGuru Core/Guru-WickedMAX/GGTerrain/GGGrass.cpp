@@ -3,6 +3,7 @@
 
 #include "GGGrass.h"
 
+#include <algorithm>
 #include "wiRenderer.h"
 #include "wiProfiler.h"
 #include "wiInput.h"
@@ -101,6 +102,10 @@ struct GrassKillBox
 	float yawDegrees = 0;
 };
 GrassKillBox gggrass_killboxes[ GGGRASS_MAX_KILLBOXES ];
+
+// circles no blade is drawn in, kept by the engine (x, y, z, radius), such as under a projected decal: each frame the ones
+// nearest the camera fill the kill shapes the boxes above leave free
+std::vector<XMFLOAT4> gggrass_killcircles;
 
 struct InstanceGrass
 {
@@ -1479,6 +1484,17 @@ void GGGrass_ClearKillBox( int slot )
 	}
 }
 
+// replaces the engine's kill circles, count of them as x, y, z, radius; a blade whose root is within the radius on x and z
+// and within the radius above or below is not drawn. Count 0 clears them
+void GGGrass_SetKillCircles( const float* pCircles, int count )
+{
+	gggrass_killcircles.resize( count > 0 ? count : 0 );
+	for( int i = 0; i < count; i++ )
+	{
+		gggrass_killcircles[ i ] = XMFLOAT4( pCircles[ i*4 ], pCircles[ i*4+1 ], pCircles[ i*4+2 ], fabsf( pCircles[ i*4+3 ] ) );
+	}
+}
+
 // rebuilding the grass instances places every one again (numTotalGrass), so a run of flat area changes, such as a
 // level load or a flat area that is moved and then cleared again by the areas overlapping it, rebuilds them once
 void GGGrass_DeferInstanceUpdates( int defer )
@@ -1929,6 +1945,29 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 		float yaw = box.yawDegrees * 3.14159265f / 180.0f;
 		grassConstantData.grass_killbox_centre[ n ] = XMFLOAT4( box.x, box.y, box.z, cosf( yaw ) );
 		grassConstantData.grass_killbox_half[ n ] = XMFLOAT4( box.halfX, box.halfY, box.halfZ, sinf( yaw ) );
+	}
+
+	// then the engine's kill circles nearest the camera, as many as there is room for (a circle has -radius in half.x)
+	int iFreeShapes = GGGRASS_MAX_KILLSHAPES - (int)grassConstantData.grass_killbox_count;
+	if ( iFreeShapes > 0 && !gggrass_killcircles.empty() )
+	{
+		std::vector<std::pair<float,int>> nearest;
+		nearest.reserve( gggrass_killcircles.size() );
+		for( int i = 0; i < (int)gggrass_killcircles.size(); i++ )
+		{
+			float dx = gggrass_killcircles[ i ].x - grassCameraX;
+			float dz = gggrass_killcircles[ i ].z - grassCameraZ;
+			nearest.push_back( std::make_pair( dx*dx + dz*dz, i ) );
+		}
+		int iTake = (int)nearest.size() < iFreeShapes ? (int)nearest.size() : iFreeShapes;
+		std::partial_sort( nearest.begin(), nearest.begin() + iTake, nearest.end() );
+		for( int k = 0; k < iTake; k++ )
+		{
+			const XMFLOAT4& circle = gggrass_killcircles[ nearest[ k ].second ];
+			uint32_t n = grassConstantData.grass_killbox_count++;
+			grassConstantData.grass_killbox_centre[ n ] = XMFLOAT4( circle.x, circle.y, circle.z, 1 );
+			grassConstantData.grass_killbox_half[ n ] = XMFLOAT4( -circle.w, circle.w, 0, 0 );
+		}
 	}
 
 	grassConstantData.grass_lodDist = gggrass_global_params.lod_dist;
