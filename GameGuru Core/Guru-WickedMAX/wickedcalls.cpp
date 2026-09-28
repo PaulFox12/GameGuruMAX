@@ -6146,6 +6146,7 @@ bool WickedCall_SentRay4(float originx, float originy, float originz, float dire
 	pickRay.direction.z = directionz;
 	XMStoreFloat3(&direction_inverse, XMVectorDivide(XMVectorReplicate(1.0f), XMVectorSet(directionx, directiony, directionz, 1.0f)));
 	pickRay.direction_inverse = direction_inverse;
+	pickRay.TMax = fDistanceOfRay; // skip boxes beyond the end
 	uint32_t checkType = RENDERTYPE_ALL;
 	//PE: @Lee we have no checks on transparent objects, we cant shoot glass, no impact effects , no killing pradator ...
 	if (bOpaqueOnly == true) checkType = RENDERTYPE_OPAQUE | RENDERTYPE_TRANSPARENT;
@@ -6193,6 +6194,7 @@ bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz,
 	pickRay.direction.z = directionz;
 	XMStoreFloat3(&direction_inverse, XMVectorDivide(XMVectorReplicate(1.0f), XMVectorSet(directionx, directiony, directionz, 1.0f)));
 	pickRay.direction_inverse = direction_inverse;
+	pickRay.TMax = fDistanceOfRay; // skip boxes beyond the end
 	uint32_t checkType = RENDERTYPE_ALL;
 	//PE: @Lee we have no checks on transparent objects, we cant shoot glass, no impact effects , no killing pradator ...
 	if (bOpaqueOnly == true) checkType = RENDERTYPE_OPAQUE | RENDERTYPE_TRANSPARENT;
