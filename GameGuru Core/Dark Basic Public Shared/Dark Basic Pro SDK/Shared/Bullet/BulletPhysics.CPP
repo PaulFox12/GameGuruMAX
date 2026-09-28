@@ -168,6 +168,7 @@ struct sObjectList
 	btVector3 vecUnfrozenLinearFactor; // the factors a freeze (ODESetBodyResponse) replaced, put back on unfreeze
 	btVector3 vecUnfrozenAngularFactor;
 	bool bCentredOnCollisionBox; // the body sits at the object's collision box centre (box, sphere, cylinder, capsule), not its origin (CreateMesh)
+	bool bPivotInBody; // the body was made turned by the object's pivot (an entity's fixnewy), so the drawn transform leaves the pivot out
 };
 std::vector < sObjectList > g_PhyObjectList;
 
@@ -186,6 +187,7 @@ void ODEAddObject ( int iID, sObject* pObject, btRigidBody* body, int iIsDynamic
 	sObjectList object;
 	object.iID = iID;
 	object.bCentredOnCollisionBox = bCentredOnCollisionBox;
+	object.bPivotInBody = false;
 
 	object.body = body;
 	if ( iIsDynamic==1 )
@@ -1041,7 +1043,8 @@ void Update(float fTimeStep)
 
 				// LEE, I think the matrix returned is a ZYX order rotation, but we need XYZ
 				// so it translates back properly. I could use ZYX in FPSC but it will screw up all maps..
-				if (pObject->position.bApplyPivot)
+				// (not for a body made turned by the pivot already: ODESetBodyIncludesPivot)
+				if (pObject->position.bApplyPivot && !g_PhyObjectList[j].bPivotInBody)
 					matRotation = pObject->position.matPivot * matRotation;
 
 				// Use physics object position
@@ -1098,7 +1101,20 @@ void Update(float fTimeStep)
 				pObject->position.vecPosition = GGVECTOR3(matWorld._41, matWorld._42, matWorld._43);
 
 				GGVECTOR3 vecRotate = GGVECTOR3(0, 0, 0);
-				BULLETAnglesFromMatrix(&matWorld, &vecRotate);
+				if (pObject->position.bApplyPivot && g_PhyObjectList[j].bPivotInBody)
+				{
+					// the object's own rotation leaves its pivot out: the regular transform applies the pivot again once the
+					// body goes (CollisionOff), and a new body adds it again, so the model neither turns nor turns twice
+					float fDet;
+					GGMATRIX matPivotInverse;
+					GGMatrixInverse(&matPivotInverse, &fDet, &pObject->position.matPivot);
+					GGMATRIX matWithoutPivot = matPivotInverse * matWorld;
+					BULLETAnglesFromMatrix(&matWithoutPivot, &vecRotate);
+				}
+				else
+				{
+					BULLETAnglesFromMatrix(&matWorld, &vecRotate);
+				}
 				pObject->position.vecRotate = vecRotate;
 				pObject->collision.bColCenterUpdated = true;
 				body->applyDamping(0.1f);
@@ -4345,6 +4361,14 @@ void ODESetBodyPosition ( int iObjectNumber, float fX, float fY, float fZ )
 			m_character->warp(btVector3(fX/gSc,fY/gSc,fZ/gSc));
 		}
 	}
+}
+
+// the body was made turned by the object's pivot, as physics_setupobject makes a moving body for an entity with a fixnewy,
+// so the object is drawn by the body's transform alone (applying the pivot as well would turn the model twice)
+void ODESetBodyIncludesPivot ( int iObjectNumber, int iIncludes )
+{
+	sObjectList* pPhyObject = ODEFindID ( iObjectNumber );
+	if ( pPhyObject ) pPhyObject->bPivotInBody = ( iIncludes != 0 );
 }
 
 void ODESetBodyResponse ( int iObjectNumber, int iResponseMode )

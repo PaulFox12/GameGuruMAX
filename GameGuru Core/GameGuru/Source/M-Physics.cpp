@@ -1024,6 +1024,16 @@ void physics_setupobject ( void )
 				// objects will fall through Floor (  if they are perfectly sitting on it )
 				PositionObject ( t.tphyobj, ObjectPositionX(t.tphyobj), ObjectPositionY(t.tphyobj)+0.1, ObjectPositionZ(t.tphyobj) );
 
+				// a moving body is made turned by the FIXNEWY pivot too, as a static one is above: its shape comes from the
+				// mesh or collision box without the pivot, which only the drawn model applies, so it sat turned away from the
+				// model by fixnewy. The update then draws the object by the body alone (ODESetBodyIncludesPivot)
+				float fDynamicFixNewY = t.entityprofile[t.entid].fixnewy;
+				float fDynamicAngleYStore = ObjectAngleY(t.tphyobj);
+				if ( fDynamicFixNewY != 0 )
+				{
+					RotateObject ( t.tphyobj, ObjectAngleX(t.tphyobj), fDynamicAngleYStore + fDynamicFixNewY, ObjectAngleZ(t.tphyobj) );
+				}
+
 				if(physics_playground)
 				{
 					ODECreateDynamicTriangleMesh(t.tphyobj, t.tweight, t.tfriction, -1, 1);
@@ -1053,6 +1063,13 @@ void physics_setupobject ( void )
 				{
 					// box
 					ODECreateDynamicBox(t.tphyobj, -1, 0, t.tweight, t.tfriction, -1);
+				}
+
+				// restore object before leaving, its body keeping the FIXNEWY turn
+				if ( fDynamicFixNewY != 0 )
+				{
+					RotateObject ( t.tphyobj, ObjectAngleX(t.tphyobj), fDynamicAngleYStore, ObjectAngleZ(t.tphyobj) );
+					ODESetBodyIncludesPivot ( t.tphyobj, 1 );
 				}
 
 				// apply zero gravity if ticked

@@ -1933,12 +1933,9 @@ void entity_lua_setrotationz ( void )
 
 void entity_lua_resetbodyangle ( int iObj, float fX, float fY, float fZ )
 {
-	// a static body is created turned by the profile's fixnewy (physics_setupobject), so it keeps that turn
-	if ( t.entityelement[t.e].staticflag == 1 || t.entityelement[t.e].eleprof.isimmobile == 1 )
-	{
-		int entid = t.entityelement[t.e].bankindex;
-		if ( entid > 0 ) fY += t.entityprofile[entid].fixnewy;
-	}
+	// a body, static or moving, is created turned by the profile's fixnewy (physics_setupobject), so it keeps that turn
+	int entid = t.entityelement[t.e].bankindex;
+	if ( entid > 0 ) fY += t.entityprofile[entid].fixnewy;
 	ODESetBodyAngle ( iObj, fX, fY, fZ );
 }
 
