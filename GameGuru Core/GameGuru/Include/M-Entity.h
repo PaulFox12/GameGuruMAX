@@ -41,6 +41,7 @@ void entity_updateparticleemitter(int e);
 void entity_updateautoflatten(int e, int obj = 0);
 void entity_autoFlattenWhenAdded(int e, int obj = 0);
 bool entity_clearsvegetation(int e);
+void entity_createvegetationareas(void);
 
 bool ObjectIsEntity(void* pTestObject);
 bool IsWickedMaterialActive(void* pvMesh);

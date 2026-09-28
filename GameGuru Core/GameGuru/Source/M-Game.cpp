@@ -1304,6 +1304,10 @@ void game_masterroot_gameloop_initcode(int iUseVRTest)
 	game_preparelevel ( );
 	game_preparelevel_forplayer ( );
 
+	// an exported game makes the Clear Grass and Trees areas now the objects are placed, as the editor does at level load,
+	// so the grass keeps its blades up to their edges (the level's saved grass map has the edge cells cleared whole)
+	if ( t.game.gameisexe == 1 ) entity_createvegetationareas ( );
+
 	//LB: some corruption in older levels, can correct here (level editor also corrects, but not for levels loaded and ran)
 	for (t.e = 1; t.e <= g.entityelementlist; t.e++)
 	{

@@ -19,6 +19,7 @@
 #include ".\\..\..\\Guru-WickedMAX\\GPUParticles.h"
 using namespace GPUParticles;
 #include "GGTerrain\GGTerrain.h"
+#include "GGTerrain\GGGrass.h"
 using namespace GGTerrain;
 
 #include "..\..\..\..\Guru-WickedMAX\wickedcalls.h"
@@ -9187,6 +9188,20 @@ static bool entity_updatevegetationarea(int e, int obj)
 	else
 		GGTerrain_UpdateVegetationArea(iFlattenID, x, z, sx, sz, angDeg);
 	return true;
+}
+
+// an exported game doesn't rebuild the flat areas from its entities the way the editor does at level load, so the grass
+// there has no vegetation areas to test its blades against (GGGrass_GetBladeGrass) and keeps whole edge cells
+// cleared. Called once the level's objects are placed and before the game starts, it makes them; auto flatten pads are
+// left as they are
+void entity_createvegetationareas(void)
+{
+	GGGrass::GGGrass_DeferInstanceUpdates(1);
+	for (int e = 1; e <= g.entityelementlist; e++)
+	{
+		if (t.entityelement[e].bankindex > 0) entity_updatevegetationarea(e, 0);
+	}
+	GGGrass::GGGrass_DeferInstanceUpdates(0);
 }
 
 void entity_updateautoflatten (int e, int obj)

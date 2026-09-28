@@ -329,6 +329,8 @@ void GGTerrain_RemoveFlatArea( uint32_t id );
 uint32_t GGTerrain_AddVegetationArea( float posX, float posZ, float sizeX, float sizeZ, float angle ); // clears trees and grass in a rect without flattening, returns 0 if too many flat areas have been added, remove with GGTerrain_RemoveFlatArea
 void GGTerrain_UpdateVegetationArea( uint32_t id, float posX, float posZ, float sizeX, float sizeZ, float angle ); // does nothing if the area is unchanged
 int GGTerrain_IsVegetationArea( uint32_t id );
+struct GGTerrainFlatAreaShape { int type; float x, z, sizeX, sizeZ, angle; }; // type GGTERRAIN_FLAT_AREA_TYPE_*, sizeX the diameter for a circle
+int GGTerrain_GetFlatAreasInRect( float minX, float minZ, float maxX, float maxZ, GGTerrainFlatAreaShape* pShapes, int maxShapes ); // flat areas of either kind overlapping the rect; -1 if more than maxShapes do
 void GGTerrain_RemoveAllFlatAreas();
 
 void GGTerrain_SetGameMode( int mode ); // 0 = editor, 1 = test game and standalone

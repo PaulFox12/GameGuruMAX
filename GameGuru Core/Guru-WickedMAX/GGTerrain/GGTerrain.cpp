@@ -6338,6 +6338,33 @@ void GGTerrain_UpdateVegetationArea( uint32_t id, float posX, float posZ, float 
 	GGGrass_DeferInstanceUpdates( 0 );
 }
 
+// the flat areas of either kind (pads and vegetation areas) whose tree and grass bounds overlap a rectangle, for the
+// grass's per-blade test in cells an area only partly covers. Returns how many were written, or -1 when more than
+// maxShapes overlap (the caller then keeps those cells cleared)
+int GGTerrain_GetFlatAreasInRect( float minX, float minZ, float maxX, float maxZ, GGTerrainFlatAreaShape* pShapes, int maxShapes )
+{
+	int count = 0;
+	for( uint32_t i = 0; i < ggterrain_flat_areas_array_size; i++ )
+	{
+		GGTerrainFlatArea* pArea = &ggterrain_flat_areas[ i ];
+		if ( !pArea->IsValid() ) continue;
+
+		float areaMinX, areaMinZ, areaMaxX, areaMaxZ;
+		GGTerrain_GetFlatAreaVegetationBounds( pArea, &areaMinX, &areaMinZ, &areaMaxX, &areaMaxZ );
+		if ( areaMinX > maxX || areaMinZ > maxZ || areaMaxX < minX || areaMaxZ < minZ ) continue;
+
+		if ( count >= maxShapes ) return -1;
+		GGTerrainFlatAreaShape& shape = pShapes[ count++ ];
+		shape.type = pArea->GetType();
+		shape.x = pArea->x;
+		shape.z = pArea->z;
+		shape.sizeX = pArea->sizeX;
+		shape.sizeZ = pArea->sizeZ;
+		shape.angle = pArea->angle;
+	}
+	return count;
+}
+
 int GGTerrain_IsVegetationArea( uint32_t id )
 {
 	if ( id >= ggterrain_flat_areas_array_size ) return 0;

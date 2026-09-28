@@ -279,6 +279,7 @@ float grassCameraZ = 0;
 
 uint32_t GGGrass_GetGrassMap( float x, float z );
 void GGGrass_SetGrassMap( float x, float z, uint8_t grassID );
+uint32_t GGGrass_GetBladeGrass( float x, float z, float chunkX, float chunkZ, int* pNumAreas );
 
 struct GrassChunk
 {
@@ -335,6 +336,7 @@ struct GrassChunk
 		maxHeight = -1e9f;
 		numValid = 0;
 		randSeed = randSeedOrig;
+		int iNumClearAreas = -2; // the flat areas near this chunk, gathered at its first edge cell (GGGrass_GetBladeGrass)
 		for( int i = 0; i < numGrassPerChunk; i++ )
 		{
 			InstanceGrass* pInstance = &pInstances[ i ];
@@ -345,7 +347,7 @@ struct GrassChunk
 			//pInstance->SetData( i, LocalRandom() % 16, 1 );
 			pInstance->SetData( i, 0, 0 );
 
-			uint32_t grassType = GGGrass_GetGrassMap( pInstance->x, pInstance->z );
+			uint32_t grassType = GGGrass_GetBladeGrass( pInstance->x, pInstance->z, centerX, centerZ, &iNumClearAreas );
 			if ( grassType == 0 ) continue;
 
 			float ny;
@@ -456,6 +458,7 @@ struct GrassChunk
 GrassChunk pGrassChunks[ numGrassChunks ];
 uint8_t pGrassGrid[ numGrassChunks ];
 uint8_t* pGrassMap = 0;
+uint32_t* pGrassEdgeMap = 0; // one bit per grass-map cell that a flat area only partly covers, see GGGrass_GetBladeGrass
 Texture texGrassMap;
 
 GrassCB grassConstantData = {};
@@ -818,6 +821,8 @@ void GGGrass_Init()
 
 	pGrassMap = new uint8_t[ GGGRASS_MAP_SIZE * GGGRASS_MAP_SIZE ];
 	memset( pGrassMap, 1, GGGRASS_MAP_SIZE * GGGRASS_MAP_SIZE );
+	if ( !pGrassEdgeMap ) pGrassEdgeMap = new uint32_t[ (GGGRASS_MAP_SIZE * GGGRASS_MAP_SIZE) / 32 ];
+	memset( pGrassEdgeMap, 0, (GGGRASS_MAP_SIZE * GGGRASS_MAP_SIZE) / 8 );
 
 	//GGGrass_CreateEmptyTexture( 4096, 4096, 1, 1, FORMAT_R8_UNORM, &texGrassMap );
 	
@@ -989,6 +994,90 @@ uint32_t GGGrass_GetGrassMap( float x, float z )
 	}
 
 	return 0;
+}
+
+inline bool GGGrass_IsEdgeCell( uint32_t index )
+{
+	return pGrassEdgeMap && ( pGrassEdgeMap[ index >> 5 ] & (1u << (index & 31)) ) != 0;
+}
+
+inline void GGGrass_SetEdgeCell( uint32_t index, bool bEdge )
+{
+	if ( !pGrassEdgeMap ) return;
+	if ( bEdge ) pGrassEdgeMap[ index >> 5 ] |= (1u << (index & 31));
+	else pGrassEdgeMap[ index >> 5 ] &= ~(1u << (index & 31));
+}
+
+// the flat areas near the grass chunk being placed, with their rotation worked out once
+struct GrassClearArea { int type; float x, z, halfX, halfZ, ca, sa, radiusSq; };
+const int GGGRASS_MAX_CLEAR_AREAS = 256;
+GrassClearArea gggrass_clearAreas[ GGGRASS_MAX_CLEAR_AREAS ];
+GGTerrainFlatAreaShape gggrass_clearShapes[ GGGRASS_MAX_CLEAR_AREAS ];
+
+// the grass type of a blade at x, z (0 for none), as GGGrass_GetGrassMap gives it, except in a cleared cell that a flat
+// area (an auto flatten pad, or a Clear Grass and Trees area) only partly covers. Such a cell is cleared whole in the
+// map, which is saved with the level, and marked in pGrassEdgeMap while the area exists (GGGrass_UpdateFlatArea); a
+// blade there keeps the cell's type when it lies outside every flat area near its chunk, so the grass grows right up
+// to the area's edge. The areas are gathered once per chunk update, at its first edge cell (*pNumAreas is -2 until
+// then, and -1 when more overlap the chunk than the list holds, which keeps those cells cleared as the saved map has
+// them)
+uint32_t GGGrass_GetBladeGrass( float x, float z, float chunkX, float chunkZ, int* pNumAreas )
+{
+	if ( !gggrass_initialised ) return 0;
+	float fX = x / ggterrain_global_render_params2.editable_size;
+	fX = fX * 0.5f + 0.5f;
+	fX *= GGGRASS_MAP_SIZE;
+	float fZ = z / ggterrain_global_render_params2.editable_size;
+	fZ = fZ * 0.5f + 0.5f;
+	fZ *= GGGRASS_MAP_SIZE;
+	int iX = (int) fX;
+	int iZ = (int) fZ;
+	if ( iX < 0 || iZ < 0 || iX >= GGGRASS_MAP_SIZE || iZ >= GGGRASS_MAP_SIZE ) return 0;
+
+	uint32_t index = iZ * GGGRASS_MAP_SIZE + iX;
+	uint32_t value = pGrassMap[ index ];
+	if ( (value & 0x80) == 0 ) return value & 0x7F;
+	if ( (value & 0x7F) == 0 || !GGGrass_IsEdgeCell( index ) ) return 0;
+
+	if ( *pNumAreas == -2 )
+	{
+		float half = grassAreaPerChunk / 2.0f + 1.0f;
+		int count = GGTerrain_GetFlatAreasInRect( chunkX - half, chunkZ - half, chunkX + half, chunkZ + half, gggrass_clearShapes, GGGRASS_MAX_CLEAR_AREAS );
+		for( int i = 0; i < count; i++ )
+		{
+			// the same shape GGGrass_UpdateFlatArea clears
+			const GGTerrainFlatAreaShape& shape = gggrass_clearShapes[ i ];
+			GrassClearArea& area = gggrass_clearAreas[ i ];
+			area.type = shape.type;
+			area.x = shape.x;
+			area.z = shape.z;
+			area.halfX = shape.sizeX / 2.0f;
+			area.halfZ = shape.sizeZ / 2.0f;
+			area.ca = cos( shape.angle * 3.14156265358979f / 180.0f );
+			area.sa = sin( shape.angle * 3.14156265358979f / 180.0f );
+			area.radiusSq = area.halfX * area.halfX;
+		}
+		*pNumAreas = count;
+	}
+	if ( *pNumAreas < 0 ) return 0;
+
+	for( int i = 0; i < *pNumAreas; i++ )
+	{
+		const GrassClearArea& area = gggrass_clearAreas[ i ];
+		float dx = x - area.x;
+		float dz = z - area.z;
+		if ( area.type == GGTERRAIN_FLAT_AREA_TYPE_RECT )
+		{
+			float lx = dx * area.ca - dz * area.sa;
+			float lz = dx * area.sa + dz * area.ca;
+			if ( fabsf( lx ) <= area.halfX && fabsf( lz ) <= area.halfZ ) return 0;
+		}
+		else if ( area.type == GGTERRAIN_FLAT_AREA_TYPE_CIRCLE )
+		{
+			if ( dx * dx + dz * dz <= area.radiusSq ) return 0;
+		}
+	}
+	return value & 0x7F;
 }
 
 // not for external use
@@ -1310,6 +1399,7 @@ void GGGrass_UpdateFlatArea( int mode, int type, float posX, float posZ, float s
 				fZ = fZ * ggterrain_global_render_params2.editable_size;
 				fX += fHalfCell; // the cell's centre
 				fZ += fHalfCell;
+				bool bInside = false; // the whole cell lies inside the shape
 
 				if ( type == 0 )
 				{
@@ -1327,6 +1417,7 @@ void GGGrass_UpdateFlatArea( int mode, int type, float posX, float posZ, float s
 					if ( fabsf( faZ ) > halfZ + fCellAlongRect ) continue;
 					if ( fabsf( fpX ) > fHalfCell + halfX * fAbsCa + halfZ * fAbsSa ) continue;
 					if ( fabsf( fpZ ) > fHalfCell + halfX * fAbsSa + halfZ * fAbsCa ) continue;
+					bInside = ( fabsf( faX ) + fCellAlongRect <= halfX && fabsf( faZ ) + fCellAlongRect <= halfZ );
 				}
 				else if ( type == 1 )
 				{
@@ -1338,12 +1429,25 @@ void GGGrass_UpdateFlatArea( int mode, int type, float posX, float posZ, float s
 					if ( diffY < 0 ) diffY = 0;
 					float dist = diffX*diffX + diffY*diffY;
 					if ( dist > radius*radius ) continue;
+					float farX = fabsf( posX - fX ) + fHalfCell;
+					float farZ = fabsf( posZ - fZ ) + fHalfCell;
+					bInside = ( farX*farX + farZ*farZ <= radius*radius );
 				}
 
 				uint32_t index = y * GGGRASS_MAP_SIZE + x;
 
-				if ( mode == 0 ) pGrassMap[ index ] |= 0x80; // remove grass
-				else pGrassMap[ index ] &= 0x7F; // restore grass
+				// a cell the shape only partly covers is marked as an edge cell, so its blades outside the shape still
+				// grow (GGGrass_GetBladeGrass); a cell wholly inside needs no test
+				if ( mode == 0 )
+				{
+					pGrassMap[ index ] |= 0x80; // remove grass
+					GGGrass_SetEdgeCell( index, !bInside );
+				}
+				else
+				{
+					pGrassMap[ index ] &= 0x7F; // restore grass
+					GGGrass_SetEdgeCell( index, false );
+				}
 			}
 		}
 
@@ -1405,6 +1509,7 @@ void GGGrass_RestoreAllFlattened()
 			pGrassMap[ index ] &= 0x7F;
 		}
 	}
+	if ( pGrassEdgeMap ) memset( pGrassEdgeMap, 0, (GGGRASS_MAP_SIZE * GGGRASS_MAP_SIZE) / 8 );
 
 	GGGrass_UpdateInstances();
 }
