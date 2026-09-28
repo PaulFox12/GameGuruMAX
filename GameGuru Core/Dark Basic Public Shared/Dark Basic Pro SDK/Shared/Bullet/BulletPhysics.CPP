@@ -167,6 +167,7 @@ struct sObjectList
 	int iResponseMode;
 	btVector3 vecUnfrozenLinearFactor; // restored on unfreeze
 	btVector3 vecUnfrozenAngularFactor;
+	bool bCentredOnCollisionBox; // body at the collision box centre (not CreateMesh bodies)
 };
 std::vector < sObjectList > g_PhyObjectList;
 
@@ -178,11 +179,13 @@ void BULLETReceiveCoreDataPtr ( void )
 
 void ODEAddObject ( int iID, sObject* pObject, btRigidBody* body, int iIsDynamic, btDefaultMotionState* myMotionState, 
 	                bool bCapsuleMode = false, bool bBouyant = false, LPVOID pMem1 = NULL, LPVOID pMem2 = NULL,
-	                float fScaled = 1.0f, float fRaised = 1.0f, float fFriction = 90.0f, btScalar fMass = -1.0f )
+	                float fScaled = 1.0f, float fRaised = 1.0f, float fFriction = 90.0f, btScalar fMass = -1.0f,
+	                bool bCentredOnCollisionBox = true )
 {
 	// add object to list
 	sObjectList object;
 	object.iID = iID;
+	object.bCentredOnCollisionBox = bCentredOnCollisionBox;
 
 	object.body = body;
 	if ( iIsDynamic==1 )
@@ -1053,6 +1056,14 @@ void Update(float fTimeStep)
 				float fXOffset = (pObject->collision.vecMin.x * pObject->position.vecScale.x) + (fXSize / 2.0f);
 				float fYOffset = (pObject->collision.vecMin.y * pObject->position.vecScale.y) + (fYSize / 2.0f);
 				float fZOffset = (pObject->collision.vecMin.z * pObject->position.vecScale.z) + (fZSize / 2.0f);
+
+				// mesh bodies sit at the object origin, not the box centre, so no offset
+				if (!g_PhyObjectList[j].bCentredOnCollisionBox)
+				{
+					fXOffset = 0.0f;
+					fYOffset = 0.0f;
+					fZOffset = 0.0f;
+				}
 
 				if (pObject->pFrame)
 				{
@@ -2749,7 +2760,7 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 		pObject = NULL;
 
 	// add physics object details to pbject list
-	ODEAddObject ( iObjectNumber, pObject, body, isDynamic, myMotionState, false, bBouyant, gVertices, gIndices, 1, 1, fFriction, mass );
+	ODEAddObject ( iObjectNumber, pObject, body, isDynamic, myMotionState, false, bBouyant, gVertices, gIndices, 1, 1, fFriction, mass, false ); // placed at the object's origin, not centred
 }
 
 void DeleteallImporters()
