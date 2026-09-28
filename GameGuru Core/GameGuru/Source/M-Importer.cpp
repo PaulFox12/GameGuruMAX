@@ -59,6 +59,9 @@ extern float custom_back_color[4];
 char cImportName[128];
 char cImportPath[MAX_PATH] = "entitybank\\user\\";
 char cImportPathCropped[MAX_PATH] = "\\user";
+char cBatchSourcePath[MAX_PATH] = "";
+char cBatchOutputPath[MAX_PATH] = "";
+char cDefaultImportOutputPath[MAX_PATH] = "";
 extern bool bTriggerMessage;
 extern char cTriggerMessage[MAX_PATH];
 float fImportRotX = 0.0, fImportRotY = 0.0, fImportRotZ = 0.0;
@@ -144,6 +147,15 @@ void importer_init_wicked(void)
 	{
 		strcpy(cImportName, "");
 		t.importer.bInvertNormalMap = false;
+
+		// start from the default folders chosen in Settings, and list the models waiting in the batch source folder
+		extern void importer_applydefaultpaths (void);
+		importer_applydefaultpaths();
+		if (bBatchConverting == false && strlen(cBatchSourcePath) > 0)
+		{
+			extern void imgui_importer_refreshbatchlist (void);
+			imgui_importer_refreshbatchlist();
+		}
 	}
 
 	// Load the textures used for the objects.
@@ -3480,12 +3492,55 @@ void UpdateObjectWithAnimSlotList ( sObject* pObject )
 
 bool g_bIgnoreDBOAsAlreadyConverted = false;
 
+LPSTR importer_batchoutputpath (void)
+{
+	// with no output folder chosen, the batch saves into the source folder
+	if (strlen(cBatchOutputPath) > 0) return cBatchOutputPath;
+	return cBatchSourcePath;
+}
+
+LPSTR importer_saveoutputpath (void)
+{
+	if (bBatchConverting == true) return importer_batchoutputpath();
+	return cImportPath;
+}
+
+bool importer_setoutputpath (LPSTR pPath)
+{
+	// the output folder must be within entitybank
+	char* cCropped = strstr(pPath, "\\entitybank");
+	if (cCropped == NULL) return false;
+	char pNewCroppedStr[MAX_PATH];
+	strcpy(pNewCroppedStr, cCropped + strlen("\\entitybank"));
+	strcpy(cImportPath, pPath);
+	strcpy(cImportPathCropped, pNewCroppedStr);
+	return true;
+}
+
+void importer_applydefaultpaths (void)
+{
+	// only the first time the importer opens, so folders chosen in the importer are kept for the session
+	static bool bDefaultPathsApplied = false;
+	if (bDefaultPathsApplied == true) return;
+	bDefaultPathsApplied = true;
+	if (strlen(cDefaultImportOutputPath) > 0 && PathExist(cDefaultImportOutputPath) == 1)
+	{
+		importer_setoutputpath(cDefaultImportOutputPath);
+		strcpy(cBatchOutputPath, cDefaultImportOutputPath);
+	}
+	if (strlen(pref.cDefaultImportPath) > 0 && PathExist(pref.cDefaultImportPath) == 1)
+	{
+		strcpy(cBatchSourcePath, pref.cDefaultImportPath);
+	}
+}
+
 void imgui_importer_refreshbatchlist (void)
 {
 	// collect list of models to convert
 	batchFileList.clear();
+	if (strlen(cBatchSourcePath) == 0 || PathExist(cBatchSourcePath) == 0) return;
 	cstr pOldDir = GetDir();
-	SetDir(cImportPath);
+	SetDir(cBatchSourcePath);
 	ChecklistForFiles();
 	for (int c = 1; c <= ChecklistQuantity(); c++)
 	{
@@ -3616,8 +3671,9 @@ void imgui_importer_loop(void)
 		{
 			iDelayedExecute = 0;
 			t.timportersaveon = 1;
-			cstr pFillFilename = cstr(cImportPath);
-			if (cImportPath[strlen(cImportPath) - 1] != '\\')
+			LPSTR pSavePath = importer_saveoutputpath();
+			cstr pFillFilename = cstr(pSavePath);
+			if (pSavePath[strlen(pSavePath) - 1] != '\\')
 				pFillFilename = pFillFilename + "\\";
 
 			cstr pRelativePathAndFileToFPE;
@@ -3626,7 +3682,7 @@ void imgui_importer_loop(void)
 			pFillFilename = pFillFilename + cImportName + ".dbo";
 
 			//Dont resolve if not using relative path.
-			if (cImportPath[1] != ':') 
+			if (pSavePath[1] != ':') 
 			{
 				char resolved[MAX_PATH];
 				strcpy(resolved, g.fpscrootdir_s.Get());
@@ -3647,6 +3703,34 @@ void imgui_importer_loop(void)
 				if (bShouldSave==false)
 				{
 					break;
+				}
+			}
+			else
+			{
+				// ask before each existing model is replaced, naming it
+				cstr pExistingFile = "";
+				cstr pFillFilenameFPE = cstr(Left(pFillFilename.Get(), pFillFilename.Len() - 4)) + ".fpe";
+				if (FileExist(pFillFilename.Get()))
+					pExistingFile = pFillFilename;
+				else if (FileExist(pFillFilenameFPE.Get()))
+					pExistingFile = pFillFilenameFPE;
+				if (pExistingFile.Len() > 0)
+				{
+					char pAsk[MAX_PATH * 2];
+					sprintf(pAsk, "%s\n\nThis file already exists. Do you want to overwrite it?\n\nYes: overwrite it\nNo: skip this model\nCancel: stop the batch", pExistingFile.Get());
+					int iAnswer = askBoxCancel(pAsk, "File Already Exists");
+					if (iAnswer == 0)
+					{
+						// skip this model and carry on with the next
+						iDelayedExecute = 5;
+						break;
+					}
+					if (iAnswer == 2)
+					{
+						// stop the batch and close the importer
+						iDelayedExecute = 2;
+						break;
+					}
 				}
 			}
 
@@ -4902,16 +4986,69 @@ void imgui_importer_loop(void)
 			{
 				ImGui::TextCenter("This feature will use the current object");
 				ImGui::TextCenter("customized settings to batch convert all");
-				ImGui::TextCenter("models in the batch folder, and provide");
-				ImGui::TextCenter("a preview window to finalize the");
-				ImGui::TextCenter("thumbnail image of each one.");
+				ImGui::TextCenter("models in the source folder into the");
+				ImGui::TextCenter("output folder, and provide a preview");
+				ImGui::TextCenter("window to finalize the thumbnail image");
+				ImGui::TextCenter("of each one.");
 				ImGui::TextCenter("");
-				ImGui::TextCenter("Batch Folder");
+				ImGui::TextCenter("Source Folder");
 				ImGui::PushItemWidth(ImGui::GetContentRegionAvailWidth() - ImGui::GetFontSize() * 9 - 10);
 				ImGui::Indent(ImGui::GetFontSize() * 2.0 + 40);
 
-				ImGui::InputText("##InputPathImporter", &cImportPathCropped[0], 250);
-				if (!pref.iTurnOffEditboxTooltip && ImGui::IsItemHovered()) ImGui::SetTooltip("Set where you would like to save the object files");
+				ImGui::InputTextWithHint("##InputBatchSourceImporter", "Select the folder of models", &cBatchSourcePath[0], MAX_PATH, ImGuiInputTextFlags_ReadOnly);
+				if (!pref.iTurnOffEditboxTooltip && ImGui::IsItemHovered()) ImGui::SetTooltip("This folder contains all the models to be batch converted");
+				if (ImGui::MaxIsItemFocused()) bImGuiGotFocus = true;
+				ImGui::PopItemWidth();
+				ImGui::SameLine();
+				ImGui::PushItemWidth(ImGui::GetFontSize() * 2.0f);
+
+				if (ImGui::StyleButton("...##ImporterBatchSource"))
+				{
+					//PE: filedialogs change dir so.
+					cStr tOldDir = GetDir();
+					char* cFileSelected;
+					char defaultPath[MAX_PATH];
+					if (strlen(cBatchSourcePath) > 0)
+					{
+						strcpy(defaultPath, cBatchSourcePath);
+					}
+					else
+					{
+						strcpy(defaultPath, GG_GetWritePath());
+						strcat(defaultPath, "Files\\entitybank\\user");
+					}
+					cFileSelected = (char*)noc_file_dialog_open(NOC_FILE_DIALOG_DIR, "All\0*.*\0", defaultPath, "", true, NULL);
+					SetDir(tOldDir.Get());
+
+					if (cFileSelected && strlen(cFileSelected) > 0)
+					{
+						// the models can come from any folder
+						strcpy(cBatchSourcePath, cFileSelected);
+
+						// a source within entitybank is also the output when none is chosen, so refresh the folders as the output does
+						if (strstr(cBatchSourcePath, "\\entitybank"))
+						{
+							extern bool bExternal_Entities_Init;
+							bExternal_Entities_Init = false;
+							extern void mapeditorexecutable_full_folder_refresh(void);
+							mapeditorexecutable_full_folder_refresh();
+						}
+
+						// collect list of models to convert
+						imgui_importer_refreshbatchlist();
+					}
+				}
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("This folder contains all the models to be batch converted");
+
+				ImGui::PopItemWidth();
+				ImGui::Indent(-58);
+
+				ImGui::TextCenter("Output Folder");
+				ImGui::PushItemWidth(ImGui::GetContentRegionAvailWidth() - ImGui::GetFontSize() * 11 - 10);
+				ImGui::Indent(ImGui::GetFontSize() * 2.0 + 40);
+
+				ImGui::InputTextWithHint("##InputBatchOutputImporter", "Same as the source folder", &cBatchOutputPath[0], MAX_PATH, ImGuiInputTextFlags_ReadOnly);
+				if (!pref.iTurnOffEditboxTooltip && ImGui::IsItemHovered()) ImGui::SetTooltip("Set where you would like to save the object files, within entitybank");
 				if (ImGui::MaxIsItemFocused()) bImGuiGotFocus = true;
 				ImGui::PopItemWidth();
 				ImGui::SameLine();
@@ -4930,8 +5067,15 @@ void imgui_importer_loop(void)
 					cStr tOldDir = GetDir();
 					char* cFileSelected;
 					char defaultPath[MAX_PATH];
-					strcpy(defaultPath, GG_GetWritePath());
-					strcat(defaultPath, "Files\\entitybank\\user");
+					if (strlen(cBatchOutputPath) > 0)
+					{
+						strcpy(defaultPath, cBatchOutputPath);
+					}
+					else
+					{
+						strcpy(defaultPath, GG_GetWritePath());
+						strcat(defaultPath, "Files\\entitybank\\user");
+					}
 					cFileSelected = (char*)noc_file_dialog_open(NOC_FILE_DIALOG_DIR, "All\0*.*\0", defaultPath, "", true, NULL);
 					SetDir(tOldDir.Get());
 
@@ -4944,20 +5088,9 @@ void imgui_importer_loop(void)
 					if (cFileSelected && strlen(cFileSelected) > 0)
 					{
 						//	Check that the new path still contains the entitybank folder.
-						char* cCropped = strstr(cFileSelected, "\\entitybank");
-						if (cCropped)
+						if (strstr(cFileSelected, "\\entitybank"))
 						{
-							//	New location contains entitybank folder, so change the import path.
-							strcpy(cImportPath, cFileSelected);
-							strcpy(cImportPathCropped, cCropped);
-
-							//	Drop the entitybank folder from the cropped file path.
-							char pNewCroppedStr[MAX_PATH];
-							strcpy(pNewCroppedStr, cCropped + strlen("\\entitybank"));
-							strcpy(cImportPathCropped, pNewCroppedStr);
-
-							// collect list of models to convert
-							imgui_importer_refreshbatchlist();
+							strcpy(cBatchOutputPath, cFileSelected);
 						}
 						else
 						{
@@ -4965,7 +5098,13 @@ void imgui_importer_loop(void)
 						}
 					}
 				}
-				if (ImGui::IsItemHovered()) ImGui::SetTooltip("This folder contains all the models to be batch converted");
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set where you would like to save the object files, within entitybank");
+				ImGui::SameLine();
+				if (ImGui::StyleButton("X##ImporterBatchOutputClear"))
+				{
+					strcpy(cBatchOutputPath, "");
+				}
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save the object files into the source folder");
 
 				ImGui::PopItemWidth();
 				ImGui::Indent(-58);
@@ -5002,15 +5141,23 @@ void imgui_importer_loop(void)
 				{
 					if (strlen(cImportName) > 0)
 					{
-						if (strlen(cImportPath) > 0)
+						if (strlen(cBatchSourcePath) > 0 && batchFileList.size() > 0)
 						{
-							// save settings
-							importer_storeobjectdata();
-							// before save, match created animsets to actual DBO structure
-							sObject* pObject = GetObjectData(t.importer.objectnumber);
-							UpdateObjectWithAnimSlotList(pObject);
-							// Trigger Batch Convert to happen
-							iDelayedExecute = 5;
+							if (strstr(importer_batchoutputpath(), "\\entitybank"))
+							{
+								// save settings
+								importer_storeobjectdata();
+								// before save, match created animsets to actual DBO structure
+								sObject* pObject = GetObjectData(t.importer.objectnumber);
+								UpdateObjectWithAnimSlotList(pObject);
+								// Trigger Batch Convert to happen
+								iDelayedExecute = 5;
+							}
+							else
+							{
+								strcpy(cTriggerMessage, "The source folder is outside entitybank, please select an output folder within entitybank");
+								bTriggerMessage = true;
+							}
 						}
 						else
 						{

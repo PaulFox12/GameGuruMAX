@@ -159,6 +159,8 @@ int get_cursor_scale_for_obj ( int tObj );
 
 int AskSaveBeforeNewAction(void);
 void SetUpdaterWritePathFile(char* sContents);
+void LoadExtraSettingsFile(void);
+void SaveExtraSettingsFile(void);
 
 void loadMarketplaceData(int* ggMaxDlc, cstr* ggMaxLink, int* sketchfabDlc, cstr* sketchfabLink, int* shockwaveDlc, cstr* shockwaveLink,
 						 int* communityDlc, cstr* communityLink, int* gcStoreDlc, cstr* gcStoreImageURL, cstr* gcStoreLink);

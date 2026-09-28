@@ -249,6 +249,10 @@ extern bool bMarketplace_Window;
 extern bool bTriggerCloseEntityWindow;
 extern bool bMarketplace_Init;
 extern cstr sDefaultImportPath;
+extern char cBatchSourcePath[MAX_PATH];
+extern char cBatchOutputPath[MAX_PATH];
+extern char cDefaultImportOutputPath[MAX_PATH];
+extern bool importer_setoutputpath(LPSTR pPath);
 extern bool bResetObjectLibrarySize;
 extern bool bWelcomeScreen_Window;
 extern bool bWelcomeNoBackButton;
@@ -10295,9 +10299,70 @@ void ProcessPreferences(void)
 					if (pref.cDefaultImportPath[strlen(pref.cDefaultImportPath) - 1] != '\\')
 						strcat(pref.cDefaultImportPath, "\\");
 					sDefaultImportPath = pref.cDefaultImportPath;
+					strcpy(cBatchSourcePath, pref.cDefaultImportPath);
 				}
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Select a new folder path from where to import models");
+			ImGui::PopItemWidth();
+
+			ImGui::Text("");
+			ImGui::Indent(-10);
+			ImGui::Text("Default Import Output Folder Location");
+
+			ImGui::Indent(10);
+			ImGui::PushItemWidth(-10 - path_gadget_size * 2);
+			ImGui::InputTextWithHint("##InputDefaultImportOutputFolder", "Same as the source folder", &cDefaultImportOutputPath[0], 250, ImGuiInputTextFlags_ReadOnly);
+			ImGui::PopItemWidth();
+			if (!pref.iTurnOffEditboxTooltip && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Select a new folder within entitybank where imported models are saved, or leave it empty to save a batch into its source folder");
+			if (ImGui::MaxIsItemFocused()) bImGuiGotFocus = true;
+
+			ImGui::SameLine();
+			ImGui::PushItemWidth(path_gadget_size);
+
+			//	Let the user know they set an invalid save file path.
+			if (ImGui::BeginPopup("##InvalidDefaultImportOutputFolder"))
+			{
+				ImGui::Text("Path must be within 'entitybank\\'");
+				ImGui::EndPopup();
+			}
+
+			if (ImGui::StyleButton("...##pathDefaultImportOutputFolder")) {
+				//PE: filedialogs change dir so.
+				cStr tOldDir = GetDir();
+				char * cFileSelected;
+				char defaultPath[MAX_PATH];
+				if (strlen(cDefaultImportOutputPath) > 0)
+				{
+					strcpy(defaultPath, cDefaultImportOutputPath);
+				}
+				else
+				{
+					strcpy(defaultPath, GG_GetWritePath());
+					strcat(defaultPath, "Files\\entitybank\\user");
+				}
+				cFileSelected = (char *)noc_file_dialog_open(NOC_FILE_DIALOG_DIR, "All\0*.*\0", defaultPath, NULL);
+				SetDir(tOldDir.Get());
+				if (cFileSelected && strlen(cFileSelected) > 0) {
+					if (importer_setoutputpath(cFileSelected))
+					{
+						strcpy(cDefaultImportOutputPath, cFileSelected);
+						strcpy(cBatchOutputPath, cFileSelected);
+						SaveExtraSettingsFile();
+					}
+					else
+					{
+						ImGui::OpenPopup("##InvalidDefaultImportOutputFolder");
+					}
+				}
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Select a new folder within entitybank where imported models are saved");
+			ImGui::SameLine();
+			if (ImGui::StyleButton("X##clearDefaultImportOutputFolder")) {
+				strcpy(cDefaultImportOutputPath, "");
+				strcpy(cBatchOutputPath, "");
+				SaveExtraSettingsFile();
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Clear the default, so a batch saves into its source folder");
 			ImGui::PopItemWidth();
 
 			bool bTemp = pref.iImporterDome;
@@ -10598,6 +10663,9 @@ void ProcessPreferences(void)
 			strcpy(pref.cCustomWriteFolder, "");
 			SetUpdaterWritePathFile(pref.cCustomWriteFolder);
 			strcpy(pref.cDefaultImportPath, "");
+			strcpy(cDefaultImportOutputPath, "");
+			strcpy(cBatchOutputPath, "");
+			SaveExtraSettingsFile();
 			strcpy(pref.cDefaultStandalonePath, "");
 			strcpy(pref.cRememberLastSearchObjects, "");
 
@@ -35895,6 +35963,42 @@ void SetUpdaterWritePathFile(char* sContents)
 	if (FileExist(sUpdaterWritePath.Get())) DeleteAFile(sUpdaterWritePath.Get());
 	OpenToWrite(1, sUpdaterWritePath.Get());
 	WriteString(1, sContents);
+	CloseFile(1);
+}
+
+// Settings this build adds are kept in their own file beside the preferences, as the preferences layout is shared with
+// other builds of the editor and cannot change. Read when the editor starts, and written when one of them changes
+void LoadExtraSettingsFile(void)
+{
+	cstr sExtraSettingsFile = defaultWriteFolder;
+	sExtraSettingsFile += "gamegurumax_extra.ini";
+	if (FileExist(sExtraSettingsFile.Get()) == 0) return;
+	if (FileOpen(1)) CloseFile(1);
+	OpenToRead(1, sExtraSettingsFile.Get());
+	while (FileEnd(1) == 0)
+	{
+		LPSTR pRead = ReadString(1);
+		char pLine[MAX_PATH + 64];
+		if (pRead == NULL || strlen(pRead) >= sizeof(pLine)) continue;
+		strcpy(pLine, pRead);
+		char* pValue = strchr(pLine, '=');
+		if (pValue == NULL) continue;
+		*pValue = 0;
+		pValue++;
+		if (stricmp(pLine, "importoutputpath") == 0 && strlen(pValue) < MAX_PATH) strcpy(cDefaultImportOutputPath, pValue);
+	}
+	CloseFile(1);
+}
+
+void SaveExtraSettingsFile(void)
+{
+	cstr sExtraSettingsFile = defaultWriteFolder;
+	sExtraSettingsFile += "gamegurumax_extra.ini";
+	if (FileOpen(1)) CloseFile(1);
+	if (FileExist(sExtraSettingsFile.Get())) DeleteAFile(sExtraSettingsFile.Get());
+	OpenToWrite(1, sExtraSettingsFile.Get());
+	cstr sLine = cstr("importoutputpath=") + cDefaultImportOutputPath;
+	WriteString(1, sLine.Get());
 	CloseFile(1);
 }
 

@@ -779,6 +779,9 @@ void mapeditorexecutable_init ( void )
 	timestampactivity(0,"ide input mode");
 	g.globals.ideinputmode = 1;
 
+	// settings this build keeps beside the preferences
+	LoadExtraSettingsFile();
+
 	// VR Support
 	vr_init();
 
@@ -13652,9 +13655,10 @@ void mapeditorexecutable_loop(void)
 						int iBatchFileCount = batchFileList.size();
 						if (iBatchFileCount > 0)
 						{
-							extern char cImportPath[MAX_PATH];
-							strcpy(pLaunchAfterSyncPreSelectModel, cImportPath);
-							strcat(pLaunchAfterSyncPreSelectModel, "\\");
+							extern char cBatchSourcePath[MAX_PATH];
+							strcpy(pLaunchAfterSyncPreSelectModel, cBatchSourcePath);
+							if (pLaunchAfterSyncPreSelectModel[strlen(pLaunchAfterSyncPreSelectModel) - 1] != '\\')
+								strcat(pLaunchAfterSyncPreSelectModel, "\\");
 							strcat(pLaunchAfterSyncPreSelectModel, batchFileList[iBatchFileCount-1].Get());
 							batchFileList.pop_back();
 						}
