@@ -2489,6 +2489,8 @@ SetWaterFog : SetWaterFog ( minDist, maxDist [, minAmount] ) -- how clear the wa
 GetWaterFog : minDist, maxDist, minAmount = GetWaterFog()
 SetRawSoundDistanceScale : SetRawSoundDistanceScale ( id, units ) -- 3D distance for one sound: full volume within about this distance, fading beyond; 0 = the global setup.ini curvedistancescaler (default 250). id from GetEntityRawSound( e, slot )
 GetRawSoundDistanceScale : units = GetRawSoundDistanceScale ( id ) -- the distance scale this sound plays with
+SetDopplerScale : SetDopplerScale ( scale ) -- how strongly 3D sounds rise in pitch as they come closer and fall as they go away, from how fast each sound and the camera move: 1 as in the real world (the default), 0 none, more to exaggerate; back to 1 at the next level
+GetDopplerScale : scale = GetDopplerScale() -- the doppler strength
 SetEntityInstanceEmissive : SetEntityInstanceEmissive ( e, r, g, b [, strength] ) -- glow of this one instance, multiplying the entity's authored emissive colour and strength (each 0 to 1; 1,1,1,1 = as authored, strength 0 = off). Other instances of the same object keep theirs
 GetEntityInstanceEmissive : r, g, b, strength = GetEntityInstanceEmissive ( e )
 
@@ -2507,6 +2509,8 @@ GetEntityLimbBounds : minx, miny, minz, maxx, maxy, maxz = GetEntityLimbBounds (
 GetEntityLimbParent : limb = GetEntityLimbParent ( e, limb ) -- the limb this one hangs from, -1 at the top
 GetEntityLimbBoneCount : n = GetEntityLimbBoneCount ( e, limb ) -- how many bones the limb's mesh is skinned to, 0 if it is not skinned
 GetEntityLimbBone : limb, name = GetEntityLimbBone ( e, limb, n ) -- the limb that is bone n (0 to count-1) of the limb's skinned mesh, and its name; -1, "" if none
+SetEntityLimbAlpha : SetEntityLimbAlpha ( e, limb, percent [, children] ) -- fades one limb, 0 to 100 (100 = as made); children 1 also the limbs under it (a rotor frame with blade limbs). The renderer dithers it rather than blending, and a faded limb keeps its shadow, so HideLimb it once faded out. Back to 100 at each level start
+GetEntityLimbAlpha : percent = GetEntityLimbAlpha ( e, limb ) -- the limb's alpha, or that of the first limb under it with a mesh; 100 if none
 
 IntersectRay : obj, e, x, y, z, nx, ny, nz, limb = IntersectRay ( x1, y1, z1, x2, y2, z2 [, ignore [, flags] ] ) -- one full-accuracy pick with all its results: obj 0 none, -1 terrain or other geometry; e 0 if not an entity; limb -1 none. ignore is an object number or a table of them; flags 1 hits the ground first, 2 passes through entities with collisionmode 11
 GetIntersectCollisionLimb : limb = GetIntersectCollisionLimb() -- the limb the last IntersectAll / IntersectStatic hit, -1 for none or the ground
@@ -2540,6 +2544,9 @@ ClearGrassKillBox : ClearGrassKillBox ( [slot] ) -- without a slot clears them a
 
 GetVideoMemoryUsed : usedMB, budgetMB = GetVideoMemoryUsed() -- the dedicated video memory the game uses, and the budget Windows gives it
 GetDrawCalls : main, shadow, transparent, triangles = GetDrawCalls() -- the last frame's draw calls and the main pass's triangles
+SetRenderTiming : SetRenderTiming ( on ) -- 1 times the renderer's work every frame so GetRenderTime can read it (a few GPU queries a frame), 0 stops; off again at the next level
+GetRenderTime : ms = GetRenderTime ( [name] ) -- milliseconds, averaged over 20 frames, of a timed range: "GPU Frame" (the default), "CPU Frame" or another name from Tab Tab's performance data; -1 while timing is off and for the first frames after it is turned on
+SetPlayerHealth : SetPlayerHealth ( v ) -- sets the player's health; taking it from above 0 to 0 or below starts the death sequence and the respawn, as damage does
 
 ***** The following five functions return multiple values, if you do not need them all just replace 
 ***** the ones you don't need with '_' for example : _, _, _, Ax, Ay, Az = GetEntityPosAng( e ) would
