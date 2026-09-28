@@ -2499,6 +2499,14 @@ GetDecalLimit : total, ripples = GetDecalLimit() -- the decal limit and the elem
 GetDecalStats : showing, outofrange, nofree = GetDecalStats() -- decals showing now, and since the level started those not made for being out of range and for finding no free element
 AnglesToQuat : x, y, z, w = AnglesToQuat ( ax, ay, az ) -- the engine's angles (degrees, as SetRotation and GetEntityAngleX/Y/Z) to a quaternion (as QuatMultiply and QuatSLERP take); QuatToEuler and EulerToQuat use radians and mirror pitch and roll
 QuatToAngles : ax, ay, az = QuatToAngles ( x, y, z, w ) -- a quaternion back to the engine's angles, in degrees
+AddProjectedDecal : id = AddProjectedDecal ( image, x, y, z, size [, nx, ny, nz [, spin [, depth [, life] ] ] ] ) -- a texture projected onto the terrain and objects round x, y, z, following slopes, steps and corners (a scorch mark). size: width across the surface; nx, ny, nz: the surface normal it projects along (0, 1, 0 by default); spin: degrees about it; depth: how far along the normal it reaches (half its size by default); life: seconds before it fades out and goes (0 = never). image: a texture path as models use them (a .dds with mipmaps, or a .png). 0 if the texture did not load; none stay past the level
+RemoveProjectedDecal : RemoveProjectedDecal ( id ) -- removes it at once; -1 removes them all
+SetProjectedDecalOpacity : SetProjectedDecalOpacity ( id, percent ) -- 0 to 100, for a fade of your own
+SetProjectedDecalGrass : SetProjectedDecalGrass ( id, radius ) -- no grass is drawn within radius of the decal's centre (0 = none); the nearest to the camera use the grass kill shapes SetGrassKillBox's 8 leave free, 16 in all
+SetProjectedDecalLimit : SetProjectedDecalLimit ( count ) -- how many projected decals there can be, 48 unless set, up to 96; the oldest go first past it; back to 48 at the next level
+GetProjectedDecalLimit : count = GetProjectedDecalLimit() -- the projected decal limit
+GetProjectedDecalCount : count = GetProjectedDecalCount() -- the projected decals there are now
+SetEntityReceivesDecals : SetEntityReceivesDecals ( e, on ) -- 0: the entity's model takes no projected decals (characters, vehicles passing over a scorch); every entity using that model changes with it
 SetEntityInstanceEmissive : SetEntityInstanceEmissive ( e, r, g, b [, strength] ) -- glow of this one instance, multiplying the entity's authored emissive colour and strength (each 0 to 1; 1,1,1,1 = as authored, strength 0 = off). Other instances of the same object keep theirs
 GetEntityInstanceEmissive : r, g, b, strength = GetEntityInstanceEmissive ( e )
 
