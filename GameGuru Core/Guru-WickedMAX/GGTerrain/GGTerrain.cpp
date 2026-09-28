@@ -3800,6 +3800,7 @@ public:
 			{
 				GGTerrainFlatArea* pArea = &ggterrain_flat_areas[ i ];
 				if ( !pArea->IsValid() ) continue;
+				if ( pArea->IsVegetationOnly() ) continue; // keeps no height, so the flattening below skips it
 
 				if ( isnan( pArea->y ) )
 				{
@@ -5986,6 +5987,45 @@ uint16_t GGTerrain_CreateFlatArea()
 	return id;
 }
 
+// the x/z bounds of the trees and grass an area clears
+void GGTerrain_GetFlatAreaVegetationBounds( GGTerrainFlatArea* pArea, float* minX, float* minZ, float* maxX, float* maxZ )
+{
+	float extentX = pArea->sizeX / 2.0f;
+	float extentZ = pArea->sizeX / 2.0f;
+	if ( pArea->GetType() == GGTERRAIN_FLAT_AREA_TYPE_RECT )
+	{
+		float ca = cos( pArea->angle * PI / 180.0f );
+		float sa = sin( pArea->angle * PI / 180.0f );
+		extentX = fabs( pArea->sizeX * ca / 2.0f ) + fabs( pArea->sizeZ * sa / 2.0f );
+		extentZ = fabs( pArea->sizeX * sa / 2.0f ) + fabs( pArea->sizeZ * ca / 2.0f );
+	}
+	*minX = pArea->x - extentX;
+	*minZ = pArea->z - extentZ;
+	*maxX = pArea->x + extentX;
+	*maxZ = pArea->z + extentZ;
+}
+
+// restoring an area brings back every tree and grass cell inside it, including ones another area also clears, so
+// each other area that overlaps it clears again
+void GGTerrain_ReapplyOverlappingFlatAreas( uint32_t restoredID, GGTerrainFlatArea* pRestored )
+{
+	float minX, minZ, maxX, maxZ;
+	GGTerrain_GetFlatAreaVegetationBounds( pRestored, &minX, &minZ, &maxX, &maxZ );
+	for( uint32_t i = 0; i < ggterrain_flat_areas_array_size; i++ )
+	{
+		if ( i == restoredID ) continue;
+		GGTerrainFlatArea* pArea = &ggterrain_flat_areas[ i ];
+		if ( !pArea->IsValid() ) continue;
+
+		float areaMinX, areaMinZ, areaMaxX, areaMaxZ;
+		GGTerrain_GetFlatAreaVegetationBounds( pArea, &areaMinX, &areaMinZ, &areaMaxX, &areaMaxZ );
+		if ( areaMinX > maxX || areaMinZ > maxZ || areaMaxX < minX || areaMaxZ < minZ ) continue;
+
+		GGTrees_UpdateFlatArea( 0, pArea->GetType(), pArea->x, pArea->z, pArea->sizeX, pArea->sizeZ, pArea->angle );
+		GGGrass_UpdateFlatArea( 0, pArea->GetType(), pArea->x, pArea->z, pArea->sizeX, pArea->sizeZ, pArea->angle );
+	}
+}
+
 uint32_t GGTerrain_AddFlatRect( float posX, float posZ, float sizeX, float sizeZ, float angle, float height )
 {
 	float terrainHeight;
@@ -5999,6 +6039,7 @@ uint32_t GGTerrain_AddFlatRect( float posX, float posZ, float sizeX, float sizeZ
 	
 	GGTerrainFlatArea* pArea = &ggterrain_flat_areas[ id ];
 	pArea->SetTypeRect();
+	pArea->SetVegetationOnly( 0 ); // a reused slot keeps its old bits
 	pArea->x = posX;
 	pArea->z = posZ;
 	pArea->y = height;
@@ -6051,6 +6092,7 @@ uint32_t GGTerrain_AddFlatCircle( float posX, float posZ, float diameter, float 
 
 	GGTerrainFlatArea* pArea = &ggterrain_flat_areas[ id ];
 	pArea->SetTypeCircle();
+	pArea->SetVegetationOnly( 0 ); // a reused slot keeps its old bits
 	pArea->x = posX;
 	pArea->z = posZ;
 	pArea->y = height;
@@ -6081,9 +6123,16 @@ void GGTerrain_UpdateFlatArea( uint32_t id, float posX, float posZ, float angle,
 
 	GGTerrainFlatArea* pArea = &ggterrain_flat_areas[ id ];
 	if ( !pArea->IsValid() ) return;
+	if ( pArea->IsVegetationOnly() )
+	{
+		GGTerrain_UpdateVegetationArea( id, posX, posZ, sizeX, sizeZ, angle );
+		return;
+	}
 
+	GGGrass_DeferInstanceUpdates( 1 );
 	GGTrees_UpdateFlatArea( 1, pArea->GetType(), pArea->x, pArea->z, pArea->sizeX, pArea->sizeZ, pArea->angle );
 	GGGrass_UpdateFlatArea( 1, pArea->GetType(), pArea->x, pArea->z, pArea->sizeX, pArea->sizeZ, pArea->angle );
+	GGTerrain_ReapplyOverlappingFlatAreas( id, pArea );
 
 	if ( pArea->GetType() == GGTERRAIN_FLAT_AREA_TYPE_RECT )
 	{
@@ -6179,6 +6228,7 @@ void GGTerrain_UpdateFlatArea( uint32_t id, float posX, float posZ, float angle,
 
 	GGTrees_UpdateFlatArea( 0, pArea->GetType(), pArea->x, pArea->z, pArea->sizeX, pArea->sizeZ, pArea->angle );
 	GGGrass_UpdateFlatArea( 0, pArea->GetType(), pArea->x, pArea->z, pArea->sizeX, pArea->sizeZ, pArea->angle );
+	GGGrass_DeferInstanceUpdates( 0 );
 
 	ggterrain_internal_params.update_flat_areas = 1;
 }
@@ -6192,8 +6242,12 @@ void GGTerrain_RemoveFlatArea( uint32_t id )
 	pArea->SetValid( 0 );
 	ggterrain_flat_areas_free.PushItem( id );
 
+	GGGrass_DeferInstanceUpdates( 1 );
 	GGTrees_UpdateFlatArea( 1, pArea->GetType(), pArea->x, pArea->z, pArea->sizeX, pArea->sizeZ, pArea->angle );
 	GGGrass_UpdateFlatArea( 1, pArea->GetType(), pArea->x, pArea->z, pArea->sizeX, pArea->sizeZ, pArea->angle );
+	GGTerrain_ReapplyOverlappingFlatAreas( id, pArea );
+	GGGrass_DeferInstanceUpdates( 0 );
+	if ( pArea->IsVegetationOnly() ) return; // the terrain height was never changed
 
 	if ( pArea->GetType() == GGTERRAIN_FLAT_AREA_TYPE_RECT )
 	{
@@ -6235,6 +6289,60 @@ void GGTerrain_RemoveFlatArea( uint32_t id )
 	}
 
 	ggterrain_internal_params.update_flat_areas = 1;
+}
+
+// a vegetation area clears trees and grass like a flat area but leaves the terrain height: its height stays NAN, so the
+// flattening pass skips it
+uint32_t GGTerrain_AddVegetationArea( float posX, float posZ, float sizeX, float sizeZ, float angle )
+{
+	uint16_t id = GGTerrain_CreateFlatArea();
+	if ( id == 0 ) return 0;
+
+	GGTerrainFlatArea* pArea = &ggterrain_flat_areas[ id ];
+	pArea->SetTypeRect();
+	pArea->SetVegetationOnly( 1 );
+	pArea->x = posX;
+	pArea->z = posZ;
+	pArea->y = NAN;
+	pArea->sizeX = sizeX;
+	pArea->sizeZ = sizeZ;
+	pArea->angle = angle;
+	pArea->SetValid( 1 );
+
+	GGTrees_UpdateFlatArea( 0, pArea->GetType(), posX, posZ, sizeX, sizeZ, angle );
+	GGGrass_UpdateFlatArea( 0, pArea->GetType(), posX, posZ, sizeX, sizeZ, angle );
+	return id;
+}
+
+void GGTerrain_UpdateVegetationArea( uint32_t id, float posX, float posZ, float sizeX, float sizeZ, float angle )
+{
+	if ( id >= ggterrain_flat_areas_array_size ) return;
+
+	GGTerrainFlatArea* pArea = &ggterrain_flat_areas[ id ];
+	if ( !pArea->IsValid() || !pArea->IsVegetationOnly() ) return;
+	if ( pArea->x == posX && pArea->z == posZ && pArea->sizeX == sizeX && pArea->sizeZ == sizeZ && pArea->angle == angle ) return;
+
+	GGGrass_DeferInstanceUpdates( 1 );
+	GGTrees_UpdateFlatArea( 1, pArea->GetType(), pArea->x, pArea->z, pArea->sizeX, pArea->sizeZ, pArea->angle );
+	GGGrass_UpdateFlatArea( 1, pArea->GetType(), pArea->x, pArea->z, pArea->sizeX, pArea->sizeZ, pArea->angle );
+	GGTerrain_ReapplyOverlappingFlatAreas( id, pArea );
+
+	pArea->x = posX;
+	pArea->z = posZ;
+	pArea->sizeX = sizeX;
+	pArea->sizeZ = sizeZ;
+	pArea->angle = angle;
+
+	GGTrees_UpdateFlatArea( 0, pArea->GetType(), posX, posZ, sizeX, sizeZ, angle );
+	GGGrass_UpdateFlatArea( 0, pArea->GetType(), posX, posZ, sizeX, sizeZ, angle );
+	GGGrass_DeferInstanceUpdates( 0 );
+}
+
+int GGTerrain_IsVegetationArea( uint32_t id )
+{
+	if ( id >= ggterrain_flat_areas_array_size ) return 0;
+	GGTerrainFlatArea* pArea = &ggterrain_flat_areas[ id ];
+	return ( pArea->IsValid() && pArea->IsVegetationOnly() ) ? 1 : 0;
 }
 
 void GGTerrain_RemoveAllFlatAreas()

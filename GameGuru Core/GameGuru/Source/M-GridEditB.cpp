@@ -9375,6 +9375,7 @@ void ProcessPreferences(void)
 					bChangeState = true;
 				}
 				//PE: Loop into all.
+				GGGrass_DeferInstanceUpdates(1); // the grass is placed again once, not for each flat area
 				for (int i = 1; i <= g.entityelementlist; i++) {
 
 					int entid = t.entityelement[i].bankindex;
@@ -9391,6 +9392,11 @@ void ProcessPreferences(void)
 							GGTerrain_RemoveFlatArea(t.entityelement[i].eleprof.iFlattenID);
 							t.entityelement[i].eleprof.iFlattenID = -1;
 						}
+						if (!bTmp)
+						{
+							// Clear Grass and Trees may now apply, and the removal above took those areas too (entity_clearsvegetation)
+							entity_autoFlattenWhenAdded(i);
+						}
 						if (iAutoFlattenMode != 0 && bTmp)
 						{
 							if (t.entityelement[i].eleprof.iFlattenID == -1)
@@ -9401,6 +9407,7 @@ void ProcessPreferences(void)
 						}
 					}
 				}
+				GGGrass_DeferInstanceUpdates(0);
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Flattens the terrain and clears any trees and grass when placing large objects");
 
@@ -27264,6 +27271,26 @@ void DisplayAllowBulletHolesCheckbox(int elementID)
 	if (ImGui::IsItemHovered()) ImGui::SetTooltip("If set shots leave bullet holes on this object. Set by allowbulletholes in its .fpe, else on for static objects only");
 }
 
+// Clear Grass and Trees tick for a placement auto flatten does not already clear under, shown ticked when
+// entity_clearsvegetation clears; a change is stored as 1 (yes) or 2 (no), over the placement default (0: clearvegetation
+// in the .fpe, else large static objects only)
+void DisplayClearVegetationCheckbox(int elementID)
+{
+	if (elementID <= 0 || elementID >= t.entityelement.size()) return;
+	if (g.entityrubberbandlist.size() > 0) return;
+	int entid = t.entityelement[elementID].bankindex;
+	if (entid <= 0 || t.entityprofile[entid].ismarker != 0) return;
+	if (t.entityprofile[entid].autoflatten != 0 && g_bEnableAutoFlattenSystem && t.entityelement[elementID].eleprof.bAutoFlatten) return;
+	bool bClearVegetation = entity_clearsvegetation(elementID);
+	if (ImGui::Checkbox("Clear Grass and Trees ?", &bClearVegetation))
+	{
+		t.entityelement[elementID].iClearVegetation = bClearVegetation ? 1 : 2;
+		entity_autoFlattenWhenAdded(elementID);
+		g.projectmodified = 1;
+	}
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("If set grass and trees under this object are hidden, without flattening the terrain. Set by clearvegetation in its .fpe, else on for static objects at least 3m across and 2.5m tall");
+}
+
 void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_grideleprof, int elementID)
 {
 	ImGui::Indent(10);
@@ -27589,6 +27616,12 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 					//PE: Disabled remove any flatten.
 					GGTerrain_RemoveFlatArea(edit_grideleprof->iFlattenID);
 					t.entityelement[elementID].eleprof.iFlattenID = edit_grideleprof->iFlattenID = -1;
+				}
+				if (!edit_grideleprof->bAutoFlatten)
+				{
+					// Clear Grass and Trees may now apply (entity_clearsvegetation)
+					entity_autoFlattenWhenAdded(elementID);
+					edit_grideleprof->iFlattenID = t.entityelement[elementID].eleprof.iFlattenID;
 				}
 				if (edit_grideleprof->bAutoFlatten)
 				{
@@ -27982,6 +28015,7 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 			}
 
 			DisplayAllowBulletHolesCheckbox(elementID);
+			DisplayClearVegetationCheckbox(elementID);
 
 			ImGui::Indent(-10);
 		}
@@ -27993,6 +28027,7 @@ void DisplayFPEGeneral(bool readonly, int entid, entityeleproftype *edit_gridele
 		ImGui::Text("and cannot be collected by the player");
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("When the object is set to static, it cannot be set as a collectable or move in any way");
 		DisplayAllowBulletHolesCheckbox(elementID);
+		DisplayClearVegetationCheckbox(elementID);
 		ImGui::Indent(-10);
 	}
 }

@@ -5745,6 +5745,7 @@ struct entityprofiletype
 	int notanoccluder;
 	int materialindex;
 	int allowbulletholes;
+	int clearvegetation;
 	int disablebatch;
 	int lod1distance;
 	int lod2distance;
@@ -6145,6 +6146,7 @@ struct entityprofiletype
 		 disablebatch = 0;
 		 materialindex = 0;
 		 allowbulletholes = -1;
+		 clearvegetation = -1;
 		 notanoccluder = 0;
 		 forcesimpleobstacle = 0;
 		 forceobstaclepolysize = 0.0f;
@@ -6732,10 +6734,12 @@ struct entitytype
 	int iThumbnail;
 	int old_bankindex;
 	int iAllowBuletHole = 0;
+	int iClearVegetation = 0;
 	// Constructor
 	entitytype ( )
 	{
 		 iAllowBuletHole = 0;
+		 iClearVegetation = 0;
 		 old_bankindex = 0;
 		 iThumbnail = 0;
 		 iWasSpawnedInGame = 0;

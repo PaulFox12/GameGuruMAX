@@ -219,7 +219,7 @@ struct GGTerrainRenderParams2
 
 struct GGTerrainFlatArea
 {
-	uint32_t data = 0; // bits: [0]=valid, [1-2]=type (0=rect, 1=circle, 2=reserved, 3=reserved) 
+	uint32_t data = 0; // bits: [0]=valid, [1-2]=type (0=rect, 1=circle, 2=reserved, 3=reserved), [3]=vegetation only (clears trees and grass, leaves the terrain height)
 	float x;
 	float y;
 	float z;
@@ -237,6 +237,13 @@ struct GGTerrainFlatArea
 	void SetTypeCircle() { data = (data & ~0x06) | 0x02; }
 	void SetTypeRect() { data = (data & ~0x06); }
 	int GetType() { return (data >> 1) & 0x03; }
+
+	bool IsVegetationOnly() { return (data & 0x08) != 0; }
+	void SetVegetationOnly( uint32_t vegetationOnly )
+	{
+		if ( vegetationOnly ) data |= 0x08;
+		else data &= ~0x08;
+	}
 };
 
 // Public functions
@@ -319,6 +326,9 @@ uint32_t GGTerrain_AddFlatRect( float posX, float posZ, float sizeX, float sizeZ
 uint32_t GGTerrain_AddFlatCircle( float posX, float posZ, float diameter, float height = NAN ); // returns 0 if too many flat areas have been added
 void GGTerrain_UpdateFlatArea( uint32_t id, float posX, float posZ, float angle, float sizeX, float sizeZ, float height = NAN ); // angle is ignored for circle areas
 void GGTerrain_RemoveFlatArea( uint32_t id );
+uint32_t GGTerrain_AddVegetationArea( float posX, float posZ, float sizeX, float sizeZ, float angle ); // clears trees and grass in a rect without flattening, returns 0 if too many flat areas have been added, remove with GGTerrain_RemoveFlatArea
+void GGTerrain_UpdateVegetationArea( uint32_t id, float posX, float posZ, float sizeX, float sizeZ, float angle ); // does nothing if the area is unchanged
+int GGTerrain_IsVegetationArea( uint32_t id );
 void GGTerrain_RemoveAllFlatAreas();
 
 void GGTerrain_SetGameMode( int mode ); // 0 = editor, 1 = test game and standalone

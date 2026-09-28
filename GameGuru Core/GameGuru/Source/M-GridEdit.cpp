@@ -13883,6 +13883,7 @@ void mapeditorexecutable_loop(void)
 					bUpdateVeg = true;
 
 					//PE: We need to recreate probes after all objects is placed, so we can find the probe boundingbox.
+					GGGrass::GGGrass_DeferInstanceUpdates(1); // the grass is placed again once, not for each flat area
 					for (int te = 1; te <= g.entityelementlist; te++)
 					{
 						int entid = t.entityelement[te].bankindex;
@@ -13891,6 +13892,7 @@ void mapeditorexecutable_loop(void)
 							entity_autoFlattenWhenAdded(te);
 						}
 					}
+					GGGrass::GGGrass_DeferInstanceUpdates(0);
 					if (bLaunchTestGameAfterLoad)
 					{
 						bLaunchTestGameAfterLoad = false;

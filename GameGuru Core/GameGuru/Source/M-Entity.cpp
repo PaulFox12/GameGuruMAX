@@ -2401,6 +2401,10 @@ void entity_loaddata ( void )
 					cmpStrConst( t_field_s, "allowbulletholes" );
 					if (matched) t.entityprofile[t.entid].allowbulletholes = t.value1;
 
+					// Clear Grass and Trees until set per placement (-1 when absent: large static objects only, see entity_clearsvegetation)
+					cmpStrConst( t_field_s, "clearvegetation" );
+					if (matched) t.entityprofile[t.entid].clearvegetation = t.value1;
+
 					//  LOD and BITBOB system
 					cmpStrConst( t_field_s, "disablebatch" );
 					if (  matched  )  t.entityprofile[t.entid].disablebatch = t.value1;
@@ -5570,7 +5574,7 @@ void c_entity_loadelementsdata ( void )
 						t.a = c_ReadLong(1); t.entityelement[t.e].iAllowBuletHole = t.a;
 						t.a = c_ReadLong(1); t.entityelement[t.e].eleprof.iMaterialSoundIndex = t.a;
 						
-						t.a = t.a_f = c_ReadFloat(1); fFiller = t.a_f;
+						t.a = t.a_f = c_ReadFloat(1); t.entityelement[t.e].iClearVegetation = (int)t.a_f;
 						t.a = t.a_f = c_ReadFloat(1); fFiller = t.a_f;
 						t.a = c_ReadLong(1);
 						t.entityelement[t.e].eleprof.systemwide_lua = t.a;
@@ -7190,7 +7194,7 @@ void entity_saveelementsdata (bool bForCollectionELE)
 					writer.WriteLong(t.entityelement[ent].eleprof.iMaterialSoundIndex);
 				
 
-					writer.WriteFloat(0.0f);
+					writer.WriteFloat((float)t.entityelement[ent].iClearVegetation); // Clear Grass and Trees tick, 0 (every older level) until set
 					writer.WriteFloat(0.0f);
 					writer.WriteLong(t.entityelement[ent].eleprof.systemwide_lua);
 					writer.WriteLong(t.entityelement[ent].eleprof.isobjective_alwaysactive);
@@ -7958,8 +7962,9 @@ void entity_addentitytomap_core ( void )
 	{
 		// a new placement starts with Allow Bullet Holes unset, which follows its .fpe (entity_allowsbulletholes), rather
 		// than the tick of a deleted object that used this element; one dropped back into its own element, or restored
-		// by undo, keeps its setting
+		// by undo, keeps its setting; Clear Grass and Trees likewise
 		t.entityelement[t.e].iAllowBuletHole = 0;
+		t.entityelement[t.e].iClearVegetation = 0;
 	}
 	t.entityelement[t.e].iHasParentIndex=t.gridentityhasparent;
 	t.entityelement[t.e].x=t.gridentityposx_f;
@@ -9103,8 +9108,103 @@ static float entity_autoflattenpadsizex (int iAutoFlattenMode, float sx, float s
 	return (sx > sz) ? sx : sz;
 }
 
+// whether entity e clears the trees and grass under it without flattening: its Clear Grass and Trees tick once set in
+// the editor, 1 yes, 2 no; until then (0, also every placement saved before the tick existed) clearvegetation in its
+// .fpe, and without that key static objects at least 3m across their narrower side and 2.5m tall, so a building clears
+// them and a small prop or a parked car does not. Auto flatten, when on for the entity, clears them with its pad instead
+bool entity_clearsvegetation(int e)
+{
+	int entid = t.entityelement[e].bankindex;
+	if (entid <= 0) return false;
+	if (t.entityelement[e].iClearVegetation == 1) return true;
+	if (t.entityelement[e].iClearVegetation == 2) return false;
+	int iClearVegetation = t.entityprofile[entid].clearvegetation;
+	if (iClearVegetation != -1) return iClearVegetation == 1;
+	if (t.entityelement[e].staticflag != 1) return false;
+	if (t.entityprofile[entid].ismarker != 0 || t.entityprofile[entid].ischaracter != 0 || t.entityprofile[entid].bIsDecal) return false;
+	int iObj = t.entityelement[e].obj;
+	if (iObj <= 0 || ObjectExist(iObj) == 0) return false;
+	float fNarrowerSide = ObjectSizeX(iObj, 1);
+	if (ObjectSizeZ(iObj, 1) < fNarrowerSide) fNarrowerSide = ObjectSizeZ(iObj, 1);
+	return fNarrowerSide >= GGTerrain_MetersToUnits(3.0f) && ObjectSizeY(iObj, 1) >= GGTerrain_MetersToUnits(2.5f);
+}
+
+// keeps the Clear Grass and Trees area (a vegetation area, which leaves the terrain height alone) of an entity that
+// clears vegetation while auto flatten is off for it. It shares eleprof.iFlattenID with the auto flatten pad, as an
+// entity has one or the other, so every place that removes a pad removes it too. Returns true when it has dealt with
+// the entity, false to leave it to the auto flatten code. In game the areas stay as the editor left them
+static bool entity_updatevegetationarea(int e, int obj)
+{
+	int entid = t.entityelement[e].bankindex;
+	if (entid <= 0) return false;
+	int iFlattenID = t.entityelement[e].eleprof.iFlattenID;
+	bool bHasVegetationArea = (iFlattenID > 0 && GGTerrain_IsVegetationArea(iFlattenID) == 1);
+	if (g.isGameBeingPlayed) return bHasVegetationArea;
+
+	bool bAutoFlatten = (t.entityprofile[entid].autoflatten != 0 && g_bEnableAutoFlattenSystem && t.entityelement[e].eleprof.bAutoFlatten);
+	if (bAutoFlatten)
+	{
+		if (!bHasVegetationArea) return false;
+		// auto flatten was turned on: its pad takes the place of the vegetation area
+		GGTerrain_RemoveFlatArea(iFlattenID);
+		t.entityelement[e].eleprof.iFlattenID = -1;
+		entity_autoFlattenWhenAdded(e, obj);
+		return true;
+	}
+
+	// only once the entity's own object is in place: while it is being created (entity_prepareobj) its object does not
+	// have the entity's rotation and scale yet
+	int iObj = t.entityelement[e].obj;
+	if (iObj <= 0 || ObjectExist(iObj) == 0) return bHasVegetationArea;
+
+	bool bClears = entity_clearsvegetation(e);
+	extern std::vector<int> g_smartObjectDummyEntities;
+	if (t.entityelement[e].iIsSmarkobjectDummyObj == 1) bClears = false;
+	for (auto& dummyID : g_smartObjectDummyEntities) if (dummyID == e) bClears = false;
+	if (t.entityelement[e].x == 0 && t.entityelement[e].y == -500000 && t.entityelement[e].z == 0) bClears = false;
+	if (!bClears)
+	{
+		if (!bHasVegetationArea) return false;
+		GGTerrain_RemoveFlatArea(iFlattenID);
+		t.entityelement[e].eleprof.iFlattenID = -1;
+		return true;
+	}
+
+	if (iFlattenID != -1 && !bHasVegetationArea)
+	{
+		// a pad left from when auto flatten was on
+		GGTerrain_RemoveFlatArea(iFlattenID);
+		iFlattenID = -1;
+	}
+
+	// the object's footprint around its collision centre, turned to its yaw
+	GGQUATERNION QuatAroundX, QuatAroundY, QuatAroundZ, quatRotationEvent;
+	GGQuaternionRotationAxis(&QuatAroundX, &GGVECTOR3(1, 0, 0), GGToRadian(ObjectAngleX(iObj)));
+	GGQuaternionRotationAxis(&QuatAroundY, &GGVECTOR3(0, 1, 0), GGToRadian(ObjectAngleY(iObj)));
+	GGQuaternionRotationAxis(&QuatAroundZ, &GGVECTOR3(0, 0, 1), GGToRadian(ObjectAngleZ(iObj)));
+	quatRotationEvent = QuatAroundX * QuatAroundY * QuatAroundZ;
+	float a = 2 * (quatRotationEvent.x * quatRotationEvent.z + quatRotationEvent.w * quatRotationEvent.y);
+	float b = 1 - 2 * (quatRotationEvent.x * quatRotationEvent.x + quatRotationEvent.y * quatRotationEvent.y);
+	float angRad = atan2(a, b);
+	float angDeg = GGToDegree(angRad);
+	if (angDeg < 0) angDeg += 360;
+	float fOffsetX = GetObjectCollisionCenterX(iObj) * (ObjectScaleX(iObj) / 100.0f);
+	float fOffsetZ = GetObjectCollisionCenterZ(iObj) * (ObjectScaleZ(iObj) / 100.0f);
+	float x = t.entityelement[e].x + (fOffsetX * cos(angRad)) + (fOffsetZ * sin(angRad));
+	float z = t.entityelement[e].z + (fOffsetZ * cos(angRad)) - (fOffsetX * sin(angRad));
+	float sx = ObjectSizeX(iObj, 1) * 1.05f;
+	float sz = ObjectSizeZ(iObj, 1) * 1.05f;
+
+	if (iFlattenID == -1)
+		t.entityelement[e].eleprof.iFlattenID = GGTerrain_AddVegetationArea(x, z, sx, sz, angDeg);
+	else
+		GGTerrain_UpdateVegetationArea(iFlattenID, x, z, sx, sz, angDeg);
+	return true;
+}
+
 void entity_updateautoflatten (int e, int obj)
 {
+	if (entity_updatevegetationarea(e, obj)) return;
 	int entid = t.entityelement[e].bankindex;
 	if (entid > 0)
 	{
@@ -9175,6 +9275,7 @@ void entity_updateautoflatten (int e, int obj)
 
 void entity_autoFlattenWhenAdded(int e, int obj)
 {
+	if (entity_updatevegetationarea(e, obj)) return;
 	int entid = t.entityelement[e].bankindex;
 	if (entid > 0)
 	{

@@ -74,6 +74,7 @@ namespace GGGrass
 	void GGGrass_UpdateFlatArea( int mode, int type, float x, float z, float sx, float sz, float angle );
 	void GGGrass_RestoreAllFlattened();
 	int GGGrass_UpdateInstances();
+	void GGGrass_DeferInstanceUpdates( int defer ); // 1 to start, 0 to end: flat area changes in between update the grass instances once, at the end
 }
 
 #endif // _H_GGGRAS
