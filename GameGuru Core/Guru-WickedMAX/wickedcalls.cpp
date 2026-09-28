@@ -6855,7 +6855,10 @@ void WickedCall_SetObjectReceivesDecals(sObject* pObject, bool bReceives)
 	{
 		sMesh* pMesh = pObject->ppMeshList[iM];
 		if (!pMesh) continue;
-		wiScene::MaterialComponent* material = wiScene::GetScene().materials.GetComponent(pMesh->wickedmaterialindex);
+		// an instanced mesh (a placed entity) has no material of its own and uses its master's, shared by the model
+		uint64_t materialEntity = pMesh->wickedmaterialindex;
+		if (materialEntity == 0) materialEntity = pMesh->master_wickedmaterialindex;
+		wiScene::MaterialComponent* material = wiScene::GetScene().materials.GetComponent(materialEntity);
 		if (!material) continue;
 		material->layerMask = bReceives ? ~0u : PROJECTEDDECAL_NORECEIVE_LAYER;
 		material->SetDirty();
