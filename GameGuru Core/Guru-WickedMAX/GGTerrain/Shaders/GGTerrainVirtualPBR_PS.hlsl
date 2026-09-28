@@ -57,6 +57,88 @@ inline void TiledLighting(inout Surface surface, inout Lighting lighting, float 
 	const uint2 tileIndex = uint2(floor(surface.pixel / TILED_CULLING_BLOCKSIZE));
 	const uint flatTileIndex = flatten2D(tileIndex, g_xFrame_EntityCullingTileCount.xy) * SHADER_ENTITY_TILE_BUCKET_COUNT;
 
+#ifndef DISABLE_DECALS
+	// projected decals (Wicked's decal entities, such as scorch marks from AddProjectedDecal) onto the terrain, as the
+	// object shader's TiledLighting applies them to objects
+	[branch]
+	if (g_xFrame_DecalArrayCount > 0)
+	{
+		float4 decalAccumulation = 0;
+		const float3 P_dx = ddx_coarse(surface.P);
+		const float3 P_dy = ddy_coarse(surface.P);
+
+		// Loop through decal buckets in the tile:
+		const uint first_item = g_xFrame_DecalArrayOffset;
+		const uint last_item = first_item + g_xFrame_DecalArrayCount - 1;
+		const uint first_bucket = first_item / 32;
+		const uint last_bucket = min(last_item / 32, max(0, SHADER_ENTITY_TILE_BUCKET_COUNT - 1));
+		[loop]
+		for (uint bucket = first_bucket; bucket <= last_bucket; ++bucket)
+		{
+			uint bucket_bits = EntityTiles[flatTileIndex + bucket];
+
+			// Bucket scalarizer - Siggraph 2017 - Improved Culling [Michal Drobot]:
+			bucket_bits = WaveReadLaneFirst(WaveActiveBitOr(bucket_bits));
+
+			[loop]
+			while (bucket_bits != 0)
+			{
+				// Retrieve global entity index from local bucket, then remove bit from local bucket:
+				const uint bucket_bit_index = firstbitlow(bucket_bits);
+				const uint entity_index = bucket * 32 + bucket_bit_index;
+				bucket_bits ^= 1 << bucket_bit_index;
+
+				[branch]
+				if (entity_index >= first_item && entity_index <= last_item && decalAccumulation.a < 1)
+				{
+					ShaderEntity decal = EntityArray[entity_index];
+					if ((decal.layerMask & surface.layerMask) == 0)
+						continue;
+
+					float4x4 decalProjection = MatrixArray[decal.GetMatrixIndex()];
+					float4 texMulAdd = decalProjection[3];
+					decalProjection[3] = float4(0, 0, 0, 1);
+					const float3 clipSpacePos = mul(decalProjection, float4(surface.P, 1)).xyz;
+					const float3 uvw = clipSpacePos.xyz * float3(0.5, -0.5, 0.5) + 0.5;
+					[branch]
+					if (is_saturated(uvw))
+					{
+						// mipmapping needs to be performed by hand:
+						const float2 decalDX = mul(P_dx, (float3x3)decalProjection).xy * texMulAdd.xy;
+						const float2 decalDY = mul(P_dy, (float3x3)decalProjection).xy * texMulAdd.xy;
+						float4 decalColor = texture_decalatlas.SampleGrad(sampler_linear_clamp, uvw.xy * texMulAdd.xy + texMulAdd.zw, decalDX, decalDY);
+						// blend out if close to cube Z:
+						float edgeBlend = 1 - pow(saturate(abs(clipSpacePos.z)), 8);
+						decalColor.a *= edgeBlend;
+						decalColor *= decal.GetColor();
+						// apply emissive:
+						lighting.direct.specular += max(0, decalColor.rgb * decal.GetEmissive() * edgeBlend);
+						// perform manual blending of decals:
+						//  NOTE: they are sorted top-to-bottom, but blending is performed bottom-to-top
+						decalAccumulation.rgb = (1 - decalAccumulation.a) * (decalColor.a*decalColor.rgb) + decalAccumulation.rgb;
+						decalAccumulation.a = decalColor.a + (1 - decalColor.a) * decalAccumulation.a;
+						[branch]
+						if (decalAccumulation.a >= 1.0)
+						{
+							// force exit:
+							bucket = SHADER_ENTITY_TILE_BUCKET_COUNT;
+							break;
+						}
+					}
+				}
+				else if (entity_index > last_item)
+				{
+					// force exit:
+					bucket = SHADER_ENTITY_TILE_BUCKET_COUNT;
+					break;
+				}
+			}
+		}
+
+		surface.albedo.rgb = lerp(surface.albedo.rgb, decalAccumulation.rgb, decalAccumulation.a);
+	}
+#endif // DISABLE_DECALS
+
 #ifndef DISABLE_ENVMAPS
 	// Apply environment maps:
 	float4 envmapAccumulation = 0;

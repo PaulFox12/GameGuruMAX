@@ -8166,6 +8166,81 @@ int GetDecalStats(lua_State *L)
 	lua_pushinteger(L, g_iDecalDroppedFull);
 	return 3;
 }
+// AddProjectedDecal(image, x, y, z, size [, nx, ny, nz [, spin [, depth [, life]]]]): a texture projected onto the terrain and
+// objects around x, y, z, following slopes, steps and corners, such as a scorch mark. size is its width across the surface;
+// nx, ny, nz the surface normal it projects along (0, 1, 0 by default, onto the ground); spin its turn about that normal in
+// degrees; depth how far along the normal it reaches in all (half its size by default; it fades out towards both ends);
+// life the seconds before it fades out and goes (0 or less, the default, for never). image is a texture path as models
+// use them: a .dds with its mipmaps, or a .png. Returns its id, 0 if the texture did not load. The oldest go first past
+// SetProjectedDecalLimit, and none stay past the level
+int AddProjectedDecal(lua_State *L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 5) return 0;
+	const char* pImage = lua_tostring(L, 1);
+	if (!pImage) return 0;
+	float fNX = 0, fNY = 1, fNZ = 0, fSpin = 0, fDepth = 0, fLife = -1;
+	if (n >= 8) { fNX = lua_tonumber(L, 6); fNY = lua_tonumber(L, 7); fNZ = lua_tonumber(L, 8); }
+	if (n >= 9) fSpin = lua_tonumber(L, 9);
+	if (n >= 10) fDepth = lua_tonumber(L, 10);
+	if (n >= 11) { fLife = lua_tonumber(L, 11); if (fLife <= 0) fLife = -1; }
+	char pImagePath[MAX_PATH];
+	strcpy_s(pImagePath, MAX_PATH, pImage);
+	int iID = WickedCall_AddProjectedDecal(pImagePath, lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5), fNX, fNY, fNZ, fSpin, fDepth, fLife);
+	lua_pushinteger(L, iID);
+	return 1;
+}
+// RemoveProjectedDecal(id): removes it at once; -1 removes them all
+int RemoveProjectedDecal(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	WickedCall_RemoveProjectedDecal(lua_tointeger(L, 1));
+	return 0;
+}
+// SetProjectedDecalOpacity(id, percent): 0 to 100, for a fade of the script's own
+int SetProjectedDecalOpacity(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 2) return 0;
+	WickedCall_SetProjectedDecalOpacity(lua_tointeger(L, 1), lua_tonumber(L, 2) / 100.0f);
+	return 0;
+}
+// SetProjectedDecalGrass(id, radius): no grass blade is drawn within radius of the decal's centre (0 for none, the
+// default). The nearest to the camera use the grass kill shapes that SetGrassKillBox's 8 leave free, 16 in all
+int SetProjectedDecalGrass(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 2) return 0;
+	WickedCall_SetProjectedDecalGrass(lua_tointeger(L, 1), lua_tonumber(L, 2));
+	return 0;
+}
+// SetProjectedDecalLimit(count): how many projected decals there can be, 48 unless set, up to 96 (they share the
+// renderer's per-frame lights and matrices); the oldest go past it. Back to 48 at the next level
+int SetProjectedDecalLimit(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	WickedCall_SetProjectedDecalLimit(lua_tointeger(L, 1));
+	return 0;
+}
+int GetProjectedDecalLimit(lua_State *L)
+{
+	lua_pushinteger(L, WickedCall_GetProjectedDecalLimit());
+	return 1;
+}
+int GetProjectedDecalCount(lua_State *L)
+{
+	lua_pushinteger(L, WickedCall_GetProjectedDecalCount());
+	return 1;
+}
+// SetEntityReceivesDecals(e, on): 0 and the entity's model takes no projected decals, such as characters and vehicles
+// passing over a scorch mark; every entity using that model shares its materials, so all of them change
+int SetEntityReceivesDecals(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 2) return 0;
+	int e = lua_tointeger(L, 1);
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
+	int iObj = t.entityelement[e].obj;
+	if (iObj > 0 && ObjectExist(iObj) == 1) WickedCall_SetObjectReceivesDecals(GetObjectData(iObj), lua_tointeger(L, 2) != 0);
+	return 0;
+}
 int TriggerWaterSplash(lua_State* L)
 {
 	int n = LUA_GETTOP(L);
@@ -15315,6 +15390,14 @@ void addFunctions()
 	lua_register(lua, "SetDecalLimit", SetDecalLimit);
 	lua_register(lua, "GetDecalLimit", GetDecalLimit);
 	lua_register(lua, "GetDecalStats", GetDecalStats);
+	lua_register(lua, "AddProjectedDecal", AddProjectedDecal);
+	lua_register(lua, "RemoveProjectedDecal", RemoveProjectedDecal);
+	lua_register(lua, "SetProjectedDecalOpacity", SetProjectedDecalOpacity);
+	lua_register(lua, "SetProjectedDecalGrass", SetProjectedDecalGrass);
+	lua_register(lua, "SetProjectedDecalLimit", SetProjectedDecalLimit);
+	lua_register(lua, "GetProjectedDecalLimit", GetProjectedDecalLimit);
+	lua_register(lua, "GetProjectedDecalCount", GetProjectedDecalCount);
+	lua_register(lua, "SetEntityReceivesDecals", SetEntityReceivesDecals);
 	lua_register(lua, "TriggerWaterSplash", TriggerWaterSplash);
 	lua_register(lua, "PlayFootfallSound" , PlayFootfallSound );
 	lua_register(lua, "ResetUnderwaterState" , ResetUnderwaterState );

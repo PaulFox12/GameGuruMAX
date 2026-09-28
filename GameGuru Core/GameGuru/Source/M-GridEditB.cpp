@@ -7712,6 +7712,11 @@ void LuaGameVisuals_Clear(void)
 	// and decals to the engine's range, with no elements kept for ripples (SetDecalRange, SetDecalLimit)
 	decal_resetscriptsettings();
 
+	// and no projected decal (AddProjectedDecal) stays, nor the grass clearing under them; the limit goes back to 48
+	WickedCall_RemoveProjectedDecal(-1);
+	WickedCall_UpdateProjectedDecals(0.0f);
+	WickedCall_SetProjectedDecalLimit(48);
+
 	// a glow, tint or limb alpha set per instance (SetEntityInstanceEmissive, SetEntityInstanceTint, SetEntityLimbAlpha) lives
 	// on the entity's object, which a test game shares with the editor, so put every placed entity back to full glow, no tint
 	// and every limb as made

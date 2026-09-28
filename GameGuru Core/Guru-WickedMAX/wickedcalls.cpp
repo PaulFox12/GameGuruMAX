@@ -18,6 +18,7 @@
 extern Master master;
 
 #include "GGTerrain/GGTerrain.h"
+#include "GGTerrain/GGGrass.h"
 #include "gameguru.h"
 
 // OPTICK Performance
@@ -6524,6 +6525,201 @@ float WickedCall_GetLimbAlpha(sObject* pObject, int iLimb)
 	wiScene::ObjectComponent* pWickedObject = WickedCall_FindFrameObject(pObject->ppFrameList[iLimb]);
 	if (!pWickedObject) return 1.0f;
 	return pWickedObject->color.w * pWickedObject->color.w;
+}
+
+// projected decals from Lua (AddProjectedDecal): Wicked decal entities, boxes that project their texture along their own Z
+// onto the terrain and the objects inside them, so a scorch mark follows slopes, steps and corners. The engine keeps them,
+// fades each out at the end of its life, drops the oldest past the limit, and clears the grass under those that ask.
+// Visible decals come first in Wicked's per-frame entity array (256, shared with probes and lights) and use its matrix
+// array (128), so the limit stays well under those, or lights would be left out
+#define PROJECTEDDECAL_NORECEIVE_LAYER (1u << 30) // a model whose materials carry only this bit takes no decals
+#define PROJECTEDDECAL_MAX 96
+struct sProjectedDecal
+{
+	int iID = 0;
+	wiECS::Entity entity = wiECS::INVALID_ENTITY;
+	float fOpacity = 1.0f;
+	float fLife = -1.0f; // seconds left, below 0 for no end
+	float fFade = 0.0f; // the seconds its fade out takes, at the end of its life
+	float fGrassRadius = 0.0f;
+	XMFLOAT3 vecPosition = XMFLOAT3(0, 0, 0);
+};
+std::vector<sProjectedDecal> g_ProjectedDecals; // oldest first
+int g_iProjectedDecalNextID = 1;
+int g_iProjectedDecalLimit = 48;
+bool g_bProjectedDecalGrassChanged = false;
+
+static sProjectedDecal* WickedCall_FindProjectedDecal(int iID)
+{
+	for (auto& decal : g_ProjectedDecals) if (decal.iID == iID) return &decal;
+	return NULL;
+}
+
+static void WickedCall_RemoveProjectedDecalAt(size_t index)
+{
+	if (index >= g_ProjectedDecals.size()) return;
+	if (g_ProjectedDecals[index].fGrassRadius > 0) g_bProjectedDecalGrassChanged = true;
+	if (g_ProjectedDecals[index].entity != wiECS::INVALID_ENTITY) wiScene::GetScene().Entity_Remove(g_ProjectedDecals[index].entity);
+	g_ProjectedDecals.erase(g_ProjectedDecals.begin() + index);
+}
+
+// the decal's colour alpha: its opacity, less as it fades out at the end of its life
+static void WickedCall_ApplyProjectedDecalOpacity(sProjectedDecal& decal)
+{
+	wiScene::MaterialComponent* material = wiScene::GetScene().materials.GetComponent(decal.entity);
+	if (!material) return;
+	float fAlpha = decal.fOpacity;
+	if (decal.fLife >= 0 && decal.fFade > 0 && decal.fLife < decal.fFade) fAlpha *= decal.fLife / decal.fFade;
+	material->baseColor.w = fAlpha;
+}
+
+// pImage is a texture path as models use them (a .dds with its mipmaps, or a .png); fSize is its width across the surface,
+// nx, ny, nz the surface normal it projects along (0, 1, 0 onto the ground), fSpinDegrees its turn about that normal,
+// fDepth how far along the normal it reaches in all (it fades out towards both ends), fLife seconds before it fades out
+// and goes (below 0 for never). Returns its id, 0 if the texture did not load
+int WickedCall_AddProjectedDecal(LPSTR pImage, float fX, float fY, float fZ, float fSize, float fNX, float fNY, float fNZ, float fSpinDegrees, float fDepth, float fLife)
+{
+	std::shared_ptr<wiResource> image = WickedCall_LoadImage(pImage);
+	if (!image || !image->texture.IsValid()) return 0;
+
+	// the oldest go first past the limit
+	while ((int)g_ProjectedDecals.size() >= g_iProjectedDecalLimit && !g_ProjectedDecals.empty()) WickedCall_RemoveProjectedDecalAt(0);
+
+	wiScene::Scene& scene = wiScene::GetScene();
+	wiECS::Entity entity = scene.Entity_CreateDecal("projecteddecal", "", "");
+	wiScene::MaterialComponent* material = scene.materials.GetComponent(entity);
+	if (material)
+	{
+		material->textures[wiScene::MaterialComponent::BASECOLORMAP].name = pImage;
+		material->textures[wiScene::MaterialComponent::BASECOLORMAP].resource = image;
+		material->baseColor = XMFLOAT4(1, 1, 1, 1);
+		material->SetDirty();
+	}
+	wiScene::LayerComponent* layer = scene.layers.GetComponent(entity);
+	if (layer) layer->layerMask = ~PROJECTEDDECAL_NORECEIVE_LAYER;
+
+	// the box's Z along the normal, its X and Y across the surface, turned by the spin
+	XMVECTOR vecZ = XMVectorSet(fNX, fNY, fNZ, 0);
+	if (XMVectorGetX(XMVector3LengthSq(vecZ)) < 0.000001f) vecZ = XMVectorSet(0, 1, 0, 0);
+	vecZ = XMVector3Normalize(vecZ);
+	XMVECTOR vecRef = fabsf(XMVectorGetY(vecZ)) < 0.99f ? XMVectorSet(0, 1, 0, 0) : XMVectorSet(0, 0, 1, 0);
+	XMVECTOR vecX = XMVector3Normalize(XMVector3Cross(vecRef, vecZ));
+	XMVECTOR vecY = XMVector3Cross(vecZ, vecX);
+	float fSpin = GGToRadian(fSpinDegrees);
+	XMVECTOR vecSpunX = vecX * cosf(fSpin) + vecY * sinf(fSpin);
+	XMVECTOR vecSpunY = vecY * cosf(fSpin) - vecX * sinf(fSpin);
+	XMMATRIX matRotation = XMMATRIX(vecSpunX, vecSpunY, vecZ, XMVectorSet(0, 0, 0, 1));
+	XMFLOAT4 quaternion;
+	XMStoreFloat4(&quaternion, XMQuaternionRotationMatrix(matRotation));
+
+	if (fSize < 1.0f) fSize = 1.0f;
+	if (fDepth <= 0.0f) fDepth = fSize * 0.5f;
+	wiScene::TransformComponent* transform = scene.transforms.GetComponent(entity);
+	if (transform)
+	{
+		transform->ClearTransform();
+		transform->Scale(XMFLOAT3(fSize * 0.5f, fSize * 0.5f, fDepth * 0.5f));
+		transform->Rotate(quaternion);
+		transform->Translate(XMFLOAT3(fX, fY, fZ));
+		transform->UpdateTransform();
+	}
+
+	sProjectedDecal decal;
+	decal.iID = g_iProjectedDecalNextID++;
+	decal.entity = entity;
+	decal.fLife = fLife;
+	decal.fFade = fLife >= 0 ? min(2.0f, fLife * 0.5f) : 0.0f;
+	decal.vecPosition = XMFLOAT3(fX, fY, fZ);
+	g_ProjectedDecals.push_back(decal);
+	WickedCall_ApplyProjectedDecalOpacity(g_ProjectedDecals.back());
+	return decal.iID;
+}
+
+// iID -1 removes them all
+void WickedCall_RemoveProjectedDecal(int iID)
+{
+	for (int i = (int)g_ProjectedDecals.size() - 1; i >= 0; i--)
+	{
+		if (iID == -1 || g_ProjectedDecals[i].iID == iID) WickedCall_RemoveProjectedDecalAt(i);
+	}
+}
+
+void WickedCall_SetProjectedDecalOpacity(int iID, float fOpacity)
+{
+	sProjectedDecal* pDecal = WickedCall_FindProjectedDecal(iID);
+	if (!pDecal) return;
+	pDecal->fOpacity = max(0.0f, min(1.0f, fOpacity));
+	WickedCall_ApplyProjectedDecalOpacity(*pDecal);
+}
+
+// no grass blade is drawn within fRadius of the decal's centre (0 for none); the nearest to the camera take the grass
+// kill shapes the script's boxes leave free
+void WickedCall_SetProjectedDecalGrass(int iID, float fRadius)
+{
+	sProjectedDecal* pDecal = WickedCall_FindProjectedDecal(iID);
+	if (!pDecal) return;
+	pDecal->fGrassRadius = max(0.0f, fRadius);
+	g_bProjectedDecalGrassChanged = true;
+}
+
+void WickedCall_SetProjectedDecalLimit(int iLimit)
+{
+	g_iProjectedDecalLimit = max(1, min(PROJECTEDDECAL_MAX, iLimit));
+	while ((int)g_ProjectedDecals.size() > g_iProjectedDecalLimit) WickedCall_RemoveProjectedDecalAt(0);
+}
+
+int WickedCall_GetProjectedDecalLimit(void)
+{
+	return g_iProjectedDecalLimit;
+}
+
+int WickedCall_GetProjectedDecalCount(void)
+{
+	return (int)g_ProjectedDecals.size();
+}
+
+// once a frame in a game: ages the decals, fades out and removes those at the end of their life, and hands the grass the
+// circles to clear
+void WickedCall_UpdateProjectedDecals(float fSeconds)
+{
+	for (int i = (int)g_ProjectedDecals.size() - 1; i >= 0; i--)
+	{
+		sProjectedDecal& decal = g_ProjectedDecals[i];
+		if (decal.fLife < 0) continue;
+		decal.fLife -= fSeconds;
+		if (decal.fLife <= 0) WickedCall_RemoveProjectedDecalAt(i);
+		else if (decal.fLife < decal.fFade) WickedCall_ApplyProjectedDecalOpacity(decal);
+	}
+	if (g_bProjectedDecalGrassChanged)
+	{
+		std::vector<float> circles;
+		for (auto& decal : g_ProjectedDecals)
+		{
+			if (decal.fGrassRadius <= 0) continue;
+			circles.push_back(decal.vecPosition.x);
+			circles.push_back(decal.vecPosition.y);
+			circles.push_back(decal.vecPosition.z);
+			circles.push_back(decal.fGrassRadius);
+		}
+		GGGrass::GGGrass_SetKillCircles(circles.empty() ? NULL : circles.data(), (int)circles.size() / 4);
+		g_bProjectedDecalGrassChanged = false;
+	}
+}
+
+// bReceives false: the entity's model (every entity using it, as they share its materials) takes no projected decals,
+// such as characters and vehicles passing over a scorch mark
+void WickedCall_SetObjectReceivesDecals(sObject* pObject, bool bReceives)
+{
+	if (!pObject || !pObject->ppMeshList) return;
+	for (int iM = 0; iM < pObject->iMeshCount; iM++)
+	{
+		sMesh* pMesh = pObject->ppMeshList[iM];
+		if (!pMesh) continue;
+		wiScene::MaterialComponent* material = wiScene::GetScene().materials.GetComponent(pMesh->wickedmaterialindex);
+		if (!material) continue;
+		material->layerMask = bReceives ? ~0u : PROJECTEDDECAL_NORECEIVE_LAYER;
+		material->SetDirty();
+	}
 }
 
 void WickedCall_SetObjectHighlightColor(sObject* pObject, bool bHighlight, int highlightColorType)

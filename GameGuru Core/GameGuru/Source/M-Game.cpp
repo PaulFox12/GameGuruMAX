@@ -4693,6 +4693,18 @@ void game_main_loop ( void )
 	// bullethole manegement
 	bulletholes_update();
 
+	// projected decals (AddProjectedDecal): age, fade and remove them, and clear the grass under them; a gap over a quarter
+	// of a second (a pause, a load) counts as a quarter
+	{
+		static DWORD dwProjectedDecalsLastTime = 0;
+		DWORD dwNow = timeGetTime();
+		float fSeconds = dwProjectedDecalsLastTime > 0 ? (dwNow - dwProjectedDecalsLastTime) / 1000.0f : 0.0f;
+		if (fSeconds > 0.25f) fSeconds = 0.25f;
+		dwProjectedDecalsLastTime = dwNow;
+		extern void WickedCall_UpdateProjectedDecals(float fSeconds);
+		WickedCall_UpdateProjectedDecals(fSeconds);
+	}
+
 	//  Steam call moved here as camera changes need to be BEFORE the shadow update
 	if (  t.game.runasmultiplayer == 1 ) 
 	{

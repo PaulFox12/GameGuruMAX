@@ -201,6 +201,15 @@ bool WickedCall_GetObjectEmissiveTint(sObject* pObject, float* pfRed, float* pfG
 void WickedCall_SetObjectColorTint(sObject* pObject, float fRed, float fGreen, float fBlue);
 bool WickedCall_GetObjectColorTint(sObject* pObject, float* pfRed, float* pfGreen, float* pfBlue);
 void WickedCall_SetLimbAlpha(sObject* pObject, int iLimb, float fAlpha, bool bChildren);
+int WickedCall_AddProjectedDecal(LPSTR pImage, float fX, float fY, float fZ, float fSize, float fNX, float fNY, float fNZ, float fSpinDegrees, float fDepth, float fLife);
+void WickedCall_RemoveProjectedDecal(int iID);
+void WickedCall_SetProjectedDecalOpacity(int iID, float fOpacity);
+void WickedCall_SetProjectedDecalGrass(int iID, float fRadius);
+void WickedCall_SetProjectedDecalLimit(int iLimit);
+int WickedCall_GetProjectedDecalLimit(void);
+int WickedCall_GetProjectedDecalCount(void);
+void WickedCall_UpdateProjectedDecals(float fSeconds);
+void WickedCall_SetObjectReceivesDecals(sObject* pObject, bool bReceives);
 float WickedCall_GetLimbAlpha(sObject* pObject, int iLimb);
 void WickedCall_SetObjectHighlightRed(sObject* pObject, bool bHighlight);
 void WickedCall_SetObjectHighlightBlue(sObject* pObject, bool bHighlight);
