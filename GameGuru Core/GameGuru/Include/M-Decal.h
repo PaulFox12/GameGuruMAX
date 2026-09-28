@@ -6,6 +6,10 @@
 
 void decal_init ( void );
 void decal_hide ( void );
+void decal_makeelementobject ( int iElement );
+void decal_setlimit ( int iTotal, int iRipples );
+void decal_setrange ( int iRange );
+void decal_resetscriptsettings ( void );
 void decal_loaddata ( void );
 void decal_load ( void );
 void decal_scaninallref ( void );

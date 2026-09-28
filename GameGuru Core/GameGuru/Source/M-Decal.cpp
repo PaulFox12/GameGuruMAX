@@ -23,6 +23,16 @@ using namespace wiECS;
 // Externs
 extern void newparticle_updateparticleemitter (newparticletype* pParticle, float fScale, float fX, float fY, float fZ, float fRX, float fRY, float fRZ, GGMATRIX* pmatBaseRotation, bool bAutoDelete, int decal_id = -1);
 
+// Script control of decals (SetDecalRange, SetDecalLimit, GetDecalStats, TriggerWaterRippleSize with a normal).
+// g_iDecalRippleStart is the first element kept for water ripples (0 = ripples share every element); the counts are
+// decals not made since the level started, for being out of range or finding no free element
+int g_iDecalRippleStart = 0;
+int g_iDecalDroppedRange = 0;
+int g_iDecalDroppedFull = 0;
+int g_iDecalRangeBeforeScript = 0;
+bool g_bDecalOnSurfaceNormal = false;
+GGVECTOR3 g_vecDecalSurfaceNormal = GGVECTOR3(0, 1, 0);
+
 // 
 //  Decal Module
 // 
@@ -38,6 +48,72 @@ void decal_hide ( void )
 	}
 
 }
+
+// the plane object of one decal element (under the cursor object render layer the caller presets)
+void decal_makeelementobject ( int iElement )
+{
+	int iObj = g.decalelementoffset + iElement;
+	t.decalelement[iElement].obj = iObj;
+	t.decalelement[iElement].uvgridsize = 0;
+	if ( ObjectExist(iObj) == 1 ) DeleteObject ( iObj );
+	MakeObjectPlane ( iObj, 100, 100 );
+	SetObjectTransparency ( iObj, 6 );
+	SetObjectCollisionOff ( iObj );
+	DisableObjectZWrite ( iObj );
+	SetObjectTextureMode ( iObj, 2, 0 );
+	SetObjectLight ( iObj, 0 );
+	SetObjectCull ( iObj, 0 );
+	HideObject ( iObj );
+	sObject* pObject = GetObjectData(iObj);
+	WickedCall_SetObjectCastShadows(pObject, false);
+	WickedCall_SetObjectLightToUnlit(pObject, (int)wiScene::MaterialComponent::SHADERTYPE_UNLIT);
+}
+
+// SetDecalLimit: grows the decal elements to iTotal, making their objects now (they stay for the session; the object
+// numbers between g.decalelementoffset and g.gunbankextraobjoffset allow 349), and keeps the last iRipples of them for
+// water ripples only, 0 to let ripples share them all. At least 10 are always left for everything else
+void decal_setlimit ( int iTotal, int iRipples )
+{
+	int iMaxElements = g.gunbankextraobjoffset - g.decalelementoffset - 1;
+	if ( iTotal > iMaxElements ) iTotal = iMaxElements;
+	if ( iTotal > g.decalelementmax )
+	{
+		int iOldMax = g.decalelementmax;
+		g.decalelementmax = iTotal;
+		Dim ( t.decalelement, g.decalelementmax );
+		WickedCall_PresetObjectRenderLayer(GGRENDERLAYERS_CURSOROBJECT);
+		for ( int iElement = iOldMax + 1; iElement <= g.decalelementmax; iElement++ )
+		{
+			decal_makeelementobject ( iElement );
+		}
+		WickedCall_PresetObjectRenderLayer(GGRENDERLAYERS_NORMAL);
+	}
+	if ( iRipples > g.decalelementmax - 10 ) iRipples = g.decalelementmax - 10;
+	if ( iRipples < 0 ) iRipples = 0;
+	g_iDecalRippleStart = 0;
+	if ( iRipples > 0 ) g_iDecalRippleStart = g.decalelementmax - iRipples + 1;
+}
+
+// SetDecalRange: decals further than this from the camera are not made (800 units unless a script sets it)
+void decal_setrange ( int iRange )
+{
+	if ( g_iDecalRangeBeforeScript == 0 ) g_iDecalRangeBeforeScript = g.decalrange;
+	if ( iRange < 1 ) iRange = 1;
+	g.decalrange = iRange;
+}
+
+// at each level start and when a test game ends: the range and the ripple elements go back to the engine's, and the
+// counts restart (grown elements stay, unused)
+void decal_resetscriptsettings ( void )
+{
+	if ( g_iDecalRangeBeforeScript > 0 ) g.decalrange = g_iDecalRangeBeforeScript;
+	g_iDecalRangeBeforeScript = 0;
+	g_iDecalRippleStart = 0;
+	g_iDecalDroppedRange = 0;
+	g_iDecalDroppedFull = 0;
+	g_bDecalOnSurfaceNormal = false;
+}
+
 void decal_init ( void )
 {
 	WickedCall_PresetObjectRenderLayer(GGRENDERLAYERS_CURSOROBJECT);
@@ -48,20 +124,7 @@ void decal_init ( void )
 	//  Precreate elements as each is unique (UV writing)
 	for ( t.f = 1 ; t.f<=  g.decalelementmax; t.f++ )
 	{
-		t.tobj=g.decalelementoffset+t.f ; t.decalelement[t.f].obj=t.tobj;
-		t.decalelement[t.f].uvgridsize=0;
-		if (  ObjectExist(t.tobj) == 1  )  DeleteObject (  t.tobj );
-		MakeObjectPlane (t.tobj, 100, 100);
-		SetObjectTransparency (  t.tobj, 6 );
-		SetObjectCollisionOff (  t.tobj );
-		DisableObjectZWrite (  t.tobj );
-		SetObjectTextureMode (  t.tobj,2,0 );
-		SetObjectLight (  t.tobj,0 );
-		SetObjectCull (  t.tobj,0 );
-		HideObject (  t.tobj );
-		sObject* pObject = GetObjectData(t.tobj);
-		WickedCall_SetObjectCastShadows(pObject, false);
-		WickedCall_SetObjectLightToUnlit(pObject, (int)wiScene::MaterialComponent::SHADERTYPE_UNLIT);
+		decal_makeelementobject ( t.f );
 	}
 
 	//  ensure fixed decals available
@@ -498,17 +561,29 @@ void decalelement_create ( void )
 	t.tdzz=g.decalz-CameraPositionZ(t.terrain.gameplaycamera);
 	t.tddd=Sqrt(abs(t.tdxx*t.tdxx)+abs(t.tdyy*t.tdyy)+abs(t.tdzz*t.tdzz));
 
-	//  limit decal usage to X distance
+	//  limit decal usage to X distance (SetDecalRange)
 	if (  g.decalrange == 0  )  g.decalrange = 1000;
-	if (  t.tddd>g.decalrange  )  return;
+	if (  t.tddd>g.decalrange  )  { g_iDecalDroppedRange++; return; }
 
-	//  find free decal element
-	t.d = 1 + Rnd(50);
-	for (; t.d <= g.decalelementmax; t.d++)
+	//  find free decal element: start at a random one and try each once, wrapping round (the search used to stop at the
+	//  end, so an element before the random start, and the last one, were never tried). Water ripples use the elements a
+	//  script kept for them (SetDecalLimit), everything else the rest
+	int iFirstElement = 1, iLastElement = g.decalelementmax;
+	if ( g_iDecalRippleStart > 0 )
 	{
-		if ( t.decalelement[t.d].active == 0 )  break;
+		if ( t.decalid == t.decalglobal.splashdecalrippleid ) iFirstElement = g_iDecalRippleStart; else iLastElement = g_iDecalRippleStart - 1;
 	}
-	if ( t.d < g.decalelementmax ) 
+	int iElementCount = iLastElement - iFirstElement + 1;
+	int iStartElement = iFirstElement + Rnd(min(50, iElementCount - 1));
+	t.d = 0;
+	for ( int n = 0; n < iElementCount; n++ )
+	{
+		int d = iStartElement + n;
+		if ( d > iLastElement ) d -= iElementCount;
+		if ( t.decalelement[d].active == 0 ) { t.d = d; break; }
+	}
+	if ( t.d == 0 ) g_iDecalDroppedFull++;
+	if ( t.d > 0 )
 	{
 		bool bReuse = false;
 		if (t.decalelement[t.d].decalid == t.decalid && t.decalelement[t.d].newparticle.emitterid > 0)
@@ -662,7 +737,17 @@ void decalelement_create ( void )
 			}
 			if (t.decalelement[t.d].orient == 2)
 			{
-				RotateObject (t.tobj, 90, 0, 0);
+				if (g_bDecalOnSurfaceNormal == true)
+				{
+					// lie on the surface a script gave (TriggerWaterRippleSize with a normal), such as a slope, not flat
+					float fAngleX, fAngleY, fAngleZ;
+					GetAngleFromPoint (0, 0, 0, g_vecDecalSurfaceNormal.x, g_vecDecalSurfaceNormal.y, g_vecDecalSurfaceNormal.z, &fAngleX, &fAngleY, &fAngleZ);
+					RotateObject (t.tobj, fAngleX, fAngleY, fAngleZ);
+				}
+				else
+				{
+					RotateObject (t.tobj, 90, 0, 0);
+				}
 			}
 			if (t.decalelement[t.d].orient == 3)
 			{

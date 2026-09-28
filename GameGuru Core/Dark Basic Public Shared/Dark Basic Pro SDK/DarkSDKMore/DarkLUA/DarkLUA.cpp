@@ -8025,6 +8025,8 @@ int TriggerWaterRipple ( lua_State *L )
 }
 
 
+// TriggerWaterRippleSize(x, y, z, sizex, sizey [, nx, ny, nz]): a ripple ring; with a surface normal it lies on that
+// surface (a slope) instead of flat. Nothing checks for water, so it can also mark wet ground
 int TriggerWaterRippleSize(lua_State *L)
 {
 	int n = LUA_GETTOP(L);
@@ -8034,6 +8036,17 @@ int TriggerWaterRippleSize(lua_State *L)
 	g.decalz = lua_tonumber(L, 3);
 	t.decalscalemodx = lua_tonumber(L, 4);
 	t.decalscalemody = lua_tonumber(L, 5);
+	extern bool g_bDecalOnSurfaceNormal;
+	extern GGVECTOR3 g_vecDecalSurfaceNormal;
+	if (n >= 8)
+	{
+		GGVECTOR3 vecNormal = GGVECTOR3(lua_tonumber(L, 6), lua_tonumber(L, 7), lua_tonumber(L, 8));
+		if (GGVec3Length(&vecNormal) > 0.001f)
+		{
+			GGVec3Normalize(&g_vecDecalSurfaceNormal, &vecNormal);
+			g_bDecalOnSurfaceNormal = true;
+		}
+	}
 	#ifdef WICKEDENGINE
 	extern int g_iBlendMode;
 	int storage = g_iBlendMode;
@@ -8043,7 +8056,55 @@ int TriggerWaterRippleSize(lua_State *L)
 	#ifdef WICKEDENGINE
 	g_iBlendMode = storage;
 	#endif
+	g_bDecalOnSurfaceNormal = false;
 	return 0;
+}
+// SetDecalRange(units): decals (water splashes and ripples, impacts, blood) further than this from the camera are not
+// made; 800 (about 20 m) unless set, back to that at the next level. GetDecalRange() reads it
+int SetDecalRange(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	decal_setrange(lua_tointeger(L, 1));
+	return 0;
+}
+int GetDecalRange(lua_State *L)
+{
+	lua_pushinteger(L, g.decalrange);
+	return 1;
+}
+// SetDecalLimit(total [, ripples]): how many decals can show at once (100 unless raised, up to 349; they are made now and
+// kept), and how many of those only water ripples may use (0, the default, lets ripples share them all; back to 0 at the
+// next level). GetDecalLimit() returns total, ripples
+int SetDecalLimit(lua_State *L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	int iRipples = 0;
+	if (n >= 2) iRipples = lua_tointeger(L, 2);
+	decal_setlimit(lua_tointeger(L, 1), iRipples);
+	return 0;
+}
+int GetDecalLimit(lua_State *L)
+{
+	extern int g_iDecalRippleStart;
+	lua_pushinteger(L, g.decalelementmax);
+	lua_pushinteger(L, g_iDecalRippleStart > 0 ? g.decalelementmax - g_iDecalRippleStart + 1 : 0);
+	return 2;
+}
+// GetDecalStats(): decals showing now, and since the level started those not made for being out of range and for finding
+// no free element
+int GetDecalStats(lua_State *L)
+{
+	extern int g_iDecalDroppedRange, g_iDecalDroppedFull;
+	int iActive = 0;
+	for (int i = 1; i <= g.decalelementmax && i < (int)t.decalelement.size(); i++)
+	{
+		if (t.decalelement[i].active == 1) iActive++;
+	}
+	lua_pushinteger(L, iActive);
+	lua_pushinteger(L, g_iDecalDroppedRange);
+	lua_pushinteger(L, g_iDecalDroppedFull);
+	return 3;
 }
 int TriggerWaterSplash(lua_State* L)
 {
@@ -15187,6 +15248,11 @@ void addFunctions()
 	lua_register(lua, "RunCharLoop" , RunCharLoop );
 	lua_register(lua, "TriggerWaterRipple" , TriggerWaterRipple );
 	lua_register(lua, "TriggerWaterRippleSize", TriggerWaterRippleSize);
+	lua_register(lua, "SetDecalRange", SetDecalRange);
+	lua_register(lua, "GetDecalRange", GetDecalRange);
+	lua_register(lua, "SetDecalLimit", SetDecalLimit);
+	lua_register(lua, "GetDecalLimit", GetDecalLimit);
+	lua_register(lua, "GetDecalStats", GetDecalStats);
 	lua_register(lua, "TriggerWaterSplash", TriggerWaterSplash);
 	lua_register(lua, "PlayFootfallSound" , PlayFootfallSound );
 	lua_register(lua, "ResetUnderwaterState" , ResetUnderwaterState );

@@ -7709,6 +7709,9 @@ void LuaGameVisuals_Clear(void)
 	// and 3D sounds go back to real-world doppler (SetDopplerScale)
 	wiAudio::SetDopplerScale(1.0f);
 
+	// and decals to the engine's range, with no elements kept for ripples (SetDecalRange, SetDecalLimit)
+	decal_resetscriptsettings();
+
 	// a glow, tint or limb alpha set per instance (SetEntityInstanceEmissive, SetEntityInstanceTint, SetEntityLimbAlpha) lives
 	// on the entity's object, which a test game shares with the editor, so put every placed entity back to full glow, no tint
 	// and every limb as made
