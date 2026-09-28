@@ -1758,6 +1758,7 @@ GetObjectAngleY: y=GetObjectAngleY(obj) -- returns the Y position of the specifi
 GetObjectAngleZ: z=GetObjectAngleZ(obj) -- returns the Z position of the specified object
 RunCharLoop: RunCharLoop() -- runs the legacy animation system to control character index GetGamePlayerStateCharAnimIndex()
 TriggerWaterRipple: TriggerWaterRipple(x,y,z) -- triggers a ripple decal animation at the xyz position 
+TriggerWaterRippleSize : TriggerWaterRippleSize ( x, y, z, sizex, sizey [, nx, ny, nz] ) -- a ripple ring of that size; with a surface normal it lies on that surface (a slope) rather than flat. Nothing checks for water, so it can mark wet ground. Not made past GetDecalRange() from the camera
 PlayFootfallSound: snd=PlayFootfallSound(type,x,y,z,lastsnd) -- triggers footfall sound and returns raw sound index used
 PlayFootfallSound: snd=PlayFootfallSound(type,x,y,z,lastsnd,leftorright,walkorrun) -- additional parameters for greater footfall variety
 ResetUnderwaterState: ResetUnderwaterState() -- resets the underwater sub-system when player emerges from water
@@ -2491,6 +2492,13 @@ SetRawSoundDistanceScale : SetRawSoundDistanceScale ( id, units ) -- 3D distance
 GetRawSoundDistanceScale : units = GetRawSoundDistanceScale ( id ) -- the distance scale this sound plays with
 SetDopplerScale : SetDopplerScale ( scale ) -- how strongly 3D sounds rise in pitch as they come closer and fall as they go away, from how fast each sound and the camera move: 1 as in the real world (the default), 0 none, more to exaggerate; back to 1 at the next level
 GetDopplerScale : scale = GetDopplerScale() -- the doppler strength
+SetDecalRange : SetDecalRange ( units ) -- decals (water splashes and ripples, impacts, blood) further than this from the camera are not made; 800 (about 20 m) unless set, back to that at the next level
+GetDecalRange : units = GetDecalRange() -- the decal range
+SetDecalLimit : SetDecalLimit ( total [, ripples] ) -- how many decals can show at once (100 unless raised, up to 349; made at once and kept) and how many of those only water ripples may use (0, the default, shares them all; back to 0 at the next level)
+GetDecalLimit : total, ripples = GetDecalLimit() -- the decal limit and the elements kept for ripples
+GetDecalStats : showing, outofrange, nofree = GetDecalStats() -- decals showing now, and since the level started those not made for being out of range and for finding no free element
+AnglesToQuat : x, y, z, w = AnglesToQuat ( ax, ay, az ) -- the engine's angles (degrees, as SetRotation and GetEntityAngleX/Y/Z) to a quaternion (as QuatMultiply and QuatSLERP take); QuatToEuler and EulerToQuat use radians and mirror pitch and roll
+QuatToAngles : ax, ay, az = QuatToAngles ( x, y, z, w ) -- a quaternion back to the engine's angles, in degrees
 SetEntityInstanceEmissive : SetEntityInstanceEmissive ( e, r, g, b [, strength] ) -- glow of this one instance, multiplying the entity's authored emissive colour and strength (each 0 to 1; 1,1,1,1 = as authored, strength 0 = off). Other instances of the same object keep theirs
 GetEntityInstanceEmissive : r, g, b, strength = GetEntityInstanceEmissive ( e )
 
