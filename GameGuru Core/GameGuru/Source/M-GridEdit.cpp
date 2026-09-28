@@ -10728,17 +10728,13 @@ void mapeditorexecutable_loop(void)
 				ImGui::SetKeyboardFocusHere(0);
 				bSetKeyboardFocus = false;
 			}
-			// only for object based lists, not groups/behaviors/etc
-			LPSTR pToolTipForSearch = "Cannot search this list!";
+			// every list filters by the search text, each by the name it shows
+			LPSTR pToolTipForSearch = "Type here to search for an object in your level";
+			if (current_sort_order == SORT_GROUPITEMS) pToolTipForSearch = "Type here to search the groups by name";
+			if (current_sort_order == SORT_INSTANCEITEMS) pToolTipForSearch = "Type here to search the instances by name or #number";
+			if (current_sort_order == SORT_BEHAVIORITEMS) pToolTipForSearch = "Type here to search the behaviors by name";
 
-			bool bIsSearchAble = false;
-			if (current_sort_order == SORT_LEVELITEMS || current_sort_order == SORT_NEWESTITEMS || current_sort_order == SORT_OLDESTITEMS || current_sort_order == SORT_DETAILEDITEMS)
-				bIsSearchAble = true;
-
-			if (bIsSearchAble)
-			{
-				pToolTipForSearch = "Type here to search for an object in your level";
-			}
+			bool bIsSearchAble = true;
 			if (ImGui::InputText(" ##cSearchEntities", &cSearchEntities[0], MAX_PATH, ImGuiInputTextFlags_EnterReturnsTrue))
 			{
 				if (bIsSearchAble)
@@ -11297,6 +11293,11 @@ void mapeditorexecutable_loop(void)
 								{
 									DisplayEntry = true;
 								}
+								if (DisplayEntry && strlen(cSearchEntities) > 0)
+								{
+									if (!pestrcasestr(cName, cSearchEntities))
+										DisplayEntry = false;
+								}
 								if (DisplayEntry == true)
 								{
 									ImGui::PushID(uniqueId++);
@@ -11334,6 +11335,13 @@ void mapeditorexecutable_loop(void)
 								ImGui::SetWindowFontScale(1.0);
 								int e = it->second;
 								bool DisplayEntry = true;
+								if (strlen(cSearchEntities) > 0)
+								{
+									// searched as it is shown, "#<e> <name>", so an entity number can be found too
+									std::string sSearchLabel = "#" + std::to_string(e) + " " + t.entityelement[e].eleprof.name_s.Get();
+									if (!pestrcasestr(sSearchLabel.c_str(), cSearchEntities))
+										DisplayEntry = false;
+								}
 								if (DisplayEntry == true)
 								{
 									ImGui::PushID(uniqueId++);
@@ -11415,6 +11423,11 @@ void mapeditorexecutable_loop(void)
 								ImGui::SetWindowFontScale(1.0);
 								int e = it->second;
 								bool DisplayEntry = true;
+								if (strlen(cSearchEntities) > 0)
+								{
+									if (!pestrcasestr(it->first.c_str(), cSearchEntities))
+										DisplayEntry = false;
+								}
 								if (DisplayEntry == true)
 								{
 									ImGui::PushID(uniqueId++);
