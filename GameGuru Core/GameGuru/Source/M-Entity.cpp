@@ -9098,8 +9098,9 @@ static float entity_autoflattenpadsizex (int iAutoFlattenMode, float sx, float s
 
 // whether entity e clears the trees and grass under it without flattening: its Clear Grass and Trees tick once set in
 // the editor, 1 yes, 2 no; until then (0, also every placement saved before the tick existed) clearvegetation in its
-// .fpe, and without that key static objects at least 3m across their narrower side and 2.5m tall, so a building clears
-// them and a small prop or a parked car does not. Auto flatten, when on for the entity, clears them with its pad instead
+// .fpe, and without that key the default (g_iDefaultClearVegetation, where yes still leaves out markers, characters and
+// decals), which is static objects at least 3m across their narrower side and 2.5m tall, so a building clears them and
+// a small prop or a parked car does not. Auto flatten, when on for the entity, clears them with its pad instead
 bool entity_clearsvegetation(int e)
 {
 	int entid = t.entityelement[e].bankindex;
@@ -9108,8 +9109,10 @@ bool entity_clearsvegetation(int e)
 	if (t.entityelement[e].iClearVegetation == 2) return false;
 	int iClearVegetation = t.entityprofile[entid].clearvegetation;
 	if (iClearVegetation != -1) return iClearVegetation == 1;
-	if (t.entityelement[e].staticflag != 1) return false;
+	if (g_iDefaultClearVegetation == 2) return false;
 	if (t.entityprofile[entid].ismarker != 0 || t.entityprofile[entid].ischaracter != 0 || t.entityprofile[entid].bIsDecal) return false;
+	if (g_iDefaultClearVegetation == 1) return true;
+	if (t.entityelement[e].staticflag != 1) return false;
 	int iObj = t.entityelement[e].obj;
 	if (iObj <= 0 || ObjectExist(iObj) == 0) return false;
 	float fNarrowerSide = ObjectSizeX(iObj, 1);

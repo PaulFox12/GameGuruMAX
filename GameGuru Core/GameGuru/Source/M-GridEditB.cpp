@@ -10587,6 +10587,22 @@ void ProcessPreferences(void)
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Turn on and off the auto save system");
 
+			const char* pDefaultChoices[] = { "Automatic", "On", "Off" };
+			ImGui::PushItemWidth(ImGui::GetFontSize() * 8.0f);
+			if (ImGui::Combo("Bullet Holes Where Objects Do Not Say", &g_iDefaultBulletHoles, pDefaultChoices, 3))
+			{
+				SaveExtraSettingsFile();
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "For objects whose Allow Bullet Holes box was never changed and whose .fpe has no allowbulletholes line. Automatic: static objects only. On: every object but characters. Exported games use this too");
+			if (ImGui::Combo("Clear Grass and Trees Where Objects Do Not Say", &g_iDefaultClearVegetation, pDefaultChoices, 3))
+			{
+				SaveExtraSettingsFile();
+				// the level being edited follows at once
+				entity_createvegetationareas();
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "For objects whose Clear Grass and Trees box was never changed and whose .fpe has no clearvegetation line. Automatic: static objects at least 3m across and 2.5m tall. On: every object but markers, characters and decals. Exported games use this too");
+			ImGui::PopItemWidth();
+
 			if (g_iDevToolsOpen)
 			{
 				bTmp = pref.iAdvancedGridModeSettings;// iTerrainDebugMode;
@@ -35986,6 +36002,8 @@ void LoadExtraSettingsFile(void)
 		*pValue = 0;
 		pValue++;
 		if (stricmp(pLine, "importoutputpath") == 0 && strlen(pValue) < MAX_PATH) strcpy(cDefaultImportOutputPath, pValue);
+		if (stricmp(pLine, "defaultbulletholes") == 0) g_iDefaultBulletHoles = atoi(pValue);
+		if (stricmp(pLine, "defaultclearvegetation") == 0) g_iDefaultClearVegetation = atoi(pValue);
 	}
 	CloseFile(1);
 }
@@ -35998,6 +36016,10 @@ void SaveExtraSettingsFile(void)
 	if (FileExist(sExtraSettingsFile.Get())) DeleteAFile(sExtraSettingsFile.Get());
 	OpenToWrite(1, sExtraSettingsFile.Get());
 	cstr sLine = cstr("importoutputpath=") + cDefaultImportOutputPath;
+	WriteString(1, sLine.Get());
+	sLine = cstr("defaultbulletholes=") + Str(g_iDefaultBulletHoles);
+	WriteString(1, sLine.Get());
+	sLine = cstr("defaultclearvegetation=") + Str(g_iDefaultClearVegetation);
 	WriteString(1, sLine.Get());
 	CloseFile(1);
 }

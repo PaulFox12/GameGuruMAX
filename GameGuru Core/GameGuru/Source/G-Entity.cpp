@@ -3146,15 +3146,22 @@ void entity_gettrueplayerpos(void)
 	}
 }
 
+// what an entity does when neither its tick in the editor nor its .fpe says, set in Settings (Developer) and written to
+// an exported game's setup.ini: 0 the rules below, 1 yes, 2 no
+int g_iDefaultBulletHoles = 0;
+int g_iDefaultClearVegetation = 0;
+
 // whether a bullet hole may be left on entity e: its Allow Bullet Holes tick once set in the editor, 1 yes, 2 no; until
 // then (0, also every unticked placement saved before the tick could be cleared) allowbulletholes in its .fpe, and
-// without that key static entities only
+// without that key the default (g_iDefaultBulletHoles, where yes leaves out characters), which is static entities only
 bool entity_allowsbulletholes(int e)
 {
 	if (t.entityelement[e].iAllowBuletHole == 1) return true;
 	if (t.entityelement[e].iAllowBuletHole == 2) return false;
 	int iAllowBulletHoles = t.entityprofile[t.entityelement[e].bankindex].allowbulletholes;
 	if (iAllowBulletHoles != -1) return iAllowBulletHoles == 1;
+	if (g_iDefaultBulletHoles == 1) return t.entityprofile[t.entityelement[e].bankindex].ischaracter == 0;
+	if (g_iDefaultBulletHoles == 2) return false;
 	return t.entityelement[e].staticflag == 1;
 }
 

@@ -29,6 +29,8 @@ void entity_applydecalfordamage (int ee, float fX, float fY, float fZ);
 void entity_gettruecamera ( void );
 void entity_gettrueplayerpos(void);
 bool entity_allowsbulletholes ( int e );
+extern int g_iDefaultBulletHoles;
+extern int g_iDefaultClearVegetation;
 struct sPlayerHit
 {
 	int iSeq;
