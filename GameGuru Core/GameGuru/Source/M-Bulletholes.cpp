@@ -19,12 +19,18 @@ struct sBulletHole
 	float fRadius;
 	GGVECTOR3 vecWorldPos;
 
-	// the entity the hole was made on (0 for terrain), its object, and where that object stood when hit: the hole is
-	// part of one world-space mesh and cannot follow it, so it is removed when the entity moves, hides or goes
+	// the entity the hole was made on (0 for terrain), its object, and where that object stood when hit. The hole is removed
+	// when the entity hides or goes. On anything but a character it follows the object as it moves: it keeps its quad and
+	// normal in the object's own space and is placed again, in the one world-space mesh, whenever the object's world matrix
+	// changes. A character's holes are removed when it moves instead, as a flat quad can't bend with it
 	int iOwnerEntity;
 	int iOwnerObject;
 	GGVECTOR3 vecOwnerPos;
 	GGVECTOR3 vecOwnerAngle;
+	bool bFollowsOwner;
+	GGVECTOR3 vecLocalQuad[4];
+	GGVECTOR3 vecLocalNormal;
+	GGMATRIX matOwnerWorld;
 };
 std::vector<sBulletHole> g_bulletholes;
 bool g_bulletholeavailable[BULLETHOLESMAX];
@@ -259,6 +265,7 @@ void bulletholes_add (int iMaterialIndex, float fX, float fY, float fZ, float fN
 		bullethole.iOwnerObject = 0;
 		bullethole.vecOwnerPos = GGVECTOR3(0, 0, 0);
 		bullethole.vecOwnerAngle = GGVECTOR3(0, 0, 0);
+		bullethole.bFollowsOwner = false;
 		if (iOwnerEntity > 0 && iOwnerEntity < (int)t.entityelement.size())
 		{
 			int iObj = t.entityelement[iOwnerEntity].obj;
@@ -268,6 +275,22 @@ void bulletholes_add (int iMaterialIndex, float fX, float fY, float fZ, float fN
 				bullethole.iOwnerObject = iObj;
 				bullethole.vecOwnerPos = GGVECTOR3(ObjectPositionX(iObj), ObjectPositionY(iObj), ObjectPositionZ(iObj));
 				bullethole.vecOwnerAngle = GGVECTOR3(ObjectAngleX(iObj), ObjectAngleY(iObj), ObjectAngleZ(iObj));
+
+				// on anything but a character, the hole keeps its place on the object as it moves
+				sObject* pOwnerObject = GetObjectData(iObj);
+				if (pOwnerObject && t.entityprofile[t.entityelement[iOwnerEntity].bankindex].ischaracter == 0)
+				{
+					GGMATRIX matInverse;
+					float fDeterminant = 0.0f;
+					GGMatrixInverse(&matInverse, &fDeterminant, &pOwnerObject->position.matWorld);
+					if (fabs(fDeterminant) > 0.000001f)
+					{
+						for (int p = 0; p < 4; p++) GGVec3TransformCoord(&bullethole.vecLocalQuad[p], &g_vecBulletHoleQuad[p], &matInverse);
+						GGVec3TransformNormal(&bullethole.vecLocalNormal, &vecNormalizedDir, &matInverse);
+						bullethole.matOwnerWorld = pOwnerObject->position.matWorld;
+						bullethole.bFollowsOwner = true;
+					}
+				}
 			}
 		}
 		g_bulletholes.push_back(bullethole);
@@ -279,14 +302,45 @@ void bulletholes_add (int iMaterialIndex, float fX, float fY, float fZ, float fN
 	}
 }
 
-// true while the entity a hole was made on is still there, shown, and where it was when hit (within a few units
-// and degrees, so a settling physics body does not count as moving)
-static bool bulletholes_ownerunchanged (sBulletHole* pBulletHole)
+// moves a hole's quad (the six vertices of its two triangles) to new corners and a new normal, keeping its texture
+// coordinates
+static void bulletholes_placesinglehole (int iVertIndex, GGVECTOR3* pQuad, GGVECTOR3 vecNormal)
+{
+	const int iWhichCornerOfQuad[6] = { 0, 1, 2, 1, 3, 2 };
+	LockVertexDataForLimbCore(g.bulletholesobject, 0, 1);
+	for (int v = 0; v < 6; v++)
+	{
+		GGVECTOR3* pCorner = &pQuad[iWhichCornerOfQuad[v]];
+		SetVertexDataPosition(iVertIndex + v, pCorner->x, pCorner->y, pCorner->z);
+		SetVertexDataNormals(iVertIndex + v, vecNormal.x, vecNormal.y, vecNormal.z);
+	}
+	UnlockVertexData();
+}
+
+// true while the entity a hole was made on still has the object it was hit on, shown
+static bool bulletholes_ownerpresent (sBulletHole* pBulletHole)
 {
 	int e = pBulletHole->iOwnerEntity;
 	if (e >= (int)t.entityelement.size()) return false;
 	int iObj = t.entityelement[e].obj;
-	if (iObj != pBulletHole->iOwnerObject || ObjectExist(iObj) == 0 || GetVisible(iObj) == 0) return false;
+	return iObj == pBulletHole->iOwnerObject && ObjectExist(iObj) == 1 && GetVisible(iObj) == 1;
+}
+
+// true unless two world matrices differ by more than a hair
+static bool bulletholes_samematrix (const GGMATRIX* pA, const GGMATRIX* pB)
+{
+	const float* pFloatA = (const float*)pA;
+	const float* pFloatB = (const float*)pB;
+	for (int i = 0; i < 16; i++) if (fabs(pFloatA[i] - pFloatB[i]) > 0.0001f) return false;
+	return true;
+}
+
+// true while the entity a hole was made on is still there, shown, and where it was when hit (within a few units
+// and degrees, so a settling physics body does not count as moving)
+static bool bulletholes_ownerunchanged (sBulletHole* pBulletHole)
+{
+	if (bulletholes_ownerpresent(pBulletHole) == false) return false;
+	int iObj = pBulletHole->iOwnerObject;
 	float fDX = ObjectPositionX(iObj) - pBulletHole->vecOwnerPos.x;
 	float fDY = ObjectPositionY(iObj) - pBulletHole->vecOwnerPos.y;
 	float fDZ = ObjectPositionZ(iObj) - pBulletHole->vecOwnerPos.z;
@@ -308,12 +362,28 @@ void bulletholes_update (void)
 #endif
 	bool bUpdateTheObject = false;
 
-	// holes on an entity that has moved, turned, hidden (a wreck swap hides it) or gone since the hit are removed,
-	// all of them in this one update
+	// holes on an entity that has hidden (a wreck swap hides it) or gone since the hit are removed; those on one that has
+	// moved or turned follow it, or are removed from a character, all of them in this one update
 	for (int b = (int)g_bulletholes.size() - 1; b >= 0; b--)
 	{
 		sBulletHole* pBulletHole = &g_bulletholes[b];
-		if (pBulletHole->iOwnerEntity == 0 || bulletholes_ownerunchanged(pBulletHole) == true) continue;
+		if (pBulletHole->iOwnerEntity == 0) continue;
+		if (pBulletHole->bFollowsOwner == true && bulletholes_ownerpresent(pBulletHole) == true)
+		{
+			sObject* pOwnerObject = GetObjectData(pBulletHole->iOwnerObject);
+			if (!pOwnerObject || bulletholes_samematrix(&pOwnerObject->position.matWorld, &pBulletHole->matOwnerWorld) == true) continue;
+			pBulletHole->matOwnerWorld = pOwnerObject->position.matWorld;
+			GGVECTOR3 vecQuad[4];
+			for (int p = 0; p < 4; p++) GGVec3TransformCoord(&vecQuad[p], &pBulletHole->vecLocalQuad[p], &pBulletHole->matOwnerWorld);
+			GGVECTOR3 vecNormal;
+			GGVec3TransformNormal(&vecNormal, &pBulletHole->vecLocalNormal, &pBulletHole->matOwnerWorld);
+			GGVec3Normalize(&vecNormal, &vecNormal);
+			pBulletHole->vecWorldPos = (vecQuad[0] + vecQuad[3]) * 0.5f;
+			bulletholes_placesinglehole(pBulletHole->iVertIndexStart, vecQuad, vecNormal);
+			bUpdateTheObject = true;
+			continue;
+		}
+		if (pBulletHole->bFollowsOwner == false && bulletholes_ownerunchanged(pBulletHole) == true) continue;
 		bulletholes_changesinglehole (pBulletHole->iVertIndexStart, 0, 0, 0);
 		g_bulletholeavailable[pBulletHole->iVertIndexStart / 6] = false;
 		g_bulletholes.erase(g_bulletholes.begin() + b);
