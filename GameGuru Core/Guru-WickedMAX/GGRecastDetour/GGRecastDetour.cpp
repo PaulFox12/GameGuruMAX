@@ -368,19 +368,22 @@ bool DoesLineGoThroughBlocker (float fFromOrigX, float fFromOrigY, float fFromOr
 					float fToX = fToOrigX;
 					float fToY = fToOrigY;
 					float fToZ = fToOrigZ;
+					// the blocker is turned by fAngle as an entity is (and as the navmesh debug view draws it). These angles are taken
+					// with z flipped (fCenterZ - z), so adding fAngle turns the segment back by fAngle into the box's own space;
+					// subtracting it blocked the box's mirror image at any angle but 0, 90, 180 and 270
 					float tofromradian = 0.0174533f;
 					float fDX = fFromX - fCenterX;
 					float fDZ = fCenterZ - fFromZ;
 					float fDD = sqrtf(fabs(fDX * fDX) + fabs(fDZ * fDZ));
 					float fFromA = atan2(fDX, fDZ) / tofromradian;
-					fFromA = (fFromA - g_BlockerList[iDoorIndex].fAngle) * tofromradian;
+					fFromA = (fFromA + g_BlockerList[iDoorIndex].fAngle) * tofromradian;
 					fFromX = fCenterX + (sinf(fFromA) * fDD);
 					fFromZ = fCenterZ - (cosf(fFromA) * fDD);
 					fDX = fToX - fCenterX;
 					fDZ = fCenterZ - fToZ;
 					fDD = sqrtf(fabs(fDX * fDX) + fabs(fDZ * fDZ));
 					float fToA = atan2(fDX, fDZ) / tofromradian;
-					fToA = (fToA - g_BlockerList[iDoorIndex].fAngle) * tofromradian;
+					fToA = (fToA + g_BlockerList[iDoorIndex].fAngle) * tofromradian;
 					fToX = fCenterX + (sinf(fToA) * fDD);
 					fToZ = fCenterZ - (cosf(fToA) * fDD);
 					float fX = fFromX;
