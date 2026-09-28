@@ -6085,6 +6085,28 @@ int GetDrawCalls ( lua_State *L )
 	lua_pushinteger ( L, wiProfiler::GetPolygons() );
 	return 4;
 }
+// SetRenderTiming(on): 1 times the renderer's work every frame (the ranges of Tab Tab's performance data) so GetRenderTime
+// can read them, 0 stops. It costs a few GPU timestamp queries a frame while on, and is off again at the next level
+int SetRenderTiming ( lua_State *L )
+{
+	lua = L;
+	if ( LUA_GETTOP(L) < 1 ) return 0;
+	extern bool g_bLuaRenderTiming;
+	g_bLuaRenderTiming = ( lua_tointeger(L, 1) != 0 );
+	wiProfiler::SetEnabled ( g_bLuaRenderTiming );
+	return 0;
+}
+// GetRenderTime([name]): milliseconds, averaged over the last 20 frames, of a timed range: "GPU Frame" (the default, the GPU's
+// time for a whole frame), "CPU Frame", or another range named in Tab Tab's performance data. -1 while SetRenderTiming is
+// off and for the first frames after it is turned on
+int GetRenderTime ( lua_State *L )
+{
+	lua = L;
+	const char* pName = "GPU Frame";
+	if ( LUA_GETTOP(L) >= 1 && lua_isstring(L, 1) ) pName = lua_tostring(L, 1);
+	lua_pushnumber ( L, wiProfiler::GetRangeTime ( pName ) );
+	return 1;
+}
 int GetPlrObjectPositionX ( lua_State *L )
 {
 	lua = L;
@@ -15033,6 +15055,8 @@ void addFunctions()
 	lua_register(lua, "GetElapsedTime" , GetElapsedTime );
 	lua_register(lua, "GetVideoMemoryUsed" , GetVideoMemoryUsed );
 	lua_register(lua, "GetDrawCalls" , GetDrawCalls );
+	lua_register(lua, "SetRenderTiming" , SetRenderTiming );
+	lua_register(lua, "GetRenderTime" , GetRenderTime );
 	lua_register(lua, "GetPlrObjectPositionX" , GetPlrObjectPositionX );
 	lua_register(lua, "GetPlrObjectPositionY" , GetPlrObjectPositionY );
 	lua_register(lua, "GetPlrObjectPositionZ" , GetPlrObjectPositionZ );

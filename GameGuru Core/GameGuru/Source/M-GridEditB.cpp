@@ -6139,7 +6139,8 @@ void tab_tab_visuals(int iPage, int iMode)
 	}
 	else
 	{
-		if (!bProfilerEnable)
+		extern bool g_bLuaRenderTiming;
+		if (!bProfilerEnable && !g_bLuaRenderTiming)
 		{
 			if (wiProfiler::IsEnabled())
 				wiProfiler::SetEnabled(false);
@@ -7665,6 +7666,9 @@ bool g_bLuaSetWaterColor = false;
 bool g_bLuaSetWaterFog = false;
 bool g_bLuaSetLUT = false;
 
+// the renderer's timing (wiProfiler) kept on for a script (SetRenderTiming), which hiding Tab Tab would otherwise switch off
+bool g_bLuaRenderTiming = false;
+
 void LuaGameVisuals_Apply(void* pPushedVisuals)
 {
 	if (pPushedVisuals == &t.gamevisuals) return;
@@ -7699,6 +7703,8 @@ void LuaGameVisuals_Clear(void)
 	g_bLuaSetWaterColor = false;
 	g_bLuaSetWaterFog = false;
 	g_bLuaSetLUT = false;
+	if (g_bLuaRenderTiming && !bProfilerEnable) wiProfiler::SetEnabled(false);
+	g_bLuaRenderTiming = false;
 
 	// a glow, tint or limb alpha set per instance (SetEntityInstanceEmissive, SetEntityInstanceTint, SetEntityLimbAlpha) lives
 	// on the entity's object, which a test game shares with the editor, so put every placed entity back to full glow, no tint

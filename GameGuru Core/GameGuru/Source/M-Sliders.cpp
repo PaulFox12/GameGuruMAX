@@ -93,7 +93,8 @@ void sliders_loop ( void )
 	if (g.tabmode == 0) {
 		if (bImGuiInTestGame) {
 			wiProfiler::ResetPeek();
-			wiProfiler::SetEnabled(false); // LB:Clear when hide TABTAB
+			extern bool g_bLuaRenderTiming;
+			if (!g_bLuaRenderTiming) wiProfiler::SetEnabled(false); // LB:Clear when hide TABTAB
 		}
 	}
 	return;
