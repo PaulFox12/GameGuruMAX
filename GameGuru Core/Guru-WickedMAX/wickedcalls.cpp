@@ -4724,8 +4724,23 @@ void WickedCall_UpdateLimbFromFrame(sObject* pObject, int iLimb)
 	sFrame* pFrame = pObject->ppFrameList[iLimb];
 	if (!pFrame) return;
 
-	// a mesh skinned to an armature keeps an identity transform under it (WickedCall_LoadNode); its bones move instead
-	if (pFrame->pMesh && pFrame->pMesh->dwBoneCount > 0) return;
+	// a mesh skinned to an armature keeps an identity transform under it (WickedCall_LoadNode); its bones move instead,
+	// so say once for each limb which bone to turn (Lua's GetEntityLimbBone gives its limb number)
+	if (pFrame->pMesh && pFrame->pMesh->dwBoneCount > 0)
+	{
+		static std::unordered_map<uint64_t, bool> skinnedLimbReported;
+		uint64_t key = ((uint64_t)pObject->dwObjectNumber << 32) | (uint32_t)iLimb;
+		if (skinnedLimbReported.find(key) == skinnedLimbReported.end())
+		{
+			skinnedLimbReported[key] = true;
+			char pMsg[512];
+			sprintf(pMsg, "Limb %d (%s) of object %d is skinned to %d bone(s), the first %s: a limb rotation, offset or pivot moves the bone's limb, not this one",
+				iLimb, pFrame->szName, (int)pObject->dwObjectNumber, (int)pFrame->pMesh->dwBoneCount, pFrame->pMesh->pBones ? pFrame->pMesh->pBones[0].szName : "?");
+			void timestampactivity(int i, char* desc_s);
+			timestampactivity(0, pMsg);
+		}
+		return;
+	}
 
 	TransformComponent* pTransform = wiScene::GetScene().transforms.GetComponent(pFrame->wickedobjindex);
 	if (!pTransform) return;

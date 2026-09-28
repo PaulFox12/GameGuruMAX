@@ -2781,6 +2781,50 @@ static int LUA_GETTOP(lua_State* L)
 	 lua_pushinteger(L, iParent);
 	 return 1;
  }
+ // GetEntityLimbBoneCount(e, limb): how many bones the limb's mesh is skinned to, 0 if it isn't skinned (or has no mesh).
+ // A skinned mesh doesn't move with the limb calls; its bones do
+ int GetEntityLimbBoneCount ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 2 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 int iCount = 0;
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 if ( pObject && pObject->ppFrameList[iLimb]->pMesh ) iCount = pObject->ppFrameList[iLimb]->pMesh->dwBoneCount;
+	 lua_pushinteger(L, iCount);
+	 return 1;
+ }
+ // GetEntityLimbBone(e, limb, n): the limb that is bone n (0 to count - 1) of the limb's skinned mesh, found by the bone's
+ // name as the renderer does, and its name; -1 and "" if there is none
+ int GetEntityLimbBone ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 3 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 int iBone = lua_tointeger(L, 3);
+	 int iBoneLimb = -1;
+	 const char* pBoneName = "";
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 if ( pObject )
+	 {
+		 sMesh* pMesh = pObject->ppFrameList[iLimb]->pMesh;
+		 if ( pMesh && pMesh->pBones && iBone >= 0 && iBone < (int)pMesh->dwBoneCount )
+		 {
+			 for ( int i = 0; i < pObject->iFrameCount; i++ )
+			 {
+				 if ( pObject->ppFrameList[i] && stricmp ( pObject->ppFrameList[i]->szName, pMesh->pBones[iBone].szName ) == NULL )
+				 {
+					 iBoneLimb = i;
+					 pBoneName = pObject->ppFrameList[i]->szName;
+					 break;
+				 }
+			 }
+		 }
+	 }
+	 lua_pushinteger(L, iBoneLimb);
+	 lua_pushstring(L, pBoneName);
+	 return 2;
+ }
 
  // Entity Animation
  int SetEntityAnimation(lua_State *L)
@@ -14712,6 +14756,8 @@ void addFunctions()
 	lua_register(lua, "GetEntityLimbPivot", GetEntityLimbPivot);
 	lua_register(lua, "GetEntityLimbBounds", GetEntityLimbBounds);
 	lua_register(lua, "GetEntityLimbParent", GetEntityLimbParent);
+	lua_register(lua, "GetEntityLimbBoneCount", GetEntityLimbBoneCount);
+	lua_register(lua, "GetEntityLimbBone", GetEntityLimbBone);
 
 	lua_register(lua, "SetEntitySpawnAtStart", SetEntitySpawnAtStart);
 	lua_register(lua, "GetEntitySpawnAtStart", GetEntitySpawnAtStart);
