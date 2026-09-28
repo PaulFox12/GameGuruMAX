@@ -165,6 +165,8 @@ struct sObjectList
 	float fRaised;
 	btScalar fMass;
 	int iResponseMode;
+	btVector3 vecUnfrozenLinearFactor; // the factors a freeze (ODESetBodyResponse) replaced, put back on unfreeze
+	btVector3 vecUnfrozenAngularFactor;
 };
 std::vector < sObjectList > g_PhyObjectList;
 
@@ -4337,6 +4339,30 @@ void ODESetBodyResponse ( int iObjectNumber, int iResponseMode )
 	sObjectList* pPhyObject = ODEFindID ( iObjectNumber );
 	if ( pPhyObject )
 	{
+		// a freeze (any mode above 0) also stops the body and zeroes its linear and angular factors, so gravity, hits
+		// and turning cannot move it between steps (zeroing the velocity after each step still let it creep, and mode 2
+		// was never read); unfreezing puts back the factors it had, so a body with locked rotation keeps it
+		if ( pPhyObject->body )
+		{
+			bool bWasFrozen = pPhyObject->iResponseMode > 0;
+			bool bFreeze = iResponseMode > 0;
+			if ( bFreeze && !bWasFrozen )
+			{
+				pPhyObject->vecUnfrozenLinearFactor = pPhyObject->body->getLinearFactor();
+				pPhyObject->vecUnfrozenAngularFactor = pPhyObject->body->getAngularFactor();
+				pPhyObject->body->setLinearFactor ( btVector3 ( 0, 0, 0 ) );
+				pPhyObject->body->setAngularFactor ( btVector3 ( 0, 0, 0 ) );
+				pPhyObject->body->setLinearVelocity ( btVector3 ( 0, 0, 0 ) );
+				pPhyObject->body->setAngularVelocity ( btVector3 ( 0, 0, 0 ) );
+			}
+			if ( !bFreeze && bWasFrozen )
+			{
+				pPhyObject->body->setLinearFactor ( pPhyObject->vecUnfrozenLinearFactor );
+				pPhyObject->body->setAngularFactor ( pPhyObject->vecUnfrozenAngularFactor );
+				pPhyObject->body->activate();
+			}
+		}
+
 		// simply calls setlinearvelocity in physics update each cycle
 		pPhyObject->iResponseMode = iResponseMode;
 	}
