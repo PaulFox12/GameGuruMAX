@@ -3067,6 +3067,22 @@ static int LUA_GETTOP(lua_State* L)
 	t.entid = entid; entity_fillgrideleproffromprofile();
 	//LB: an copy over material changes from the cloned entiy element
 	t.grideleprof.WEMaterial = t.entityelement[iEntityIndex].eleprof.WEMaterial;
+	// and the weapon settings as placed in the level
+	t.grideleprof.damage = t.entityelement[iEntityIndex].eleprof.damage;
+	t.grideleprof.accuracy = t.entityelement[iEntityIndex].eleprof.accuracy;
+	t.grideleprof.reloadqty = t.entityelement[iEntityIndex].eleprof.reloadqty;
+	t.grideleprof.fireiterations = t.entityelement[iEntityIndex].eleprof.fireiterations;
+	t.grideleprof.range = t.entityelement[iEntityIndex].eleprof.range;
+	t.grideleprof.dropoff = t.entityelement[iEntityIndex].eleprof.dropoff;
+	t.grideleprof.usespotlighting = t.entityelement[iEntityIndex].eleprof.usespotlighting;
+	t.grideleprof.clipcapacity = t.entityelement[iEntityIndex].eleprof.clipcapacity;
+	t.grideleprof.weaponpropres1 = t.entityelement[iEntityIndex].eleprof.weaponpropres1;
+	t.grideleprof.weaponpropres2 = t.entityelement[iEntityIndex].eleprof.weaponpropres2;
+	t.grideleprof.lifespan = t.entityelement[iEntityIndex].eleprof.lifespan;
+	t.grideleprof.throwspeed = t.entityelement[iEntityIndex].eleprof.throwspeed;
+	t.grideleprof.throwangle = t.entityelement[iEntityIndex].eleprof.throwangle;
+	t.grideleprof.bounceqty = t.entityelement[iEntityIndex].eleprof.bounceqty;
+	t.grideleprof.explodeonhit = t.entityelement[iEntityIndex].eleprof.explodeonhit;
 	
 	extern bool bNextObjectMustBeClone;
 	bNextObjectMustBeClone = true;
