@@ -1583,11 +1583,11 @@ Other Things
 GetAmmoClip : ammoclip = GetAmmoClip ( e ) -- returns the current ammo in clip for the held weapon of the entity
 SetAmmoClip : SetAmmoClip ( e, ammoquantity ) -- sets the ammo clip quantity for the held weapon of the entity
 	
-FreezeEntity : FreezeEntity ( e, mode ) -- where e is the entity index and mode is reserved. Will freeze entity physics position
+FreezeEntity : FreezeEntity ( e [, mode] ) -- where e is the entity index and mode is reserved. Holds a physics entity still (gravity and hits no longer move it) until UnFreezeEntity
 UnFreezeEntity : UnFreezeEntity ( e ) -- where e is the entity index to be unfrozen from a previous call to FreezeEntity
 
 GetTerrainHeight : height = GetTerrainHeight(x,z) -- where X and Z are the coordinates on the terrain you want the height from
-GetSurfaceHeight : height = GetSurfaceHeight(x,y,z) -- where X, Y and Z are the coordinates above/on a surface, find the height of the surface below
+GetSurfaceHeight : height, hit = GetSurfaceHeight(x,y,z) -- where X, Y and Z are the coordinates above/on a surface, find the height of the surface below; hit is 1 if a surface was found, 0 (and height 0) on a miss
 
 GetFogNearest : value = GetFogNearest ( ) -- gets the setting value currently used in the game
 GetFogDistance : value = GetFogDistance ( ) -- gets the setting value currently used in the game
@@ -1731,12 +1731,12 @@ RayTerrain: r=RayTerrain(x,y,z,x2,y2,z2) -- returns 1 if the ray cast hits the t
 GetRayCollisionX: x=GetRayCollisionX() -- returns the X position of the terrain hit position
 GetRayCollisionY: y=GetRayCollisionY() -- returns the Y position of the terrain hit position
 GetRayCollisionZ: z=GetRayCollisionZ() -- returns the Z position of the terrain hit position
-IntersectAll: x=IntersectAll(x1,y1,z1,x2,y2,z2,IgnoreObj) -- returns object ID if the ray cast hits ANY entity or lightmapped geometry, and adjusts ray to account for terrain and does not report a terrain hit
+IntersectAll: x=IntersectAll(x1,y1,z1,x2,y2,z2,IgnoreObj) -- returns object ID if the ray cast hits ANY entity or lightmapped geometry, and adjusts ray to account for terrain and does not report a terrain hit. IgnoreObj may be a table of object numbers
 IntersectAllIncludeTerrain: x=IntersectAllIncludeTerrain(x1,y1,z1,x2,y2,z2,IgnoreObj) -- returns 1 if the ray cast hits ANY entity or lightmapped geometry
 IntersectAllIncludeTerrain: x=IntersectAllIncludeTerrain(x1,y1,z1,x2,y2,z2,IgnoreObj,index,life,ignoreplayer,ignoreterrain) -- as above but maintains internal database for faster results, index to identify and life is milliseconds to hold on database, and extra ignore flags
-IntersectStatic: x=IntersectStatic(x1,y1,z1,x2,y2,z2,IgnoreObj) -- returns 1 if the ray cast hits non-animating entity or lightmapped geometry
+IntersectStatic: x=IntersectStatic(x1,y1,z1,x2,y2,z2,IgnoreObj) -- returns 1 if the ray cast hits non-animating entity or lightmapped geometry. IgnoreObj may be a table of object numbers
 IntersectStaticPerformant: x=IntersectStaticPerformant(x1,y1,z1,x2,y2,z2,IgnoreObj,index,life) -- as above but maintains internal database for faster results, index to identify and life is milliseconds to hold on database, and uses physics raycast instead of Wicked geometry raycast
-IntersectAll: x=IntersectAll(x1,y1,z1,x2,y2,z2,IgnoreObj) -- returns object ID if the ray cast hits ANY entity or lightmapped geometry
+IntersectAll: x=IntersectAll(x1,y1,z1,x2,y2,z2,IgnoreObj) -- returns object ID if the ray cast hits ANY entity or lightmapped geometry. IgnoreObj may be a table of object numbers
 GetIntersectCollisionX: x=GetIntersectCollisionX() -- returns the X position of the entity hit position
 GetIntersectCollisionY: y=GetIntersectCollisionY() -- returns the Y position of the entity hit position
 GetIntersectCollisionZ: z=GetIntersectCollisionZ() -- returns the Z position of the entity hit position
@@ -2475,15 +2475,15 @@ GetTreeTransition : w, shadowW = GetTreeTransition()
 SetTreeShadowCascades : SetTreeShadowCascades ( billboard [, fullDetail] ) -- how many sun shadow cascades (0 to 5, nearest first) draw billboard and full detail tree shadows; negative or omitted keeps the current value
 GetTreeShadowCascades : billboard, fullDetail = GetTreeShadowCascades()
 
-SetBloom : SetBloom ( on [, strength [, threshold]] ) -- bloom on (1) or off (0), strength 0.1 to 3, threshold 0.1 to 10. For this level only; omitted or negative values keep the current ones
+SetBloom : SetBloom ( on [, strength [, threshold] ] ) -- bloom on (1) or off (0), strength 0.1 to 3, threshold 0.1 to 10. For this level only; omitted or negative values keep the current ones
 GetBloom : on, strength, threshold = GetBloom()
-SetDepthOfField : SetDepthOfField ( on [, strength [, focalLength [, aperture]]] ) -- depth of field on or off, strength 1 to 20, focal length 0.001 to 800, aperture 0 to 1. For this level only
+SetDepthOfField : SetDepthOfField ( on [, strength [, focalLength [, aperture] ] ] ) -- depth of field on or off, strength 1 to 20, focal length 0.001 to 800, aperture 0 to 1. For this level only
 GetDepthOfField : on, strength, focalLength, aperture = GetDepthOfField()
 SetLightShafts : SetLightShafts ( on ) -- sun light shafts on or off, for this level only
 GetLightShafts : on = GetLightShafts()
 SetLensFlare : SetLensFlare ( on ) -- sun lens flare on or off, for this level only
 GetLensFlare : on = GetLensFlare()
-SetWind : SetWind ( speed [, dirX, dirY, dirZ [, randomness]] ) -- weather wind (rain and snow drift): speed 0 to 5, direction -20 to 20 per axis, randomness 0 to 2. Tree sway is SetTreeWind
+SetWind : SetWind ( speed [, dirX, dirY, dirZ [, randomness] ] ) -- weather wind (rain and snow drift): speed 0 to 5, direction -20 to 20 per axis, randomness 0 to 2. Tree sway is SetTreeWind
 GetWind : speed, dirX, dirY, dirZ, randomness = GetWind()
 SetWaterFog : SetWaterFog ( minDist, maxDist [, minAmount] ) -- how clear the water is: nearer than minDist the water fog is at minAmount (0 to 1, lower is clearer), beyond maxDist the water is opaque (0 to 100000 units). SetWaterTransparancy does nothing in MAX
 GetWaterFog : minDist, maxDist, minAmount = GetWaterFog()
@@ -2491,6 +2491,55 @@ SetRawSoundDistanceScale : SetRawSoundDistanceScale ( id, units ) -- 3D distance
 GetRawSoundDistanceScale : units = GetRawSoundDistanceScale ( id ) -- the distance scale this sound plays with
 SetEntityInstanceEmissive : SetEntityInstanceEmissive ( e, r, g, b [, strength] ) -- glow of this one instance, multiplying the entity's authored emissive colour and strength (each 0 to 1; 1,1,1,1 = as authored, strength 0 = off). Other instances of the same object keep theirs
 GetEntityInstanceEmissive : r, g, b, strength = GetEntityInstanceEmissive ( e )
+
+SetTreeWind : SetTreeWind ( amount [, speed] ) -- how far trees and grass sway in the wind, and how fast (speed 0 or omitted ties the speed to the amount)
+GetTreeWind : amount, speed = GetTreeWind()
+
+GetEntityLimbCount : n = GetEntityLimbCount ( e ) -- number of limbs of the entity's object; limbs are numbered 0 to n-1 as GetLimbName numbers them
+GetEntityLimbName : name = GetEntityLimbName ( e, limb ) -- "" if out of range
+SetEntityLimbRotation : SetEntityLimbRotation ( e, limb, ax, ay, az ) -- turns one limb (degrees, in its own space) on top of its pose in the model: rotors, wheels, turrets. A playing animation that drives the limb overwrites it; a mesh skinned to bones does not move (turn its bone, see GetEntityLimbBone)
+GetEntityLimbRotation : ax, ay, az = GetEntityLimbRotation ( e, limb )
+SetEntityLimbOffset : SetEntityLimbOffset ( e, limb, x, y, z ) -- moves one limb in its own space (suspension, recoil)
+GetEntityLimbOffset : x, y, z = GetEntityLimbOffset ( e, limb )
+SetEntityLimbPivot : SetEntityLimbPivot ( e, limb, x, y, z ) -- the point in the limb's own space that its rotation turns about (default 0,0,0, the limb's origin)
+GetEntityLimbPivot : x, y, z = GetEntityLimbPivot ( e, limb )
+GetEntityLimbBounds : minx, miny, minz, maxx, maxy, maxz = GetEntityLimbBounds ( e, limb [, children] ) -- the box of the limb's mesh in its own space; children 1 also takes in its child limbs' meshes. Nothing for a limb without a mesh
+GetEntityLimbParent : limb = GetEntityLimbParent ( e, limb ) -- the limb this one hangs from, -1 at the top
+GetEntityLimbBoneCount : n = GetEntityLimbBoneCount ( e, limb ) -- how many bones the limb's mesh is skinned to, 0 if it is not skinned
+GetEntityLimbBone : limb, name = GetEntityLimbBone ( e, limb, n ) -- the limb that is bone n (0 to count-1) of the limb's skinned mesh, and its name; -1, "" if none
+
+IntersectRay : obj, e, x, y, z, nx, ny, nz, limb = IntersectRay ( x1, y1, z1, x2, y2, z2 [, ignore [, flags] ] ) -- one full-accuracy pick with all its results: obj 0 none, -1 terrain or other geometry; e 0 if not an entity; limb -1 none. ignore is an object number or a table of them; flags 1 hits the ground first, 2 passes through entities with collisionmode 11
+GetIntersectCollisionLimb : limb = GetIntersectCollisionLimb() -- the limb the last IntersectAll / IntersectStatic hit, -1 for none or the ground
+GetRayNormalX : nx = GetRayNormalX() -- the surface normal where the last RayTerrain hit (the ground or a tree trunk)
+GetRayNormalY : ny = GetRayNormalY()
+GetRayNormalZ : nz = GetRayNormalZ()
+
+AddBulletHole : ok = AddBulletHole ( x, y, z, nx, ny, nz [, material [, e] ] ) -- leaves a bullet hole where a script's shot hit, as gunfire does: nx, ny, nz the surface normal, material the materialindex (1 stone by default, 0 none), e the entity hit (only static ones, or ones with Allow Bullet Holes). Returns 1 if added
+BulletRay : hit, e, x, y, z, nx, ny, nz, material, hole = BulletRay ( x1, y1, z1, x2, y2, z2 [, ignoreobj [, holes [, terrainmaterial] ] ] ) -- one round from a script weapon, detected as the player's rounds are. hit 0 nothing, 1 terrain, 2 entity, 3 other object, 4 passed through, 5 tree. holes 1 leaves the hole the player's gun would
+GetPlayerHitSeq : seq = GetPlayerHitSeq() -- the newest entry in the player's hit record, 0 at level start
+GetPlayerHit : hit, e, x, y, z, nx, ny, nz, material, hole, limb, damage, healthbefore, healthafter, killed, kind, shot, gunid, ox, oy, oz = GetPlayerHit ( seq ) -- one of the player's last 128 rounds (kind 1), pellets (2), melee strikes (3) or blast hits (4); nothing once it has left the record
+g_PlayerGunShotThisFrame -- the rounds the player's gun fired since the last frame (dry clicks and melee strikes are not rounds)
+
+WParticleEffectSetKillBox : WParticleEffectSetKillBox ( id, slot, minx, miny, minz, maxx, maxy, maxz ) -- slot 1 to 8: the effect's particles inside the world box are removed (rain indoors); ( id, slot ) alone clears the slot
+WParticleEffectClearKillBoxes : WParticleEffectClearKillBoxes ( id )
+WParticleEffectSetOpacity : WParticleEffectSetOpacity ( id, percent ) -- 100 = as made
+WParticleEffectGetOpacity : percent = WParticleEffectGetOpacity ( id )
+WParticleEffectSetSize : WParticleEffectSetSize ( id, percent ) -- particle size, 100 = as made
+WParticleEffectGetSize : percent = WParticleEffectGetSize ( id )
+WParticleEffectSetColor : WParticleEffectSetColor ( id, r, g, b ) -- 0 to 255 each, multiplying the effect's own colour (255,255,255 = as made)
+WParticleEffectGetColor : r, g, b = WParticleEffectGetColor ( id )
+WParticleEffectGetBounds : minx, miny, minz, maxx, maxy, maxz = WParticleEffectGetBounds ( id ) -- the world box the effect's particles are born in, as of the last frame
+EffectGetOpacity : percent = EffectGetOpacity ( e ) -- a placed particle entity's opacity, as EffectSetOpacity set it
+
+SetEntityInstanceTint : SetEntityInstanceTint ( e, r, g, b ) -- colour multiplier for this one instance, 0 to 1 each (1,1,1 = as made). Other instances of the same object keep theirs
+GetEntityInstanceTint : r, g, b = GetEntityInstanceTint ( e )
+GetEntityImmunity : n = GetEntityImmunity ( e ) -- 0 normally; -1 while SetEntityHealth(e,-99999) holds its health up, or the frames left of the brief immunity after a resurrection. While it is not 0, SetEntityHealth(e,0) does nothing
+
+SetGrassKillBox : SetGrassKillBox ( slot, x, y, z, halfx, halfy, halfz [, yaw] ) -- slot 1 to 8: no grass is drawn with its root inside the box (turned by yaw degrees about Y, as an object's angle Y), e.g. under a vehicle; set it every frame to follow one. Cleared at level start
+ClearGrassKillBox : ClearGrassKillBox ( [slot] ) -- without a slot clears them all
+
+GetVideoMemoryUsed : usedMB, budgetMB = GetVideoMemoryUsed() -- the dedicated video memory the game uses, and the budget Windows gives it
+GetDrawCalls : main, shadow, transparent, triangles = GetDrawCalls() -- the last frame's draw calls and the main pass's triangles
 
 ***** The following five functions return multiple values, if you do not need them all just replace 
 ***** the ones you don't need with '_' for example : _, _, _, Ax, Ay, Az = GetEntityPosAng( e ) would
