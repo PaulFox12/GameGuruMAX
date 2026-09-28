@@ -168,6 +168,7 @@ struct sObjectList
 	btVector3 vecUnfrozenLinearFactor; // restored on unfreeze
 	btVector3 vecUnfrozenAngularFactor;
 	bool bCentredOnCollisionBox; // body at the collision box centre (not CreateMesh bodies)
+	bool bPivotInBody; // body already includes the pivot (fixnewy)
 };
 std::vector < sObjectList > g_PhyObjectList;
 
@@ -186,6 +187,7 @@ void ODEAddObject ( int iID, sObject* pObject, btRigidBody* body, int iIsDynamic
 	sObjectList object;
 	object.iID = iID;
 	object.bCentredOnCollisionBox = bCentredOnCollisionBox;
+	object.bPivotInBody = false;
 
 	object.body = body;
 	if ( iIsDynamic==1 )
@@ -1041,7 +1043,8 @@ void Update(float fTimeStep)
 
 				// LEE, I think the matrix returned is a ZYX order rotation, but we need XYZ
 				// so it translates back properly. I could use ZYX in FPSC but it will screw up all maps..
-				if (pObject->position.bApplyPivot)
+				// (not for a body made turned by the pivot already: ODESetBodyIncludesPivot)
+				if (pObject->position.bApplyPivot && !g_PhyObjectList[j].bPivotInBody)
 					matRotation = pObject->position.matPivot * matRotation;
 
 				// Use physics object position
@@ -1096,7 +1099,19 @@ void Update(float fTimeStep)
 				pObject->position.vecPosition = GGVECTOR3(matWorld._41, matWorld._42, matWorld._43);
 
 				GGVECTOR3 vecRotate = GGVECTOR3(0, 0, 0);
-				BULLETAnglesFromMatrix(&matWorld, &vecRotate);
+				if (pObject->position.bApplyPivot && g_PhyObjectList[j].bPivotInBody)
+				{
+					// keep the pivot out of the object's rotation, the body already has it
+					float fDet;
+					GGMATRIX matPivotInverse;
+					GGMatrixInverse(&matPivotInverse, &fDet, &pObject->position.matPivot);
+					GGMATRIX matWithoutPivot = matPivotInverse * matWorld;
+					BULLETAnglesFromMatrix(&matWithoutPivot, &vecRotate);
+				}
+				else
+				{
+					BULLETAnglesFromMatrix(&matWorld, &vecRotate);
+				}
 				pObject->position.vecRotate = vecRotate;
 				pObject->collision.bColCenterUpdated = true;
 				body->applyDamping(0.1f);
@@ -4343,6 +4358,13 @@ void ODESetBodyPosition ( int iObjectNumber, float fX, float fY, float fZ )
 			m_character->warp(btVector3(fX/gSc,fY/gSc,fZ/gSc));
 		}
 	}
+}
+
+// body includes the pivot (fixnewy), so draw by the body transform alone
+void ODESetBodyIncludesPivot ( int iObjectNumber, int iIncludes )
+{
+	sObjectList* pPhyObject = ODEFindID ( iObjectNumber );
+	if ( pPhyObject ) pPhyObject->bPivotInBody = ( iIncludes != 0 );
 }
 
 void ODESetBodyResponse ( int iObjectNumber, int iResponseMode )

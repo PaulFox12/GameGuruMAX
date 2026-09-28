@@ -132,6 +132,7 @@ DARKSDK int			ODEGetRayObjectHit					( );
 DARKSDK void		ODESetActive							( int iObjectNumber, int iMode );
 DARKSDK void		ODESetBodyPosition						( int iObjectNumber, float fX, float fY, float fZ );
 DARKSDK void		ODESetBodyResponse						( int iObjectNumber, int iResponseMode );
+DARKSDK void		ODESetBodyIncludesPivot					( int iObjectNumber, int iIncludes );
 DARKSDK void		ODESetBodyAngle							( int iObjectNumber, float fX, float fY, float fZ );
 DARKSDK void		ODESetNoGravity                         ( int iObjectNumber, int iGravity );
 DARKSDK void        ODESetBodyScaling                       ( int iObjectNumber, float fX, float fY, float fZ );
