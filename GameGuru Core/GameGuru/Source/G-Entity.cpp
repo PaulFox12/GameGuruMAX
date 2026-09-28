@@ -4902,6 +4902,15 @@ void entity_resetmaterial ( int e )
 			WickedCall_TextureObject(pMasterObject, NULL);
 			WickedSetEntityId(-1);
 			WickedCall_CopyMaterialColorsToMeshes(pMasterObject);
+
+			// the instance's meshes keep their own copy of the material, which the getters read and the next change writes
+			// back, so they take the master's
+			for (int iMeshIndex = 0; iMeshIndex < pObject->iMeshCount && iMeshIndex < pMasterObject->iMeshCount; iMeshIndex++)
+			{
+				sMesh* pMesh = pObject->ppMeshList[iMeshIndex];
+				sMesh* pMasterMesh = pMasterObject->ppMeshList[iMeshIndex];
+				if (pMesh && pMasterMesh && pMesh->bInstanced && pMesh->wickedmaterialindex == 0) pMesh->mMaterial = pMasterMesh->mMaterial;
+			}
 		}
 	}
 	entity_applymaterial(entid, e, obj);
