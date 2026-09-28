@@ -6534,6 +6534,7 @@ float WickedCall_GetLimbAlpha(sObject* pObject, int iLimb)
 // array (128), so the limit stays well under those, or lights would be left out
 #define PROJECTEDDECAL_NORECEIVE_LAYER (1u << 30) // a model whose materials carry only this bit takes no decals
 #define PROJECTEDDECAL_MAX 96
+#define PROJECTEDDECAL_FACING 0.2f // the facing cutoff a new decal starts with (SetProjectedDecalFacing)
 struct sProjectedDecal
 {
 	int iID = 0;
@@ -6598,6 +6599,10 @@ int WickedCall_AddProjectedDecal(LPSTR pImage, float fX, float fY, float fZ, flo
 	wiScene::LayerComponent* layer = scene.layers.GetComponent(entity);
 	if (layer) layer->layerMask = ~PROJECTEDDECAL_NORECEIVE_LAYER;
 
+	// only surfaces facing along the normal take it, so it doesn't reach through a thin wall or streak an upright face
+	wiScene::DecalComponent* pDecalComponent = scene.decals.GetComponent(entity);
+	if (pDecalComponent) pDecalComponent->facing = PROJECTEDDECAL_FACING;
+
 	// the box's Z along the normal, its X and Y across the surface, turned by the spin
 	XMVECTOR vecZ = XMVectorSet(fNX, fNY, fNZ, 0);
 	if (XMVectorGetX(XMVector3LengthSq(vecZ)) < 0.000001f) vecZ = XMVectorSet(0, 1, 0, 0);
@@ -6633,6 +6638,19 @@ int WickedCall_AddProjectedDecal(LPSTR pImage, float fX, float fY, float fZ, flo
 	g_ProjectedDecals.push_back(decal);
 	WickedCall_ApplyProjectedDecalOpacity(g_ProjectedDecals.back());
 	return decal.iID;
+}
+
+// the cosine a surface's normal must face along the decal's normal by to take it (GGDecalHF.hlsli); -1 or below lets
+// every surface in its box take it
+void WickedCall_SetProjectedDecalFacing(int iID, float fCutoff)
+{
+	sProjectedDecal* pDecal = WickedCall_FindProjectedDecal(iID);
+	if (!pDecal) return;
+	wiScene::DecalComponent* pDecalComponent = wiScene::GetScene().decals.GetComponent(pDecal->entity);
+	if (!pDecalComponent) return;
+	if (fCutoff <= -1.0f) fCutoff = -2.0f;
+	if (fCutoff > 1.0f) fCutoff = 1.0f;
+	pDecalComponent->facing = fCutoff;
 }
 
 // iID -1 removes them all

@@ -204,6 +204,7 @@ void WickedCall_SetLimbAlpha(sObject* pObject, int iLimb, float fAlpha, bool bCh
 int WickedCall_AddProjectedDecal(LPSTR pImage, float fX, float fY, float fZ, float fSize, float fNX, float fNY, float fNZ, float fSpinDegrees, float fDepth, float fLife);
 void WickedCall_RemoveProjectedDecal(int iID);
 void WickedCall_SetProjectedDecalOpacity(int iID, float fOpacity);
+void WickedCall_SetProjectedDecalFacing(int iID, float fCutoff);
 void WickedCall_SetProjectedDecalGrass(int iID, float fRadius);
 void WickedCall_SetProjectedDecalLimit(int iLimit);
 int WickedCall_GetProjectedDecalLimit(void);

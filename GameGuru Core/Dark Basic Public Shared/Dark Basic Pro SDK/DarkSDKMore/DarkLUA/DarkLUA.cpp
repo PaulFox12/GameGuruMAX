@@ -8205,6 +8205,15 @@ int SetProjectedDecalOpacity(lua_State *L)
 	WickedCall_SetProjectedDecalOpacity(lua_tointeger(L, 1), lua_tonumber(L, 2) / 100.0f);
 	return 0;
 }
+// SetProjectedDecalFacing(id, cutoff): only surfaces facing along the decal's normal by more than cutoff (a cosine, 0.2
+// unless set) take it, so it doesn't reach the inside face of a thin wall or streak a face along its box; -1 lets every
+// surface in its box take it
+int SetProjectedDecalFacing(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 2) return 0;
+	WickedCall_SetProjectedDecalFacing(lua_tointeger(L, 1), lua_tonumber(L, 2));
+	return 0;
+}
 // SetProjectedDecalGrass(id, radius): no grass blade is drawn within radius of the decal's centre (0 for none, the
 // default). The nearest to the camera use the grass kill shapes that SetGrassKillBox's 8 leave free, 16 in all
 int SetProjectedDecalGrass(lua_State *L)
@@ -15394,6 +15403,7 @@ void addFunctions()
 	lua_register(lua, "AddProjectedDecal", AddProjectedDecal);
 	lua_register(lua, "RemoveProjectedDecal", RemoveProjectedDecal);
 	lua_register(lua, "SetProjectedDecalOpacity", SetProjectedDecalOpacity);
+	lua_register(lua, "SetProjectedDecalFacing", SetProjectedDecalFacing);
 	lua_register(lua, "SetProjectedDecalGrass", SetProjectedDecalGrass);
 	lua_register(lua, "SetProjectedDecalLimit", SetProjectedDecalLimit);
 	lua_register(lua, "GetProjectedDecalLimit", GetProjectedDecalLimit);

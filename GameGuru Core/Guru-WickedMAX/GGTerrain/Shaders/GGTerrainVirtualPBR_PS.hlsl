@@ -12,6 +12,7 @@ SamplerState sampler1            : register( s1 );
 
 #include "PBR/brdf.hlsli"
 #include "PBR/lightingHF.hlsli"
+#include "../CustomShaders/GGDecalHF.hlsli"
 
 #include "GGCommonFunctions.hlsli"
 
@@ -95,22 +96,12 @@ inline void TiledLighting(inout Surface surface, inout Lighting lighting, float 
 					if ((decal.layerMask & surface.layerMask) == 0)
 						continue;
 
-					float4x4 decalProjection = MatrixArray[decal.GetMatrixIndex()];
-					float4 texMulAdd = decalProjection[3];
-					decalProjection[3] = float4(0, 0, 0, 1);
-					const float3 clipSpacePos = mul(decalProjection, float4(surface.P, 1)).xyz;
-					const float3 uvw = clipSpacePos.xyz * float3(0.5, -0.5, 0.5) + 0.5;
+					// Wicked's planar decal, or one of GameGuru's modes (GGDecalHF.hlsli):
+					float edgeBlend;
+					const float4 decalColor = GGDecalColor(decal, surface.P, P_dx, P_dy, edgeBlend);
 					[branch]
-					if (is_saturated(uvw))
+					if (edgeBlend > 0)
 					{
-						// mipmapping needs to be performed by hand:
-						const float2 decalDX = mul(P_dx, (float3x3)decalProjection).xy * texMulAdd.xy;
-						const float2 decalDY = mul(P_dy, (float3x3)decalProjection).xy * texMulAdd.xy;
-						float4 decalColor = texture_decalatlas.SampleGrad(sampler_linear_clamp, uvw.xy * texMulAdd.xy + texMulAdd.zw, decalDX, decalDY);
-						// blend out if close to cube Z:
-						float edgeBlend = 1 - pow(saturate(abs(clipSpacePos.z)), 8);
-						decalColor.a *= edgeBlend;
-						decalColor *= decal.GetColor();
 						// apply emissive:
 						lighting.direct.specular += max(0, decalColor.rgb * decal.GetEmissive() * edgeBlend);
 						// perform manual blending of decals:
@@ -454,6 +445,7 @@ GBuffer main( PixelIn IN )
 	
 	//ForwardLighting(surface, lighting);
 	float3 envAmbient = 0;
+	decal_faceN = normalize(IN.normal);
 	TiledLighting(surface, lighting, dist, envAmbient);
 
 	lighting.indirect.diffuse += envAmbient;
