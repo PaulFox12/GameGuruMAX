@@ -3642,6 +3642,7 @@ static int LUA_GETTOP(lua_State* L)
 	 int n = LUA_GETTOP(L);
 	 if (n < 3) return 0;
 	 float fReturnHeight = 0.0f;
+	 int iHit = 0;
 	 float fX = lua_tonumber(L, 1);
 	 float fY = lua_tonumber(L, 2);
 	 float fZ = lua_tonumber(L, 3);
@@ -3653,12 +3654,17 @@ static int LUA_GETTOP(lua_State* L)
 	 if (WickedCall_SentRay2(fX, fY + fMargin, fZ, 0, -1.0f, 0, &fHitX, &fHitY, &fHitZ, NULL, NULL, NULL, NULL, GGRENDERLAYERS_TERRAIN | GGRENDERLAYERS_NORMAL) == true)
 	 {
 		 fReturnHeight = fHitY;
+		 iHit = 1;
 	 }
 	 #else
 	 fReturnHeight = GetLUATerrainHeightEx(fX, fZ);
+	 iHit = 1;
 	 #endif
-	 lua_pushinteger (L, fReturnHeight);
-	 return 1;
+	 // the height as a number (lua_pushinteger cut it to a whole unit), and 1 if a surface was found below (0 on a miss,
+	 // when the height is 0)
+	 lua_pushnumber (L, fReturnHeight);
+	 lua_pushinteger (L, iHit);
+	 return 2;
  }
 
  // DarkAI
