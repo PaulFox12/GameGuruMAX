@@ -7706,6 +7706,9 @@ void LuaGameVisuals_Clear(void)
 	if (g_bLuaRenderTiming && !bProfilerEnable) wiProfiler::SetEnabled(false);
 	g_bLuaRenderTiming = false;
 
+	// and 3D sounds go back to real-world doppler (SetDopplerScale)
+	wiAudio::SetDopplerScale(1.0f);
+
 	// a glow, tint or limb alpha set per instance (SetEntityInstanceEmissive, SetEntityInstanceTint, SetEntityLimbAlpha) lives
 	// on the entity's object, which a test game shares with the editor, so put every placed entity back to full glow, no tint
 	// and every limb as made

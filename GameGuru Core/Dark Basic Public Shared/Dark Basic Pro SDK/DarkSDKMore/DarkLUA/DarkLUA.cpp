@@ -5761,6 +5761,23 @@ int GetRawSoundDistanceScale ( lua_State *L ) { return GetRawSoundData ( L, 4 );
 int RawSoundExist ( lua_State *L ) { return GetRawSoundData ( L, 1 ); }
 int RawSoundPlaying ( lua_State *L ) { return GetRawSoundData ( L, 2 ); }
 
+// SetDopplerScale(scale): how strongly 3D sounds rise in pitch as they come closer and fall as they go away, from how fast
+// each sound and the camera move; 1 as in the real world (the default), 0 for none, more to exaggerate. Back to 1 at the
+// next level
+int SetDopplerScale ( lua_State *L )
+{
+	lua = L;
+	if ( LUA_GETTOP(L) < 1 ) return 0;
+	wiAudio::SetDopplerScale ( lua_tonumber(L, 1) );
+	return 0;
+}
+int GetDopplerScale ( lua_State *L )
+{
+	lua = L;
+	lua_pushnumber ( L, wiAudio::GetDopplerScale() );
+	return 1;
+}
+
 int GetEntityRawSound(lua_State *L)
 {
 	lua = L;
@@ -15020,6 +15037,8 @@ void addFunctions()
 	lua_register(lua, "SetRawSoundSpeed" , SetRawSoundSpeed );
 	lua_register(lua, "SetRawSoundDistanceScale" , SetRawSoundDistanceScale );
 	lua_register(lua, "GetRawSoundDistanceScale" , GetRawSoundDistanceScale );
+	lua_register(lua, "SetDopplerScale" , SetDopplerScale );
+	lua_register(lua, "GetDopplerScale" , GetDopplerScale );
 	lua_register(lua, "RawSoundExist" , RawSoundExist );
 	lua_register(lua, "RawSoundPlaying" , RawSoundPlaying );
 	lua_register(lua, "GetEntityRawSound" , GetEntityRawSound );
