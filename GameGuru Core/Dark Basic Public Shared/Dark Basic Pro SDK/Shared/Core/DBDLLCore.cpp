@@ -6249,31 +6249,73 @@ DARKSDK void SetDataPointer(LPSTR Current)
 #include <dxgi1_4.h>
 IDXGIFactory4* pFactory = nullptr;
 IDXGIAdapter3* adapter = nullptr;
-float GetVramUsage(void)
-{
-	extern uint32_t g_iActiveAdapterNumber;
-	if(!pFactory)
-		CreateDXGIFactory1(__uuidof(IDXGIFactory4), (void**)&pFactory);
-	if(!adapter)
-		pFactory->EnumAdapters(0, reinterpret_cast<IDXGIAdapter**>(&adapter));
-	DXGI_QUERY_VIDEO_MEMORY_INFO videoMemoryInfo;
-	adapter->QueryVideoMemoryInfo(g_iActiveAdapterNumber, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &videoMemoryInfo);
-	return (float)videoMemoryInfo.CurrentUsage / 1024.0f / 1024.0f;
-}
+uint32_t iVramAdapterNumber = 0;
 
-float GetTotalVramUsage(void)
+// the adapter the renderer made its device on. g_iActiveAdapterNumber is that adapter's EnumAdapters index (it was
+// passed as the node index, which is for linked multi-GPU adapters, while adapter 0 was always read), and it is only
+// set once the device exists, so an adapter taken before then is replaced
+IDXGIAdapter3* GetVramAdapter(void)
 {
 	extern uint32_t g_iActiveAdapterNumber;
 	if (!pFactory)
 		CreateDXGIFactory1(__uuidof(IDXGIFactory4), (void**)&pFactory);
+	if (!pFactory)
+		return nullptr;
+	if (adapter && iVramAdapterNumber != g_iActiveAdapterNumber)
+	{
+		adapter->Release();
+		adapter = nullptr;
+	}
 	if (!adapter)
-		pFactory->EnumAdapters(0, reinterpret_cast<IDXGIAdapter**>(&adapter));
+	{
+		IDXGIAdapter* pAdapter = nullptr;
+		if (SUCCEEDED(pFactory->EnumAdapters(g_iActiveAdapterNumber, &pAdapter)))
+		{
+			pAdapter->QueryInterface(__uuidof(IDXGIAdapter3), (void**)&adapter);
+			pAdapter->Release();
+		}
+		iVramAdapterNumber = g_iActiveAdapterNumber;
+	}
+	return adapter;
+}
+
+float GetVramUsage(void)
+{
+	IDXGIAdapter3* pAdapter = GetVramAdapter();
+	if (!pAdapter)
+		return 0.0f;
 	DXGI_QUERY_VIDEO_MEMORY_INFO videoMemoryInfo = {};
-	adapter->QueryVideoMemoryInfo(g_iActiveAdapterNumber, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &videoMemoryInfo);
+	pAdapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &videoMemoryInfo);
+	return (float)videoMemoryInfo.CurrentUsage / 1024.0f / 1024.0f;
+}
+
+// the dedicated video memory the game uses and the budget Windows gives it, in MB (GetVideoMemoryUsed in Lua)
+void GetVramUsageAndBudget(float* pfUsedMB, float* pfBudgetMB)
+{
+	*pfUsedMB = 0.0f;
+	*pfBudgetMB = 0.0f;
+	IDXGIAdapter3* pAdapter = GetVramAdapter();
+	if (!pAdapter)
+		return;
+	DXGI_QUERY_VIDEO_MEMORY_INFO videoMemoryInfo = {};
+	if (SUCCEEDED(pAdapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &videoMemoryInfo)))
+	{
+		*pfUsedMB = (float)videoMemoryInfo.CurrentUsage / 1024.0f / 1024.0f;
+		*pfBudgetMB = (float)videoMemoryInfo.Budget / 1024.0f / 1024.0f;
+	}
+}
+
+float GetTotalVramUsage(void)
+{
+	IDXGIAdapter3* pAdapter = GetVramAdapter();
+	if (!pAdapter)
+		return 0.0f;
+	DXGI_QUERY_VIDEO_MEMORY_INFO videoMemoryInfo = {};
+	pAdapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &videoMemoryInfo);
 	float TotalVRam = (float)videoMemoryInfo.CurrentUsage / 1024.0f / 1024.0f;
 
 	DXGI_QUERY_VIDEO_MEMORY_INFO nonLocalVideoMemoryInfo = {};
-	HRESULT hrNonLocal = adapter->QueryVideoMemoryInfo(g_iActiveAdapterNumber, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &nonLocalVideoMemoryInfo);
+	HRESULT hrNonLocal = pAdapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &nonLocalVideoMemoryInfo);
 	TotalVRam += (float)nonLocalVideoMemoryInfo.CurrentUsage / 1024.0f / 1024.0f;
 
 	//usageInfo.nonLocalUsedMB = (float)nonLocalVideoMemoryInfo.CurrentUsage / 1024.0f / 1024.0f;
