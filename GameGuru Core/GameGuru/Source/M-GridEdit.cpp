@@ -15667,6 +15667,22 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.AmbienceBlue_f = t.gamevisuals.AmbienceBlue_f;
 	t.visuals.fExposure = t.gamevisuals.fExposure;
 
+	// and the sky from SetSkyTo, unless one was picked in Tab Tab since
+	extern int g_iLuaSkyEditorIndex, g_iLuaSkySetIndex;
+	extern cstr g_sLuaSkyEditorName;
+	bool bRestoredEditorSky = false;
+	if ( g_iLuaSkyEditorIndex != -1 )
+	{
+		if ( t.visuals.skyindex == g_iLuaSkySetIndex )
+		{
+			t.visuals.skyindex = g_iLuaSkyEditorIndex;
+			t.visuals.sky_s = g_sLuaSkyEditorName;
+			bRestoredEditorSky = true;
+		}
+		g_iLuaSkyEditorIndex = -1;
+		g_iLuaSkySetIndex = -1;
+	}
+
 	// remember game states for next time
 	visuals_save ( );
 
@@ -15876,6 +15892,14 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.fSnowSpeed = t.gamevisuals.fSnowSpeed;
 	t.visuals.fSnowOpacity = t.gamevisuals.fSnowOpacity;
 	t.visuals.fSnowOffset = t.gamevisuals.fSnowOffset;
+
+	// restore the editor's sky after a SetSkyTo
+	if ( bRestoredEditorSky )
+	{
+		g.skyindex = t.visuals.skyindex;
+		t.terrainskyspecinitmode = 0;
+		sky_skyspec_init ( false );
+	}
 
 	// and refresh assets based on restore
 	t.visuals.refreshshaders=1;

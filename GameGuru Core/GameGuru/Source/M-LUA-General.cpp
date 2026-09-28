@@ -1659,6 +1659,11 @@ void lua_setloadingresource ( void )
 	t.loadingresource[t.e] = iValue;
 }
 
+// test game sky before the first SetSkyTo, and the last one it set
+int g_iLuaSkyEditorIndex = -1;
+cstr g_sLuaSkyEditorName = "";
+int g_iLuaSkySetIndex = -1;
+
 void lua_set_sky(void)
 {
 	int index = -1;
@@ -1675,6 +1680,12 @@ void lua_set_sky(void)
 		//Only if not the same sky.
 		if ( t.visuals.skyindex != index )
 		{
+			if ( g_iLuaSkyEditorIndex == -1 )
+			{
+				g_iLuaSkyEditorIndex = t.visuals.skyindex;
+				g_sLuaSkyEditorName = t.visuals.sky_s;
+			}
+			g_iLuaSkySetIndex = index;
 			t.visuals.skyindex = index;
 			// keep the SetSkyTo sky when t.gamevisuals is pushed
 			t.gamevisuals.skyindex = index;
