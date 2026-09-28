@@ -6387,32 +6387,35 @@ int IntersectCore (lua_State* L, int iMode)
 			tthitvalue = -1;
 
 			// the entity test below never ran on a terrain hit, so an entity in front of the ground was missed and the
-			// hit point was never stored. ODERayTerrain tests trees first and a tree hit has no point, so only a
-			// ground hit can shorten the ray to the ground and look for a nearer entity.
-			if ((iMode == 0 || iMode == 1) && physics_rayintersecttree(fX, fY, fZ, fNewX, fNewY, fNewZ) == 0)
+			// hit point was never stored. ODERayTerrain reports where it hit the ground or a tree trunk; it tests trees
+			// first, so a trunk can lie beyond nearer ground, and only a ground hit shortens the ray to look for a
+			// nearer entity (modes 0 and 1; the performant mode 2 skips that extra pick). Either point is stored
+			extern int g_iODERayTerrainHitTree;
+			float fGroundX = ODEGetRayCollisionX();
+			float fGroundY = ODEGetRayCollisionY();
+			float fGroundZ = ODEGetRayCollisionZ();
+			float fGroundNX = ODEGetRayNormalX();
+			float fGroundNY = ODEGetRayNormalY();
+			float fGroundNZ = ODEGetRayNormalZ();
+			int iNearerHit = 0;
+			if ((iMode == 0 || iMode == 1) && g_iODERayTerrainHitTree == 0)
 			{
-				float fGroundX = ODEGetRayCollisionX();
-				float fGroundY = ODEGetRayCollisionY();
-				float fGroundZ = ODEGetRayCollisionZ();
-				float fGroundNX = ODEGetRayNormalX();
-				float fGroundNY = ODEGetRayNormalY();
-				float fGroundNZ = ODEGetRayNormalZ();
-				int iNearerHit = IntersectAllEx(g.entityviewstartobj, g.entityviewendobj, fX, fY, fZ, fGroundX, fGroundY, fGroundZ, iIgnoreObjNo, iMode, iIndexInIntersectDatabase, iLifeInMilliseconds, iIgnorePlayerCapsule, true);
-				if (iNearerHit > 0)
-				{
-					tthitvalue = iNearerHit;
-				}
-				else
-				{
-					g_pGlob->checklist[5].fvaluea = fGroundX;
-					g_pGlob->checklist[5].fvalueb = fGroundY;
-					g_pGlob->checklist[5].fvaluec = fGroundZ;
-					g_pGlob->checklist[6].fvaluea = fGroundNX;
-					g_pGlob->checklist[6].fvalueb = fGroundNY;
-					g_pGlob->checklist[6].fvaluec = fGroundNZ;
-					g_pGlob->checklist[0].valueb = -1; // no limb on terrain (GetIntersectCollisionLimb)
-					g_pGlob->checklistqty = 7;
-				}
+				iNearerHit = IntersectAllEx(g.entityviewstartobj, g.entityviewendobj, fX, fY, fZ, fGroundX, fGroundY, fGroundZ, iIgnoreObjNo, iMode, iIndexInIntersectDatabase, iLifeInMilliseconds, iIgnorePlayerCapsule, true);
+			}
+			if (iNearerHit > 0)
+			{
+				tthitvalue = iNearerHit;
+			}
+			else
+			{
+				g_pGlob->checklist[5].fvaluea = fGroundX;
+				g_pGlob->checklist[5].fvalueb = fGroundY;
+				g_pGlob->checklist[5].fvaluec = fGroundZ;
+				g_pGlob->checklist[6].fvaluea = fGroundNX;
+				g_pGlob->checklist[6].fvalueb = fGroundNY;
+				g_pGlob->checklist[6].fvaluec = fGroundNZ;
+				g_pGlob->checklist[0].valueb = -1; // no limb on terrain (GetIntersectCollisionLimb)
+				g_pGlob->checklistqty = 7;
 			}
 		}
 	}
