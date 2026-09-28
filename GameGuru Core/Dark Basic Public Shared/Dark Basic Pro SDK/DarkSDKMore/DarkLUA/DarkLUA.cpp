@@ -4029,7 +4029,15 @@ int AIEntityGoToPosition(lua_State *L)
 	int iObj = lua_tointeger(L, 1);
 	float fGoToX = lua_tonumber(L, 2);
 #ifdef WICKEDENGINE
-	// No subsystem for AI in MAX
+	// No subsystem for AI in MAX: say so once in the log, as the call returns nothing and the entity does not move
+	static bool bWarnedNoAI = false;
+	if ( bWarnedNoAI == false )
+	{
+		bWarnedNoAI = true;
+		char pMsg[256];
+		strcpy ( pMsg, "AIEntityGoToPosition does nothing in MAX (no DarkAI): move with RDFindPath / StartMoveAndRotateToXYZ" );
+		timestampactivity ( 0, pMsg );
+	}
 #else
 	if ( n == 3 )
 	{
@@ -10759,7 +10767,7 @@ int SetRotationYSlowly ( lua_State *L )
 	entity_lua_rotatetoanglecore ( fDestAngle, 0.0f );
 	t.e = iStoreE;
 	t.v = fStoreV;
-	return 1;
+	return 0; // pushes nothing (returning 1 handed the third argument back)
 }
 
 
@@ -12251,6 +12259,21 @@ int GetEntityInstanceTint ( lua_State *L )
 	lua_pushnumber ( L, fG );
 	lua_pushnumber ( L, fB );
 	return 3;
+}
+
+// GetEntityImmunity(e): 0 when damage can take the entity's health to 0; otherwise its health stays at 1 or more and
+// SetEntityHealth(e, 0) does nothing: -1 held by SetEntityHealth(e, -99999) until SetEntityHealthSilent(e, -1) or (e, 0),
+// or the frames left of the brief immunity after a resurrection
+int GetEntityImmunity ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int e = lua_tointeger(L, 1);
+	int iImmunity = 0;
+	if ( LuaEntityIDValid ( L, e, 1 ) ) iImmunity = t.entityelement[e].briefimmunity;
+	lua_pushinteger ( L, iImmunity );
+	return 1;
 }
 
 int SetAttachmentVisible ( lua_State *L )
@@ -15480,6 +15503,7 @@ void addFunctions()
 	lua_register(lua, "GetEntityInstanceEmissive" , GetEntityInstanceEmissive );
 	lua_register(lua, "SetEntityInstanceTint" , SetEntityInstanceTint );
 	lua_register(lua, "GetEntityInstanceTint" , GetEntityInstanceTint );
+	lua_register(lua, "GetEntityImmunity" , GetEntityImmunity );
 	lua_register(lua, "SetOcclusion" , SetOcclusion );
 	lua_register(lua, "SetPlayerWeapons", SetPlayerWeapons);
 	lua_register(lua, "FirePlayerWeapon", FirePlayerWeapon);
