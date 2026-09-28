@@ -44,6 +44,7 @@ void physics_player_control ( void );
 void physics_player_handledeath ( void );
 void physics_player_listener ( void );
 void physics_player_takedamage ( void );
+void physics_player_startdeath ( void );
 void physics_player_reset_underwaterstate ( void );
 void physics_player_gotolastcheckpoint ( void );
 void physics_resetplayer_core ( void );

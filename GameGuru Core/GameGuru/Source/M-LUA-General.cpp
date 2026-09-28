@@ -1161,6 +1161,9 @@ void lua_deactivatemouse ( void )
 
 void lua_setplayerhealthcore ( void )
 {
+	// a script taking the health from above zero to zero starts the death sequence, see physics_player_handledeath
+	extern bool g_bPlayerHealthZeroedByScript;
+	if ( t.v <= 0 && t.player[t.plrid].health > 0 ) g_bPlayerHealthZeroedByScript = true;
 	t.player[t.plrid].health=t.v;
 }
 

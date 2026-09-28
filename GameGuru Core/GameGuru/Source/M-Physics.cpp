@@ -2205,8 +2205,20 @@ void physics_player_control ( void )
 	postprocess_setscreencolor ( );
 }
 
+// set by lua_setplayerhealthcore when a script takes the player's health from above zero to zero
+bool g_bPlayerHealthZeroedByScript = false;
+
 void physics_player_handledeath ( void )
 {
+	// a script that took the health to zero (SetPlayerHealth) starts the death sequence here, as damage does in
+	// physics_player_takedamage; not inside the script's call, which damage itself makes (PlayerHealthSubtract)
+	if ( g_bPlayerHealthZeroedByScript )
+	{
+		g_bPlayerHealthZeroedByScript = false;
+		if ( t.game.runasmultiplayer == 0 && t.player[t.plrid].health <= 0 && t.playercontrol.deadtime == 0 )
+			physics_player_startdeath ( );
+	}
+
 	// handle player death
 	if (  t.game.runasmultiplayer == 0 ) 
 	{
@@ -2591,68 +2603,75 @@ void physics_player_takedamage ( void )
 		// Check if player health at zero
 		if ( t.player[t.plrid].health <= 0 ) 
 		{
-			t.player[t.plrid].health = 0;
-			LuaSetFunction ("PlayerHealthSet", 1, 0);
-			LuaPushInt(0);
-			LuaCall();
-			if (  t.game.runasmultiplayer  ==  1 )
+			physics_player_startdeath ( );
+		}
+	}
+}
+
+void physics_player_startdeath ( void )
+{
+	// the player's health is at zero: start the death sequence, from damage (physics_player_takedamage) or from a script
+	// that set the health to zero (physics_player_handledeath)
+	t.player[t.plrid].health = 0;
+	LuaSetFunction ("PlayerHealthSet", 1, 0);
+	LuaPushInt(0);
+	LuaCall();
+	if (  t.game.runasmultiplayer  ==  1 )
+	{
+		if (  t.tsteamwasnetworkdamage  ==  1 ) 
+		{
+			if (  t.entityelement[t.texplodesourceEntity].mp_networkkill  ==  1 ) 
 			{
-				if (  t.tsteamwasnetworkdamage  ==  1 ) 
-				{
-					if (  t.entityelement[t.texplodesourceEntity].mp_networkkill  ==  1 ) 
-					{
-						//  inform of network kill
-						mp_networkkill ( );
-					}
-				}
-			}
-			//  player looses a life
-			if (  t.playercontrol.startlives>0 ) 
-			{
-				//  only reduce lives if using lives
-				if (  t.game.runasmultiplayer == 0 ) 
-				{
-					t.player[t.plrid].lives=t.player[t.plrid].lives-1;
-					if (  t.player[t.plrid].lives <= 0 ) 
-					{
-						t.player[t.plrid].lives=0;
-					}
-				}
-			}
-			if ( t.playercontrol.startviolent != 0 && g.quickparentalcontrolmode != 2 )
-			{
-				if ( t.tDrownDamageFlag == 0 ) 
-				{
-					// player grunts in deadness if this isn't death by drowning
-					playinternalsound(t.playercontrol.soundstartindex+1);
-				}
-			}
-			// if camera was overriden, take it back
-			g.luacameraoverride = 0;
-			// if was frozen, unfreeze for the restore
-			t.aisystem.processplayerlogic = 1;
-			// restore player zoom
-			t.plrzoominchange=1 ; t.plrzoomin_f=0.0;
-			gun_playerdead ( );
-			// start death sequence for player
-			t.playercontrol.deadtime=Timer()+2000;
-			// make sure all music is stopped
-			if (  t.playercontrol.disablemusicreset == 0 ) 
-			{
-				music_resetall ( );
-			}
-			//  if third person, also create ragdoll of protagonist
-			if (  t.playercontrol.thirdperson.enabled == 1 ) 
-			{
-				t.ttte=t.playercontrol.thirdperson.charactere;
-				t.tdamageforce=0;
-				t.entityelement[t.ttte].health=1 ; t.tdamage=1;
-				t.entityelement[t.ttte].ry=ObjectAngleY(t.entityelement[t.ttte].obj);
-				t.tskiplayerautoreject=1;
-				entity_applydamage ( );
-				t.tskiplayerautoreject=0;
+				//  inform of network kill
+				mp_networkkill ( );
 			}
 		}
+	}
+	//  player looses a life
+	if (  t.playercontrol.startlives>0 ) 
+	{
+		//  only reduce lives if using lives
+		if (  t.game.runasmultiplayer == 0 ) 
+		{
+			t.player[t.plrid].lives=t.player[t.plrid].lives-1;
+			if (  t.player[t.plrid].lives <= 0 ) 
+			{
+				t.player[t.plrid].lives=0;
+			}
+		}
+	}
+	if ( t.playercontrol.startviolent != 0 && g.quickparentalcontrolmode != 2 )
+	{
+		if ( t.tDrownDamageFlag == 0 ) 
+		{
+			// player grunts in deadness if this isn't death by drowning
+			playinternalsound(t.playercontrol.soundstartindex+1);
+		}
+	}
+	// if camera was overriden, take it back
+	g.luacameraoverride = 0;
+	// if was frozen, unfreeze for the restore
+	t.aisystem.processplayerlogic = 1;
+	// restore player zoom
+	t.plrzoominchange=1 ; t.plrzoomin_f=0.0;
+	gun_playerdead ( );
+	// start death sequence for player
+	t.playercontrol.deadtime=Timer()+2000;
+	// make sure all music is stopped
+	if (  t.playercontrol.disablemusicreset == 0 ) 
+	{
+		music_resetall ( );
+	}
+	//  if third person, also create ragdoll of protagonist
+	if (  t.playercontrol.thirdperson.enabled == 1 ) 
+	{
+		t.ttte=t.playercontrol.thirdperson.charactere;
+		t.tdamageforce=0;
+		t.entityelement[t.ttte].health=1 ; t.tdamage=1;
+		t.entityelement[t.ttte].ry=ObjectAngleY(t.entityelement[t.ttte].obj);
+		t.tskiplayerautoreject=1;
+		entity_applydamage ( );
+		t.tskiplayerautoreject=0;
 	}
 }
 
