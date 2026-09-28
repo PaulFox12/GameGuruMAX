@@ -1328,6 +1328,17 @@ void decal_triggerwatersplash ( void )
 	if (t.decal[t.decalglobal.splashdecallargeid].newparticle.bWPE)
 	{
 		t.decalid = t.decalglobal.splashdecallargeid; t.decalorient = 0; decalelement_create();
+
+		// the particle splash has no ripple of its own, so add the ring the sprite splash below makes, drawn additive as
+		// TriggerWaterRipple draws it
+		if ( t.decalglobal.splashdecalrippleid > 0 )
+		{
+			extern int g_iBlendMode;
+			int iStoreBlendMode = g_iBlendMode;
+			g_iBlendMode = 5; // additive
+			t.decalid = t.decalglobal.splashdecalrippleid; t.decalorient = 2; decalelement_create();
+			g_iBlendMode = iStoreBlendMode;
+		}
 	}
 	else
 	{
