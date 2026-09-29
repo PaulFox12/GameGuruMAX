@@ -197,6 +197,7 @@ bool WickedCall_SentRay4(float originx, float originy, float originz, float dire
 bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly);
 int WickedCall_FindDecalRayTargets(const float* pMin, const float* pMax);
 bool WickedCall_DecalRayTargetsRay(const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal);
+void WickedCall_SetObjectForceLOD(sObject* pObject, int iLOD);
 void WickedCall_GetMouseDeltas(float* pfX, float* pfY);
 uint32_t WickedCall_GetTextureWidth(void* ptex);
 uint32_t WickedCall_GetTextureHeight(void* ptex);

@@ -2639,6 +2639,11 @@ void visuals_shaderlevels_update_core (bool bUpdateEngine)
 		tagCameraData* m_ptr = m_CameraManager.GetData(0);
 		WickedCall_SetCameraFOV(m_ptr->fFOV);
 	}
+
+	// performance levers a game script set (SetOcclusionCulling and the rest) survive this refresh; in a test game it sets
+	// them with no visuals push after it
+	extern void LuaRenderSettings_Apply(void);
+	LuaRenderSettings_Apply();
 }
 
 void visuals_shaderlevels_setlevel (int iActionTypeInternalByName, bool bUpdateEngine)

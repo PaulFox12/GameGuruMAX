@@ -8465,6 +8465,20 @@ int SetEntityReceivesDecals(lua_State *L)
 	if (iObj > 0 && ObjectExist(iObj) == 1) WickedCall_SetObjectReceivesDecals(GetObjectData(iObj), lua_tointeger(L, 2) != 0);
 	return 0;
 }
+// SetEntityLOD(e, lod): the entity draws at LOD lod, 0 (full detail) to 3, whatever its distance; -1 (or leaving lod out)
+// chooses by distance again. Only a model with LOD levels (its _lod.dbo) has any to force; a level past its last draws
+// its last. Per entity, until the level ends
+int SetEntityLOD(lua_State *L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	int e = lua_tointeger(L, 1);
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
+	int iLOD = (n >= 2) ? lua_tointeger(L, 2) : -1;
+	int iObj = t.entityelement[e].obj;
+	if (iObj > 0 && ObjectExist(iObj) == 1) WickedCall_SetObjectForceLOD(GetObjectData(iObj), iLOD);
+	return 0;
+}
 int TriggerWaterSplash(lua_State* L)
 {
 	int n = LUA_GETTOP(L);
@@ -13518,6 +13532,41 @@ int GetLensFlare(lua_State* L)
 	return 1;
 }
 
+// performance levers for the running game (M-GridEditB.cpp LuaRenderSettings_*): kept through visuals pushes and
+// graphics quality changes, and back to the level's own at the next level or when a test game ends. An omitted or
+// negative argument keeps the current value
+extern void LuaRenderSettings_SetOcclusionCulling(int iOn, int iObjects, int iAnimations, int iTerrain, int iShadows);
+extern void LuaRenderSettings_SetLODMultiplier(float fMultiplier);
+extern void LuaRenderSettings_SetShadowsLowestLOD(int iOn);
+
+// SetOcclusionCulling(on [, objects [, animations [, terrain [, shadows]]]]): the GPU occlusion culling, which skips what
+// stands wholly behind something (a frame late, and nothing within 1500 units), and what it is used for: objects, the
+// animation of an occluded character (it pauses), terrain chunks, and point and spot light shadows. 1 or 0 each
+int SetOcclusionCulling(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaRenderSettings_SetOcclusionCulling((int)lua_tonumber(L, 1), (int)LuaOptionalNumber(L, n, 2), (int)LuaOptionalNumber(L, n, 3), (int)LuaOptionalNumber(L, n, 4), (int)LuaOptionalNumber(L, n, 5));
+	return 0;
+}
+
+// SetLODMultiplier(v): models with LOD levels switch to LOD 1, 2 and 3 past 400, 600 and 800 units times v (0 to 15; the
+// graphics quality sets 1 to 3)
+int SetLODMultiplier(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetLODMultiplier(lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetShadowsLowestLOD(on): models cast their shadows from their lowest LOD, which is cheaper
+int SetShadowsLowestLOD(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetShadowsLowestLOD((int)lua_tonumber(L, 1));
+	return 0;
+}
+
 // the weather wind (rain, snow and Wicked wind; tree wind is SetTreeWind). Like the ambience and fog setters it changes
 // t.visuals, which a test game puts back when it ends
 extern void Wicked_Update_Wind(void* visual);
@@ -15761,6 +15810,7 @@ void addFunctions()
 	lua_register(lua, "GetProjectedDecalLimit", GetProjectedDecalLimit);
 	lua_register(lua, "GetProjectedDecalCount", GetProjectedDecalCount);
 	lua_register(lua, "SetEntityReceivesDecals", SetEntityReceivesDecals);
+	lua_register(lua, "SetEntityLOD", SetEntityLOD);
 	lua_register(lua, "TriggerWaterSplash", TriggerWaterSplash);
 	lua_register(lua, "PlayFootfallSound" , PlayFootfallSound );
 	lua_register(lua, "ResetUnderwaterState" , ResetUnderwaterState );
@@ -16553,6 +16603,9 @@ void addFunctions()
 	lua_register(lua, "GetLightShafts", GetLightShafts);
 	lua_register(lua, "SetLensFlare", SetLensFlare);
 	lua_register(lua, "GetLensFlare", GetLensFlare);
+	lua_register(lua, "SetOcclusionCulling", SetOcclusionCulling);
+	lua_register(lua, "SetLODMultiplier", SetLODMultiplier);
+	lua_register(lua, "SetShadowsLowestLOD", SetShadowsLowestLOD);
 	lua_register(lua, "SetWind", SetWind);
 	lua_register(lua, "GetWind", GetWind);
 

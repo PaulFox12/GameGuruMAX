@@ -6931,6 +6931,20 @@ bool WickedCall_DecalRayTargetsRay(const float* pFrom, const float* pDir, float 
 	return true;
 }
 
+// the LOD the object draws at whatever its distance, 0 (full detail) to 3, or -1 to choose by distance again. Only a model
+// with LOD levels (its _lod.dbo) has any to force; a level past its last draws its last
+void WickedCall_SetObjectForceLOD(sObject* pObject, int iLOD)
+{
+	if (!pObject || !pObject->ppFrameList) return;
+	for (int i = 0; i < pObject->iFrameCount; i++)
+	{
+		sFrame* pFrame = pObject->ppFrameList[i];
+		if (!pFrame || pFrame->wickedobjindex == 0) continue;
+		wiScene::ObjectComponent* object = wiScene::GetScene().objects.GetComponent(pFrame->wickedobjindex);
+		if (object) object->forcelod = iLOD < 0 ? 0 : (uint32_t)iLOD + 1;
+	}
+}
+
 void WickedCall_SetObjectHighlightColor(sObject* pObject, bool bHighlight, int highlightColorType)
 {
 	uint64_t rootEntity = WickedCall_GetFirstRootEntityID(pObject);

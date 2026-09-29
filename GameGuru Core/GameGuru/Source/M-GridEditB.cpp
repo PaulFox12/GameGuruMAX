@@ -7660,6 +7660,83 @@ void LuaPostEffects_Clear(void* pVisualsToRestore)
 	if (old.iLensFlare >= 0) master_renderer->setLensFlareEnabled(visuals->bLensFlare);
 }
 
+// performance levers set from Lua (SetOcclusionCulling, SetLODMultiplier, SetShadowsLowestLOD): a visuals push and a
+// graphics quality change set them from the pushed visuals, so the ones a script has set are applied again after both
+// (Wicked_Update_Visuals, visuals_shaderlevels_update_core) until the level ends. Below 0 is unset
+struct sLuaRenderSettings
+{
+	int iOcclusion = -1;
+	int iObjectCulling = -1;
+	int iAnimationCulling = -1;
+	int iTerrainCulling = -1;
+	int iShadowCulling = -1;
+	float fLODMultiplier = -1;
+	int iShadowsLowestLOD = -1;
+};
+sLuaRenderSettings g_LuaRenderSettings;
+
+extern bool bEnableObjectCulling;
+extern bool bEnableAnimationCulling;
+extern bool bEnableTerrainChunkCulling;
+extern bool bEnablePointShadowCulling;
+extern bool bEnableSpotShadowCulling;
+extern float fLODMultiplier;
+extern bool bShadowsLowestLOD;
+
+void LuaRenderSettings_Apply(void)
+{
+	sLuaRenderSettings* p = &g_LuaRenderSettings;
+	if (p->iObjectCulling >= 0) bEnableObjectCulling = p->iObjectCulling != 0;
+	if (p->iAnimationCulling >= 0) bEnableAnimationCulling = p->iAnimationCulling != 0;
+	if (p->iTerrainCulling >= 0) bEnableTerrainChunkCulling = p->iTerrainCulling != 0;
+	if (p->iShadowCulling >= 0) bEnablePointShadowCulling = bEnableSpotShadowCulling = p->iShadowCulling != 0;
+	if (p->iOcclusion >= 0) wiRenderer::SetOcclusionCullingEnabled(p->iOcclusion != 0);
+	if (p->fLODMultiplier >= 0) fLODMultiplier = p->fLODMultiplier;
+	if (p->iShadowsLowestLOD >= 0) bShadowsLowestLOD = p->iShadowsLowestLOD != 0;
+}
+
+// values below 0 keep the current setting
+void LuaRenderSettings_SetOcclusionCulling(int iOn, int iObjects, int iAnimations, int iTerrain, int iShadows)
+{
+	if (iOn >= 0) g_LuaRenderSettings.iOcclusion = iOn ? 1 : 0;
+	if (iObjects >= 0) g_LuaRenderSettings.iObjectCulling = iObjects ? 1 : 0;
+	if (iAnimations >= 0) g_LuaRenderSettings.iAnimationCulling = iAnimations ? 1 : 0;
+	if (iTerrain >= 0) g_LuaRenderSettings.iTerrainCulling = iTerrain ? 1 : 0;
+	if (iShadows >= 0) g_LuaRenderSettings.iShadowCulling = iShadows ? 1 : 0;
+	LuaRenderSettings_Apply();
+}
+
+void LuaRenderSettings_SetLODMultiplier(float fMultiplier)
+{
+	if (fMultiplier >= 0) g_LuaRenderSettings.fLODMultiplier = fMultiplier > 15.0f ? 15.0f : fMultiplier;
+	LuaRenderSettings_Apply();
+}
+
+void LuaRenderSettings_SetShadowsLowestLOD(int iOn)
+{
+	if (iOn >= 0) g_LuaRenderSettings.iShadowsLowestLOD = iOn ? 1 : 0;
+	LuaRenderSettings_Apply();
+}
+
+// forget the Lua values and put back those of t.visuals (the level's, or the editor's when a test game ends)
+void LuaRenderSettings_Clear(void)
+{
+	sLuaRenderSettings old = g_LuaRenderSettings;
+	g_LuaRenderSettings = sLuaRenderSettings();
+	visualstype* visuals = &t.visuals;
+	if (old.iObjectCulling >= 0) bEnableObjectCulling = visuals->bEnableObjectCulling;
+	if (old.iAnimationCulling >= 0) bEnableAnimationCulling = visuals->bEnableAnimationCulling;
+	if (old.iTerrainCulling >= 0) bEnableTerrainChunkCulling = visuals->bEnableTerrainChunkCulling;
+	if (old.iShadowCulling >= 0)
+	{
+		bEnablePointShadowCulling = visuals->bEnablePointShadowCulling;
+		bEnableSpotShadowCulling = visuals->bEnableSpotShadowCulling;
+	}
+	if (old.iOcclusion >= 0) wiRenderer::SetOcclusionCullingEnabled(visuals->bOcclusionCulling);
+	if (old.fLODMultiplier >= 0) fLODMultiplier = visuals->fLODMultiplier;
+	if (old.iShadowsLowestLOD >= 0) bShadowsLowestLOD = visuals->bShadowsLowestLOD;
+}
+
 // clouds, tree wind, wind, water colour, water fog and the LUT set from Lua are kept in t.gamevisuals, which the end
 // of a test game overwrites, so they never reach the editor. A full visuals push applies t.visuals, so the ones a
 // script has set are applied again after it, until the level ends
@@ -7721,9 +7798,9 @@ void LuaGameVisuals_Clear(void)
 	WickedCall_UpdateProjectedDecals(0.0f);
 	WickedCall_SetProjectedDecalLimit(48);
 
-	// a glow, tint or limb alpha set per instance (SetEntityInstanceEmissive, SetEntityInstanceTint, SetEntityLimbAlpha) lives
-	// on the entity's object, which a test game shares with the editor, so put every placed entity back to full glow, no tint
-	// and every limb as made
+	// a glow, tint, limb alpha or forced LOD set per instance (SetEntityInstanceEmissive, SetEntityInstanceTint,
+	// SetEntityLimbAlpha, SetEntityLOD) lives on the entity's object, which a test game shares with the editor, so put every
+	// placed entity back to full glow, no tint, every limb as made and its LOD chosen by distance
 	for (int e = 1; e <= g.entityelementlist; e++)
 	{
 		int iObj = t.entityelement[e].obj;
@@ -7732,6 +7809,7 @@ void LuaGameVisuals_Clear(void)
 			WickedCall_SetObjectEmissiveTint(GetObjectData(iObj), 1.0f, 1.0f, 1.0f, 1.0f);
 			WickedCall_SetObjectColorTint(GetObjectData(iObj), 1.0f, 1.0f, 1.0f);
 			WickedCall_SetLimbAlpha(GetObjectData(iObj), -1, 1.0f, false);
+			WickedCall_SetObjectForceLOD(GetObjectData(iObj), -1);
 		}
 	}
 
@@ -7740,6 +7818,9 @@ void LuaGameVisuals_Clear(void)
 
 	// and the trees blasts removed (SetGrassKillBox and SetProjectedDecalGrass with trees), here and at level start
 	GGTrees_RestoreKilled();
+
+	// and the performance levers (SetOcclusionCulling and the rest) go back to the level's, or the editor's
+	LuaRenderSettings_Clear();
 }
 
 // change only the colour grading LUT. Wicked_Update_Visuals would also push every other visual value (fog, sun,
@@ -8179,6 +8260,7 @@ void Wicked_Update_Visuals(void *voidvisual)
 
 	// values a game script set keep them through this push
 	LuaGameVisuals_Apply(voidvisual);
+	LuaRenderSettings_Apply();
 }
 
 void Wicked_Update_Visibles(void* voidvisual)

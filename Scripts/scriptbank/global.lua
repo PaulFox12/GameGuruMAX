@@ -2492,6 +2492,9 @@ SetLightShafts : SetLightShafts ( on ) -- sun light shafts on or off, for this l
 GetLightShafts : on = GetLightShafts()
 SetLensFlare : SetLensFlare ( on ) -- sun lens flare on or off, for this level only
 GetLensFlare : on = GetLensFlare()
+SetOcclusionCulling : SetOcclusionCulling ( on [, objects [, animations [, terrain [, shadows] ] ] ] ) -- the GPU occlusion culling (skips what stands wholly behind something, a frame late, nothing within 1500 units) and what uses it: objects, the animation of an occluded character (it pauses), terrain chunks, point and spot light shadows; 1 or 0 each, an omitted or negative value keeps the current one. Kept through graphics quality changes until the level ends (not SetOcclusion, the old CPU occluder)
+SetLODMultiplier : SetLODMultiplier ( v ) -- models with LOD levels (a _lod.dbo) switch to LOD 1, 2, 3 past 400, 600, 800 units times v (0 to 15; the graphics quality sets 1 to 3); until the level ends
+SetShadowsLowestLOD : SetShadowsLowestLOD ( on ) -- models cast shadows from their lowest LOD (cheaper); until the level ends
 SetWind : SetWind ( speed [, dirX, dirY, dirZ [, randomness] ] ) -- weather wind (rain and snow drift): speed 0 to 5, direction -20 to 20 per axis, randomness 0 to 2. Tree sway is SetTreeWind
 GetWind : speed, dirX, dirY, dirZ, randomness = GetWind()
 SetWaterFog : SetWaterFog ( minDist, maxDist [, minAmount] ) -- how clear the water is: nearer than minDist the water fog is at minAmount (0 to 1, lower is clearer), beyond maxDist the water is opaque (0 to 100000 units). SetWaterTransparancy does nothing in MAX
@@ -2517,6 +2520,7 @@ SetProjectedDecalGrass : SetProjectedDecalGrass ( id, radius [, trees] ) -- no g
 SetProjectedDecalLimit : SetProjectedDecalLimit ( count ) -- how many projected decals there can be, 48 unless set, up to 96; the oldest go first past it; back to 48 at the next level
 GetProjectedDecalLimit : count = GetProjectedDecalLimit() -- the projected decal limit
 GetProjectedDecalCount : count = GetProjectedDecalCount() -- the projected decals there are now
+SetEntityLOD : SetEntityLOD ( e [, lod] ) -- the entity draws at LOD lod, 0 (full detail) to 3, whatever its distance; -1 or left out chooses by distance again. Only a model with LOD levels (its _lod.dbo) has any to force; past its last it draws its last. Until the level ends
 SetEntityReceivesDecals : SetEntityReceivesDecals ( e, on ) -- 0: the entity's model takes no projected decals (characters, vehicles passing over a scorch); every entity using that model changes with it
 SetEntityInstanceEmissive : SetEntityInstanceEmissive ( e, r, g, b [, strength] ) -- glow of this one instance, multiplying the entity's authored emissive colour and strength (each 0 to 1; 1,1,1,1 = as authored, strength 0 = off). Other instances of the same object keep theirs
 GetEntityInstanceEmissive : r, g, b, strength = GetEntityInstanceEmissive ( e )
