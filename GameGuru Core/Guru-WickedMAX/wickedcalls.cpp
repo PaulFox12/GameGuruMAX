@@ -6310,37 +6310,6 @@ bool WickedCall_SentRay4(float originx, float originy, float originz, float dire
 	return false;
 }
 
-// true if the bounds of an object WickedCall_SentRay4 could hit (in the normal layer, opaque or transparent, shown and
-// colliding), numbered dwFirstObj to dwLastObj, reach the box from pMin to pMax: bounds only, so a caller can skip rays
-// that could only miss
-bool WickedCall_AnyPickableObjectInBox(const float* pMin, const float* pMax, DWORD dwFirstObj, DWORD dwLastObj)
-{
-	Scene& scene = wiScene::GetScene();
-	size_t iCount = scene.aabb_objects.GetCount();
-	if (iCount > scene.objects.GetCount()) iCount = scene.objects.GetCount();
-	for (size_t i = 0; i < iCount; i++)
-	{
-		// an empty box (its min above its max) never reaches
-		const AABB& aabb = scene.aabb_objects[i];
-		if (aabb._max.x < pMin[0] || aabb._min.x > pMax[0]) continue;
-		if (aabb._max.y < pMin[1] || aabb._min.y > pMax[1]) continue;
-		if (aabb._max.z < pMin[2] || aabb._min.z > pMax[2]) continue;
-
-		// the tests the pick makes
-		const ObjectComponent& object = scene.objects[i];
-		if (object.meshID == INVALID_ENTITY || object.bDisableCollision || !object.IsRenderable()) continue;
-		if (!((RENDERTYPE_OPAQUE | RENDERTYPE_TRANSPARENT) & object.GetRenderTypes())) continue;
-		Entity entity = scene.aabb_objects.GetEntity(i);
-		const LayerComponent* layer = scene.layers.GetComponent(entity);
-		if (layer != nullptr && !(layer->GetLayerMask() & GGRENDERLAYERS_NORMAL)) continue;
-
-		// and the object number the caller's hit must have
-		sObject* pObject = m_ObjectManager.FindObjectFromWickedObjectEntityID(entity);
-		if (pObject && pObject->dwObjectNumber >= dwFirstObj && pObject->dwObjectNumber <= dwLastObj) return true;
-	}
-	return false;
-}
-
 #ifdef PICKBVHTHREADED
 bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly)
 {
@@ -6904,6 +6873,62 @@ void WickedCall_SetObjectReceivesDecals(sObject* pObject, bool bReceives)
 		material->layerMask = bReceives ? ~0u : PROJECTEDDECAL_NORECEIVE_LAYER;
 		material->SetDirty();
 	}
+}
+
+// the objects a blast decal's setup rays test, as indices into the scene's objects (WickedCall_FindDecalRayTargets); they
+// hold only until the scene changes, so they are used at once
+std::vector<uint32_t> g_DecalRayTargets;
+
+// finds the objects whose bounds reach the box from pMin to pMax that a pick ray could hit (shown, colliding, opaque or
+// transparent, in the normal layer) and that take projected decals (not refused by WickedCall_SetObjectReceivesDecals),
+// for WickedCall_DecalRayTargetsRay. One pass over the scene's object bounds; returns how many
+int WickedCall_FindDecalRayTargets(const float* pMin, const float* pMax)
+{
+	g_DecalRayTargets.clear();
+	Scene& scene = wiScene::GetScene();
+	size_t iCount = scene.aabb_objects.GetCount();
+	if (iCount > scene.objects.GetCount()) iCount = scene.objects.GetCount();
+	for (size_t i = 0; i < iCount; i++)
+	{
+		// an empty box (its min above its max) never reaches
+		const AABB& aabb = scene.aabb_objects[i];
+		if (aabb._max.x < pMin[0] || aabb._min.x > pMax[0]) continue;
+		if (aabb._max.y < pMin[1] || aabb._min.y > pMax[1]) continue;
+		if (aabb._max.z < pMin[2] || aabb._min.z > pMax[2]) continue;
+
+		// the tests the pick makes
+		const ObjectComponent& object = scene.objects[i];
+		if (object.meshID == INVALID_ENTITY || object.bDisableCollision || !object.IsRenderable()) continue;
+		if (!((RENDERTYPE_OPAQUE | RENDERTYPE_TRANSPARENT) & object.GetRenderTypes())) continue;
+		const LayerComponent* layer = scene.layers.GetComponent(scene.aabb_objects.GetEntity(i));
+		if (layer != nullptr && !(layer->GetLayerMask() & GGRENDERLAYERS_NORMAL)) continue;
+
+		// and a material of its mesh takes decals
+		const MeshComponent* mesh = scene.meshes.GetComponent(object.meshID);
+		if (!mesh) continue;
+		bool bReceives = false;
+		for (auto& subset : mesh->subsets)
+		{
+			const MaterialComponent* material = scene.materials.GetComponent(subset.materialID);
+			if (material && (material->layerMask & ~PROJECTEDDECAL_NORECEIVE_LAYER) != 0) { bReceives = true; break; }
+		}
+		if (bReceives) g_DecalRayTargets.push_back((uint32_t)i);
+	}
+	return (int)g_DecalRayTargets.size();
+}
+
+// the nearest surface along a ray, up to fLength, among the objects WickedCall_FindDecalRayTargets found: true with its
+// distance and normal. Only those objects are tested, and no object number is looked up
+bool WickedCall_DecalRayTargetsRay(const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal)
+{
+	if (g_DecalRayTargets.empty()) return false;
+	RAY pickRay(XMFLOAT3(pFrom[0], pFrom[1], pFrom[2]), XMFLOAT3(pDir[0], pDir[1], pDir[2]));
+	pickRay.TMax = fLength;
+	wiScene::PickResult hit = wiScene::PickObjects(pickRay, g_DecalRayTargets.data(), (uint32_t)g_DecalRayTargets.size(), RENDERTYPE_OPAQUE | RENDERTYPE_TRANSPARENT, GGRENDERLAYERS_NORMAL);
+	if (hit.entity == INVALID_ENTITY || hit.distance > fLength) return false;
+	*pDistance = hit.distance;
+	pNormal[0] = hit.normal.x; pNormal[1] = hit.normal.y; pNormal[2] = hit.normal.z;
+	return true;
 }
 
 void WickedCall_SetObjectHighlightColor(sObject* pObject, bool bHighlight, int highlightColorType)

@@ -8198,9 +8198,9 @@ static float BlastDecalDistance(const float* pA, const float* pB)
 	return sqrtf(fDX * fDX + fDY * fDY + fDZ * fDZ);
 }
 
-// a short ray for a blast decal: how far along it the first static surface lies (a static entity or the ground), as a
-// fraction of its length (1 for none), with that surface's normal in pNormal. Tree trunks don't count, as they take no
-// decals
+// a short ray for a blast decal: how far along it the first surface lies (the ground, or one of the objects that take
+// decals WickedCall_FindDecalRayTargets found), as a fraction of its length (1 for none), with that surface's normal in
+// pNormal. Tree trunks don't count, as they take no decals
 static float BlastDecalRay(const float* pFrom, const float* pDir, float fLength, float* pNormal)
 {
 	float fTo[3] = { pFrom[0] + pDir[0] * fLength, pFrom[1] + pDir[1] * fLength, pFrom[2] + pDir[2] * fLength };
@@ -8211,17 +8211,16 @@ static float BlastDecalRay(const float* pFrom, const float* pDir, float fLength,
 		float fHit[3] = { ODEGetRayCollisionX(), ODEGetRayCollisionY(), ODEGetRayCollisionZ() };
 		fNearest = BlastDecalDistance(pFrom, fHit) / fLength;
 		pNormal[0] = ODEGetRayNormalX(); pNormal[1] = ODEGetRayNormalY(); pNormal[2] = ODEGetRayNormalZ();
-		fTo[0] = fHit[0]; fTo[1] = fHit[1]; fTo[2] = fHit[2];
 	}
-	int iObj = IntersectAllEx(g.entityviewstartobj, g.entityviewendobj, pFrom[0], pFrom[1], pFrom[2], fTo[0], fTo[1], fTo[2], 0, 1, 0, 0, 1, true);
-	if (iObj > 0)
+	float fDistance = 0.0f;
+	float fObjectNormal[3] = { 0, 0, 0 };
+	if (WickedCall_DecalRayTargetsRay(pFrom, pDir, fLength, &fDistance, fObjectNormal))
 	{
-		float fHit[3] = { ChecklistFValueA(6), ChecklistFValueB(6), ChecklistFValueC(6) };
-		float fAlong = BlastDecalDistance(pFrom, fHit) / fLength;
+		float fAlong = fDistance / fLength;
 		if (fAlong < fNearest)
 		{
 			fNearest = fAlong;
-			pNormal[0] = ChecklistFValueA(7); pNormal[1] = ChecklistFValueB(7); pNormal[2] = ChecklistFValueC(7);
+			pNormal[0] = fObjectNormal[0]; pNormal[1] = fObjectNormal[1]; pNormal[2] = fObjectNormal[2];
 		}
 	}
 	return fNearest;
@@ -8232,10 +8231,11 @@ static float BlastDecalRay(const float* pFrom, const float* pDir, float fLength,
 // texture from the direction it faces most (triplanar), so none is stretched; it fades out towards the radius. nx, ny, nz
 // is the normal of the surface hit (up by default): the centre is lifted off it by a quarter of the radius, or the surface
 // itself would face across the centre and stay clean. opacity is 0 to 100, and life as AddProjectedDecal's. Unless rays
-// is 0, short rays against entities and the ground (up to 34, once) turn the decal square to the nearest wall and find the
-// first surface along each of its six axes, so a floor under a slab or a wall behind a wall stays clean. They are cast
-// only when an entity's bounds come within their reach: the ground alone is left to the facing test, so a blast on open
-// ground costs no rays.
+// is 0, short rays (up to 34, once) turn the decal square to the nearest wall and find the first surface along each of its
+// six axes, so a floor under a slab or a wall behind a wall stays clean. They test the ground and the objects near it that
+// take decals (not those SetEntityReceivesDecals refused, such as vehicles and soldiers), and are cast only when such an
+// object's bounds come within their reach: the ground alone is left to the facing test, so a blast on open ground costs no
+// rays.
 // It is one of the projected decals: the same ids, limit and level clearing, and RemoveProjectedDecal,
 // SetProjectedDecalOpacity, SetProjectedDecalGrass (the circle goes round x, y, z), SetProjectedDecalFacing (0.1 unless
 // set, towards the centre) and SetProjectedDecalBlend work on it. spin turns it about the up axis, in degrees, when no wall
@@ -8267,15 +8267,16 @@ int AddBlastDecal(lua_State *L)
 	float fCentre[3] = { fHit[0] + fN[0] * fRadius * 0.25f, fHit[1] + fN[1] * fRadius * 0.25f, fHit[2] + fN[2] * fRadius * 0.25f };
 
 	// the rays reach the radius along the box's axes, and those beside the first half the radius off to the side, so
-	// all within 1.12 of it round the centre: with no entity's bounds in that cube they could only find the ground, a
-	// heightfield, whose far sides the facing test already keeps clean, and none are cast
+	// all within 1.12 of it round the centre. They test only the objects in that cube that take decals (one that takes none
+	// hides nothing and squares nothing); with none there they could only find the ground, a heightfield, whose far sides
+	// the facing test already keeps clean, and none are cast
 	int iRaysCast = 0;
 	if (bRays)
 	{
 		float fReach = fRadius * 1.125f;
 		float fMin[3] = { fCentre[0] - fReach, fCentre[1] - fReach, fCentre[2] - fReach };
 		float fMax[3] = { fCentre[0] + fReach, fCentre[1] + fReach, fCentre[2] + fReach };
-		if (!WickedCall_AnyPickableObjectInBox(fMin, fMax, g.entityviewstartobj, g.entityviewendobj)) bRays = false;
+		if (WickedCall_FindDecalRayTargets(fMin, fMax) == 0) bRays = false;
 	}
 
 	// the box's axes: Y up, and X square to the wall hit, or else to the nearest wall round the centre, so a corner's
