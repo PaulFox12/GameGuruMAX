@@ -11,6 +11,7 @@
 //#include "WickedEngine.h"
 #include "..\..\..\..\Guru-WickedMAX\wickedcalls.h"
 #include <unordered_map>
+#include <mutex>
 
 // Globals from OLD OBJECT MANAGER!
 std::vector< sMesh* > g_vRefreshMeshList;
@@ -273,6 +274,31 @@ std::unordered_map<int, sFrame*> lastHitFrame;
 
 sObject* CObjectManager::FindObjectFromWickedObjectEntityID ( uint64_t iWickedEntityID )
 {
+	// the object found last time for this entity, if it still has a frame with it: Wicked reuses the ids of removed
+	// entities, so an entry is checked before it is trusted, and the walk below finds the owner again when it fails. Picks
+	// call this for every hit, some on the pick threads, hence the lock
+	static std::unordered_map<uint64_t, int> s_EntityObjects;
+	static std::mutex s_EntityObjectsLock;
+	extern int g_iObjectListCount;
+	int iCachedID = 0;
+	{
+		std::lock_guard<std::mutex> lock(s_EntityObjectsLock);
+		auto it = s_EntityObjects.find(iWickedEntityID);
+		if (it != s_EntityObjects.end()) iCachedID = it->second;
+	}
+	if (iCachedID > 0 && iCachedID < g_iObjectListCount)
+	{
+		sObject* pObject = g_ObjectList[iCachedID];
+		if (pObject && pObject->ppFrameList)
+		{
+			for (int iFrameIndex = 0; iFrameIndex < pObject->iFrameCount; iFrameIndex++)
+			{
+				sFrame* pFrame = pObject->ppFrameList[iFrameIndex];
+				if (pFrame && pFrame->wickedobjindex == iWickedEntityID) return pObject;
+			}
+		}
+	}
+
 	// go through ALL objects
 	for (int iShortList = 0; iShortList < g_iObjectListRefCount; iShortList++)
 	{
@@ -290,6 +316,8 @@ sObject* CObjectManager::FindObjectFromWickedObjectEntityID ( uint64_t iWickedEn
 					if (pFrame->wickedobjindex == iWickedEntityID)
 					{
 						// lastHitFrame is written by WickedCall_SentRay4 on the main thread only: this also runs on pick threads
+						std::lock_guard<std::mutex> lock(s_EntityObjectsLock);
+						s_EntityObjects[iWickedEntityID] = iObjectID;
 						return pObject;
 					}
 				}
