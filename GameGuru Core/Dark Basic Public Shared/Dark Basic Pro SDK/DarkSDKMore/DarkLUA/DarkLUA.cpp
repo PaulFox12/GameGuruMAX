@@ -8295,6 +8295,14 @@ int AddBlastDecal(lua_State *L)
 	// surface counts only if four more rays beside the first, half the radius off either way along the other two axes,
 	// all meet it within a twentieth of the radius: a flat face across the axis, not a post, a step or a slope
 	uint32_t iOcclusion = ~0u;
+
+	// the box's direction into the surface hit (-x for a wall, x being square to it; -y for a floor, +y for a ceiling): when
+	// the rays find a flat face there where the hit was, a little behind it (10 units) everything is clipped, a room behind
+	// a wall or the storey under a floor; a curved or sloped surface, whose rays disagree, is not clipped, as it falls away
+	// behind the point hit
+	const int iHitDirection = fabsf(fN[1]) < 0.7f ? 1 : (fN[1] > 0 ? 3 : 2);
+	int iHitClipDirection = -1;
+	float fHitClip = 0.0f;
 	if (bRays)
 	{
 		iOcclusion = 0;
@@ -8329,6 +8337,11 @@ int AddBlastDecal(lua_State *L)
 					{
 						iCode = (uint32_t)ceilf(fFarthest * 30.0f);
 						if (iCode > 30) iCode = 30;
+						if (iAxis * 2 + iSide == iHitDirection && fFarthest >= 0.1f && fFarthest <= 0.4f)
+						{
+							iHitClipDirection = iHitDirection;
+							fHitClip = fFarthest + 10.0f / fRadius;
+						}
 					}
 				}
 				iOcclusion |= iCode << ((iAxis * 2 + iSide) * 5);
@@ -8338,7 +8351,7 @@ int AddBlastDecal(lua_State *L)
 
 	char pImagePath[MAX_PATH];
 	strcpy_s(pImagePath, MAX_PATH, pImage);
-	int iID = WickedCall_AddBlastDecal(pImagePath, fCentre[0], fCentre[1], fCentre[2], fRadius, &fAxes[0][0], iOcclusion, fLife, fHit[0], fHit[1], fHit[2]);
+	int iID = WickedCall_AddBlastDecal(pImagePath, fCentre[0], fCentre[1], fCentre[2], fRadius, &fAxes[0][0], iOcclusion, iHitClipDirection, fHitClip, fLife, fHit[0], fHit[1], fHit[2]);
 	if (iID > 0 && fOpacity < 1.0f) WickedCall_SetProjectedDecalOpacity(iID, fOpacity);
 	lua_pushinteger(L, iID);
 	return 1;

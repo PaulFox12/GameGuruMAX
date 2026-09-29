@@ -6715,8 +6715,10 @@ int WickedCall_AddProjectedDecal(LPSTR pImage, float fX, float fY, float fZ, flo
 // a blast decal (AddBlastDecal in Lua; GGDecalHF.hlsli): a cube of half-size fRadius round the centre fX, fY, fZ, turned
 // to pAxes (its X, Y and Z, unit and at right angles, 9 floats), that paints the sphere inside it on every surface facing
 // the centre, each taking the texture from the box's planes it faces most. iOcclusion holds how far the first surface lies
-// along each of its six axes. fGroundX, fGroundY, fGroundZ is the point hit, where its grass circle goes
-int WickedCall_AddBlastDecal(LPSTR pImage, float fX, float fY, float fZ, float fRadius, const float* pAxes, uint32_t iOcclusion, float fLife, float fGroundX, float fGroundY, float fGroundZ)
+// along each of its six axes; iHitDirection (0 +x to 5 -z, -1 for none) and fHitClip, in the box's units, clip what lies
+// behind the surface hit when it is a flat face across that axis. fGroundX, fGroundY, fGroundZ is the point hit, where its
+// grass circle goes
+int WickedCall_AddBlastDecal(LPSTR pImage, float fX, float fY, float fZ, float fRadius, const float* pAxes, uint32_t iOcclusion, int iHitDirection, float fHitClip, float fLife, float fGroundX, float fGroundY, float fGroundZ)
 {
 	wiECS::Entity entity = WickedCall_CreateProjectedDecalEntity(pImage);
 	if (entity == wiECS::INVALID_ENTITY) return 0;
@@ -6729,6 +6731,8 @@ int WickedCall_AddBlastDecal(LPSTR pImage, float fX, float fY, float fZ, float f
 		pDecalComponent->facing = BLASTDECAL_FACING;
 		pDecalComponent->blend_sharpness = BLASTDECAL_SHARPNESS;
 		pDecalComponent->occlusion = iOcclusion;
+		pDecalComponent->hit_direction = iHitDirection;
+		pDecalComponent->hit_clip = fHitClip;
 	}
 
 	XMMATRIX matRotation = XMMATRIX(XMVectorSet(pAxes[0], pAxes[1], pAxes[2], 0), XMVectorSet(pAxes[3], pAxes[4], pAxes[5], 0), XMVectorSet(pAxes[6], pAxes[7], pAxes[8], 0), XMVectorSet(0, 0, 0, 1));
