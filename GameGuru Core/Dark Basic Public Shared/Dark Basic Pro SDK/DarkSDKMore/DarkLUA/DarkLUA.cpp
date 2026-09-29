@@ -7803,24 +7803,27 @@ static bool LuaPhysicsIsTreeCylinder(int iObject)
 	return iObject >= g.virtualtreeobjectstart && iObject < g.virtualtreeobjectstart + PHYSICS_VIRTUALTREE_MAX;
 }
 
-// hit, x, y, z, nx, ny, nz, obj, fraction, tree
-static int LuaPushPhysicsHit(lua_State* L, const PhysicsHit& hit, bool bTree)
+// hit, x, y, z, nx, ny, nz, obj, fraction, tree, treetype (iTreeType for a map-wide trunk, else the cylinder's)
+static int LuaPushPhysicsHit(lua_State* L, const PhysicsHit& hit, bool bTree, int iTreeType)
 {
 	bool bTreeHit = hit.hit && (bTree || LuaPhysicsIsTreeCylinder(hit.object));
+	extern int physics_virtualtreetype(int iObject);
+	if (bTreeHit && !bTree) iTreeType = physics_virtualtreetype(hit.object);
 	lua_pushinteger(L, hit.hit ? 1 : 0);
 	for (int i = 0; i < 3; i++) lua_pushnumber(L, hit.hit ? hit.point[i] : 0.0f);
 	for (int i = 0; i < 3; i++) lua_pushnumber(L, hit.hit ? hit.normal[i] : 0.0f);
 	lua_pushinteger(L, (hit.hit && !bTreeHit) ? hit.object : 0);
 	lua_pushnumber(L, hit.hit ? hit.fraction : 1.0f);
 	lua_pushinteger(L, bTreeHit ? 1 : 0);
-	return 10;
+	lua_pushinteger(L, bTreeHit ? iTreeType : -1);
+	return 11;
 }
 
 // PhysicsRay(x1, y1, z1, x2, y2, z2 [, layers [, ignore]]): the nearest body the segment meets in the physics world, with no
 // force applied (PhysicsRayCast pushes what it hits and returns moving bodies only). layers add up: 1 the ground (and
 // entities built as terrain colliders), 2 static entities, 4 characters, 8 moving bodies (11 unless set); ignore is an
 // object number or a table of up to 8. Returns hit, x, y, z, nx, ny, nz, obj (0 the ground or a tree, -1 a character
-// capsule), fraction and tree (1 for a trunk). The physics world has the ground only as detailed as the terrain round the
+// capsule), fraction, tree (1 for a trunk) and treetype (the trunk's tree type, GetTreeTypeName, -1 if none). The physics world has the ground only as detailed as the terrain round the
 // camera, no body for collisionmode 11 or 12, and trunks only round the camera (RayTrees has them everywhere)
 int PhysicsRay(lua_State* L)
 {
@@ -7833,7 +7836,7 @@ int PhysicsRay(lua_State* L)
 	int iIgnoreCount = LuaPhysicsIgnoreList(L, 8, pIgnore);
 	PhysicsHit hit;
 	PhysicsQuery_Ray(fFrom, fTo, iLayers, pIgnore, iIgnoreCount, &hit);
-	return LuaPushPhysicsHit(L, hit, false);
+	return LuaPushPhysicsHit(L, hit, false, -1);
 }
 
 // PhysicsSweepBox(cx, cy, cz, hx, hy, hz, yaw, mx, my, mz [, layers [, ignore [, trees]]]): the first thing a box meets as it
@@ -7860,7 +7863,8 @@ int PhysicsSweepBox(lua_State* L)
 	// the map-wide trunks, where nearer
 	bool bTree = false;
 	float fTrunk[7];
-	if (bTrees && GGTrees::GGTrees_SweepBoxTrunks(fCentre, fHalf, fYaw, fMotion, fTrunk) && (!hit.hit || fTrunk[0] < hit.fraction))
+	int iTreeType = -1;
+	if (bTrees && GGTrees::GGTrees_SweepBoxTrunks(fCentre, fHalf, fYaw, fMotion, fTrunk, &iTreeType) && (!hit.hit || fTrunk[0] < hit.fraction))
 	{
 		hit.hit = true;
 		hit.fraction = fTrunk[0];
@@ -7868,7 +7872,7 @@ int PhysicsSweepBox(lua_State* L)
 		hit.object = 0;
 		bTree = true;
 	}
-	return LuaPushPhysicsHit(L, hit, bTree);
+	return LuaPushPhysicsHit(L, hit, bTree, iTreeType);
 }
 
 // PhysicsOverlapBox(cx, cy, cz, hx, hy, hz, yaw [, layers [, ignore [, trees]]]): what a box (as PhysicsSweepBox's) touches
@@ -14054,7 +14058,8 @@ int RayTrees(lua_State* L)
 	return 7;
 }
 // GetTreesNear(x, z, radius [, max]): the tree trunks within radius of x, z across (at any height), nearest first, as a
-// table of { x, y, z, radius }: each trunk's base and its radius, as the trees' collision has it (by species and scale).
+// table of { x, y, z, radius, type, name }: each trunk's base and its radius, as the trees' collision has it (by species and
+// scale), and its tree type and that type's name ("jungletree3a").
 // At most max (64 unless set). Trees not drawn are left out: hidden under a building, removed by a blast, or all of them
 // when trees are off. For a script's own collision test, such as a car driven by Lua
 int GetTreesNear(lua_State* L)
@@ -14088,14 +14093,31 @@ int GetTreesNear(lua_State* L)
 	for (int k = 0; k < iTake; k++)
 	{
 		GGTrees::GGTreePoint& tree = pPoints[nearest[k].second];
-		lua_createtable(L, 0, 4);
+		lua_createtable(L, 0, 6);
 		lua_pushnumber(L, tree.x); lua_setfield(L, -2, "x");
 		lua_pushnumber(L, tree.y); lua_setfield(L, -2, "y");
 		lua_pushnumber(L, tree.z); lua_setfield(L, -2, "z");
 		lua_pushnumber(L, tree.scale * 0.5f); lua_setfield(L, -2, "radius");
+		lua_pushinteger(L, tree.type); lua_setfield(L, -2, "type");
+		char pName[64];
+		GGTrees::GGTrees_GetTypeName(tree.type, pName, sizeof(pName));
+		lua_pushstring(L, pName); lua_setfield(L, -2, "name");
 		lua_rawseti(L, -2, k + 1);
 	}
 	if (pPoints) delete[] pPoints;
+	return 1;
+}
+
+// GetTreeTypeName(type): the name of a tree type (GetTreesNear's type, PhysicsRay's treetype), such as "jungletree3a"; ""
+// for none
+int GetTreeTypeName(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	int iType = (int)lua_tointeger(L, 1);
+	char pName[64] = "";
+	if (iType >= 0) GGTrees::GGTrees_GetTypeName((uint32_t)iType, pName, sizeof(pName));
+	lua_pushstring(L, pName);
 	return 1;
 }
 
@@ -16923,6 +16945,7 @@ void addFunctions()
 	lua_register(lua, "GetTreeShadowCascades", GetTreeShadowCascades);
 	lua_register(lua, "RayTrees", RayTrees);
 	lua_register(lua, "GetTreesNear", GetTreesNear);
+	lua_register(lua, "GetTreeTypeName", GetTreeTypeName);
 	lua_register(lua, "GunAnimationSetFrame", GunAnimationSetFrame);
 	lua_register(lua, "LoopGunAnimation", LoopGunAnimation);
 	lua_register(lua, "StopGunAnimation", StopGunAnimation);

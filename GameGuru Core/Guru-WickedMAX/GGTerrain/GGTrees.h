@@ -70,12 +70,13 @@ namespace GGTrees
 		float y;
 		float z;
 		float scale;
+		int type; // the tree type, as GGTrees_GetTypeName names it
 	};
 
 	int GGTrees_GetClosest( float x, float z, float radius, GGTreePoint** pOutPoints ); // returns the number of trees in pOutPoints, pOutPoints must be undefined it will be created
 	int GGTrees_RayCast( RAY pickRay, float maxDist, float* outDist, uint32_t* treeID ); // returns 1 if hit, 0 if not. If hit then treeID will be populated
 	int GGTrees_RayCastTrunks( float x1, float y1, float z1, float x2, float y2, float z2, float* pOut ); // the first trunk on a segment, map-wide: pOut gets x, y, z, nx, ny, nz; returns 1 if hit
-	int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, const float* pMotion, float* pOut ); // the first trunk a moving box meets: fraction, x, y, z, nx, ny, nz
+	int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, const float* pMotion, float* pOut, int* pType = 0 ); // the first trunk a moving box meets: fraction, x, y, z, nx, ny, nz, and its tree type
 	int GGTrees_OverlapBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees ); // how many trunks a box touches
 	void GGTrees_SetTreePosition( uint32_t treeID, float x, float z );
 	
@@ -113,6 +114,7 @@ namespace GGTrees
 	void GGTrees_LockVisibility();
 
 	const char* GGTrees_GetTextureName( uint32_t index );
+	void GGTrees_GetTypeName( uint32_t index, char* pOut, int size ); // the type's name as its billboard file gives it ("jungletree3a"), "" if none
 	float GGTrees_GetImageScale( uint32_t index );
 
 	void GGTrees_UpdateFlatArea( int mode, int type, float x, float z, float sx, float sz, float angle );

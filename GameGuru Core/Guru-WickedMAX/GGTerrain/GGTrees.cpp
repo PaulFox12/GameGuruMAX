@@ -355,6 +355,7 @@ struct TreeTrunk
 	float x, z;
 	float radius;
 	float base, top;
+	int type;
 };
 
 struct TreeChunk
@@ -592,6 +593,7 @@ struct TreeChunk
 				trunk.radius = pInstance->GetTreeThickness() * pInstance->GetScaleFloat() * 0.5f;
 				trunk.base = pInstance->y;
 				trunk.top = pInstance->y + treeHeight * pInstance->GetScaleFloat();
+				trunk.type = pInstance->GetType();
 				trunks.push_back( trunk );
 			}
 		}
@@ -1664,6 +1666,7 @@ int GGTrees_GetClosest( float x, float z, float radius, GGTreePoint** pOutPoints
 				tree.y = pInstance->y;
 				tree.z = pInstance->z;
 				tree.scale = pInstance->GetTreeThickness() * pInstance->GetScaleFloat();
+				tree.type = pInstance->GetType();
 				points.AddItem( tree );
 			}
 
@@ -1895,7 +1898,7 @@ static bool GGTrees_PointMeetsRoundedRect( float px, float pz, float vx, float v
 // anywhere on the map: the same trunks as GGTrees_RayCastTrunks, each a cylinder from base to top. pOut gets the fraction
 // of the motion, the point and the trunk's normal there (fraction, x, y, z, nx, ny, nz); returns 1 on a hit, with fraction 0
 // for a box already touching a trunk
-int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, const float* pMotion, float* pOut )
+int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, const float* pMotion, float* pOut, int* pType )
 {
 	if ( !ggtrees_initialised || !ggtrees_global_params.draw_enabled ) return 0;
 	float hx = fabsf( pHalf[0] ), hy = fabsf( pHalf[1] ), hz = fabsf( pHalf[2] );
@@ -1964,6 +1967,7 @@ int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawD
 	pOut[ 2 ] = hitY;
 	pOut[ 3 ] = pBest->z + nz * pBest->radius;
 	pOut[ 4 ] = nx; pOut[ 5 ] = 0; pOut[ 6 ] = nz;
+	if ( pType ) *pType = pBest->type;
 	return 1;
 }
 
@@ -3343,6 +3347,21 @@ const char* GGTrees_GetTextureName( uint32_t index )
 	if ( index >= numTreeTypes ) return "";
 
 	return g_GGTrees[ index ].billboardFilename;
+}
+
+void GGTrees_GetTypeName( uint32_t index, char* pOut, int size )
+{
+	if ( size <= 0 ) return;
+	pOut[ 0 ] = 0;
+	if ( index >= numTreeTypes ) return;
+
+	// "jungletree3a_BB_SF_0.4_color.dds" -> "jungletree3a"
+	const char* pName = g_GGTrees[ index ].billboardFilename;
+	const char* pEnd = strstr( pName, "_BB_" );
+	int length = pEnd ? (int)(pEnd - pName) : (int)strlen( pName );
+	if ( length > size - 1 ) length = size - 1;
+	memcpy( pOut, pName, length );
+	pOut[ length ] = 0;
 }
 
 float GGTrees_GetImageScale( uint32_t index )

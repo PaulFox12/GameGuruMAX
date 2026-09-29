@@ -469,8 +469,17 @@ struct sVTreeObj
 	float fY;
 	float fZ;
 	bool bActive;
+	int iType = -1;
 };
 std::vector<sVTreeObj> g_VTreeObj;
+
+// the tree type of a collision cylinder object from physics_managevirtualtreecylinders, -1 if it isn't one
+int physics_virtualtreetype(int iObject)
+{
+	int vti = iObject - g.virtualtreeobjectstart;
+	if (vti < 0 || vti >= (int)g_VTreeObj.size() || !g_VTreeObj[vti].bActive) return -1;
+	return g_VTreeObj[vti].iType;
+}
 
 void physics_createvirtualtreecylinders (void)
 {
@@ -581,6 +590,7 @@ void physics_managevirtualtreecylinders (void)
 						g_VTreeObj[vti].fY = vecTreePos.y;
 						g_VTreeObj[vti].fZ = vecTreePos.z;
 						g_VTreeObj[vti].bActive = true;
+						g_VTreeObj[vti].iType = pOutPoints[n].type;
 
 						// delete any old one
 						ODEDestroyObject(iPhyObjID);
