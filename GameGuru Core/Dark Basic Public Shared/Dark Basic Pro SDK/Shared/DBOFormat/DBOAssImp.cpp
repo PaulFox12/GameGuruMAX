@@ -10,6 +10,8 @@
 #include <deque>
 #include <set>
 #include <unordered_set>
+#include <map>
+#include <string>
 
 #ifdef WICKEDENGINE
 
@@ -312,6 +314,32 @@ void SetNewVertData ( aiMesh* pAssImpMesh, int* pRemapVertexIndex, aiVector3D* p
 		pNewTangentsData[iVertexIndex + 0] = { 0,0,0 };
 		pNewTangentsData[iVertexIndex + 1] = { 0,0,0 };
 		pNewTangentsData[iVertexIndex + 2] = { 0,0,0 };
+	}
+}
+
+// gives each repeated frame name a suffix (_2, _3 and so on), so every limb can be found by name; the first frame with a name,
+// in hierarchy order, keeps it
+static void UniqueFrameNames ( sFrame* pFrame, std::map<std::string, int>& nameCounts )
+{
+	while ( pFrame )
+	{
+		if ( pFrame->szName[0] )
+		{
+			int iCount = ++nameCounts[pFrame->szName];
+			if ( iCount > 1 )
+			{
+				char szUnique[MAX_STRING];
+				do
+				{
+					snprintf ( szUnique, MAX_STRING, "%s_%d", pFrame->szName, iCount++ );
+				} while ( nameCounts.find(szUnique) != nameCounts.end() );
+				nameCounts[pFrame->szName] = iCount - 1;
+				nameCounts[szUnique] = 1;
+				strcpy ( pFrame->szName, szUnique );
+			}
+		}
+		UniqueFrameNames ( pFrame->pChild, nameCounts );
+		pFrame = pFrame->pSibling;
 	}
 }
 
@@ -1889,6 +1917,15 @@ bool LoadAssImpObject ( char* szFilename, sObject** ppObject, enumScalingMode eS
 		}
 	}
 		
+	// a model without animation names the frames holding its meshes after the meshes' materials, so meshes that share a
+	// material also shared a limb name and only the first could be found by name. The repeats get a suffix; every other name
+	// stays as it was. Animated models keep their names, which bind their animations and bones
+	if ( !pScene->HasAnimations() )
+	{
+		std::map<std::string, int> nameCounts;
+		UniqueFrameNames ( pObject->pFrame, nameCounts );
+	}
+
 	// finished with assimp data
 	aiReleaseImport(pScene);
 
