@@ -20,6 +20,7 @@
 #endif
 
 #include "..\..\GameGuru\Imgui\imnodes.h"
+#include "..\Imgui\imgui_internal.h"
 int grideleprof_uniqui_id = 35000;
 #define MAXTEXTINPUT 1024
 float g_Storyboard_header_height = 150.0f;
@@ -1982,6 +1983,9 @@ void launchOrShowBuildingEditor(void)
 
 void mapeditorexecutable_loop(void)
 {
+	// keep the title's modified mark in step with the flag, which many edits set without updating it
+	gridedit_changemodifiedflag();
+
 	// the moment storyboard is used, we can load the rest of the common assets needed for editor and game
 	if (bStoryboardWindow == true || pref.iDisplayWelcomeScreen == 0)
 	{
@@ -5975,6 +5979,7 @@ void mapeditorexecutable_loop(void)
 		}
 		else 
 		{
+			gridedit_levelpanel_begin();
 			int iEntityIndex = t.widget.pickedEntityIndex;
 			int iActiveObj = t.widget.activeObject;
 			bool bUpdateGrideleprof = false;
@@ -8805,6 +8810,7 @@ void mapeditorexecutable_loop(void)
 
 				ImGui::End();
 			}
+			gridedit_levelpanel_end();
 		}
 
 		//############################
@@ -8873,7 +8879,9 @@ void mapeditorexecutable_loop(void)
 			if (Game_Settings_Window)
 			{
 				ImGui::Begin("Game Settings##GameSettings", &Game_Settings_Window, 0);
+				gridedit_levelpanel_begin();
 				imgui_Customize_Game_Settings(3);
+				gridedit_levelpanel_end();
 				ImGui::End();
 
 			}
@@ -8892,6 +8900,7 @@ void mapeditorexecutable_loop(void)
 			{
 				ImGui::Begin("Logic Settings##LogicSettings", &Logic_Settings_Window, 0);
 
+				gridedit_levelpanel_begin();
 				// LB: inserted shooter properties at top of Object Tools if filter mode active
 				if (Shooter_Tools_Window)
 				{
@@ -8900,6 +8909,7 @@ void mapeditorexecutable_loop(void)
 				}
 
 				imgui_Customize_Logic_Settings(3);
+				gridedit_levelpanel_end();
 				ImGui::End();
 
 			}
@@ -8926,7 +8936,9 @@ void mapeditorexecutable_loop(void)
 			ImGui::Begin("Waypoints##WaypointsToolsWindow", &bWaypoint_Window, iGenralWindowsFlags);
 			ImGui::End();
 		}
+		gridedit_levelpanel_begin();
 		waypoint_imgui_loop();
+		gridedit_levelpanel_end();
 
 		//#######################
 		//#### Terrain Tools ####
@@ -8960,7 +8972,9 @@ void mapeditorexecutable_loop(void)
 		}
 		else
 		{
+			gridedit_levelpanel_begin();
 			imgui_terrain_loop_v3(); //PE: New design for Paul's new terrain system :)
+			gridedit_levelpanel_end();
 		}
 
 		//############################
@@ -13259,7 +13273,9 @@ void mapeditorexecutable_loop(void)
 			//PE: Make sure we switch to the correct name , this can change in test game.
 			extern cStr sWindowName;
 			sWindowName = "Environment Effects##VisualsToolsWindow";
+			gridedit_levelpanel_begin();
 			tab_tab_visuals(1, 0);
+			gridedit_levelpanel_end();
 		}
 
 		bImGuiReadyToRender = true;
@@ -14191,8 +14207,8 @@ void mapeditorexecutable_loop(void)
 				//PE: Make sure clicks inside terrain tools also record a change, so level is saved.
 				if (bImGuiRenderTargetFocus)
 				{
-					//  Any click inside 3D area constitues some sort of edit
-					if (t.inputsys.mclick != 0)
+					//  Any left click inside 3D area constitues some sort of edit (the right and middle buttons fly and pan the camera)
+					if ((t.inputsys.mclick & 1) != 0)
 					{
 						g.projectmodified = 1;
 						gridedit_changemodifiedflag();
@@ -21331,8 +21347,8 @@ void gridedit_mapediting ( void )
 	//  Only if within map
 	if (  t.inputsys.mmx >= 0 && t.inputsys.mmy >= 0 && t.inputsys.mmx<t.maxx && t.inputsys.mmy<t.maxy ) 
 	{
-		//  Any click inside 3D area constitues some sort of edit
-		if ( t.inputsys.mclick != 0 ) 
+		//  Any left click inside 3D area constitues some sort of edit (the right and middle buttons fly and pan the camera)
+		if ( (t.inputsys.mclick & 1) != 0 ) 
 		{ 
 			g.projectmodified = 1; 
 			gridedit_changemodifiedflag ( ); 
@@ -25126,6 +25142,29 @@ void gridedit_load_map ( void )
 	// call files modify check function and reset file timestamp map
 	extern void CheckExistingFilesModified(bool);
 	CheckExistingFilesModified(true);
+}
+
+// a value changed in one of the level's panels (objects, terrain, game and logic settings, weather, waypoints) is a change
+// to the level, whether or not the panel's own code flags it. Dear ImGui marks any widget whose value changes
+// (ActiveIdHasBeenEditedThisFrame); the mark is cleared before a panel is drawn and read after it, and what it held before
+// is put back. Buttons are not edits, so a panel's buttons still flag their own changes
+static bool g_bEditedBeforeLevelPanel = false;
+void gridedit_levelpanel_begin ( void )
+{
+	ImGuiContext& imgui = *GImGui;
+	g_bEditedBeforeLevelPanel = imgui.ActiveIdHasBeenEditedThisFrame;
+	imgui.ActiveIdHasBeenEditedThisFrame = false;
+}
+
+void gridedit_levelpanel_end ( void )
+{
+	ImGuiContext& imgui = *GImGui;
+	if ( imgui.ActiveIdHasBeenEditedThisFrame && t.game.gameisexe == 0 )
+	{
+		g.projectmodified = 1;
+		gridedit_changemodifiedflag ( );
+	}
+	imgui.ActiveIdHasBeenEditedThisFrame |= g_bEditedBeforeLevelPanel;
 }
 
 void gridedit_changemodifiedflag ( void )
