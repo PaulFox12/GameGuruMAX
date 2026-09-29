@@ -8379,13 +8379,17 @@ int SetProjectedDecalOpacity(lua_State *L)
 	WickedCall_SetProjectedDecalOpacity(lua_tointeger(L, 1), lua_tonumber(L, 2) / 100.0f);
 	return 0;
 }
-// SetProjectedDecalFacing(id, cutoff): only surfaces facing along the decal's normal by more than cutoff (a cosine, 0.2
-// unless set) take it, so it doesn't reach the inside face of a thin wall or streak a face along its box; -1 lets every
-// surface in its box take it
+// SetProjectedDecalFacing(id, cutoff [, fade]): only surfaces facing along the decal's normal (a blast decal's centre) by
+// more than cutoff (a cosine, 0.2 unless set, 0.1 for a blast) take it, so it doesn't reach the inside face of a thin wall
+// or streak a face along its box; -1 lets every surface in its box take it. It fades in over fade past the cutoff (0.01 to
+// 1, 0.1 when left out), so a wider fade lets it fade out round a curve instead of ending in a line
 int SetProjectedDecalFacing(lua_State *L)
 {
-	if (LUA_GETTOP(L) < 2) return 0;
-	WickedCall_SetProjectedDecalFacing(lua_tointeger(L, 1), lua_tonumber(L, 2));
+	int n = LUA_GETTOP(L);
+	if (n < 2) return 0;
+	float fFade = 0.1f;
+	if (n >= 3) fFade = lua_tonumber(L, 3);
+	WickedCall_SetProjectedDecalFacing(lua_tointeger(L, 1), lua_tonumber(L, 2), fFade);
 	return 0;
 }
 // SetProjectedDecalGrass(id, radius): no grass blade is drawn within radius of the decal's centre (0 for none, the

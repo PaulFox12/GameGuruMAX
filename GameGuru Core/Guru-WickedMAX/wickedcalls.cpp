@@ -6767,8 +6767,9 @@ void WickedCall_SetProjectedDecalBlend(int iID, float fSharpness)
 }
 
 // the cosine a surface's normal must face along the decal's normal by to take it (GGDecalHF.hlsli); -1 or below lets
-// every surface in its box take it
-void WickedCall_SetProjectedDecalFacing(int iID, float fCutoff)
+// every surface in its box take it. fFade is how far past the cutoff it takes to reach full strength (smoothstep), 0.01 to
+// 1, so a curve that turns away fades out rather than ending in a hard line
+void WickedCall_SetProjectedDecalFacing(int iID, float fCutoff, float fFade)
 {
 	sProjectedDecal* pDecal = WickedCall_FindProjectedDecal(iID);
 	if (!pDecal) return;
@@ -6776,7 +6777,10 @@ void WickedCall_SetProjectedDecalFacing(int iID, float fCutoff)
 	if (!pDecalComponent) return;
 	if (fCutoff <= -1.0f) fCutoff = -2.0f;
 	if (fCutoff > 1.0f) fCutoff = 1.0f;
+	if (fFade < 0.01f) fFade = 0.01f;
+	if (fFade > 1.0f) fFade = 1.0f;
 	pDecalComponent->facing = fCutoff;
+	pDecalComponent->facing_fade = fFade;
 }
 
 // iID -1 removes them all
