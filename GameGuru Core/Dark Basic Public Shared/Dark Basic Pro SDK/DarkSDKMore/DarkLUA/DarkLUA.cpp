@@ -6539,10 +6539,9 @@ int IntersectCore (lua_State* L, int iMode)
 			tthitvalue = -1;
 
 			// the entity test below never ran on a terrain hit, so an entity in front of the ground was missed and the
-			// hit point was never stored. ODERayTerrain reports where it hit the ground or a tree trunk; it tests trees
-			// first, so a trunk can lie beyond nearer ground, and only a ground hit shortens the ray to look for a
-			// nearer entity (modes 0 and 1; the performant mode 2 skips that extra pick). Either point is stored
-			extern int g_iODERayTerrainHitTree;
+			// hit point was never stored. ODERayTerrain reports the nearer of the ground and a tree trunk, so the ray is
+			// shortened to that point to look for a nearer entity (modes 0 and 1; the performant mode 2 skips that
+			// extra pick). Either point is stored
 			float fGroundX = ODEGetRayCollisionX();
 			float fGroundY = ODEGetRayCollisionY();
 			float fGroundZ = ODEGetRayCollisionZ();
@@ -6550,7 +6549,7 @@ int IntersectCore (lua_State* L, int iMode)
 			float fGroundNY = ODEGetRayNormalY();
 			float fGroundNZ = ODEGetRayNormalZ();
 			int iNearerHit = 0;
-			if ((iMode == 0 || iMode == 1) && g_iODERayTerrainHitTree == 0)
+			if (iMode == 0 || iMode == 1)
 			{
 				iNearerHit = IntersectAllEx(g.entityviewstartobj, g.entityviewendobj, fX, fY, fZ, fGroundX, fGroundY, fGroundZ, iIgnoreObjNo, iMode, iIndexInIntersectDatabase, iLifeInMilliseconds, iIgnorePlayerCapsule, true);
 			}
@@ -8350,8 +8349,8 @@ static float BlastDecalRay(const float* pFrom, const float* pDir, float fLength,
 {
 	float fTo[3] = { pFrom[0] + pDir[0] * fLength, pFrom[1] + pDir[1] * fLength, pFrom[2] + pDir[2] * fLength };
 	float fNearest = 1.0f;
-	extern int g_iODERayTerrainHitTree;
-	if (ODERayTerrain(pFrom[0], pFrom[1], pFrom[2], fTo[0], fTo[1], fTo[2], false) == 1 && g_iODERayTerrainHitTree == 0)
+	// the ground only (1, COL_TERRAIN): ODERayTerrain would report a trunk in front of it instead
+	if (ODERayTerrainEx(pFrom[0], pFrom[1], pFrom[2], fTo[0], fTo[1], fTo[2], 1, false) == 1)
 	{
 		float fHit[3] = { ODEGetRayCollisionX(), ODEGetRayCollisionY(), ODEGetRayCollisionZ() };
 		fNearest = BlastDecalDistance(pFrom, fHit) / fLength;
