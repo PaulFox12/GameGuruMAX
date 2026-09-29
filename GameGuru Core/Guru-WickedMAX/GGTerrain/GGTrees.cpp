@@ -1628,7 +1628,9 @@ int GGTrees_GetClosest( float x, float z, float radius, GGTreePoint** pOutPoints
 		for( uint32_t j = 0; j < pChunk->pInstances.NumItems(); j++ )
 		{
 			InstanceTree* pInstance = pChunk->pInstances[ j ];
-			if ( !pInstance->IsVisible() || pInstance->IsKilled() || pInstance->IsInvalid() ) continue;
+			// a tree under a flatten pad or a Clear Grass and Trees area is not drawn, so it gets no collision cylinder
+			// and carves no hole in the navmesh either
+			if ( !pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsKilled() || pInstance->IsInvalid() ) continue;
 
 			sqrDist = 0;
 			sqrDist += (pInstance->x - x) * (pInstance->x - x);
