@@ -78,6 +78,8 @@ void gridedit_new_map_quick(void);
 void gridedit_updatestatusbar ( void );
 void gridedit_load_map ( void );
 void gridedit_changemodifiedflag ( void );
+void gridedit_levelpanel_begin ( void );
+void gridedit_levelpanel_end ( void );
 void gridedit_updateprojectname ( void );
 void gridedit_import_ask ( void );
 void gridedit_intercept_savefirst ( void );
