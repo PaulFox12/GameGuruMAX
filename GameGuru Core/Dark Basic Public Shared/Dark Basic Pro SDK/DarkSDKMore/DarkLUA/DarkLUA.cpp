@@ -6648,6 +6648,76 @@ int IntersectRay ( lua_State* L )
 	return 9;
 }
 
+// RayRegionBegin(x, y, z, radius): lists the objects whose bounds reach the sphere, for RayRegion until the frame ends;
+// returns how many
+int RayRegionBegin(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 4) return 0;
+	lua_pushinteger(L, WickedCall_BeginRegionRays(lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4)));
+	return 1;
+}
+
+// RayRegion(x1, y1, z1, x2, y2, z2 [, ignore]): a full-accuracy pick against RayRegionBegin's objects only, with
+// IntersectRay's returns (no terrain). Hits nothing outside the frame of RayRegionBegin
+int RayRegion(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 6) return 0;
+	float fX = lua_tonumber(L, 1), fY = lua_tonumber(L, 2), fZ = lua_tonumber(L, 3);
+	float fEndX = lua_tonumber(L, 4), fEndY = lua_tonumber(L, 5), fEndZ = lua_tonumber(L, 6);
+	std::vector<int> ignore;
+	if (n >= 7) LuaReadIntersectIgnore(L, 7, ignore);
+	extern int g_iCurrentGunObj;
+	if (g_iCurrentGunObj > 0) ignore.push_back(g_iCurrentGunObj);
+
+	int iHitObj = 0, iHitE = 0, iLimb = -1;
+	float fHitX = fEndX, fHitY = fEndY, fHitZ = fEndZ, fNX = 0, fNY = 0, fNZ = 0;
+	float fDX = fEndX - fX, fDY = fEndY - fY, fDZ = fEndZ - fZ;
+	float fLength = sqrtf(fDX * fDX + fDY * fDY + fDZ * fDZ);
+	float fOutX, fOutY, fOutZ, fOutNX, fOutNY, fOutNZ;
+	DWORD dwObj = 0;
+	if (fLength > 0 && WickedCall_RegionRay(fX, fY, fZ, fDX, fDY, fDZ, fLength, ignore.data(), (int)ignore.size(), &fOutX, &fOutY, &fOutZ, &fOutNX, &fOutNY, &fOutNZ, &dwObj))
+	{
+		// as IntersectAllEx reports it: an entity's object, -1 for geometry with no object, nothing for other objects
+		if (dwObj == 0) iHitObj = -1;
+		else if ((int)dwObj >= g.entityviewstartobj && (int)dwObj <= g.entityviewendobj) iHitObj = (int)dwObj;
+		if (iHitObj != 0)
+		{
+			fHitX = fOutX; fHitY = fOutY; fHitZ = fOutZ;
+			fNX = fOutNX; fNY = fOutNY; fNZ = fOutNZ;
+			extern int g_iWickedCallRayLimbHit;
+			if (iHitObj > 0) iLimb = g_iWickedCallRayLimbHit;
+		}
+		if (iHitObj > 0)
+		{
+			for (int e = 1; e <= g.entityelementlist; e++)
+			{
+				if (t.entityelement[e].obj == iHitObj) { iHitE = e; break; }
+			}
+		}
+	}
+
+	lua_pushinteger(L, iHitObj);
+	lua_pushinteger(L, iHitE);
+	lua_pushnumber(L, fHitX);
+	lua_pushnumber(L, fHitY);
+	lua_pushnumber(L, fHitZ);
+	lua_pushnumber(L, fNX);
+	lua_pushnumber(L, fNY);
+	lua_pushnumber(L, fNZ);
+	lua_pushinteger(L, iLimb);
+	return 9;
+}
+
+int RayRegionEnd(lua_State* L)
+{
+	WickedCall_EndRegionRays();
+	return 0;
+}
+
 int IntersectGetLastHitBone(lua_State* L)
 {
 	int n = LUA_GETTOP(L);
@@ -15913,6 +15983,9 @@ void addFunctions()
 	lua_register(lua, "GetRayNormalZ" , GetRayNormalZ );
 	lua_register(lua, "IntersectAll" , IntersectAll );
 	lua_register(lua, "IntersectRay" , IntersectRay );
+	lua_register(lua, "RayRegionBegin", RayRegionBegin);
+	lua_register(lua, "RayRegion", RayRegion);
+	lua_register(lua, "RayRegionEnd", RayRegionEnd);
 	lua_register(lua, "IntersectStatic", IntersectStatic);
 	lua_register(lua, "IntersectStaticPerformant", IntersectStaticPerformant);
 	lua_register(lua, "IntersectAllIncludeTerrain", IntersectAllIncludeTerrain);

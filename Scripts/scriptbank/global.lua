@@ -2553,6 +2553,9 @@ SetEntityLimbAlpha : SetEntityLimbAlpha ( e, limb, percent [, children] ) -- fad
 GetEntityLimbAlpha : percent = GetEntityLimbAlpha ( e, limb ) -- the limb's alpha, or that of the first limb under it with a mesh; 100 if none
 
 IntersectRay : obj, e, x, y, z, nx, ny, nz, limb = IntersectRay ( x1, y1, z1, x2, y2, z2 [, ignore [, flags] ] ) -- one full-accuracy pick with all its results: obj 0 none, -1 terrain or other geometry; e 0 if not an entity; limb -1 none. ignore is an object number or a table of them; flags 1 hits the ground first, 2 passes through entities with collisionmode 11
+RayRegionBegin : count = RayRegionBegin ( x, y, z, radius ) -- lists the objects whose bounds reach the sphere, for RayRegion until the end of this frame; returns how many. For many short rays near one place (rings, a car's probes)
+RayRegion : obj, e, x, y, z, nx, ny, nz, limb = RayRegion ( x1, y1, z1, x2, y2, z2 [, ignore] ) -- a full-accuracy pick against RayRegionBegin's objects only, with IntersectRay's returns; no terrain. Hits nothing outside the frame of RayRegionBegin. ignore is an object number or a table of them
+RayRegionEnd : RayRegionEnd ( ) -- drops RayRegionBegin's list early (it lapses at the end of the frame anyway)
 GetIntersectCollisionLimb : limb = GetIntersectCollisionLimb() -- the limb the last IntersectAll / IntersectStatic hit, -1 for none or the ground
 GetRayNormalX : nx = GetRayNormalX() -- the surface normal where the last RayTerrain hit (the ground or a tree trunk)
 GetRayNormalY : ny = GetRayNormalY()

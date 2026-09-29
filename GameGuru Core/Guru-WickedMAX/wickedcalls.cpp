@@ -6931,6 +6931,108 @@ bool WickedCall_DecalRayTargetsRay(const float* pFrom, const float* pDir, float 
 	return true;
 }
 
+// the objects a script's region rays test (WickedCall_BeginRegionRays): scene object indices, with their entities so an
+// index the scene has since given to another object is skipped; they hold for the frame they were found in
+std::vector<uint32_t> g_RegionRayTargets;
+std::vector<wiECS::Entity> g_RegionRayEntities;
+uint64_t g_uRegionRayFrame = 0;
+bool g_bRegionRaysActive = false;
+
+// finds the objects whose bounds reach the sphere that a pick ray could hit (the layer is tested by each ray); returns
+// how many
+int WickedCall_BeginRegionRays(float fX, float fY, float fZ, float fRadius)
+{
+	g_RegionRayTargets.clear();
+	g_RegionRayEntities.clear();
+	g_bRegionRaysActive = true;
+	g_uRegionRayFrame = wiRenderer::GetDevice()->GetFrameCount();
+	Scene& scene = wiScene::GetScene();
+	size_t iCount = scene.aabb_objects.GetCount();
+	if (iCount > scene.objects.GetCount()) iCount = scene.objects.GetCount();
+	for (size_t i = 0; i < iCount; i++)
+	{
+		// the box's nearest point to the centre (an empty box, its min above its max, never reaches)
+		const AABB& aabb = scene.aabb_objects[i];
+		if (aabb._min.x > aabb._max.x) continue;
+		float fDX = fX < aabb._min.x ? aabb._min.x - fX : (fX > aabb._max.x ? fX - aabb._max.x : 0.0f);
+		float fDY = fY < aabb._min.y ? aabb._min.y - fY : (fY > aabb._max.y ? fY - aabb._max.y : 0.0f);
+		float fDZ = fZ < aabb._min.z ? aabb._min.z - fZ : (fZ > aabb._max.z ? fZ - aabb._max.z : 0.0f);
+		if (fDX * fDX + fDY * fDY + fDZ * fDZ > fRadius * fRadius) continue;
+
+		// the tests the pick makes
+		const ObjectComponent& object = scene.objects[i];
+		if (object.meshID == INVALID_ENTITY || object.bDisableCollision || !object.IsRenderable()) continue;
+		if (!((RENDERTYPE_OPAQUE | RENDERTYPE_TRANSPARENT) & object.GetRenderTypes())) continue;
+		g_RegionRayTargets.push_back((uint32_t)i);
+		g_RegionRayEntities.push_back(scene.aabb_objects.GetEntity(i));
+	}
+	return (int)g_RegionRayTargets.size();
+}
+
+void WickedCall_EndRegionRays(void)
+{
+	g_RegionRayTargets.clear();
+	g_RegionRayEntities.clear();
+	g_bRegionRaysActive = false;
+}
+
+// the nearest hit along a ray among the objects WickedCall_BeginRegionRays found this frame, reported as
+// WickedCall_SentRay4 reports it; the objects in pIgnore (object numbers) are left out
+bool WickedCall_RegionRay(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, const int* pIgnore, int iIgnoreCount, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit)
+{
+	g_iWickedCallRayLimbHit = -1;
+	if (!g_bRegionRaysActive || g_uRegionRayFrame != wiRenderer::GetDevice()->GetFrameCount()) return false;
+
+	// the objects still at their indices
+	Scene& scene = wiScene::GetScene();
+	static std::vector<uint32_t> targets;
+	targets.clear();
+	for (size_t k = 0; k < g_RegionRayTargets.size(); k++)
+	{
+		uint32_t i = g_RegionRayTargets[k];
+		if (i < scene.aabb_objects.GetCount() && scene.aabb_objects.GetEntity(i) == g_RegionRayEntities[k]) targets.push_back(i);
+	}
+	if (targets.empty()) return false;
+
+	// ignored objects leave the normal layer for the ray, as in IntersectAllEx
+	for (int i = 0; i < iIgnoreCount; i++)
+	{
+		if (pIgnore[i] > 0 && ObjectExist(pIgnore[i]) == 1) WickedCall_SetObjectRenderLayer(GetObjectData(pIgnore[i]), GGRENDERLAYERS_CURSOROBJECT);
+	}
+	RAY pickRay(XMFLOAT3(originx, originy, originz), XMFLOAT3(directionx, directiony, directionz));
+	pickRay.TMax = fDistanceOfRay;
+	wiScene::PickResult hit = wiScene::PickObjects(pickRay, targets.data(), (uint32_t)targets.size(), RENDERTYPE_OPAQUE | RENDERTYPE_TRANSPARENT, GGRENDERLAYERS_NORMAL);
+	for (int i = 0; i < iIgnoreCount; i++)
+	{
+		if (pIgnore[i] > 0 && ObjectExist(pIgnore[i]) == 1) WickedCall_SetObjectRenderLayer(GetObjectData(pIgnore[i]), GGRENDERLAYERS_NORMAL);
+	}
+	if (hit.entity == INVALID_ENTITY || hit.distance > fDistanceOfRay) return false;
+
+	sObject* pHitObject = m_ObjectManager.FindObjectFromWickedObjectEntityID(hit.entity);
+	*pdwObjectNumberHit = pHitObject ? pHitObject->dwObjectNumber : 0;
+	if (pHitObject && pHitObject->ppFrameList)
+	{
+		for (int iFrame = 0; iFrame < pHitObject->iFrameCount; iFrame++)
+		{
+			if (pHitObject->ppFrameList[iFrame] && pHitObject->ppFrameList[iFrame]->wickedobjindex == hit.entity)
+			{
+				g_iWickedCallRayLimbHit = iFrame;
+				extern std::unordered_map<int, sFrame*> lastHitFrame;
+				if (lastHitFrame.size() > 100) lastHitFrame.clear();
+				lastHitFrame[pHitObject->dwObjectNumber] = pHitObject->ppFrameList[iFrame];
+				break;
+			}
+		}
+	}
+	*pOutX = hit.position.x;
+	*pOutY = hit.position.y;
+	*pOutZ = hit.position.z;
+	*pNormX = hit.normal.x;
+	*pNormY = hit.normal.y;
+	*pNormZ = hit.normal.z;
+	return true;
+}
+
 // the LOD the object draws at whatever its distance, 0 (full detail) to 3, or -1 to choose by distance again. Only a model
 // with LOD levels (its _lod.dbo) has any to force; a level past its last draws its last
 void WickedCall_SetObjectForceLOD(sObject* pObject, int iLOD)
