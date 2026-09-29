@@ -1511,7 +1511,8 @@ int GGTrees_GetClosest( float x, float z, float radius, GGTreePoint** pOutPoints
 		for( uint32_t j = 0; j < pChunk->pInstances.NumItems(); j++ )
 		{
 			InstanceTree* pInstance = pChunk->pInstances[ j ];
-			if ( !pInstance->IsVisible() || pInstance->IsInvalid() ) continue;
+			// flattened trees are not drawn, so no collision either
+			if ( !pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsInvalid() ) continue;
 
 			sqrDist = 0;
 			sqrDist += (pInstance->x - x) * (pInstance->x - x);
