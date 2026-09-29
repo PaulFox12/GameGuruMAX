@@ -13723,6 +13723,51 @@ int RayTrees(lua_State* L)
 	for (int i = 0; i < 6; i++) lua_pushnumber(L, fOut[i]);
 	return 7;
 }
+// GetTreesNear(x, z, radius [, max]): the tree trunks within radius of x, z across (at any height), nearest first, as a
+// table of { x, y, z, radius }: each trunk's base and its radius, as the trees' collision has it (by species and scale).
+// At most max (64 unless set). Trees not drawn are left out: hidden under a building, removed by a blast, or all of them
+// when trees are off. For a script's own collision test, such as a car driven by Lua
+int GetTreesNear(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 3) return 0;
+	float fX = lua_tonumber(L, 1);
+	float fZ = lua_tonumber(L, 2);
+	float fRadius = lua_tonumber(L, 3);
+	int iMax = (n >= 4) ? lua_tointeger(L, 4) : 64;
+	GGTrees::GGTreePoint* pPoints = NULL;
+	int iCount = 0;
+	if (GGTrees::ggtrees_global_params.draw_enabled && fRadius > 0) iCount = GGTrees::GGTrees_GetClosest(fX, fZ, fRadius, &pPoints);
+
+	// the nearest first
+	std::vector<std::pair<float, int>> nearest;
+	for (int i = 0; i < iCount; i++)
+	{
+		float fDX = pPoints[i].x - fX;
+		float fDZ = pPoints[i].z - fZ;
+		std::pair<float, int> tree(fDX * fDX + fDZ * fDZ, i);
+		size_t k = nearest.size();
+		nearest.push_back(tree);
+		while (k > 0 && nearest[k - 1].first > tree.first) { nearest[k] = nearest[k - 1]; k--; }
+		nearest[k] = tree;
+	}
+
+	int iTake = (int)nearest.size() < iMax ? (int)nearest.size() : iMax;
+	if (iTake < 0) iTake = 0;
+	lua_createtable(L, iTake, 0);
+	for (int k = 0; k < iTake; k++)
+	{
+		GGTrees::GGTreePoint& tree = pPoints[nearest[k].second];
+		lua_createtable(L, 0, 4);
+		lua_pushnumber(L, tree.x); lua_setfield(L, -2, "x");
+		lua_pushnumber(L, tree.y); lua_setfield(L, -2, "y");
+		lua_pushnumber(L, tree.z); lua_setfield(L, -2, "z");
+		lua_pushnumber(L, tree.scale * 0.5f); lua_setfield(L, -2, "radius");
+		lua_rawseti(L, -2, k + 1);
+	}
+	if (pPoints) delete[] pPoints;
+	return 1;
+}
 
 //PE: USE - SetLutTo("editors\\lut\\sephia.png")
 //PE: USE - string = GetLut()
@@ -16530,6 +16575,7 @@ void addFunctions()
 	lua_register(lua, "SetTreeShadowCascades", SetTreeShadowCascades);
 	lua_register(lua, "GetTreeShadowCascades", GetTreeShadowCascades);
 	lua_register(lua, "RayTrees", RayTrees);
+	lua_register(lua, "GetTreesNear", GetTreesNear);
 	lua_register(lua, "GunAnimationSetFrame", GunAnimationSetFrame);
 	lua_register(lua, "LoopGunAnimation", LoopGunAnimation);
 	lua_register(lua, "StopGunAnimation", StopGunAnimation);
