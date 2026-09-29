@@ -198,6 +198,10 @@ bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz,
 int WickedCall_FindDecalRayTargets(const float* pMin, const float* pMax);
 bool WickedCall_DecalRayTargetsRay(const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal);
 void WickedCall_SetObjectForceLOD(sObject* pObject, int iLOD);
+void WickedCall_SetObjectShaderParam(sObject* pObject, int iParam, float fValue);
+void WickedCall_SetObjectTextureScroll(sObject* pObject, float fU, float fV);
+void WickedCall_UpdateLuaTextureScroll(float fSeconds);
+void WickedCall_RestoreLuaMaterialChanges(bool bObjectsKept);
 void WickedCall_GetMouseDeltas(float* pfX, float* pfY);
 uint32_t WickedCall_GetTextureWidth(void* ptex);
 uint32_t WickedCall_GetTextureHeight(void* ptex);

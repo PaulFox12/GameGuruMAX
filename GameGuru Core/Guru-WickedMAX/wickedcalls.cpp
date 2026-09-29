@@ -6945,6 +6945,118 @@ void WickedCall_SetObjectForceLOD(sObject* pObject, int iLOD)
 	}
 }
 
+// what SetEntityShaderParam and SetEntityTextureScroll changed, by material, with the material's values before the first
+// change, which WickedCall_RestoreLuaMaterialChanges puts back at the level's end
+struct sLuaMaterialChange
+{
+	float fShaderParam[7];
+	float fOffsetU = 0, fOffsetV = 0;
+	float fScrollU = 0, fScrollV = 0; // texture widths a second
+};
+std::unordered_map<uint64_t, sLuaMaterialChange> g_LuaMaterialChanges;
+
+// the material a mesh draws with (an instance's is its master's, shared by the model), and its record, made before the
+// first change
+static wiScene::MaterialComponent* WickedCall_GetLuaChangedMaterial(sMesh* pMesh, sLuaMaterialChange** ppChange)
+{
+	uint64_t materialEntity = pMesh->wickedmaterialindex;
+	if (materialEntity == 0) materialEntity = pMesh->master_wickedmaterialindex;
+	wiScene::MaterialComponent* material = wiScene::GetScene().materials.GetComponent(materialEntity);
+	if (!material) return NULL;
+	auto it = g_LuaMaterialChanges.find(materialEntity);
+	if (it == g_LuaMaterialChanges.end())
+	{
+		sLuaMaterialChange change;
+		change.fShaderParam[0] = material->customShaderParam1;
+		change.fShaderParam[1] = material->customShaderParam2;
+		change.fShaderParam[2] = material->customShaderParam3;
+		change.fShaderParam[3] = material->customShaderParam4;
+		change.fShaderParam[4] = material->customShaderParam5;
+		change.fShaderParam[5] = material->customShaderParam6;
+		change.fShaderParam[6] = material->customShaderParam7;
+		change.fOffsetU = material->texMulAdd.z;
+		change.fOffsetV = material->texMulAdd.w;
+		it = g_LuaMaterialChanges.insert(std::make_pair(materialEntity, change)).first;
+	}
+	*ppChange = &it->second;
+	return material;
+}
+
+// a custom shader's parameter 1 to 7 (as the .fpe sets them) on each of the object's materials that has one; the model's
+// materials are shared, so every entity using it changes
+void WickedCall_SetObjectShaderParam(sObject* pObject, int iParam, float fValue)
+{
+	if (!pObject || !pObject->ppMeshList || iParam < 1 || iParam > 7) return;
+	for (int iM = 0; iM < pObject->iMeshCount; iM++)
+	{
+		sMesh* pMesh = pObject->ppMeshList[iM];
+		if (!pMesh) continue;
+		sLuaMaterialChange* pChange = NULL;
+		wiScene::MaterialComponent* material = WickedCall_GetLuaChangedMaterial(pMesh, &pChange);
+		if (!material || material->customShaderID < 0) continue;
+		float* pParams[7] = { &material->customShaderParam1, &material->customShaderParam2, &material->customShaderParam3,
+			&material->customShaderParam4, &material->customShaderParam5, &material->customShaderParam6, &material->customShaderParam7 };
+		*pParams[iParam - 1] = fValue;
+		material->SetDirty();
+	}
+}
+
+// scrolls the object's textures by fU, fV texture widths a second (0, 0 stops them where they are), moved each frame by
+// WickedCall_UpdateLuaTextureScroll; the model's materials are shared, so every entity using it scrolls
+void WickedCall_SetObjectTextureScroll(sObject* pObject, float fU, float fV)
+{
+	if (!pObject || !pObject->ppMeshList) return;
+	for (int iM = 0; iM < pObject->iMeshCount; iM++)
+	{
+		sMesh* pMesh = pObject->ppMeshList[iM];
+		if (!pMesh) continue;
+		sLuaMaterialChange* pChange = NULL;
+		if (!WickedCall_GetLuaChangedMaterial(pMesh, &pChange)) continue;
+		pChange->fScrollU = fU;
+		pChange->fScrollV = fV;
+	}
+}
+
+// once a frame in a game: each scrolling material's texture offset moves on by its speed times the frame's seconds
+void WickedCall_UpdateLuaTextureScroll(float fSeconds)
+{
+	for (auto& it : g_LuaMaterialChanges)
+	{
+		sLuaMaterialChange& change = it.second;
+		if (change.fScrollU == 0 && change.fScrollV == 0) continue;
+		wiScene::MaterialComponent* material = wiScene::GetScene().materials.GetComponent(it.first);
+		if (!material) continue;
+		material->texMulAdd.z = fmodf(material->texMulAdd.z + change.fScrollU * fSeconds, 1.0f);
+		material->texMulAdd.w = fmodf(material->texMulAdd.w + change.fScrollV * fSeconds, 1.0f);
+		material->SetDirty();
+	}
+}
+
+// puts back what SetEntityShaderParam and SetEntityTextureScroll changed, at each level start and when a test game ends.
+// Wicked reuses the ids of removed entities, so the records are put back only where the objects were kept (the editor's,
+// through a test game); a standalone game has replaced the level's objects by then, and just forgets them
+void WickedCall_RestoreLuaMaterialChanges(bool bObjectsKept)
+{
+	for (auto& it : g_LuaMaterialChanges)
+	{
+		if (!bObjectsKept) break;
+		wiScene::MaterialComponent* material = wiScene::GetScene().materials.GetComponent(it.first);
+		if (!material) continue;
+		sLuaMaterialChange& change = it.second;
+		material->customShaderParam1 = change.fShaderParam[0];
+		material->customShaderParam2 = change.fShaderParam[1];
+		material->customShaderParam3 = change.fShaderParam[2];
+		material->customShaderParam4 = change.fShaderParam[3];
+		material->customShaderParam5 = change.fShaderParam[4];
+		material->customShaderParam6 = change.fShaderParam[5];
+		material->customShaderParam7 = change.fShaderParam[6];
+		material->texMulAdd.z = change.fOffsetU;
+		material->texMulAdd.w = change.fOffsetV;
+		material->SetDirty();
+	}
+	g_LuaMaterialChanges.clear();
+}
+
 void WickedCall_SetObjectHighlightColor(sObject* pObject, bool bHighlight, int highlightColorType)
 {
 	uint64_t rootEntity = WickedCall_GetFirstRootEntityID(pObject);

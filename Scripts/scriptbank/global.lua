@@ -2496,6 +2496,8 @@ SetOcclusionCulling : SetOcclusionCulling ( on [, objects [, animations [, terra
 SetLODMultiplier : SetLODMultiplier ( v ) -- models with LOD levels (a _lod.dbo) switch to LOD 1, 2, 3 past 400, 600, 800 units times v (0 to 15; the graphics quality sets 1 to 3); until the level ends
 SetShadowsLowestLOD : SetShadowsLowestLOD ( on ) -- models cast shadows from their lowest LOD (cheaper); until the level ends
 SetDelayedShadows : SetDelayedShadows ( on [, laptop] ) -- the sun's shadow cascades 1 to 4 redrawn every 2, 3, 4, 9 frames instead of every frame, point light shadows less often too; laptop also redraws cascade 0 every other frame and the rest every 3, 4, 5, 9 (on unless the level turned it off). An omitted or negative value keeps the current one; until the level ends
+SetSSR : SetSSR ( on ) -- screen space reflections on (1) or off (0); until the level ends
+SetAO : SetAO ( on [, power] ) -- ambient occlusion (corners and gaps take less ambient light) on (1) or off (0), and its power 0 to 5 (1 is the editor's default; omitted keeps the current one); until the level ends
 SetShadowRange : SetShadowRange ( d ) -- how far the sun's last shadow cascade reaches, 31000 to 500000 units (500000 unless set): nothing beyond casts a sun shadow, nearer makes far shadows sharper. 0 goes back to the level's; until the level ends
 SetWind : SetWind ( speed [, dirX, dirY, dirZ [, randomness] ] ) -- weather wind (rain and snow drift): speed 0 to 5, direction -20 to 20 per axis, randomness 0 to 2. Tree sway is SetTreeWind
 GetWind : speed, dirX, dirY, dirZ, randomness = GetWind()
@@ -2523,6 +2525,8 @@ SetProjectedDecalLimit : SetProjectedDecalLimit ( count ) -- how many projected 
 GetProjectedDecalLimit : count = GetProjectedDecalLimit() -- the projected decal limit
 GetProjectedDecalCount : count = GetProjectedDecalCount() -- the projected decals there are now
 SetEntityLOD : SetEntityLOD ( e [, lod] ) -- the entity draws at LOD lod, 0 (full detail) to 3, whatever its distance; -1 or left out chooses by distance again. Only a model with LOD levels (its _lod.dbo) has any to force; past its last it draws its last. Until the level ends
+SetEntityShaderParam : SetEntityShaderParam ( e, n, value ) -- a custom shader's parameter n (1 to 7, as the .fpe's shader parameters); only materials with a custom shader have them. The model's materials are shared, so every entity using the model changes; back to the model's own at the next level or test game end
+SetEntityTextureScroll : SetEntityTextureScroll ( e, du, dv ) -- the entity's textures scroll by du, dv texture widths a second, the same at any frame rate (water in a channel, a conveyor belt); 0, 0 stops them where they are. Every entity using the model scrolls; they go back to where they started at the next level or test game end
 SetEntityReceivesDecals : SetEntityReceivesDecals ( e, on ) -- 0: the entity's model takes no projected decals (characters, vehicles passing over a scorch); every entity using that model changes with it
 SetEntityInstanceEmissive : SetEntityInstanceEmissive ( e, r, g, b [, strength] ) -- glow of this one instance, multiplying the entity's authored emissive colour and strength (each 0 to 1; 1,1,1,1 = as authored, strength 0 = off). Other instances of the same object keep theirs
 GetEntityInstanceEmissive : r, g, b, strength = GetEntityInstanceEmissive ( e )

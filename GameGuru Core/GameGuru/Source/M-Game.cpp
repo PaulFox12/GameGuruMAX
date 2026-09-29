@@ -4703,6 +4703,10 @@ void game_main_loop ( void )
 		dwProjectedDecalsLastTime = dwNow;
 		extern void WickedCall_UpdateProjectedDecals(float fSeconds);
 		WickedCall_UpdateProjectedDecals(fSeconds);
+
+		// and the textures a script scrolls (SetEntityTextureScroll)
+		extern void WickedCall_UpdateLuaTextureScroll(float fSeconds);
+		WickedCall_UpdateLuaTextureScroll(fSeconds);
 	}
 
 	//  Steam call moved here as camera changes need to be BEFORE the shadow update

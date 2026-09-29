@@ -8492,6 +8492,30 @@ int SetEntityLOD(lua_State *L)
 	if (iObj > 0 && ObjectExist(iObj) == 1) WickedCall_SetObjectForceLOD(GetObjectData(iObj), iLOD);
 	return 0;
 }
+// SetEntityShaderParam(e, n, value): a custom shader's parameter n, 1 to 7, as the .fpe's shader parameters set them;
+// only materials with a custom shader have them. The model's materials are shared, so every entity using the model
+// changes. Back to the model's own at the next level or when a test game ends
+int SetEntityShaderParam(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 3) return 0;
+	int e = lua_tointeger(L, 1);
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
+	int iObj = t.entityelement[e].obj;
+	if (iObj > 0 && ObjectExist(iObj) == 1) WickedCall_SetObjectShaderParam(GetObjectData(iObj), lua_tointeger(L, 2), lua_tonumber(L, 3));
+	return 0;
+}
+// SetEntityTextureScroll(e, du, dv): the entity's textures scroll by du, dv texture widths a second, the same at any
+// frame rate (water in a channel, a conveyor belt); 0, 0 stops them where they are. The model's materials are shared, so
+// every entity using the model scrolls. They go back to where they started at the next level or when a test game ends
+int SetEntityTextureScroll(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 3) return 0;
+	int e = lua_tointeger(L, 1);
+	if (!LuaEntityIDValid(L, e, 1)) return 0;
+	int iObj = t.entityelement[e].obj;
+	if (iObj > 0 && ObjectExist(iObj) == 1) WickedCall_SetObjectTextureScroll(GetObjectData(iObj), lua_tonumber(L, 2), lua_tonumber(L, 3));
+	return 0;
+}
 int TriggerWaterSplash(lua_State* L)
 {
 	int n = LUA_GETTOP(L);
@@ -13553,6 +13577,8 @@ extern void LuaRenderSettings_SetLODMultiplier(float fMultiplier);
 extern void LuaRenderSettings_SetShadowsLowestLOD(int iOn);
 extern void LuaRenderSettings_SetDelayedShadows(int iOn, int iLaptop);
 extern void LuaRenderSettings_SetShadowRange(float fRange);
+extern void LuaRenderSettings_SetSSR(int iOn);
+extern void LuaRenderSettings_SetAO(int iOn, float fPower);
 
 // SetOcclusionCulling(on [, objects [, animations [, terrain [, shadows]]]]): the GPU occlusion culling, which skips what
 // stands wholly behind something (a frame late, and nothing within 1500 units), and what it is used for: objects, the
@@ -13599,6 +13625,24 @@ int SetShadowRange(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
 	LuaRenderSettings_SetShadowRange(lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetSSR(on): screen space reflections on (1) or off (0)
+int SetSSR(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetSSR((int)lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetAO(on [, power]): ambient occlusion (corners and gaps take less ambient light) on (1) or off (0), and its power, 0
+// to 5 (1 is the editor's default)
+int SetAO(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaRenderSettings_SetAO((int)lua_tonumber(L, 1), LuaOptionalNumber(L, n, 2));
 	return 0;
 }
 
@@ -15847,6 +15891,8 @@ void addFunctions()
 	lua_register(lua, "GetProjectedDecalCount", GetProjectedDecalCount);
 	lua_register(lua, "SetEntityReceivesDecals", SetEntityReceivesDecals);
 	lua_register(lua, "SetEntityLOD", SetEntityLOD);
+	lua_register(lua, "SetEntityShaderParam", SetEntityShaderParam);
+	lua_register(lua, "SetEntityTextureScroll", SetEntityTextureScroll);
 	lua_register(lua, "TriggerWaterSplash", TriggerWaterSplash);
 	lua_register(lua, "PlayFootfallSound" , PlayFootfallSound );
 	lua_register(lua, "ResetUnderwaterState" , ResetUnderwaterState );
@@ -16644,6 +16690,8 @@ void addFunctions()
 	lua_register(lua, "SetShadowsLowestLOD", SetShadowsLowestLOD);
 	lua_register(lua, "SetDelayedShadows", SetDelayedShadows);
 	lua_register(lua, "SetShadowRange", SetShadowRange);
+	lua_register(lua, "SetSSR", SetSSR);
+	lua_register(lua, "SetAO", SetAO);
 	lua_register(lua, "SetWind", SetWind);
 	lua_register(lua, "GetWind", GetWind);
 

@@ -7661,9 +7661,9 @@ void LuaPostEffects_Clear(void* pVisualsToRestore)
 }
 
 // performance levers set from Lua (SetOcclusionCulling, SetLODMultiplier, SetShadowsLowestLOD, SetDelayedShadows,
-// SetShadowRange): a visuals push and a graphics quality change set them from the pushed visuals, so the ones a script
-// has set are applied again after both (Wicked_Update_Visuals, visuals_shaderlevels_update_core) until the level ends.
-// Below 0 is unset
+// SetShadowRange, SetSSR, SetAO): a visuals push and a graphics quality change set them from the pushed visuals, so the
+// ones a script has set are applied again after both (Wicked_Update_Visuals, visuals_shaderlevels_update_core) until the
+// level ends. Below 0 is unset
 struct sLuaRenderSettings
 {
 	int iOcclusion = -1;
@@ -7676,6 +7676,9 @@ struct sLuaRenderSettings
 	int iDelayedShadows = -1;
 	int iDelayedShadowsLaptop = -1;
 	float fShadowRange = -1;
+	int iSSR = -1;
+	int iAO = -1;
+	float fAOPower = -1;
 };
 sLuaRenderSettings g_LuaRenderSettings;
 
@@ -7717,6 +7720,12 @@ void LuaRenderSettings_Apply(void)
 		LuaRenderSettings_SetDelayedShadowGlobals(bDelayed, bLaptop);
 	}
 	if (p->fShadowRange >= 0) WickedCall_SetShadowRange(p->fShadowRange);
+	if (master_renderer)
+	{
+		if (p->iSSR >= 0) master_renderer->setSSREnabled(p->iSSR != 0);
+		if (p->iAO >= 0) master_renderer->setAO(p->iAO ? RenderPath3D::AO_MSAO : RenderPath3D::AO_DISABLED);
+		if (p->fAOPower >= 0) master_renderer->setAOPower(p->fAOPower);
+	}
 }
 
 // values below 0 keep the current setting
@@ -7765,6 +7774,20 @@ void LuaRenderSettings_SetShadowRange(float fRange)
 	LuaRenderSettings_Apply();
 }
 
+void LuaRenderSettings_SetSSR(int iOn)
+{
+	if (iOn >= 0) g_LuaRenderSettings.iSSR = iOn ? 1 : 0;
+	LuaRenderSettings_Apply();
+}
+
+// the power as the editor's slider, kept to 0 to 5 here (below 0 is unset)
+void LuaRenderSettings_SetAO(int iOn, float fPower)
+{
+	if (iOn >= 0) g_LuaRenderSettings.iAO = iOn ? 1 : 0;
+	if (fPower >= 0) g_LuaRenderSettings.fAOPower = fPower > 5.0f ? 5.0f : fPower;
+	LuaRenderSettings_Apply();
+}
+
 // forget the Lua values and put back those of t.visuals (the level's, or the editor's when a test game ends)
 void LuaRenderSettings_Clear(void)
 {
@@ -7784,6 +7807,13 @@ void LuaRenderSettings_Clear(void)
 	if (old.iShadowsLowestLOD >= 0) bShadowsLowestLOD = visuals->bShadowsLowestLOD;
 	if (old.iDelayedShadows >= 0 || old.iDelayedShadowsLaptop >= 0) LuaRenderSettings_SetDelayedShadowGlobals(visuals->g_bDelayedShadows, visuals->g_bDelayedShadowsLaptop);
 	if (old.fShadowRange >= 0) WickedCall_SetShadowRange(visuals->fShadowFarPlane);
+	if (old.iSSR >= 0 && master_renderer) master_renderer->setSSREnabled(visuals->bSSREnabled);
+	if ((old.iAO >= 0 || old.fAOPower >= 0) && master_renderer)
+	{
+		// as the last visuals push left it
+		master_renderer->setAO(master.iAOSetting > 0 ? RenderPath3D::AO_MSAO : RenderPath3D::AO_DISABLED);
+		if (master.iAOSetting > 0) master_renderer->setAOPower(master.fAOPower);
+	}
 }
 
 // clouds, tree wind, wind, water colour, water fog and the LUT set from Lua are kept in t.gamevisuals, which the end
@@ -7868,8 +7898,10 @@ void LuaGameVisuals_Clear(void)
 	// and the trees blasts removed (SetGrassKillBox and SetProjectedDecalGrass with trees), here and at level start
 	GGTrees_RestoreKilled();
 
-	// and the performance levers (SetOcclusionCulling and the rest) go back to the level's, or the editor's
+	// and the performance levers (SetOcclusionCulling and the rest) go back to the level's, or the editor's, and the models'
+	// shader parameters and texture scrolls a script set (SetEntityShaderParam, SetEntityTextureScroll) to their own
 	LuaRenderSettings_Clear();
+	WickedCall_RestoreLuaMaterialChanges(t.game.gameisexe == 0);
 }
 
 // change only the colour grading LUT. Wicked_Update_Visuals would also push every other visual value (fog, sun,
