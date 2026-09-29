@@ -4535,7 +4535,7 @@ DARKSDK_DLL void SetObjectUVManually ( int iObjID, int iFrameIndex, float fWidth
 
 		//PE: Calculate the row and column of the sprite in the atlas
 		int row = iFrameIndex / fWidth;
-		int col = iFrameIndex % (int)fHeight;
+		int col = iFrameIndex % (int)fWidth;
 		//PE: Calculate the UV of the topleft corner
 		U_f = col * USize_f;
 		V_f = row * VSize_f;

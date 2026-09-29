@@ -7911,6 +7911,8 @@ struct decalelementtype
 	int active;
 	int obj;
 	int uvgridsize;
+	int uvframe;
+	float alphavalue;
 	float xpos;
 	float ypos;
 	float zpos;
@@ -7955,6 +7957,8 @@ struct decalelementtype
 		 zpos = 0.0f;
 		 ypos = 0.0f;
 		 xpos = 0.0f;
+		 alphavalue = -1.0f;
+		 uvframe = -1;
 		 uvgridsize = 0;
 		 obj = 0;
 		 active = 0;
