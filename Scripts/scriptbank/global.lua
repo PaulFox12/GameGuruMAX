@@ -2495,6 +2495,8 @@ GetLensFlare : on = GetLensFlare()
 SetOcclusionCulling : SetOcclusionCulling ( on [, objects [, animations [, terrain [, shadows] ] ] ] ) -- the GPU occlusion culling (skips what stands wholly behind something, a frame late, nothing within 1500 units) and what uses it: objects, the animation of an occluded character (it pauses), terrain chunks, point and spot light shadows; 1 or 0 each, an omitted or negative value keeps the current one. Kept through graphics quality changes until the level ends (not SetOcclusion, the old CPU occluder)
 SetLODMultiplier : SetLODMultiplier ( v ) -- models with LOD levels (a _lod.dbo) switch to LOD 1, 2, 3 past 400, 600, 800 units times v (0 to 15; the graphics quality sets 1 to 3); until the level ends
 SetShadowsLowestLOD : SetShadowsLowestLOD ( on ) -- models cast shadows from their lowest LOD (cheaper); until the level ends
+SetDelayedShadows : SetDelayedShadows ( on [, laptop] ) -- the sun's shadow cascades 1 to 4 redrawn every 2, 3, 4, 9 frames instead of every frame, point light shadows less often too; laptop also redraws cascade 0 every other frame and the rest every 3, 4, 5, 9 (on unless the level turned it off). An omitted or negative value keeps the current one; until the level ends
+SetShadowRange : SetShadowRange ( d ) -- how far the sun's last shadow cascade reaches, 31000 to 500000 units (500000 unless set): nothing beyond casts a sun shadow, nearer makes far shadows sharper. 0 goes back to the level's; until the level ends
 SetWind : SetWind ( speed [, dirX, dirY, dirZ [, randomness] ] ) -- weather wind (rain and snow drift): speed 0 to 5, direction -20 to 20 per axis, randomness 0 to 2. Tree sway is SetTreeWind
 GetWind : speed, dirX, dirY, dirZ, randomness = GetWind()
 SetWaterFog : SetWaterFog ( minDist, maxDist [, minAmount] ) -- how clear the water is: nearer than minDist the water fog is at minAmount (0 to 1, lower is clearer), beyond maxDist the water is opaque (0 to 100000 units). SetWaterTransparancy does nothing in MAX
@@ -2607,6 +2609,7 @@ GetLightRange : range = GetLightRange ( lightNum ) -- returns the range value of
 SetLightPosition : SetLightPosition ( lightNum, x, y, z ) -- sets the new position of the specified dynamic light
 SetLightAngle : SetLightAngle( lightNum, xv, yv, zv ) -- set a vector (-1 to 1) to each angle which is then converted to 0-360
 SetLightRGB : SetLightRGB ( lightNum, r, g, b ) -- sets the new color of the specified dynamic light
+SetLightShadow : SetLightShadow ( lightNum, on ) -- whether the specified light casts shadows (1 or 0); shadows are the costliest part of a point or spot light, so turn them off on lights that don't need one
 SetLightRange : SetLightRange ( lightNum, range ) -- sets the new range (1 to 10000) of the specified light
 GetLightEuler : x, y, z = GetLightEuler ( lightNum ) -- get the euler angles from the light direction
 SetLightEuler : SetLightEuler( lightNum, x, y, z ) -- set euler angles for the light direction

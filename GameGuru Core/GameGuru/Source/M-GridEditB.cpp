@@ -7660,9 +7660,10 @@ void LuaPostEffects_Clear(void* pVisualsToRestore)
 	if (old.iLensFlare >= 0) master_renderer->setLensFlareEnabled(visuals->bLensFlare);
 }
 
-// performance levers set from Lua (SetOcclusionCulling, SetLODMultiplier, SetShadowsLowestLOD): a visuals push and a
-// graphics quality change set them from the pushed visuals, so the ones a script has set are applied again after both
-// (Wicked_Update_Visuals, visuals_shaderlevels_update_core) until the level ends. Below 0 is unset
+// performance levers set from Lua (SetOcclusionCulling, SetLODMultiplier, SetShadowsLowestLOD, SetDelayedShadows,
+// SetShadowRange): a visuals push and a graphics quality change set them from the pushed visuals, so the ones a script
+// has set are applied again after both (Wicked_Update_Visuals, visuals_shaderlevels_update_core) until the level ends.
+// Below 0 is unset
 struct sLuaRenderSettings
 {
 	int iOcclusion = -1;
@@ -7672,6 +7673,9 @@ struct sLuaRenderSettings
 	int iShadowCulling = -1;
 	float fLODMultiplier = -1;
 	int iShadowsLowestLOD = -1;
+	int iDelayedShadows = -1;
+	int iDelayedShadowsLaptop = -1;
+	float fShadowRange = -1;
 };
 sLuaRenderSettings g_LuaRenderSettings;
 
@@ -7682,6 +7686,19 @@ extern bool bEnablePointShadowCulling;
 extern bool bEnableSpotShadowCulling;
 extern float fLODMultiplier;
 extern bool bShadowsLowestLOD;
+extern bool g_bDelayedShadows;
+extern bool g_bDelayedShadowsLaptop;
+extern bool bEnableDelayPointShadow;
+extern float pointShadowScaler;
+
+// the delayed shadow refresh as Wicked_Update_Visuals sets it: point shadows follow it, refreshed less on a laptop
+static void LuaRenderSettings_SetDelayedShadowGlobals(bool bDelayed, bool bLaptop)
+{
+	g_bDelayedShadows = bDelayed;
+	g_bDelayedShadowsLaptop = bLaptop;
+	bEnableDelayPointShadow = bDelayed;
+	pointShadowScaler = (bDelayed && bLaptop) ? 0.6f : 1.0f;
+}
 
 void LuaRenderSettings_Apply(void)
 {
@@ -7693,6 +7710,13 @@ void LuaRenderSettings_Apply(void)
 	if (p->iOcclusion >= 0) wiRenderer::SetOcclusionCullingEnabled(p->iOcclusion != 0);
 	if (p->fLODMultiplier >= 0) fLODMultiplier = p->fLODMultiplier;
 	if (p->iShadowsLowestLOD >= 0) bShadowsLowestLOD = p->iShadowsLowestLOD != 0;
+	if (p->iDelayedShadows >= 0 || p->iDelayedShadowsLaptop >= 0)
+	{
+		bool bDelayed = p->iDelayedShadows >= 0 ? p->iDelayedShadows != 0 : g_bDelayedShadows;
+		bool bLaptop = p->iDelayedShadowsLaptop >= 0 ? p->iDelayedShadowsLaptop != 0 : g_bDelayedShadowsLaptop;
+		LuaRenderSettings_SetDelayedShadowGlobals(bDelayed, bLaptop);
+	}
+	if (p->fShadowRange >= 0) WickedCall_SetShadowRange(p->fShadowRange);
 }
 
 // values below 0 keep the current setting
@@ -7718,6 +7742,29 @@ void LuaRenderSettings_SetShadowsLowestLOD(int iOn)
 	LuaRenderSettings_Apply();
 }
 
+void LuaRenderSettings_SetDelayedShadows(int iOn, int iLaptop)
+{
+	if (iOn >= 0) g_LuaRenderSettings.iDelayedShadows = iOn ? 1 : 0;
+	if (iLaptop >= 0) g_LuaRenderSettings.iDelayedShadowsLaptop = iLaptop ? 1 : 0;
+	LuaRenderSettings_Apply();
+}
+
+// how far the sun's last shadow cascade reaches; kept past the fourth cascade's 30000 units and within the stock 500000.
+// 0 or less goes back to the pushed visuals' range
+void LuaRenderSettings_SetShadowRange(float fRange)
+{
+	if (fRange <= 0)
+	{
+		if (g_LuaRenderSettings.fShadowRange >= 0) WickedCall_SetShadowRange(t.visuals.fShadowFarPlane);
+		g_LuaRenderSettings.fShadowRange = -1;
+		return;
+	}
+	if (fRange < 31000.0f) fRange = 31000.0f;
+	if (fRange > 500000.0f) fRange = 500000.0f;
+	g_LuaRenderSettings.fShadowRange = fRange;
+	LuaRenderSettings_Apply();
+}
+
 // forget the Lua values and put back those of t.visuals (the level's, or the editor's when a test game ends)
 void LuaRenderSettings_Clear(void)
 {
@@ -7735,6 +7782,8 @@ void LuaRenderSettings_Clear(void)
 	if (old.iOcclusion >= 0) wiRenderer::SetOcclusionCullingEnabled(visuals->bOcclusionCulling);
 	if (old.fLODMultiplier >= 0) fLODMultiplier = visuals->fLODMultiplier;
 	if (old.iShadowsLowestLOD >= 0) bShadowsLowestLOD = visuals->bShadowsLowestLOD;
+	if (old.iDelayedShadows >= 0 || old.iDelayedShadowsLaptop >= 0) LuaRenderSettings_SetDelayedShadowGlobals(visuals->g_bDelayedShadows, visuals->g_bDelayedShadowsLaptop);
+	if (old.fShadowRange >= 0) WickedCall_SetShadowRange(visuals->fShadowFarPlane);
 }
 
 // clouds, tree wind, wind, water colour, water fog and the LUT set from Lua are kept in t.gamevisuals, which the end

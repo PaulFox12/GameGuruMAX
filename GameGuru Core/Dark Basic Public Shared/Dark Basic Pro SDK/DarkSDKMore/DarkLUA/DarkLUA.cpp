@@ -8032,6 +8032,19 @@ int SetLightRGB( lua_State *L )
 	return 0;
 }
 
+// SetLightShadow(light, on): whether the light casts shadows (1 or 0), for the same light numbers as SetLightRGB. A
+// shadow is the costliest part of a point or spot light, so turn it off on lights that don't need one
+int SetLightShadow(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 2) return 0;
+	int i = lua_tointeger(L, 1);
+	if (i > 0 && i <= g.infinilightmax && t.infinilight[i].used == 1)
+	{
+		t.infinilight[i].bCanShadow = lua_tointeger(L, 2) != 0;
+	}
+	return 0;
+}
+
 int SetLightRange( lua_State *L )
 {
 	lua = L;
@@ -13538,6 +13551,8 @@ int GetLensFlare(lua_State* L)
 extern void LuaRenderSettings_SetOcclusionCulling(int iOn, int iObjects, int iAnimations, int iTerrain, int iShadows);
 extern void LuaRenderSettings_SetLODMultiplier(float fMultiplier);
 extern void LuaRenderSettings_SetShadowsLowestLOD(int iOn);
+extern void LuaRenderSettings_SetDelayedShadows(int iOn, int iLaptop);
+extern void LuaRenderSettings_SetShadowRange(float fRange);
 
 // SetOcclusionCulling(on [, objects [, animations [, terrain [, shadows]]]]): the GPU occlusion culling, which skips what
 // stands wholly behind something (a frame late, and nothing within 1500 units), and what it is used for: objects, the
@@ -13564,6 +13579,26 @@ int SetShadowsLowestLOD(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
 	LuaRenderSettings_SetShadowsLowestLOD((int)lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetDelayedShadows(on [, laptop]): the sun's shadow cascades 1 to 4 are redrawn every 2, 3, 4 and 9 frames instead of
+// every frame, and point light shadows less often too; laptop also redraws cascade 0 every other frame and the rest every
+// 3, 4, 5 and 9. On unless the level turned it off
+int SetDelayedShadows(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaRenderSettings_SetDelayedShadows((int)lua_tonumber(L, 1), (int)LuaOptionalNumber(L, n, 2));
+	return 0;
+}
+
+// SetShadowRange(d): how far the sun's last shadow cascade reaches, 31000 to 500000 units (500000 unless set); nothing
+// beyond it casts a sun shadow, and nearer makes the far shadows sharper. 0 goes back to the level's
+int SetShadowRange(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetShadowRange(lua_tonumber(L, 1));
 	return 0;
 }
 
@@ -15789,6 +15824,7 @@ void addFunctions()
 	lua_register(lua, "SetLightAngle",		  SetLightAngle);
 	lua_register(lua, "SetLightEuler",		  SetLightEuler);
 	lua_register(lua, "SetLightRGB",          SetLightRGB );
+	lua_register(lua, "SetLightShadow", SetLightShadow);
 	lua_register(lua, "SetLightRange",        SetLightRange );
 	
 	lua_register(lua, "RunCharLoop" , RunCharLoop );
@@ -16606,6 +16642,8 @@ void addFunctions()
 	lua_register(lua, "SetOcclusionCulling", SetOcclusionCulling);
 	lua_register(lua, "SetLODMultiplier", SetLODMultiplier);
 	lua_register(lua, "SetShadowsLowestLOD", SetShadowsLowestLOD);
+	lua_register(lua, "SetDelayedShadows", SetDelayedShadows);
+	lua_register(lua, "SetShadowRange", SetShadowRange);
 	lua_register(lua, "SetWind", SetWind);
 	lua_register(lua, "GetWind", GetWind);
 
