@@ -8232,12 +8232,15 @@ static float BlastDecalRay(const float* pFrom, const float* pDir, float fLength,
 // texture from the direction it faces most (triplanar), so none is stretched; it fades out towards the radius. nx, ny, nz
 // is the normal of the surface hit (up by default): the centre is lifted off it by a quarter of the radius, or the surface
 // itself would face across the centre and stay clean. opacity is 0 to 100, and life as AddProjectedDecal's. Unless rays
-// is 0, short rays against static entities and the ground (up to about 26, once) turn the decal square to the nearest
-// wall and find the first surface along each of its six axes, so a floor under a slab or a wall behind a wall stays clean.
+// is 0, short rays against entities and the ground (up to 34, once) turn the decal square to the nearest wall and find the
+// first surface along each of its six axes, so a floor under a slab or a wall behind a wall stays clean. They are cast
+// only when an entity's bounds come within their reach: the ground alone is left to the facing test, so a blast on open
+// ground costs no rays.
 // It is one of the projected decals: the same ids, limit and level clearing, and RemoveProjectedDecal,
 // SetProjectedDecalOpacity, SetProjectedDecalGrass (the circle goes round x, y, z), SetProjectedDecalFacing (0.1 unless
 // set, towards the centre) and SetProjectedDecalBlend work on it. spin turns it about the up axis, in degrees, when no wall
-// squared it (on open ground), so scorches there don't all face the same way. Returns its id, 0 if the texture did not load
+// squared it (on open ground), so scorches there don't all face the same way. Returns its id, 0 if the texture did not
+// load, and the number of rays cast
 int AddBlastDecal(lua_State *L)
 {
 	int n = LUA_GETTOP(L);
@@ -8263,6 +8266,18 @@ int AddBlastDecal(lua_State *L)
 	// the centre, off the surface hit
 	float fCentre[3] = { fHit[0] + fN[0] * fRadius * 0.25f, fHit[1] + fN[1] * fRadius * 0.25f, fHit[2] + fN[2] * fRadius * 0.25f };
 
+	// the rays reach the radius along the box's axes, and those beside the first half the radius off to the side, so
+	// all within 1.12 of it round the centre: with no entity's bounds in that cube they could only find the ground, a
+	// heightfield, whose far sides the facing test already keeps clean, and none are cast
+	int iRaysCast = 0;
+	if (bRays)
+	{
+		float fReach = fRadius * 1.125f;
+		float fMin[3] = { fCentre[0] - fReach, fCentre[1] - fReach, fCentre[2] - fReach };
+		float fMax[3] = { fCentre[0] + fReach, fCentre[1] + fReach, fCentre[2] + fReach };
+		if (!WickedCall_AnyPickableObjectInBox(fMin, fMax, g.entityviewstartobj, g.entityviewendobj)) bRays = false;
+	}
+
 	// the box's axes: Y up, and X square to the wall hit, or else to the nearest wall round the centre, so a corner's
 	// faces each meet one of its planes squarely; otherwise the world's
 	float fAxes[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
@@ -8282,6 +8297,7 @@ int AddBlastDecal(lua_State *L)
 		{
 			float fWallN[3] = { 0, 0, 0 };
 			fWorldRays[i] = BlastDecalRay(fCentre, fWorldDirs[i], fRadius, fWallN);
+			iRaysCast++;
 			float fAcross = sqrtf(fWallN[0] * fWallN[0] + fWallN[2] * fWallN[2]);
 			if (fWorldRays[i] < fNearestWall && fabsf(fWallN[1]) < 0.7f && fAcross > 0.1f)
 			{
@@ -8328,7 +8344,10 @@ int AddBlastDecal(lua_State *L)
 				if (bWorldAxes && !bSpun && iAxis != 1 && fabsf(fN[1]) >= 0.7f)
 					fFirst = fWorldRays[(iAxis == 0 ? 0 : 2) + iSide];
 				else
+				{
 					fFirst = BlastDecalRay(fCentre, fDir, fRadius, fHitN);
+					iRaysCast++;
+				}
 				uint32_t iCode = 31;
 				if (fFirst < 1.0f)
 				{
@@ -8340,6 +8359,7 @@ int AddBlastDecal(lua_State *L)
 						float fOffset = (iBeside & 1) ? -0.5f * fRadius : 0.5f * fRadius;
 						float fFrom[3] = { fCentre[0] + fAxes[iAcross][0] * fOffset, fCentre[1] + fAxes[iAcross][1] * fOffset, fCentre[2] + fAxes[iAcross][2] * fOffset };
 						float fAlong = BlastDecalRay(fFrom, fDir, fRadius, fHitN);
+						iRaysCast++;
 						if (fAlong >= 1.0f) bFlat = false;
 						if (fAlong < fNearest) fNearest = fAlong;
 						if (fAlong > fFarthest) fFarthest = fAlong;
@@ -8365,7 +8385,8 @@ int AddBlastDecal(lua_State *L)
 	int iID = WickedCall_AddBlastDecal(pImagePath, fCentre[0], fCentre[1], fCentre[2], fRadius, &fAxes[0][0], iOcclusion, iHitClipDirection, fHitClip, fLife, fHit[0], fHit[1], fHit[2]);
 	if (iID > 0 && fOpacity < 1.0f) WickedCall_SetProjectedDecalOpacity(iID, fOpacity);
 	lua_pushinteger(L, iID);
-	return 1;
+	lua_pushinteger(L, iRaysCast);
+	return 2;
 }
 // SetProjectedDecalBlend(id, power): how sharply a blast decal's surfaces take the texture from the direction they face
 // most, 1 to 64 (8 unless set). Higher leaves fewer surfaces blending two or three directions (fewer samples, and no

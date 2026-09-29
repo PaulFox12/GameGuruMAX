@@ -6309,6 +6309,37 @@ bool WickedCall_SentRay4(float originx, float originy, float originz, float dire
 	return false;
 }
 
+// true if the bounds of an object WickedCall_SentRay4 could hit (in the normal layer, opaque or transparent, shown and
+// colliding), numbered dwFirstObj to dwLastObj, reach the box from pMin to pMax: bounds only, so a caller can skip rays
+// that could only miss
+bool WickedCall_AnyPickableObjectInBox(const float* pMin, const float* pMax, DWORD dwFirstObj, DWORD dwLastObj)
+{
+	Scene& scene = wiScene::GetScene();
+	size_t iCount = scene.aabb_objects.GetCount();
+	if (iCount > scene.objects.GetCount()) iCount = scene.objects.GetCount();
+	for (size_t i = 0; i < iCount; i++)
+	{
+		// an empty box (its min above its max) never reaches
+		const AABB& aabb = scene.aabb_objects[i];
+		if (aabb._max.x < pMin[0] || aabb._min.x > pMax[0]) continue;
+		if (aabb._max.y < pMin[1] || aabb._min.y > pMax[1]) continue;
+		if (aabb._max.z < pMin[2] || aabb._min.z > pMax[2]) continue;
+
+		// the tests the pick makes
+		const ObjectComponent& object = scene.objects[i];
+		if (object.meshID == INVALID_ENTITY || object.bDisableCollision || !object.IsRenderable()) continue;
+		if (!((RENDERTYPE_OPAQUE | RENDERTYPE_TRANSPARENT) & object.GetRenderTypes())) continue;
+		Entity entity = scene.aabb_objects.GetEntity(i);
+		const LayerComponent* layer = scene.layers.GetComponent(entity);
+		if (layer != nullptr && !(layer->GetLayerMask() & GGRENDERLAYERS_NORMAL)) continue;
+
+		// and the object number the caller's hit must have
+		sObject* pObject = m_ObjectManager.FindObjectFromWickedObjectEntityID(entity);
+		if (pObject && pObject->dwObjectNumber >= dwFirstObj && pObject->dwObjectNumber <= dwLastObj) return true;
+	}
+	return false;
+}
+
 #ifdef PICKBVHTHREADED
 bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly)
 {

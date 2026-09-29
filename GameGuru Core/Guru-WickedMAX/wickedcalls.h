@@ -195,6 +195,7 @@ bool WickedCall_SentRay2(float originx, float originy, float originz, float dire
 bool WickedCall_SentRay3(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit);
 bool WickedCall_SentRay4(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly);
 bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly);
+bool WickedCall_AnyPickableObjectInBox(const float* pMin, const float* pMax, DWORD dwFirstObj, DWORD dwLastObj);
 void WickedCall_GetMouseDeltas(float* pfX, float* pfY);
 uint32_t WickedCall_GetTextureWidth(void* ptex);
 uint32_t WickedCall_GetTextureHeight(void* ptex);
