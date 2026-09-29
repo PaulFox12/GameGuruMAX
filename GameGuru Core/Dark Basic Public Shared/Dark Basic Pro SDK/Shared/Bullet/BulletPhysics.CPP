@@ -4142,10 +4142,17 @@ int g_iODERayTerrainHitTree = 0;
 
 int ODERayTerrain ( float fX, float fY, float fZ, float fToX, float fToY, float fToZ, bool bUpdateDebugObj)
 {
-	// inject tree detection, so can exit early if ray tried to go 'THROUGH' a tree
+	// the ground first, then the tree trunks up to where the ray met it, so a trunk it reports is always the nearer and one
+	// behind a hill is never reported (the trunks are the whole map's, physics_rayintersecttree)
 	extern int physics_rayintersecttree (float fX, float fY, float fZ, float fToX, float fToY, float fToZ);
 	g_iODERayTerrainHitTree = 0;
-	if (physics_rayintersecttree (fX, fY, fZ, fToX, fToY, fToZ) == 1)
+	int iGround = ODERayTerrainEx ( fX, fY, fZ, fToX, fToY, fToZ, COL_TERRAIN, bUpdateDebugObj);
+	float fEndX = fToX, fEndY = fToY, fEndZ = fToZ;
+	if (iGround == 1)
+	{
+		fEndX = g_hitPointWorld.x(); fEndY = g_hitPointWorld.y(); fEndZ = g_hitPointWorld.z();
+	}
+	if (physics_rayintersecttree (fX, fY, fZ, fEndX, fEndY, fEndZ) == 1)
 	{
 		// report where the ray entered the tree, or ODEGetRayCollision* would return the last ray's point
 		extern float g_fTreeRayHitX, g_fTreeRayHitY, g_fTreeRayHitZ, g_fTreeRayHitNX, g_fTreeRayHitNY, g_fTreeRayHitNZ;
@@ -4155,7 +4162,7 @@ int ODERayTerrain ( float fX, float fY, float fZ, float fToX, float fToY, float 
 		g_iODERayTerrainHitTree = 1;
 		return 1;
 	}
-	return ODERayTerrainEx ( fX, fY, fZ, fToX, fToY, fToZ, COL_TERRAIN, bUpdateDebugObj);
+	return iGround;
 }
 
 int ODERayForce ( float fX, float fY, float fZ, float fToX, float fToY, float fToZ, float fForceValue )

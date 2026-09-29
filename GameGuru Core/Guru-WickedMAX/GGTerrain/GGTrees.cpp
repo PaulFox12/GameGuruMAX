@@ -348,9 +348,19 @@ UnorderedArray<uint32_t> pInvisibleTrees;
 // function once, and keep it until the terrain under them changes, see GGTrees_InvalidateHeights()
 uint8_t pTreeHeightValid[ numTotalTrees ] = { 0 };
 
+// a drawn tree's trunk as rays test it (GGTrees_RayCastTrunks): a vertical cylinder from the tree's base to its top, as
+// thick as the physics' tree cylinder (the species' thickness times the tree's scale, across)
+struct TreeTrunk
+{
+	float x, z;
+	float radius;
+	float base, top;
+};
+
 struct TreeChunk
 {
 	UnorderedArray<InstanceTree*> pInstances;
+	std::vector<TreeTrunk> trunks; // the drawn trees' trunks, packed for rays, rebuilt with the GPU list in Update()
 	float minHeight = 0;
 	float maxHeight = 0;
 	GPUBuffer bufferInstances;
@@ -550,6 +560,7 @@ struct TreeChunk
 
 	void Update()
 	{
+		trunks.clear();
 		if (!ggtrees_initialised) return;
 		if ( pInstances.NumItems() == 0 ) return;
 
@@ -574,6 +585,14 @@ struct TreeChunk
 				pData[ numValid ].z = pInstance->z;
 				pData[ numValid ].data = pInstance->data;
 				numValid++;
+
+				TreeTrunk trunk;
+				trunk.x = pInstance->x;
+				trunk.z = pInstance->z;
+				trunk.radius = pInstance->GetTreeThickness() * pInstance->GetScaleFloat() * 0.5f;
+				trunk.base = pInstance->y;
+				trunk.top = pInstance->y + treeHeight * pInstance->GetScaleFloat();
+				trunks.push_back( trunk );
 			}
 		}
 
@@ -1710,15 +1729,19 @@ static bool GGTrees_ClipSegment( float p, float d, float lo, float hi, float* t0
 
 // where the segment from x1, y1, z1 to x2, y2, z2 first meets a tree trunk, anywhere on the map. A trunk is a vertical
 // cylinder as thick as the physics' tree cylinder (the species' thickness times the tree's scale, across) from the tree's
-// base to its top; canopies don't count, nor trees that are not drawn (hidden, flattened, killed or invalid). Only the
-// chunks the segment crosses are walked, nearest first, stopping once a hit lies before the next one. pOut gets the point
-// and the trunk's normal there (x, y, z, nx, ny, nz); returns 1 on a hit
+// base to its top; canopies don't count, nor trees that are not drawn (hidden, flattened, killed or invalid). It reads the
+// packed trunk list of each chunk the segment crosses (TreeChunk::trunks), nearest chunk first, stopping once a hit lies
+// before the next one. pOut gets the point and the trunk's normal there (x, y, z, nx, ny, nz); returns 1 on a hit
 int GGTrees_RayCastTrunks( float x1, float y1, float z1, float x2, float y2, float z2, float* pOut )
 {
 	if ( !ggtrees_initialised || !ggtrees_global_params.draw_enabled ) return 0;
 	float dx = x2 - x1;
 	float dy = y2 - y1;
 	float dz = z2 - z1;
+	float minX = x1 < x2 ? x1 : x2;
+	float maxX = x1 < x2 ? x2 : x1;
+	float minZ = z1 < z2 ? z1 : z2;
+	float maxZ = z1 < z2 ? z2 : z1;
 
 	// the chunks the segment crosses on x and z, in the order it enters them
 	float chunkEntry[ numTreeChunks ];
@@ -1727,7 +1750,7 @@ int GGTrees_RayCastTrunks( float x1, float y1, float z1, float x2, float y2, flo
 	for( uint32_t i = 0; i < numTreeChunks; i++ )
 	{
 		TreeChunk* pChunk = &pTreeChunks[ i ];
-		if ( pChunk->pInstances.NumItems() == 0 ) continue;
+		if ( pChunk->trunks.empty() ) continue;
 		AABB aabb;
 		pChunk->GetBounds( &aabb );
 		float t0 = 0, t1 = 1;
@@ -1744,25 +1767,27 @@ int GGTrees_RayCastTrunks( float x1, float y1, float z1, float x2, float y2, flo
 		chunkIndex[ k ] = i;
 	}
 
+	float a = dx*dx + dz*dz;
 	float bestT = 2.0f;
 	int bestEntry = 0; // how the segment enters the nearest trunk: 0 it starts inside, 1 through the top or base, 2 the side
-	InstanceTree* pBest = 0;
+	const TreeTrunk* pBest = 0;
 	for( uint32_t c = 0; c < numChunks; c++ )
 	{
 		if ( chunkEntry[ c ] > bestT ) break;
-		TreeChunk* pChunk = &pTreeChunks[ chunkIndex[ c ] ];
-		for( uint32_t j = 0; j < pChunk->pInstances.NumItems(); j++ )
+		const std::vector<TreeTrunk>& trunks = pTreeChunks[ chunkIndex[ c ] ].trunks;
+		for( size_t j = 0; j < trunks.size(); j++ )
 		{
-			InstanceTree* pTree = pChunk->pInstances[ j ];
-			if ( !pTree->IsVisible() || pTree->IsFlattened() || pTree->IsKilled() || pTree->IsInvalid() ) continue;
+			const TreeTrunk& trunk = trunks[ j ];
+
+			// past at once a trunk outside the segment's bounds
+			if ( trunk.x + trunk.radius < minX || trunk.x - trunk.radius > maxX ) continue;
+			if ( trunk.z + trunk.radius < minZ || trunk.z - trunk.radius > maxZ ) continue;
 
 			// the part of the segment within the trunk's radius of its axis
-			float radius = pTree->GetTreeThickness() * pTree->GetScaleFloat() * 0.5f;
-			float ox = x1 - pTree->x;
-			float oz = z1 - pTree->z;
-			float a = dx*dx + dz*dz;
+			float ox = x1 - trunk.x;
+			float oz = z1 - trunk.z;
 			float b = 2 * (ox*dx + oz*dz);
-			float cc = ox*ox + oz*oz - radius*radius;
+			float cc = ox*ox + oz*oz - trunk.radius*trunk.radius;
 			float t0 = 0, t1 = 1;
 			int entry = 0;
 			if ( a < 1e-9f )
@@ -1782,16 +1807,14 @@ int GGTrees_RayCastTrunks( float x1, float y1, float z1, float x2, float y2, flo
 			}
 
 			// and between its base and its top
-			float base = pTree->y;
-			float top = pTree->y + g_GGTrees[ pTree->GetType() ].height * pTree->GetScaleFloat();
 			if ( fabsf( dy ) < 1e-9f )
 			{
-				if ( y1 < base || y1 > top ) continue;
+				if ( y1 < trunk.base || y1 > trunk.top ) continue;
 			}
 			else
 			{
-				float ta = (base - y1) / dy;
-				float tb = (top - y1) / dy;
+				float ta = (trunk.base - y1) / dy;
+				float tb = (trunk.top - y1) / dy;
 				if ( ta > tb ) { float tmp = ta; ta = tb; tb = tmp; }
 				if ( ta > t0 ) { t0 = ta; entry = 1; }
 				if ( tb < t1 ) t1 = tb;
@@ -1802,7 +1825,7 @@ int GGTrees_RayCastTrunks( float x1, float y1, float z1, float x2, float y2, flo
 			{
 				bestT = t0;
 				bestEntry = entry;
-				pBest = pTree;
+				pBest = &trunk;
 			}
 		}
 	}
