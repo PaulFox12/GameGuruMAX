@@ -127,6 +127,7 @@ inline void TiledLighting(inout Surface surface, inout Lighting lighting, float 
 		}
 
 		surface.albedo.rgb = lerp(surface.albedo.rgb, decalAccumulation.rgb, decalAccumulation.a);
+		GGDecalCoat(surface, decalAccumulation.a);
 	}
 #endif // DISABLE_DECALS
 
