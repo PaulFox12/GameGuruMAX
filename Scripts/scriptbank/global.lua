@@ -2579,7 +2579,7 @@ GetEntityImmunity : n = GetEntityImmunity ( e ) -- 0 normally; -1 while SetEntit
 SetGrassKillBox : SetGrassKillBox ( slot, x, y, z, halfx, halfy, halfz [, yaw [, trees] ] ) -- slot 1 to 8: no grass is drawn with its root inside the box (turned by yaw degrees about Y, as an object's angle Y), e.g. under a vehicle; set it every frame to follow one. Cleared at level start. trees 1 (a blast, not a vehicle; 0 when left out) also removes every tree whose trunk reaches into the box, for the rest of the level: they stay gone when the box moves or is cleared
 ClearGrassKillBox : ClearGrassKillBox ( [slot] ) -- without a slot clears them all
 
-GetVideoMemoryUsed : usedMB, budgetMB = GetVideoMemoryUsed() -- the dedicated video memory the game uses, and the budget Windows gives it
+GetVideoMemoryUsed : usedMB, budgetMB, sharedUsedMB, sharedBudgetMB = GetVideoMemoryUsed() -- the dedicated video memory the game uses, and the budget Windows gives it; then the shared system memory the card uses and its budget, which grows when the dedicated memory nears its budget and Windows moves resources out (slow: the early warning of running out)
 GetDrawCalls : main, shadow, transparent, triangles = GetDrawCalls() -- the last frame's draw calls and the main pass's triangles
 SetRenderTiming : SetRenderTiming ( on ) -- 1 times the renderer's work every frame so GetRenderTime can read it (a few GPU queries a frame), 0 stops; off again at the next level
 GetRenderTime : ms = GetRenderTime ( [name] ) -- milliseconds, averaged over 20 frames, of a timed range: "GPU Frame" (the default), "CPU Frame" or another name from Tab Tab's performance data; -1 while timing is off and for the first frames after it is turned on

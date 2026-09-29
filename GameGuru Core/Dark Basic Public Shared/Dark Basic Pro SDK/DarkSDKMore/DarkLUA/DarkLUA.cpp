@@ -6081,16 +6081,19 @@ int GetElapsedTime ( lua_State *L )
 	return 1;
 }
 // GetVideoMemoryUsed(): the video memory the game uses on its graphics card and the budget Windows gives it there, both
-// in MB (free is budget - used)
+// in MB (free is budget - used), then the shared system memory the card uses and its budget. The shared figure grows when
+// the dedicated memory nears its budget and Windows moves resources out, which is slow: the early warning of running out
 int GetVideoMemoryUsed ( lua_State *L )
 {
 	lua = L;
-	float fUsedMB = 0, fBudgetMB = 0;
-	extern void GetVramUsageAndBudget ( float* pfUsedMB, float* pfBudgetMB );
-	GetVramUsageAndBudget ( &fUsedMB, &fBudgetMB );
+	float fUsedMB = 0, fBudgetMB = 0, fSharedUsedMB = 0, fSharedBudgetMB = 0;
+	extern void GetVramUsageAndBudget ( float* pfUsedMB, float* pfBudgetMB, float* pfSharedUsedMB, float* pfSharedBudgetMB );
+	GetVramUsageAndBudget ( &fUsedMB, &fBudgetMB, &fSharedUsedMB, &fSharedBudgetMB );
 	lua_pushnumber ( L, fUsedMB );
 	lua_pushnumber ( L, fBudgetMB );
-	return 2;
+	lua_pushnumber ( L, fSharedUsedMB );
+	lua_pushnumber ( L, fSharedBudgetMB );
+	return 4;
 }
 // GetDrawCalls(): the last frame's draw calls in the main pass, in the shadow passes and for transparent objects, and
 // the triangles the main pass drew

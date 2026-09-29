@@ -6289,11 +6289,14 @@ float GetVramUsage(void)
 	return (float)videoMemoryInfo.CurrentUsage / 1024.0f / 1024.0f;
 }
 
-// the dedicated video memory the game uses and the budget Windows gives it, in MB (GetVideoMemoryUsed in Lua)
-void GetVramUsageAndBudget(float* pfUsedMB, float* pfBudgetMB)
+// the dedicated video memory the game uses and the budget Windows gives it, in MB, and the same for the shared system
+// memory the card uses, which grows when the dedicated memory nears its budget (GetVideoMemoryUsed in Lua)
+void GetVramUsageAndBudget(float* pfUsedMB, float* pfBudgetMB, float* pfSharedUsedMB, float* pfSharedBudgetMB)
 {
 	*pfUsedMB = 0.0f;
 	*pfBudgetMB = 0.0f;
+	*pfSharedUsedMB = 0.0f;
+	*pfSharedBudgetMB = 0.0f;
 	IDXGIAdapter3* pAdapter = GetVramAdapter();
 	if (!pAdapter)
 		return;
@@ -6302,6 +6305,12 @@ void GetVramUsageAndBudget(float* pfUsedMB, float* pfBudgetMB)
 	{
 		*pfUsedMB = (float)videoMemoryInfo.CurrentUsage / 1024.0f / 1024.0f;
 		*pfBudgetMB = (float)videoMemoryInfo.Budget / 1024.0f / 1024.0f;
+	}
+	DXGI_QUERY_VIDEO_MEMORY_INFO sharedMemoryInfo = {};
+	if (SUCCEEDED(pAdapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &sharedMemoryInfo)))
+	{
+		*pfSharedUsedMB = (float)sharedMemoryInfo.CurrentUsage / 1024.0f / 1024.0f;
+		*pfSharedBudgetMB = (float)sharedMemoryInfo.Budget / 1024.0f / 1024.0f;
 	}
 }
 
