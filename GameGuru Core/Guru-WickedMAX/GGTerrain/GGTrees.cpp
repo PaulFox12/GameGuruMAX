@@ -1855,6 +1855,149 @@ int GGTrees_RayCastTrunks( float x1, float y1, float z1, float x2, float y2, flo
 	return 1;
 }
 
+// a point moving from p by v (t 0 to 1) against a rectangle of half sizes hx, hz grown by r with rounded corners, which is
+// where a circle of radius r meets the rectangle: the first t it is inside, 0 if it starts inside
+static bool GGTrees_PointMeetsRoundedRect( float px, float pz, float vx, float vz, float hx, float hz, float r, float* pT )
+{
+	float qx = fabsf( px ), qz = fabsf( pz );
+	float cx = qx - hx, cz = qz - hz;
+	if ( (qx <= hx + r && qz <= hz) || (qx <= hx && qz <= hz + r) || (cx > 0 && cz > 0 && cx*cx + cz*cz <= r*r) )
+	{
+		*pT = 0;
+		return true;
+	}
+	float best = 2.0f;
+	float t0 = 0, t1 = 1;
+	if ( GGTrees_ClipSegment( px, vx, -(hx + r), hx + r, &t0, &t1 ) && GGTrees_ClipSegment( pz, vz, -hz, hz, &t0, &t1 ) && t0 < best ) best = t0;
+	t0 = 0; t1 = 1;
+	if ( GGTrees_ClipSegment( px, vx, -hx, hx, &t0, &t1 ) && GGTrees_ClipSegment( pz, vz, -(hz + r), hz + r, &t0, &t1 ) && t0 < best ) best = t0;
+	float a = vx*vx + vz*vz;
+	if ( a > 1e-9f )
+	{
+		for( int corner = 0; corner < 4; corner++ )
+		{
+			float ox = px - ((corner & 1) ? hx : -hx);
+			float oz = pz - ((corner & 2) ? hz : -hz);
+			float b = 2 * (ox*vx + oz*vz);
+			float c = ox*ox + oz*oz - r*r;
+			float disc = b*b - 4*a*c;
+			if ( disc < 0 ) continue;
+			float t = (-b - sqrtf( disc )) / (2*a);
+			if ( t >= 0 && t <= 1 && t < best ) best = t;
+		}
+	}
+	if ( best > 1.0f ) return false;
+	*pT = best;
+	return true;
+}
+
+// where a box (centre, half sizes, turned by yaw degrees about Y as an object is) moving by pMotion first meets a tree trunk,
+// anywhere on the map: the same trunks as GGTrees_RayCastTrunks, each a cylinder from base to top. pOut gets the fraction
+// of the motion, the point and the trunk's normal there (fraction, x, y, z, nx, ny, nz); returns 1 on a hit, with fraction 0
+// for a box already touching a trunk
+int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, const float* pMotion, float* pOut )
+{
+	if ( !ggtrees_initialised || !ggtrees_global_params.draw_enabled ) return 0;
+	float hx = fabsf( pHalf[0] ), hy = fabsf( pHalf[1] ), hz = fabsf( pHalf[2] );
+	float yaw = yawDegrees * 3.14159265f / 180.0f;
+	float c = cosf( yaw ), s = sinf( yaw );
+
+	// the ground the box covers on its way
+	float reachX = fabsf( c ) * hx + fabsf( s ) * hz;
+	float reachZ = fabsf( s ) * hx + fabsf( c ) * hz;
+	float endX = pCentre[0] + pMotion[0], endZ = pCentre[2] + pMotion[2];
+	float minX = (pCentre[0] < endX ? pCentre[0] : endX) - reachX, maxX = (pCentre[0] < endX ? endX : pCentre[0]) + reachX;
+	float minZ = (pCentre[2] < endZ ? pCentre[2] : endZ) - reachZ, maxZ = (pCentre[2] < endZ ? endZ : pCentre[2]) + reachZ;
+
+	// in the box's own frame a trunk moves against the box's motion
+	float vx = -(pMotion[0] * c - pMotion[2] * s);
+	float vz = -(pMotion[0] * s + pMotion[2] * c);
+	float bestT = 2.0f;
+	const TreeTrunk* pBest = 0;
+	for( uint32_t i = 0; i < numTreeChunks; i++ )
+	{
+		TreeChunk* pChunk = &pTreeChunks[ i ];
+		if ( pChunk->trunks.empty() ) continue;
+		AABB aabb;
+		pChunk->GetBounds( &aabb );
+		if ( minX > aabb._max.x || maxX < aabb._min.x || minZ > aabb._max.z || maxZ < aabb._min.z ) continue;
+		for( size_t j = 0; j < pChunk->trunks.size(); j++ )
+		{
+			const TreeTrunk& trunk = pChunk->trunks[ j ];
+			if ( trunk.x + trunk.radius < minX || trunk.x - trunk.radius > maxX ) continue;
+			if ( trunk.z + trunk.radius < minZ || trunk.z - trunk.radius > maxZ ) continue;
+			float dx = trunk.x - pCentre[0];
+			float dz = trunk.z - pCentre[2];
+			float t;
+			if ( !GGTrees_PointMeetsRoundedRect( dx * c - dz * s, dx * s + dz * c, vx, vz, hx, hz, trunk.radius, &t ) || t >= bestT ) continue;
+
+			// and the box's height then reaches the trunk
+			float boxY = pCentre[1] + pMotion[1] * t;
+			if ( boxY - hy > trunk.top || boxY + hy < trunk.base ) continue;
+			bestT = t;
+			pBest = &trunk;
+		}
+	}
+	if ( !pBest ) return 0;
+
+	// the contact: on the trunk's surface, facing the nearest point of the box's footprint (against the motion when the
+	// trunk's axis is inside it)
+	float t = bestT;
+	float dx = pBest->x - (pCentre[0] + pMotion[0] * t);
+	float dz = pBest->z - (pCentre[2] + pMotion[2] * t);
+	float px = dx * c - dz * s;
+	float pz = dx * s + dz * c;
+	float qx = px < -hx ? -hx : (px > hx ? hx : px);
+	float qz = pz < -hz ? -hz : (pz > hz ? hz : pz);
+	float nlx = qx - px, nlz = qz - pz;
+	float length = sqrtf( nlx*nlx + nlz*nlz );
+	if ( length < 0.0001f ) { nlx = vx; nlz = vz; length = sqrtf( nlx*nlx + nlz*nlz ); }
+	if ( length < 0.0001f ) { nlx = 1; nlz = 0; length = 1; }
+	nlx /= length; nlz /= length;
+	float nx = nlx * c + nlz * s;
+	float nz = -nlx * s + nlz * c;
+	float hitY = pCentre[1] + pMotion[1] * t;
+	if ( hitY < pBest->base ) hitY = pBest->base;
+	if ( hitY > pBest->top ) hitY = pBest->top;
+	pOut[ 0 ] = t;
+	pOut[ 1 ] = pBest->x + nx * pBest->radius;
+	pOut[ 2 ] = hitY;
+	pOut[ 3 ] = pBest->z + nz * pBest->radius;
+	pOut[ 4 ] = nx; pOut[ 5 ] = 0; pOut[ 6 ] = nz;
+	return 1;
+}
+
+// how many tree trunks a box (as GGTrees_SweepBoxTrunks's) touches now
+int GGTrees_OverlapBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees )
+{
+	if ( !ggtrees_initialised || !ggtrees_global_params.draw_enabled ) return 0;
+	float hx = fabsf( pHalf[0] ), hy = fabsf( pHalf[1] ), hz = fabsf( pHalf[2] );
+	float yaw = yawDegrees * 3.14159265f / 180.0f;
+	float c = cosf( yaw ), s = sinf( yaw );
+	float reachX = fabsf( c ) * hx + fabsf( s ) * hz;
+	float reachZ = fabsf( s ) * hx + fabsf( c ) * hz;
+	int count = 0;
+	for( uint32_t i = 0; i < numTreeChunks; i++ )
+	{
+		TreeChunk* pChunk = &pTreeChunks[ i ];
+		if ( pChunk->trunks.empty() ) continue;
+		AABB aabb;
+		pChunk->GetBounds( &aabb );
+		if ( pCentre[0] - reachX > aabb._max.x || pCentre[0] + reachX < aabb._min.x ) continue;
+		if ( pCentre[2] - reachZ > aabb._max.z || pCentre[2] + reachZ < aabb._min.z ) continue;
+		for( size_t j = 0; j < pChunk->trunks.size(); j++ )
+		{
+			const TreeTrunk& trunk = pChunk->trunks[ j ];
+			if ( pCentre[1] - hy > trunk.top || pCentre[1] + hy < trunk.base ) continue;
+			float dx = trunk.x - pCentre[0];
+			float dz = trunk.z - pCentre[2];
+			float t;
+			if ( GGTrees_PointMeetsRoundedRect( dx * c - dz * s, dx * s + dz * c, 0, 0, hx, hz, trunk.radius, &t ) ) count++;
+		}
+	}
+	return count;
+}
+
 uint32_t GGTrees_GetDataSize()
 {
 	return numTotalTrees * 3 + 1;

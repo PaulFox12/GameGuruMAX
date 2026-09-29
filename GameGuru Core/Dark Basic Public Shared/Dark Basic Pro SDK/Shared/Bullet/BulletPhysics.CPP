@@ -172,6 +172,16 @@ struct sObjectList
 };
 std::vector < sObjectList > g_PhyObjectList;
 
+// the object number of a body, for one made before its user index was set (GGPhysicsQuery's fallback); -1 if none
+int ODEFindObjectNumberOfBody(const btCollisionObject* pObject)
+{
+	for (int j = (int)g_PhyObjectList.size() - 1; j >= 0; j--)
+	{
+		if (g_PhyObjectList[j].body == pObject) return g_PhyObjectList[j].iID;
+	}
+	return -1;
+}
+
 // Internal functions
 
 void BULLETReceiveCoreDataPtr ( void )
@@ -1500,6 +1510,7 @@ void CreateBox ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTipOver
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	body->setUserPointer((void*)iArbValue);
+	body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// also remove all contact response
 	if ( bDoNotMoveAnyOtherObjects==true )
@@ -1615,6 +1626,7 @@ void EndStaticObject ( int iObjectNumber, int iTerrainCollider )
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	body->setUserPointer((void*)iArbValue);
+	body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// add physics object to system
 	short sCollidesWith = COL_OBJECT | COL_OBJECT_DYNAMIC | COL_CAPSULECHAR | COL_TERRAIN;
@@ -1938,6 +1950,7 @@ void CreateSphere ( int iObjectNumber, int isDynamic, float fWeight, float fFric
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	body->setUserPointer((void*)iArbValue);
+	body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// add physics object to system
 	short sColliderType = COL_OBJECT;
@@ -2024,6 +2037,7 @@ void CreateCylinder ( int iObjectNumber, int isDynamic, float fXPos, float fYPos
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	body->setUserPointer((void*)iArbValue);
+	body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// add physics object to system
 	short sColliderType = COL_OBJECT;
@@ -2760,6 +2774,7 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	body->setUserPointer((void*)iArbValue);
+	body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// add physics object to system
 	short sColliderType = COL_OBJECT;
@@ -2854,6 +2869,7 @@ void CreateTerrain ( int iObjectNumber, int isDynamic, int iWidth, int iLength, 
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	body->setUserPointer((void*)iArbValue);
+	body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// add physics object to system
 	short sCollidesWith = COL_OBJECT | COL_OBJECT_DYNAMIC | COL_CAPSULECHAR | COL_TERRAIN;
@@ -2926,6 +2942,7 @@ void UpdateTerrain ( int iObjectNumber, int isDynamic, int iWidth, int iLength, 
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	pPhyObject->body->setUserPointer((void*)iArbValue);
+	pPhyObject->body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// add new body back to simulation
 	short sCollidesWith = COL_OBJECT | COL_OBJECT_DYNAMIC | COL_CAPSULECHAR | COL_TERRAIN;
@@ -2960,6 +2977,7 @@ void ODECreateGGTerrain()
 	btRigidBody::btRigidBodyConstructionInfo rbInfo( mass, myMotionState, g_pTerrainShape, localInertia );
 	btRigidBody* body = new btRigidBody( rbInfo );
 
+	body->setUserIndex(0); // the ground (GGPhysicsQuery)
 	body->setUserPointer((void*)12345);// indicate this is terrain and uses material look up for footfall sounds - old was 0 );
 
 	// add physics object to system
@@ -3070,6 +3088,7 @@ void CreateCapsule ( int iObjectNumber, int isDynamic, float fScaleModifier, flo
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	body->setUserPointer((void*)iArbValue);
+	body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// add physics object to system
 	short sCollidesWith = COL_OBJECT | COL_OBJECT_DYNAMIC | COL_TERRAIN;

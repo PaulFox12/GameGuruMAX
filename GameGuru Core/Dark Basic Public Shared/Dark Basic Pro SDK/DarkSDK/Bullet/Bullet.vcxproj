@@ -570,6 +570,7 @@
     <ClCompile Include="..\..\..\..\SDK\BULLET\bullet-3.19\src\LinearMath\TaskScheduler\btThreadSupportWin32.cpp" />
     <ClCompile Include="..\..\Shared\Bullet\BulletPhysics.CPP" />
     <ClCompile Include="..\..\Shared\Bullet\GGTerrainPhysicsShape.cpp" />
+    <ClCompile Include="..\..\Shared\Bullet\GGPhysicsQuery_Bullet.cpp" />
     <ClCompile Include="..\..\Shared\Bullet\Ragdoll\BaseItem.cpp" />
     <ClCompile Include="..\..\Shared\Bullet\Ragdoll\BaseItemManager.cpp" />
     <ClCompile Include="..\..\Shared\Bullet\Ragdoll\BT2DX.cpp" />

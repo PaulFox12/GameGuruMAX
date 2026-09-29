@@ -461,6 +461,7 @@
       <Filter>Bullet3\Extras\VHACD\src</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Shared\Bullet\GGTerrainPhysicsShape.cpp" />
+    <ClCompile Include="..\..\Shared\Bullet\GGPhysicsQuery_Bullet.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Include\BulletPhysics.H" />

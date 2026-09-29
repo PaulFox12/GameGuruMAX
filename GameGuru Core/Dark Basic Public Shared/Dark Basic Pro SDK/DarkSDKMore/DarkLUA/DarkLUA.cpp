@@ -55,6 +55,7 @@ extern StoryboardStruct Storyboard;
 #endif
 
 #include "..\..\..\..\Guru-WickedMAX\wickedcalls.h"
+#include "..\..\..\..\GameGuru\Include\GGPhysicsQuery.h"
 #include "WickedEngine.h"
 using namespace std;
 using namespace wiGraphics;
@@ -7701,6 +7702,134 @@ int PhysicsRayCast( lua_State *L )
 	}
 	lua_pushnumber( L, 0 );
 	return 1;
+}
+// the object numbers a physics query ignores: one number, or a table of up to PHYSICS_QUERY_MAX_IGNORE (as IntersectRay's)
+static int LuaPhysicsIgnoreList(lua_State* L, int iIndex, int* pIgnore)
+{
+	int iCount = 0;
+	if (LUA_GETTOP(L) < iIndex) return 0;
+	if (lua_istable(L, iIndex))
+	{
+		int iLength = (int)lua_rawlen(L, iIndex);
+		for (int i = 1; i <= iLength && iCount < PHYSICS_QUERY_MAX_IGNORE; i++)
+		{
+			lua_rawgeti(L, iIndex, i);
+			int iObj = (int)lua_tointeger(L, -1);
+			lua_pop(L, 1);
+			if (iObj > 0) pIgnore[iCount++] = iObj;
+		}
+	}
+	else
+	{
+		int iObj = (int)lua_tointeger(L, iIndex);
+		if (iObj > 0) pIgnore[iCount++] = iObj;
+	}
+	return iCount;
+}
+
+// the collision cylinders the physics keeps at the trees round the camera (physics_managevirtualtreecylinders): a hit on
+// one is a tree trunk, reported as the map-wide trunks are
+static bool LuaPhysicsIsTreeCylinder(int iObject)
+{
+	return iObject >= g.virtualtreeobjectstart && iObject < g.virtualtreeobjectstart + PHYSICS_VIRTUALTREE_MAX;
+}
+
+// hit, x, y, z, nx, ny, nz, obj, fraction, tree
+static int LuaPushPhysicsHit(lua_State* L, const PhysicsHit& hit, bool bTree)
+{
+	bool bTreeHit = hit.hit && (bTree || LuaPhysicsIsTreeCylinder(hit.object));
+	lua_pushinteger(L, hit.hit ? 1 : 0);
+	for (int i = 0; i < 3; i++) lua_pushnumber(L, hit.hit ? hit.point[i] : 0.0f);
+	for (int i = 0; i < 3; i++) lua_pushnumber(L, hit.hit ? hit.normal[i] : 0.0f);
+	lua_pushinteger(L, (hit.hit && !bTreeHit) ? hit.object : 0);
+	lua_pushnumber(L, hit.hit ? hit.fraction : 1.0f);
+	lua_pushinteger(L, bTreeHit ? 1 : 0);
+	return 10;
+}
+
+// PhysicsRay(x1, y1, z1, x2, y2, z2 [, layers [, ignore]]): the nearest body the segment meets in the physics world, with no
+// force applied (PhysicsRayCast pushes what it hits and returns moving bodies only). layers add up: 1 the ground (and
+// entities built as terrain colliders), 2 static entities, 4 characters, 8 moving bodies (11 unless set); ignore is an
+// object number or a table of up to 8. Returns hit, x, y, z, nx, ny, nz, obj (0 the ground or a tree, -1 a character
+// capsule), fraction and tree (1 for a trunk). The physics world has the ground only as detailed as the terrain round the
+// camera, no body for collisionmode 11 or 12, and trunks only round the camera (RayTrees has them everywhere)
+int PhysicsRay(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 6) return 0;
+	float fFrom[3] = { (float)lua_tonumber(L, 1), (float)lua_tonumber(L, 2), (float)lua_tonumber(L, 3) };
+	float fTo[3] = { (float)lua_tonumber(L, 4), (float)lua_tonumber(L, 5), (float)lua_tonumber(L, 6) };
+	int iLayers = (n >= 7) ? (int)lua_tointeger(L, 7) : PHYSICS_LAYER_DEFAULT;
+	int pIgnore[PHYSICS_QUERY_MAX_IGNORE];
+	int iIgnoreCount = LuaPhysicsIgnoreList(L, 8, pIgnore);
+	PhysicsHit hit;
+	PhysicsQuery_Ray(fFrom, fTo, iLayers, pIgnore, iIgnoreCount, &hit);
+	return LuaPushPhysicsHit(L, hit, false);
+}
+
+// PhysicsSweepBox(cx, cy, cz, hx, hy, hz, yaw, mx, my, mz [, layers [, ignore [, trees]]]): the first thing a box meets as it
+// moves by mx, my, mz: the box centred on cx, cy, cz, reaching hx, hy, hz each way along its own axes and turned by yaw
+// degrees about Y as an object is (GetObjectColBox gives a hull's). It meets the physics world as PhysicsRay does, and
+// with trees 1 (the default) every drawn tree trunk on the map too. No gap between samples and no tunnelling, and the
+// normal is the real contact's. Returns what PhysicsRay does, fraction being how far along the motion; 0 means the box
+// already touched something, so lift a car's box clear of the ground or leave the ground out of layers
+int PhysicsSweepBox(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 10) return 0;
+	float fCentre[3] = { (float)lua_tonumber(L, 1), (float)lua_tonumber(L, 2), (float)lua_tonumber(L, 3) };
+	float fHalf[3] = { (float)lua_tonumber(L, 4), (float)lua_tonumber(L, 5), (float)lua_tonumber(L, 6) };
+	float fYaw = (float)lua_tonumber(L, 7);
+	float fMotion[3] = { (float)lua_tonumber(L, 8), (float)lua_tonumber(L, 9), (float)lua_tonumber(L, 10) };
+	int iLayers = (n >= 11) ? (int)lua_tointeger(L, 11) : PHYSICS_LAYER_DEFAULT;
+	int pIgnore[PHYSICS_QUERY_MAX_IGNORE];
+	int iIgnoreCount = LuaPhysicsIgnoreList(L, 12, pIgnore);
+	bool bTrees = (n < 13 || lua_tointeger(L, 13) != 0);
+	PhysicsHit hit;
+	PhysicsQuery_SweepBox(fCentre, fHalf, fYaw, fMotion, iLayers, pIgnore, iIgnoreCount, &hit);
+
+	// the map-wide trunks, where nearer
+	bool bTree = false;
+	float fTrunk[7];
+	if (bTrees && GGTrees::GGTrees_SweepBoxTrunks(fCentre, fHalf, fYaw, fMotion, fTrunk) && (!hit.hit || fTrunk[0] < hit.fraction))
+	{
+		hit.hit = true;
+		hit.fraction = fTrunk[0];
+		for (int i = 0; i < 3; i++) { hit.point[i] = fTrunk[1 + i]; hit.normal[i] = fTrunk[4 + i]; }
+		hit.object = 0;
+		bTree = true;
+	}
+	return LuaPushPhysicsHit(L, hit, bTree);
+}
+
+// PhysicsOverlapBox(cx, cy, cz, hx, hy, hz, yaw [, layers [, ignore [, trees]]]): what a box (as PhysicsSweepBox's) touches
+// now, such as a car wedged against something. Returns count, trees, then the object numbers of the count bodies it touches
+// (up to 32; 0 the ground, -1 a character capsule), trees being how many tree trunks it touches (with trees 1, the default)
+int PhysicsOverlapBox(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 7) return 0;
+	float fCentre[3] = { (float)lua_tonumber(L, 1), (float)lua_tonumber(L, 2), (float)lua_tonumber(L, 3) };
+	float fHalf[3] = { (float)lua_tonumber(L, 4), (float)lua_tonumber(L, 5), (float)lua_tonumber(L, 6) };
+	float fYaw = (float)lua_tonumber(L, 7);
+	int iLayers = (n >= 8) ? (int)lua_tointeger(L, 8) : PHYSICS_LAYER_DEFAULT;
+	int pIgnore[PHYSICS_QUERY_MAX_IGNORE];
+	int iIgnoreCount = LuaPhysicsIgnoreList(L, 9, pIgnore);
+	bool bTrees = (n < 10 || lua_tointeger(L, 10) != 0);
+	int pObjects[32];
+	int iFound = PhysicsQuery_OverlapBox(fCentre, fHalf, fYaw, iLayers, pIgnore, iIgnoreCount, pObjects, 32);
+
+	// the collision cylinders at the trees round the camera are trunks, counted with the map-wide ones
+	int iCount = 0;
+	for (int i = 0; i < iFound; i++)
+	{
+		if (!LuaPhysicsIsTreeCylinder(pObjects[i])) pObjects[iCount++] = pObjects[i];
+	}
+	int iTrees = bTrees ? GGTrees::GGTrees_OverlapBoxTrunks(fCentre, fHalf, fYaw) : 0;
+	lua_pushinteger(L, iCount);
+	lua_pushinteger(L, iTrees);
+	for (int i = 0; i < iCount; i++) lua_pushinteger(L, pObjects[i]);
+	return 2 + iCount;
 }
 int GetObjectNumCollisions(lua_State *L)
 {
@@ -15830,6 +15959,9 @@ void addFunctions()
 	lua_register(lua, "RemoveObjectConstraints", RemoveObjectConstraints );
 	lua_register(lua, "RemoveConstraint",        RemoveConstraint );
 	lua_register(lua, "PhysicsRayCast",          PhysicsRayCast );
+	lua_register(lua, "PhysicsRay", PhysicsRay);
+	lua_register(lua, "PhysicsSweepBox", PhysicsSweepBox);
+	lua_register(lua, "PhysicsOverlapBox", PhysicsOverlapBox);
 	lua_register(lua, "SetObjectDamping",        SetObjectDamping );
 	lua_register(lua, "SetHingeLimits",          SetHingeLimits );
 	lua_register(lua, "GetHingeAngle",           GetHingeAngle );
