@@ -8227,7 +8227,7 @@ static float BlastDecalRay(const float* pFrom, const float* pDir, float fLength,
 	return fNearest;
 }
 
-// AddBlastDecal(image, x, y, z, radius [, life [, opacity [, nx, ny, nz [, rays]]]]): a scorch round a blast at x, y, z
+// AddBlastDecal(image, x, y, z, radius [, life [, opacity [, nx, ny, nz [, rays [, spin]]]]]): a scorch round a blast at x, y, z
 // that lands on every surface within radius facing the blast, the floor and both walls of a corner alike, each taking the
 // texture from the direction it faces most (triplanar), so none is stretched; it fades out towards the radius. nx, ny, nz
 // is the normal of the surface hit (up by default): the centre is lifted off it by a quarter of the radius, or the surface
@@ -8236,7 +8236,8 @@ static float BlastDecalRay(const float* pFrom, const float* pDir, float fLength,
 // wall and find the first surface along each of its six axes, so a floor under a slab or a wall behind a wall stays clean.
 // It is one of the projected decals: the same ids, limit and level clearing, and RemoveProjectedDecal,
 // SetProjectedDecalOpacity, SetProjectedDecalGrass (the circle goes round x, y, z), SetProjectedDecalFacing (0.1 unless
-// set, towards the centre) and SetProjectedDecalBlend work on it. Returns its id, 0 if the texture did not load
+// set, towards the centre) and SetProjectedDecalBlend work on it. spin turns it about the up axis, in degrees, when no wall
+// squared it (on open ground), so scorches there don't all face the same way. Returns its id, 0 if the texture did not load
 int AddBlastDecal(lua_State *L)
 {
 	int n = LUA_GETTOP(L);
@@ -8257,6 +8258,7 @@ int AddBlastDecal(lua_State *L)
 		if (fLength > 0.000001f) { fN[0] = fNX / fLength; fN[1] = fNY / fLength; fN[2] = fNZ / fLength; }
 	}
 	bool bRays = (n < 11 || lua_tointeger(L, 11) != 0);
+	float fSpin = (n >= 12) ? (float)lua_tonumber(L, 12) : 0.0f;
 
 	// the centre, off the surface hit
 	float fCentre[3] = { fHit[0] + fN[0] * fRadius * 0.25f, fHit[1] + fN[1] * fRadius * 0.25f, fHit[2] + fN[2] * fRadius * 0.25f };
@@ -8289,6 +8291,15 @@ int AddBlastDecal(lua_State *L)
 		}
 		if (fAxes[0][0] < 0.9999f) bWorldAxes = false;
 	}
+	// with no wall to square to, the spin turns the box about its Y; its own axis rays are then cast, as the world ones no
+	// longer lie along it
+	bool bSpun = false;
+	if (bWorldAxes && fSpin != 0.0f)
+	{
+		float fSpinRad = fSpin * 0.0174532925f;
+		fAxes[0][0] = cosf(fSpinRad); fAxes[0][1] = 0; fAxes[0][2] = sinf(fSpinRad);
+		bSpun = true;
+	}
 	fAxes[2][0] = -fAxes[0][2]; fAxes[2][1] = 0; fAxes[2][2] = fAxes[0][0];
 
 	// how far the first surface lies along each of the box's six axes, 5 bits each (+x, -x, +y, -y, +z, -z; 31 for none). A
@@ -8314,7 +8325,7 @@ int AddBlastDecal(lua_State *L)
 				float fDir[3] = { fAxes[iAxis][0] * fSign, fAxes[iAxis][1] * fSign, fAxes[iAxis][2] * fSign };
 				float fHitN[3] = { 0, 0, 0 };
 				float fFirst;
-				if (bWorldAxes && iAxis != 1 && fabsf(fN[1]) >= 0.7f)
+				if (bWorldAxes && !bSpun && iAxis != 1 && fabsf(fN[1]) >= 0.7f)
 					fFirst = fWorldRays[(iAxis == 0 ? 0 : 2) + iSide];
 				else
 					fFirst = BlastDecalRay(fCentre, fDir, fRadius, fHitN);
