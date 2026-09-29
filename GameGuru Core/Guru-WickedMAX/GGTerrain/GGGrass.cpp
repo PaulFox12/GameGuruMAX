@@ -1947,17 +1947,23 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 		grassConstantData.grass_killbox_half[ n ] = XMFLOAT4( box.halfX, box.halfY, box.halfZ, sinf( yaw ) );
 	}
 
-	// then the engine's kill circles nearest the camera, as many as there is room for (a circle has -radius in half.x)
+	// then the engine's kill circles, as many as there is room for (a circle has -radius in half.x). They are ranked by
+	// how far the camera is from each one's edge (below 0 inside it), so a big clearing the camera stands in keeps its slot
+	// over smaller ones whose centres are nearer; one that can't reach the grass drawn round the camera takes none. The
+	// blades' loop runs over the shapes set, not the maximum
 	int iFreeShapes = GGGRASS_MAX_KILLSHAPES - (int)grassConstantData.grass_killbox_count;
 	if ( iFreeShapes > 0 && !gggrass_killcircles.empty() )
 	{
+		float reach = grassRadius * 1.5f; // past the corners of the grass drawn round the camera
 		std::vector<std::pair<float,int>> nearest;
 		nearest.reserve( gggrass_killcircles.size() );
 		for( int i = 0; i < (int)gggrass_killcircles.size(); i++ )
 		{
 			float dx = gggrass_killcircles[ i ].x - grassCameraX;
 			float dz = gggrass_killcircles[ i ].z - grassCameraZ;
-			nearest.push_back( std::make_pair( dx*dx + dz*dz, i ) );
+			float edge = sqrtf( dx*dx + dz*dz ) - gggrass_killcircles[ i ].w;
+			if ( edge > reach ) continue;
+			nearest.push_back( std::make_pair( edge, i ) );
 		}
 		int iTake = (int)nearest.size() < iFreeShapes ? (int)nearest.size() : iFreeShapes;
 		std::partial_sort( nearest.begin(), nearest.begin() + iTake, nearest.end() );

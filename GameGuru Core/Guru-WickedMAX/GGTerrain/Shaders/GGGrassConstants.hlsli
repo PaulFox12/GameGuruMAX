@@ -29,7 +29,7 @@ struct GrassType
 #define GGGRASS_FLAGS_SIMPLE_PBR  0x0001 // increase performance by simplifying the PBR shader but with lower quality
 
 #define GGGRASS_MAX_KILLBOXES 8 // boxes set from Lua (SetGrassKillBox) that no blade is drawn in, such as under a vehicle
-#define GGGRASS_MAX_KILLSHAPES 16 // those boxes, then the nearest circles the engine clears (under a projected decal)
+#define GGGRASS_MAX_KILLSHAPES 32 // those boxes, then the circles the engine clears (under a projected decal) whose edge is nearest
 
 #ifdef __cplusplus
 struct GrassCB

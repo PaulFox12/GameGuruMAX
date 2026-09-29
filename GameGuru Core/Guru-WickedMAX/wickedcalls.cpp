@@ -6801,8 +6801,8 @@ void WickedCall_SetProjectedDecalOpacity(int iID, float fOpacity)
 	WickedCall_ApplyProjectedDecalOpacity(*pDecal);
 }
 
-// no grass blade is drawn within fRadius of the decal's centre (0 for none); the nearest to the camera take the grass
-// kill shapes the script's boxes leave free. bTrees also removes the trees there, for the rest of the level
+// no grass blade is drawn within fRadius of the decal's centre (0 for none); those whose edge is nearest the camera take
+// the grass kill shapes the script's boxes leave free. bTrees also removes the trees there, for the rest of the level
 void WickedCall_SetProjectedDecalGrass(int iID, float fRadius, bool bTrees)
 {
 	sProjectedDecal* pDecal = WickedCall_FindProjectedDecal(iID);

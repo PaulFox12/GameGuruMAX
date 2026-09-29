@@ -8439,7 +8439,8 @@ int SetProjectedDecalFacing(lua_State *L)
 	return 0;
 }
 // SetProjectedDecalGrass(id, radius [, trees]): no grass blade is drawn within radius of the decal's centre (0 for none,
-// the default). The nearest to the camera use the grass kill shapes that SetGrassKillBox's 8 leave free, 16 in all. trees
+// the default). Those whose edge is nearest the camera (the one it stands in first) use the grass kill shapes that
+// SetGrassKillBox's 8 leave free, 32 in all; one too far to reach the drawn grass takes none. trees
 // 1 also removes every tree whose trunk reaches within radius of the centre (as far above and below), for the rest of the
 // level: they stay gone when the decal does
 int SetProjectedDecalGrass(lua_State *L)
