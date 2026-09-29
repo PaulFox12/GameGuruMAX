@@ -1696,6 +1696,142 @@ int GGTrees_RayCast( RAY ray, float maxDist, float* outDist, uint32_t* treeID )
 	return hit;
 }
 
+// narrows t0..t1 to where p + d * t lies between lo and hi; false if it never does
+static bool GGTrees_ClipSegment( float p, float d, float lo, float hi, float* t0, float* t1 )
+{
+	if ( fabsf( d ) < 1e-9f ) return p >= lo && p <= hi;
+	float ta = (lo - p) / d;
+	float tb = (hi - p) / d;
+	if ( ta > tb ) { float tmp = ta; ta = tb; tb = tmp; }
+	if ( ta > *t0 ) *t0 = ta;
+	if ( tb < *t1 ) *t1 = tb;
+	return *t0 <= *t1;
+}
+
+// where the segment from x1, y1, z1 to x2, y2, z2 first meets a tree trunk, anywhere on the map. A trunk is a vertical
+// cylinder as thick as the physics' tree cylinder (the species' thickness times the tree's scale, across) from the tree's
+// base to its top; canopies don't count, nor trees that are not drawn (hidden, flattened, killed or invalid). Only the
+// chunks the segment crosses are walked, nearest first, stopping once a hit lies before the next one. pOut gets the point
+// and the trunk's normal there (x, y, z, nx, ny, nz); returns 1 on a hit
+int GGTrees_RayCastTrunks( float x1, float y1, float z1, float x2, float y2, float z2, float* pOut )
+{
+	if ( !ggtrees_initialised || !ggtrees_global_params.draw_enabled ) return 0;
+	float dx = x2 - x1;
+	float dy = y2 - y1;
+	float dz = z2 - z1;
+
+	// the chunks the segment crosses on x and z, in the order it enters them
+	float chunkEntry[ numTreeChunks ];
+	uint32_t chunkIndex[ numTreeChunks ];
+	uint32_t numChunks = 0;
+	for( uint32_t i = 0; i < numTreeChunks; i++ )
+	{
+		TreeChunk* pChunk = &pTreeChunks[ i ];
+		if ( pChunk->pInstances.NumItems() == 0 ) continue;
+		AABB aabb;
+		pChunk->GetBounds( &aabb );
+		float t0 = 0, t1 = 1;
+		if ( !GGTrees_ClipSegment( x1, dx, aabb._min.x, aabb._max.x, &t0, &t1 ) ) continue;
+		if ( !GGTrees_ClipSegment( z1, dz, aabb._min.z, aabb._max.z, &t0, &t1 ) ) continue;
+		uint32_t k = numChunks++;
+		while ( k > 0 && chunkEntry[ k - 1 ] > t0 )
+		{
+			chunkEntry[ k ] = chunkEntry[ k - 1 ];
+			chunkIndex[ k ] = chunkIndex[ k - 1 ];
+			k--;
+		}
+		chunkEntry[ k ] = t0;
+		chunkIndex[ k ] = i;
+	}
+
+	float bestT = 2.0f;
+	int bestEntry = 0; // how the segment enters the nearest trunk: 0 it starts inside, 1 through the top or base, 2 the side
+	InstanceTree* pBest = 0;
+	for( uint32_t c = 0; c < numChunks; c++ )
+	{
+		if ( chunkEntry[ c ] > bestT ) break;
+		TreeChunk* pChunk = &pTreeChunks[ chunkIndex[ c ] ];
+		for( uint32_t j = 0; j < pChunk->pInstances.NumItems(); j++ )
+		{
+			InstanceTree* pTree = pChunk->pInstances[ j ];
+			if ( !pTree->IsVisible() || pTree->IsFlattened() || pTree->IsKilled() || pTree->IsInvalid() ) continue;
+
+			// the part of the segment within the trunk's radius of its axis
+			float radius = pTree->GetTreeThickness() * pTree->GetScaleFloat() * 0.5f;
+			float ox = x1 - pTree->x;
+			float oz = z1 - pTree->z;
+			float a = dx*dx + dz*dz;
+			float b = 2 * (ox*dx + oz*dz);
+			float cc = ox*ox + oz*oz - radius*radius;
+			float t0 = 0, t1 = 1;
+			int entry = 0;
+			if ( a < 1e-9f )
+			{
+				if ( cc > 0 ) continue;
+			}
+			else
+			{
+				float disc = b*b - 4*a*cc;
+				if ( disc < 0 ) continue;
+				float root = sqrtf( disc );
+				float ta = (-b - root) / (2*a);
+				float tb = (-b + root) / (2*a);
+				if ( ta > t0 ) { t0 = ta; entry = 2; }
+				if ( tb < t1 ) t1 = tb;
+				if ( t0 > t1 || t0 >= bestT ) continue;
+			}
+
+			// and between its base and its top
+			float base = pTree->y;
+			float top = pTree->y + g_GGTrees[ pTree->GetType() ].height * pTree->GetScaleFloat();
+			if ( fabsf( dy ) < 1e-9f )
+			{
+				if ( y1 < base || y1 > top ) continue;
+			}
+			else
+			{
+				float ta = (base - y1) / dy;
+				float tb = (top - y1) / dy;
+				if ( ta > tb ) { float tmp = ta; ta = tb; tb = tmp; }
+				if ( ta > t0 ) { t0 = ta; entry = 1; }
+				if ( tb < t1 ) t1 = tb;
+				if ( t0 > t1 ) continue;
+			}
+
+			if ( t0 < bestT )
+			{
+				bestT = t0;
+				bestEntry = entry;
+				pBest = pTree;
+			}
+		}
+	}
+	if ( !pBest ) return 0;
+
+	float hitX = x1 + dx * bestT;
+	float hitY = y1 + dy * bestT;
+	float hitZ = z1 + dz * bestT;
+	float nx = 0, ny = 0, nz = 0;
+	if ( bestEntry == 2 )
+	{
+		nx = hitX - pBest->x;
+		nz = hitZ - pBest->z;
+	}
+	else if ( bestEntry == 1 )
+	{
+		ny = dy > 0 ? -1.0f : 1.0f;
+	}
+	else
+	{
+		nx = -dx; ny = -dy; nz = -dz;
+	}
+	float length = sqrtf( nx*nx + ny*ny + nz*nz );
+	if ( length > 0.000001f ) { nx /= length; ny /= length; nz /= length; }
+	pOut[ 0 ] = hitX; pOut[ 1 ] = hitY; pOut[ 2 ] = hitZ;
+	pOut[ 3 ] = nx; pOut[ 4 ] = ny; pOut[ 5 ] = nz;
+	return 1;
+}
+
 uint32_t GGTrees_GetDataSize()
 {
 	return numTotalTrees * 3 + 1;

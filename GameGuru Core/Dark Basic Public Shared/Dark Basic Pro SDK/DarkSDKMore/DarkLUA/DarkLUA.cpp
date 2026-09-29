@@ -13710,6 +13710,19 @@ int GetTreeShadowCascades(lua_State* L)
 	lua_pushnumber(L, GGTrees::ggtrees_global_params.tree_shadow_range_high);
 	return 2;
 }
+// RayTrees(x1, y1, z1, x2, y2, z2): the nearest tree trunk the segment meets, anywhere on the map (the physics sees only
+// those round the camera). Returns 1 and the point and the trunk's normal there, or 0 and zeros. A trunk is as thick as
+// the trees' physics collision (by species and scale) and reaches from the ground to the tree's top; canopies don't
+// count, nor trees hidden under a building or removed by a blast. Only the tree chunks along the segment are walked
+int RayTrees(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 6) return 0;
+	float fOut[6] = { 0, 0, 0, 0, 0, 0 };
+	int iHit = GGTrees::GGTrees_RayCastTrunks(lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5), lua_tonumber(L, 6), fOut);
+	lua_pushinteger(L, iHit);
+	for (int i = 0; i < 6; i++) lua_pushnumber(L, fOut[i]);
+	return 7;
+}
 
 //PE: USE - SetLutTo("editors\\lut\\sephia.png")
 //PE: USE - string = GetLut()
@@ -16516,6 +16529,7 @@ void addFunctions()
 	lua_register(lua, "GetTreeTransition", GetTreeTransition);
 	lua_register(lua, "SetTreeShadowCascades", SetTreeShadowCascades);
 	lua_register(lua, "GetTreeShadowCascades", GetTreeShadowCascades);
+	lua_register(lua, "RayTrees", RayTrees);
 	lua_register(lua, "GunAnimationSetFrame", GunAnimationSetFrame);
 	lua_register(lua, "LoopGunAnimation", LoopGunAnimation);
 	lua_register(lua, "StopGunAnimation", StopGunAnimation);

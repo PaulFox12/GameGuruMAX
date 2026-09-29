@@ -2481,6 +2481,7 @@ SetTreeTransition : SetTreeTransition ( w [, shadowW] ) -- width of the band whe
 GetTreeTransition : w, shadowW = GetTreeTransition()
 SetTreeShadowCascades : SetTreeShadowCascades ( billboard [, fullDetail] ) -- how many sun shadow cascades (0 to 5, nearest first) draw billboard and full detail tree shadows; negative or omitted keeps the current value
 GetTreeShadowCascades : billboard, fullDetail = GetTreeShadowCascades()
+RayTrees : hit, x, y, z, nx, ny, nz = RayTrees ( x1, y1, z1, x2, y2, z2 ) -- the nearest tree trunk the segment meets, anywhere on the map (the physics and IntersectAll see only trunks near the camera, or none): hit 1 with the point and the trunk's normal, else 0 and zeros. A trunk is as thick as the trees' collision (by species and scale), from the ground to the tree's top; canopies don't count, nor trees hidden under a building or removed by a blast. Walks only the tree chunks along the segment, so long rays (a laser designator's) are cheap
 
 SetBloom : SetBloom ( on [, strength [, threshold] ] ) -- bloom on (1) or off (0), strength 0.1 to 3, threshold 0.1 to 10. For this level only; omitted or negative values keep the current ones
 GetBloom : on, strength, threshold = GetBloom()
