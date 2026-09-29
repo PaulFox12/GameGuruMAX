@@ -7737,6 +7737,9 @@ void LuaGameVisuals_Clear(void)
 
 	// and the grass a script hid (SetGrassKillBox) comes back in the editor
 	GGGrass_ClearKillBox(-1);
+
+	// and the trees blasts removed (SetGrassKillBox and SetProjectedDecalGrass with trees), here and at level start
+	GGTrees_RestoreKilled();
 }
 
 // change only the colour grading LUT. Wicked_Update_Visuals would also push every other visual value (fog, sun,

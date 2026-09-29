@@ -147,7 +147,7 @@ uint32_t treeHighlighted = 0xFFFFFFFF;
 struct InstanceTree
 {
 	float x, y, z;
-	uint32_t data; // [0]=visible, [1]=user moved, [2]=highlighted, [3]=flattened, [4]=invalid (slope or underwater), [5-7]=reserved for flags, [8-10]=variation index, [11-16]=tree type, [17-24]=scale
+	uint32_t data; // [0]=visible, [1]=user moved, [2]=highlighted, [3]=flattened, [4]=invalid (slope or underwater), [5]=killed (removed by a blast in a game, never saved), [6-7]=reserved for flags, [8-10]=variation index, [11-16]=tree type, [17-24]=scale
 	uint32_t id; // not sent to GPU
 
 	bool IsVisible() { return (data & 0x1) != 0; }
@@ -176,6 +176,14 @@ struct InstanceTree
 	{ 
 		if ( flattened ) data |= 0x8;
 		else data &= ~0x8;
+	}
+
+	// removed by a blast for the rest of the level (GGTrees_KillBox, GGTrees_KillCircle)
+	bool IsKilled() { return (data & 0x20) != 0; }
+	void SetKilled( int killed )
+	{
+		if ( killed ) data |= 0x20;
+		else data &= ~0x20;
 	}
 
 	// invalid if tree is on a slope or underwater
@@ -469,7 +477,7 @@ struct TreeChunk
 		for( uint32_t j = 0; j < pInstances.NumItems(); j++ )
 		{
 			InstanceTree* pInstance = pInstances[ j ];
-			if ( !pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsInvalid() ) continue;
+			if ( !pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsKilled() || pInstance->IsInvalid() ) continue;
 
 			int type = pInstance->GetType();
 			float height = g_GGTrees[ type ].height;
@@ -559,7 +567,7 @@ struct TreeChunk
 			if ( pInstance->y < minHeight ) minHeight = pInstance->y;
 			if ( pInstance->y + treeHeight > maxHeight ) maxHeight = pInstance->y + treeHeight;
 
-			if ( pInstance->IsVisible() && !pInstance->IsFlattened() && !pInstance->IsInvalid() ) 
+			if ( pInstance->IsVisible() && !pInstance->IsFlattened() && !pInstance->IsKilled() && !pInstance->IsInvalid() ) 
 			{
 				pData[ numValid ].x = pInstance->x;
 				pData[ numValid ].y = pInstance->y;
@@ -1620,7 +1628,7 @@ int GGTrees_GetClosest( float x, float z, float radius, GGTreePoint** pOutPoints
 		for( uint32_t j = 0; j < pChunk->pInstances.NumItems(); j++ )
 		{
 			InstanceTree* pInstance = pChunk->pInstances[ j ];
-			if ( !pInstance->IsVisible() || pInstance->IsInvalid() ) continue;
+			if ( !pInstance->IsVisible() || pInstance->IsKilled() || pInstance->IsInvalid() ) continue;
 
 			sqrDist = 0;
 			sqrDist += (pInstance->x - x) * (pInstance->x - x);
@@ -1724,7 +1732,7 @@ int GGTrees_GetData( float* data )
 	{
 		data[ i * 3 + 0 ] = pAllTrees[ i ].x;
 		data[ i * 3 + 1 ] = pAllTrees[ i ].z;
-		dataInt[ i * 3 + 2 ] = pAllTrees[ i ].data;
+		dataInt[ i * 3 + 2 ] = pAllTrees[ i ].data & ~0x20; // a tree a blast removed is saved as it was
 	}
 
 	return 1;
@@ -2399,7 +2407,7 @@ void GGTrees_UpdateFrustumCulling( wiScene::CameraComponent* camera )
 		for( uint32_t j = 0; j < pChunk->pInstances.NumItems(); j++ )
 		{
 			InstanceTree* pInstance = pChunk->pInstances[ j ];
-			if ( !pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsInvalid() ) continue;
+			if ( !pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsKilled() || pInstance->IsInvalid() ) continue;
 
 			sqrDist = 0;
 			sqrDist += (pInstance->x - cameraX) * (pInstance->x - cameraX);
@@ -2634,7 +2642,7 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 				continue;
 			}
 
-			if (!pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsInvalid()) continue;
+			if (!pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsKilled() || pInstance->IsInvalid()) continue;
 
 			sqrDist = 0;
 			sqrDist += (pInstance->x - camX) * (pInstance->x - camX);
@@ -2875,7 +2883,7 @@ void GGTrees_Update( float camX, float camY, float camZ, CommandList cmd, bool b
 		for( uint32_t j = 0; j < pChunk->pInstances.NumItems(); j++ )
 		{
 			InstanceTree* pInstance = pChunk->pInstances[ j ];
-			if ( !pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsInvalid() ) continue;
+			if ( !pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsKilled() || pInstance->IsInvalid() ) continue;
 
 			sqrDist = 0;
 			sqrDist += (pInstance->x - camX) * (pInstance->x - camX);
@@ -3138,6 +3146,98 @@ void GGTrees_RestoreAllFlattened()
 	}
 }
 
+bool ggtrees_any_killed = false;
+
+// removes, for the rest of the level, every tree whose trunk (from its base to its top) reaches into the area; across,
+// only its base counts, tested as the grass tests a blade's root (GrassInKillBox). type 0 is a box turned by its yaw
+// (cos c, sin s) about Y, type 1 a circle of radius halfX reaching halfY above and below. Only the chunks that change
+// are rebuilt
+void GGTrees_KillArea( int type, float x, float y, float z, float halfX, float halfY, float halfZ, float c, float s )
+{
+	if (!ggtrees_initialised) return;
+
+	// the area's reach on x and z
+	float reachX = halfX;
+	float reachZ = halfX;
+	if ( type == 0 )
+	{
+		reachX = fabsf( c ) * halfX + fabsf( s ) * halfZ;
+		reachZ = fabsf( s ) * halfX + fabsf( c ) * halfZ;
+	}
+
+	for( uint32_t i = 0; i < numTreeChunks; i++ )
+	{
+		TreeChunk* pChunk = &pTreeChunks[ i ];
+		if ( pChunk->pInstances.NumItems() == 0 ) continue;
+
+		AABB aabb;
+		pChunk->GetBounds( &aabb );
+		if ( x - reachX > aabb._max.x || z - reachZ > aabb._max.z || x + reachX < aabb._min.x || z + reachZ < aabb._min.z ) continue;
+
+		bool changed = false;
+		for( int j = 0; j < (int)pChunk->pInstances.NumItems(); j++ )
+		{
+			InstanceTree* pTree = pChunk->pInstances[ j ];
+			if ( pTree->IsKilled() ) continue;
+
+			float dx = pTree->x - x;
+			float dz = pTree->z - z;
+			if ( type == 1 )
+			{
+				if ( dx*dx + dz*dz > halfX*halfX ) continue;
+			}
+			else
+			{
+				if ( fabsf( dx * c - dz * s ) > halfX ) continue;
+				if ( fabsf( dx * s + dz * c ) > halfZ ) continue;
+			}
+
+			// the base sits a little under the ground, more on a slope, so the whole trunk is tested
+			float top = pTree->y + g_GGTrees[ pTree->GetType() ].height * pTree->GetScaleFloat();
+			if ( pTree->y > y + halfY || top < y - halfY ) continue;
+
+			pTree->SetKilled( 1 );
+			changed = true;
+		}
+		if ( changed )
+		{
+			pChunk->Update();
+			ggtrees_any_killed = true;
+		}
+	}
+}
+
+void GGTrees_KillBox( float x, float y, float z, float halfX, float halfY, float halfZ, float yawDegrees )
+{
+	float yaw = yawDegrees * 3.14159265f / 180.0f;
+	GGTrees_KillArea( 0, x, y, z, fabsf( halfX ), fabsf( halfY ), fabsf( halfZ ), cosf( yaw ), sinf( yaw ) );
+}
+
+void GGTrees_KillCircle( float x, float y, float z, float radius )
+{
+	radius = fabsf( radius );
+	GGTrees_KillArea( 1, x, y, z, radius, radius, radius, 1, 0 );
+}
+
+void GGTrees_RestoreKilled()
+{
+	if ( !ggtrees_initialised || !ggtrees_any_killed ) return;
+	for( uint32_t i = 0; i < numTreeChunks; i++ )
+	{
+		TreeChunk* pChunk = &pTreeChunks[ i ];
+		bool changed = false;
+		for( int j = 0; j < (int)pChunk->pInstances.NumItems(); j++ )
+		{
+			InstanceTree* pTree = pChunk->pInstances[ j ];
+			if ( !pTree->IsKilled() ) continue;
+			pTree->SetKilled( 0 );
+			changed = true;
+		}
+		if ( changed ) pChunk->Update();
+	}
+	ggtrees_any_killed = false;
+}
+
 // must be extern "C" to allow /alternatename linker flag to be set correctly
 // called from WickedEngine RenderPath3D::Render()
 extern "C" void GGTrees_Draw_Prepass( const Frustum* frustum, int mode, CommandList cmd )
@@ -3382,7 +3482,7 @@ extern "C" void GGTrees_Draw_EnvProbe( const SPHERE* culler, const Frustum* frus
 		for( uint32_t j = 0; j < pChunk->pInstances.NumItems(); j++ )
 		{
 			InstanceTree* pInstance = pChunk->pInstances[ j ];
-			if ( !pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsInvalid() ) continue;
+			if ( !pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsKilled() || pInstance->IsInvalid() ) continue;
 
 			sqrDist = 0;
 			sqrDist += (pInstance->x - cameraX) * (pInstance->x - cameraX);

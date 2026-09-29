@@ -19,6 +19,7 @@ extern Master master;
 
 #include "GGTerrain/GGTerrain.h"
 #include "GGTerrain/GGGrass.h"
+#include "GGTerrain/GGTrees.h"
 #include "gameguru.h"
 
 // OPTICK Performance
@@ -6832,13 +6833,14 @@ void WickedCall_SetProjectedDecalOpacity(int iID, float fOpacity)
 }
 
 // no grass blade is drawn within fRadius of the decal's centre (0 for none); the nearest to the camera take the grass
-// kill shapes the script's boxes leave free
-void WickedCall_SetProjectedDecalGrass(int iID, float fRadius)
+// kill shapes the script's boxes leave free. bTrees also removes the trees there, for the rest of the level
+void WickedCall_SetProjectedDecalGrass(int iID, float fRadius, bool bTrees)
 {
 	sProjectedDecal* pDecal = WickedCall_FindProjectedDecal(iID);
 	if (!pDecal) return;
 	pDecal->fGrassRadius = max(0.0f, fRadius);
 	g_bProjectedDecalGrassChanged = true;
+	if (bTrees && fRadius > 0) GGTrees::GGTrees_KillCircle(pDecal->vecPosition.x, pDecal->vecPosition.y, pDecal->vecPosition.z, fRadius);
 }
 
 void WickedCall_SetProjectedDecalLimit(int iLimit)

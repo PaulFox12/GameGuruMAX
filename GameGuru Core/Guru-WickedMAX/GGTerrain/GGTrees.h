@@ -115,6 +115,13 @@ namespace GGTrees
 	void GGTrees_UpdateFlatArea( int mode, int type, float x, float z, float sx, float sz, float angle );
 	void GGTrees_RestoreAllFlattened();
 
+	// a blast in a game removes the trees in its area for the rest of the level: a tree whose trunk reaches into the box
+	// (as GGGrass_SetKillBox's) or the circle (a radius on x and z, as far above and below) is no longer drawn, hit or
+	// collided with, and is never saved as removed. GGTrees_RestoreKilled brings them all back
+	void GGTrees_KillBox( float x, float y, float z, float halfX, float halfY, float halfZ, float yawDegrees );
+	void GGTrees_KillCircle( float x, float y, float z, float radius );
+	void GGTrees_RestoreKilled();
+
 	bool GGTrees_GetDefaultDataV2(char *filename);
 }
 

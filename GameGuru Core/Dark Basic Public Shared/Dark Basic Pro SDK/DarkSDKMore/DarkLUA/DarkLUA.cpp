@@ -8424,12 +8424,15 @@ int SetProjectedDecalFacing(lua_State *L)
 	WickedCall_SetProjectedDecalFacing(lua_tointeger(L, 1), lua_tonumber(L, 2), fFade);
 	return 0;
 }
-// SetProjectedDecalGrass(id, radius): no grass blade is drawn within radius of the decal's centre (0 for none, the
-// default). The nearest to the camera use the grass kill shapes that SetGrassKillBox's 8 leave free, 16 in all
+// SetProjectedDecalGrass(id, radius [, trees]): no grass blade is drawn within radius of the decal's centre (0 for none,
+// the default). The nearest to the camera use the grass kill shapes that SetGrassKillBox's 8 leave free, 16 in all. trees
+// 1 also removes every tree whose trunk reaches within radius of the centre (as far above and below), for the rest of the
+// level: they stay gone when the decal does
 int SetProjectedDecalGrass(lua_State *L)
 {
 	if (LUA_GETTOP(L) < 2) return 0;
-	WickedCall_SetProjectedDecalGrass(lua_tointeger(L, 1), lua_tonumber(L, 2));
+	bool bTrees = (LUA_GETTOP(L) >= 3 && lua_tointeger(L, 3) != 0);
+	WickedCall_SetProjectedDecalGrass(lua_tointeger(L, 1), lua_tonumber(L, 2), bTrees);
 	return 0;
 }
 // SetProjectedDecalLimit(count): how many projected decals there can be, 48 unless set, up to 96 (they share the
@@ -13620,9 +13623,11 @@ int GetGrassDistance(lua_State* L)
 	lua_pushnumber(L, gggrass_global_params.lod_dist);
 	return 1;
 }
-// SetGrassKillBox(slot, x, y, z, halfx, halfy, halfz [, yaw]) - slot 1 to 8: no grass blade whose root is inside the box is
-// drawn (under a vehicle, say). The box is centred on x, y, z, reaches half its size each way and is turned by yaw degrees
-// about Y, as an object's angle Y is; move it every frame to follow something. Cleared at level start and test game end
+// SetGrassKillBox(slot, x, y, z, halfx, halfy, halfz [, yaw [, trees]]) - slot 1 to 8: no grass blade whose root is inside
+// the box is drawn (under a vehicle, say). The box is centred on x, y, z, reaches half its size each way and is turned by
+// yaw degrees about Y, as an object's angle Y is; move it every frame to follow something. Cleared at level start and test
+// game end. trees 1 (a blast, not a vehicle) also removes every tree whose trunk reaches into the box, for the rest of the
+// level: they stay gone when the box moves or is cleared
 int SetGrassKillBox(lua_State* L)
 {
 	int n = LUA_GETTOP(L);
@@ -13632,6 +13637,7 @@ int SetGrassKillBox(lua_State* L)
 	float fYaw = 0.0f;
 	if (n >= 8) fYaw = lua_tonumber(L, 8);
 	GGGrass_SetKillBox(iSlot - 1, lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5), lua_tonumber(L, 6), lua_tonumber(L, 7), fYaw);
+	if (n >= 9 && lua_tointeger(L, 9) != 0) GGTrees::GGTrees_KillBox(lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5), lua_tonumber(L, 6), lua_tonumber(L, 7), fYaw);
 	return 0;
 }
 // ClearGrassKillBox([slot]) - the grass comes back in that slot's box, or in every box without a slot
