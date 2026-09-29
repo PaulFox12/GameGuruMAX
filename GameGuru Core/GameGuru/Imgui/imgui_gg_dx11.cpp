@@ -1898,51 +1898,85 @@ const char *noc_file_dialog_open(int flags,
 	if (flags & NOC_FILE_DIALOG_DIR) 
 	{
 		static wchar_t lBuff[MAX_PATH];
-		//wchar_t aTitle[MAX_PATH];
-		BROWSEINFOW bInfo;
-		LPITEMIDLIST lpItem;
+		lBuff[0] = 0; // a cancel returns nothing, not the folder picked last time
 		HRESULT lHResult;
 
 		CoUninitialize();
 		lHResult = CoInitialize(NULL);
 
-		ZeroMemory(&bInfo, sizeof(BROWSEINFO));
-
-		bInfo.hwndOwner = g_agkhWnd;
-		bInfo.lpszTitle = L"Select folder";
-		bInfo.lpfn = BrowseCallbackProc;
-
 		if (lHResult == S_OK || lHResult == S_FALSE)
 		{
-			bInfo.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE; //BIF_USENEWUI; //BIF_NEWDIALOGSTYLE
-
-			if (bUseDefaultPath && default_path)
+			// the Windows file dialog in folder mode (Quick Access, recent places and an address bar), or the older folder tree
+			// if that can't be made
+			bool bDialogShown = false;
+			IFileOpenDialog* pDialog = NULL;
+			if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pDialog))))
 			{
-				// ZJ: Added MultiByteToWideChar so cast to LPARAM is successful
+				DWORD dwOptions = 0;
+				pDialog->GetOptions(&dwOptions);
+				pDialog->SetOptions(dwOptions | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+				wchar_t szTitle[MAX_PATH];
+				MultiByteToWideChar(CP_ACP, 0, (pTitle && pTitle[0]) ? pTitle : "Select folder", -1, szTitle, MAX_PATH);
+				pDialog->SetTitle(szTitle);
+				if (bUseDefaultPath && default_path && default_path[0])
+				{
+					// open in the default folder when it exists; otherwise the dialog opens where it was last used
+					wchar_t szFolderPath[MAX_PATH];
+					MultiByteToWideChar(CP_ACP, 0, default_path, -1, szFolderPath, MAX_PATH);
+					IShellItem* pFolder = NULL;
+					if (SUCCEEDED(SHCreateItemFromParsingName(szFolderPath, NULL, IID_PPV_ARGS(&pFolder))))
+					{
+						pDialog->SetFolder(pFolder);
+						pFolder->Release();
+					}
+				}
+				bDialogShown = true;
+				if (SUCCEEDED(pDialog->Show(g_agkhWnd)))
+				{
+					IShellItem* pResult = NULL;
+					if (SUCCEEDED(pDialog->GetResult(&pResult)))
+					{
+						PWSTR pPath = NULL;
+						if (SUCCEEDED(pResult->GetDisplayName(SIGDN_FILESYSPATH, &pPath)))
+						{
+							wcsncpy_s(lBuff, MAX_PATH, pPath, _TRUNCATE);
+							CoTaskMemFree(pPath);
+						}
+						pResult->Release();
+					}
+				}
+				pDialog->Release();
+			}
+
+			if (!bDialogShown)
+			{
+				BROWSEINFOW bInfo;
+				LPITEMIDLIST lpItem;
+				ZeroMemory(&bInfo, sizeof(BROWSEINFO));
+				bInfo.hwndOwner = g_agkhWnd;
+				bInfo.lpszTitle = L"Select folder";
+				bInfo.lpfn = BrowseCallbackProc;
+				bInfo.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
 				wchar_t szFolderPath[MAX_PATH];
-				MultiByteToWideChar(CP_UTF8, 0, default_path, -1, szFolderPath, MAX_PATH);
-				bInfo.lParam = (LPARAM)szFolderPath;
-
-				//bInfo.lParam = (LPARAM)default_path;
+				if (bUseDefaultPath && default_path)
+				{
+					MultiByteToWideChar(CP_ACP, 0, default_path, -1, szFolderPath, MAX_PATH);
+					bInfo.lParam = (LPARAM)szFolderPath;
+				}
+				else
+					bInfo.lParam = (LPARAM)NULL;
+				lpItem = SHBrowseForFolderW(&bInfo);
+				if (lpItem)
+				{
+					SHGetPathFromIDListW(lpItem, lBuff);
+					CoTaskMemFree(lpItem);
+				}
 			}
-				
-			else
-				bInfo.lParam = (LPARAM)NULL;
 
-			lpItem = SHBrowseForFolderW(&bInfo);
-			if (lpItem)
-			{
-				SHGetPathFromIDListW(lpItem, lBuff);
-			}
-
-			if (lHResult == S_OK || lHResult == S_FALSE)
-			{
-				CoUninitialize();
-				CoInitializeEx(NULL, COINIT_MULTITHREADED);
-
-			}
+			CoUninitialize();
+			CoInitializeEx(NULL, COINIT_MULTITHREADED);
 		}
-		sprintf(szFile, "%ws", lBuff);
+		WideCharToMultiByte(CP_ACP, 0, lBuff, -1, szFile, MAX_PATH, NULL, NULL);
 
 		//Make sure ther blocking dialog did not skip some keys, reset.
 		ImGuiIO& io = ImGui::GetIO();
