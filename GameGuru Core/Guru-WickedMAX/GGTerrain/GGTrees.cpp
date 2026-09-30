@@ -729,6 +729,7 @@ Texture texTree;
 Texture texTreeNormal;
 Texture texTreeHigh;
 Texture texBranchesHigh;
+GGTextureSource ggtrees_textureSource[ 4 ][ 256 ]; // where each type's billboard, billboard normal, trunk and leaves slice was last uploaded from
 Texture texNoise;
 Sampler samplerTrilinearClamp;
 Sampler samplerTrilinearWrap;
@@ -902,6 +903,21 @@ void GGTrees_LoadTextureDDSIntoSlice( const char* filename, Texture* tex, uint32
 		auto imageData = dds.GetImageData(mip, 0);		
 		device->UpdateTexture( tex, mip, arraySlice, 0, imageData->m_mem, imageData->m_memPitch, -1 );
 	}
+
+	int kind = -1;
+	if ( tex == &texTree ) kind = 0;
+	else if ( tex == &texTreeNormal ) kind = 1;
+	else if ( tex == &texTreeHigh ) kind = 2;
+	else if ( tex == &texBranchesHigh ) kind = 3;
+	if ( kind >= 0 && arraySlice < 256 ) GGTerrain_RecordTextureSource( &ggtrees_textureSource[ kind ][ arraySlice ], filename, filePath );
+}
+
+const char* GGTrees_GetTextureSource( int type, int kind, int* pChanged )
+{
+	*pChanged = 0;
+	if ( type < 0 || type >= (int)numTreeTypes || kind < 0 || kind > 3 ) return 0;
+	*pChanged = GGTerrain_CheckTextureSource( &ggtrees_textureSource[ kind ][ type ] );
+	return ggtrees_textureSource[ kind ][ type ].loaded.c_str();
 }
 
 TreeChunk* GGTrees_GetChunk( float x, float z )

@@ -80,6 +80,7 @@ namespace GGGrass
 	void GGGrass_SetKillCircles( const float* pCircles, int count ); // x, y, z, radius each; the nearest fill the kill shapes the boxes leave
 	void GGGrass_SetShade( float root, float tip ); // a blade's light at its root and at its tip, 0.45 both by default
 	void GGGrass_GetShade( float* pRoot, float* pTip );
+	const char* GGGrass_GetTextureSource( int slice, int* pChanged ); // the file a grass slice was last uploaded from, "" none, 0 a bad slice; *pChanged as GGTerrain_CheckTextureSource
 }
 
 #endif // _H_GGGRAS

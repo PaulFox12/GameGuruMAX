@@ -14014,6 +14014,60 @@ int GetGrassShade(lua_State* L)
 	lua_pushnumber(L, fTip);
 	return 2;
 }
+namespace GGTerrain
+{
+	const char* GGTerrain_GetTextureSource( int slot, int kind, int* pChanged );
+}
+// GetTextureSource(kind, index [, part]) - the file a vegetation or terrain texture was last uploaded from this session, as
+// GG_GetRealPath resolved it (a Documents copy ahead of the install's), and whether that still holds. kind "grass" (index
+// the grass slice, 0 to 45), "tree" (index the tree type; part "billboard", the default, "billboardnormal", "trunk" or
+// "leaves") or "terrain" (index the material slot, 0 to 31; part "color", the default, "normal" or "surface"). Returns path
+// ("" not loaded) and changed: 0 the same file would load now, unchanged; 1 it was written since; 2 another file would load
+// now (a Documents copy added or removed); 3 it is gone. Nothing for a bad kind, index or part
+int GetTextureSource(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 2) return 0;
+	const char* pKind = lua_tostring(L, 1);
+	int iIndex = (int)lua_tointeger(L, 2);
+	const char* pPart = (n >= 3) ? lua_tostring(L, 3) : NULL;
+	if (!pKind) return 0;
+	const char* pPath = NULL;
+	int iChanged = 0;
+	if (stricmp(pKind, "grass") == 0)
+	{
+		pPath = GGGrass_GetTextureSource(iIndex, &iChanged);
+	}
+	else if (stricmp(pKind, "tree") == 0)
+	{
+		int iPart = 0;
+		if (pPart)
+		{
+			if (stricmp(pPart, "billboard") == 0) iPart = 0;
+			else if (stricmp(pPart, "billboardnormal") == 0) iPart = 1;
+			else if (stricmp(pPart, "trunk") == 0) iPart = 2;
+			else if (stricmp(pPart, "leaves") == 0) iPart = 3;
+			else return 0;
+		}
+		pPath = GGTrees::GGTrees_GetTextureSource(iIndex, iPart, &iChanged);
+	}
+	else if (stricmp(pKind, "terrain") == 0)
+	{
+		int iPart = 0;
+		if (pPart)
+		{
+			if (stricmp(pPart, "color") == 0) iPart = 0;
+			else if (stricmp(pPart, "normal") == 0) iPart = 1;
+			else if (stricmp(pPart, "surface") == 0) iPart = 2;
+			else return 0;
+		}
+		pPath = GGTerrain::GGTerrain_GetTextureSource(iIndex, iPart, &iChanged);
+	}
+	if (!pPath) return 0;
+	lua_pushstring(L, pPath);
+	lua_pushinteger(L, iChanged);
+	return 2;
+}
 // SetGrassKillBox(slot, x, y, z, halfx, halfy, halfz [, yaw [, trees]]) - slot 1 to 8: no grass blade whose root is inside
 // the box is drawn (under a vehicle, say). The box is centred on x, y, z, reaches half its size each way and is turned by
 // yaw degrees about Y, as an object's angle Y is; move it every frame to follow something. Cleared at level start and test
@@ -17037,6 +17091,7 @@ void addFunctions()
 	lua_register(lua, "SetGrassKillBox", SetGrassKillBox);
 	lua_register(lua, "SetGrassShade", SetGrassShade);
 	lua_register(lua, "GetGrassShade", GetGrassShade);
+	lua_register(lua, "GetTextureSource", GetTextureSource);
 	lua_register(lua, "ClearGrassKillBox", ClearGrassKillBox);
 	lua_register(lua, "SetTreeDistance", SetTreeDistance);
 	lua_register(lua, "GetTreeDistance", GetTreeDistance);

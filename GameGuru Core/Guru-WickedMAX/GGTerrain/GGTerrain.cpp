@@ -803,6 +803,7 @@ Texture texLODNormalMapArray;
 // texture arrays for terrain source textures
 Texture texColorArray;
 Texture texNormalsArray;
+GGTextureSource ggterrain_textureSource[ 3 ][ GGTERRAIN_MAX_SOURCE_TEXTURES ]; // color, normal, surface
 #ifdef GGTERRAIN_USE_SURFACE_TEXTURE
 	Texture texSurfaceArray;
 #else
@@ -4462,7 +4463,53 @@ bool GGTerrain_LoadTextureDDSIntoSlice(const char* filename, Texture* tex, uint3
 			device->UpdateTexture(tex, mip, arraySlice, 0, imageData->m_mem, imageData->m_memPitch, cmd);
 		}
 	}
+
+	// the fill above writes slot 0 only
+	uint32_t slot = bFillAllSlots ? 0 : arraySlice;
+	int kind = -1;
+	if (tex == &texColorArray) kind = 0;
+	else if (tex == &texNormalsArray) kind = 1;
+	else if (tex == &texSurfaceArray) kind = 2;
+	if (kind >= 0 && slot < GGTERRAIN_MAX_SOURCE_TEXTURES) GGTerrain_RecordTextureSource(&ggterrain_textureSource[kind][slot], filename, filePath);
 	return true;
+}
+
+void GGTerrain_RecordTextureSource( GGTextureSource* pSource, const char* requested, const char* loaded )
+{
+	// absolute against the current folder, as GG_GetRealPath makes it, so it resolves the same way later
+	char fullPath[ MAX_PATH ];
+	if ( GetFullPathNameA( requested, MAX_PATH, fullPath, NULL ) == 0 ) strcpy_s( fullPath, MAX_PATH, requested );
+	pSource->requested = fullPath;
+	pSource->loaded = loaded;
+	pSource->writeTime = 0;
+	WIN32_FILE_ATTRIBUTE_DATA data;
+	if ( GetFileAttributesExA( loaded, GetFileExInfoStandard, &data ) )
+	{
+		pSource->writeTime = ((uint64_t)data.ftLastWriteTime.dwHighDateTime << 32) | data.ftLastWriteTime.dwLowDateTime;
+	}
+}
+
+int GGTerrain_CheckTextureSource( const GGTextureSource* pSource )
+{
+	if ( pSource->loaded.empty() ) return 0;
+	char path[ MAX_PATH ];
+	strcpy_s( path, MAX_PATH, pSource->requested.c_str() );
+	GG_GetRealPath( path, 0 );
+	if ( _stricmp( path, pSource->loaded.c_str() ) != 0 ) return 2;
+	WIN32_FILE_ATTRIBUTE_DATA data;
+	if ( !GetFileAttributesExA( path, GetFileExInfoStandard, &data ) ) return 3;
+	uint64_t writeTime = ((uint64_t)data.ftLastWriteTime.dwHighDateTime << 32) | data.ftLastWriteTime.dwLowDateTime;
+	if ( writeTime != pSource->writeTime ) return 1;
+	return 0;
+}
+
+const char* GGTerrain_GetTextureSource( int slot, int kind, int* pChanged )
+{
+	*pChanged = 0;
+	if ( slot < 0 || slot >= GGTERRAIN_MAX_SOURCE_TEXTURES || kind < 0 || kind > 2 ) return 0;
+	const GGTextureSource* pSource = &ggterrain_textureSource[ kind ][ slot ];
+	*pChanged = GGTerrain_CheckTextureSource( pSource );
+	return pSource->loaded.c_str();
 }
 
 // compress normals with BC5 (2 channel greyscale)

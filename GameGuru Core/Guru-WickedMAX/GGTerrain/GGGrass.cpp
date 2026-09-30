@@ -491,6 +491,7 @@ PipelineState psoGrassShadow;
 */
 
 Texture texGrass;
+GGTextureSource gggrass_textureSource[ GGGRASS_NUM_TYPES ]; // where each slice of texGrass was last uploaded from
 Texture texGrassNormal;
 Texture texNoise;
 Sampler samplerTrilinearClamp;
@@ -667,6 +668,15 @@ void GGGrass_LoadTextureDDSIntoSlice( const char* filename, Texture* tex, uint32
 		auto imageData = dds.GetImageData(mip, 0);		
 		device->UpdateTexture( tex, mip, arraySlice, 0, imageData->m_mem, imageData->m_memPitch, -1 );
 	}
+	if ( tex == &texGrass && arraySlice < GGGRASS_NUM_TYPES ) GGTerrain_RecordTextureSource( &gggrass_textureSource[ arraySlice ], filename, filePath );
+}
+
+const char* GGGrass_GetTextureSource( int slice, int* pChanged )
+{
+	*pChanged = 0;
+	if ( slice < 0 || slice >= GGGRASS_NUM_TYPES ) return 0;
+	*pChanged = GGTerrain_CheckTextureSource( &gggrass_textureSource[ slice ] );
+	return gggrass_textureSource[ slice ].loaded.c_str();
 }
 
 // only call this when grass heights need to be updated, e.g. when the terrain has changed
