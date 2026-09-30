@@ -14075,6 +14075,21 @@ namespace GGTerrain
 // "leaves") or "terrain" (index the material slot, 0 to 31; part "color", the default, "normal" or "surface"). Returns path
 // ("" not loaded) and changed: 0 the same file would load now, unchanged; 1 it was written since; 2 another file would load
 // now (a Documents copy added or removed); 3 it is gone. Nothing for a bad kind, index or part
+// GetEngineProbe(name): the engine time of calls made many times a frame, where GetRenderTime keeps only the first:
+// milliseconds and calls a frame, averaged over the last 20 frames, main thread only. name "pick" (a full-accuracy pick:
+// IntersectRay, entity rays, bullets), "pick layers" (its render layer changes), "pick wicked" (Wicked's pick),
+// "pick lookup" (finding the object hit), "decal create" (decalelement_create: impacts, splashes, rain rings),
+// "decal fade" (a decal's alpha change). Nothing for an unknown name
+int GetEngineProbe(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	const char* pName = lua_tostring(L, 1);
+	float fMilliseconds, fCalls;
+	if (!pName || !WickedCall_ProbeGet(pName, &fMilliseconds, &fCalls)) return 0;
+	lua_pushnumber(L, fMilliseconds);
+	lua_pushnumber(L, fCalls);
+	return 2;
+}
 int GetTextureSource(lua_State* L)
 {
 	int n = LUA_GETTOP(L);
@@ -17148,6 +17163,7 @@ void addFunctions()
 	lua_register(lua, "SetGrassShade", SetGrassShade);
 	lua_register(lua, "GetGrassShade", GetGrassShade);
 	lua_register(lua, "GetTextureSource", GetTextureSource);
+	lua_register(lua, "GetEngineProbe", GetEngineProbe);
 	lua_register(lua, "ClearGrassKillBox", ClearGrassKillBox);
 	lua_register(lua, "SetTreeDistance", SetTreeDistance);
 	lua_register(lua, "GetTreeDistance", GetTreeDistance);

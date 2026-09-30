@@ -562,6 +562,7 @@ void decalelement_create ( void )
 #ifdef OPTICK_ENABLE
 	OPTICK_EVENT();
 #endif
+	WickedCallProbeScope probe(WICKEDCALL_PROBE_DECAL_CREATE);
 
 	//  Decal Orient Modes
 	//  0 - perfectly upright facing camera (X=Z=0)
@@ -1108,6 +1109,7 @@ void decalelement_control ( void )
 						// only update alpha when it changes
 						if (fAlpha >= 0.0f && fAlpha != t.decalelement[t.f].alphavalue)
 						{
+							WickedCallProbeScope probe(WICKEDCALL_PROBE_DECAL_FADE);
 							SetAlphaMappingOn (t.tobj, fAlpha);
 							t.decalelement[t.f].alphavalue = fAlpha;
 						}

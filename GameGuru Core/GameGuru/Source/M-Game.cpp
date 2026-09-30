@@ -4370,6 +4370,10 @@ void game_main_loop ( void )
 	extern bool g_bInGameCPUFrameComplete;
 	g_bInGameCPUFrameComplete = true;
 
+	// the engine probes' totals (GetEngineProbe) are per game frame
+	extern void WickedCall_ProbeFrame(void);
+	WickedCall_ProbeFrame();
+
 	//  Timer (  based movement )
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling game_timeelapsed");
 	auto rangeTiming = wiProfiler::BeginRangeCPU("Update - Logic - Timing");

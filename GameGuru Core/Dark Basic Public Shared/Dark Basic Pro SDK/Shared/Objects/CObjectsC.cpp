@@ -7660,6 +7660,9 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 		// Wicked Raycast TOO expensive, try physics again for performance!
 		if (iStaticOnly != 2)
 		{
+			// timed on the main thread (GetEngineProbe "pick", and "pick layers" for the layer changes)
+			WickedCallProbeScope probePick(bThreadSafe ? -1 : WICKEDCALL_PROBE_PICK);
+			double dLayersStart = WickedCall_ProbeNow();
 			// wicked uses own ray cast which handles objects AND terrain ( a little on the slow side, see above for less overkill )
 			GGVECTOR3 vecFrom = GGVECTOR3(fX, fY, fZ);
 			GGVECTOR3 vecTo = GGVECTOR3(fNewX, fNewY, fNewZ);
@@ -7685,6 +7688,7 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 				pGunObject = GetObjectData(g_iCurrentGunObj);
 				if (!bThreadSafe) WickedCall_SetObjectRenderLayer(pGunObject, GGRENDERLAYERS_CURSOROBJECT);
 			}
+			double dLayers = WickedCall_ProbeNow() - dLayersStart;
 			float fDistanceOfRay = GGVec3Length(&vecDir);
 			DWORD dwObjectNumberHit = 0;
 			bool bRes = false;
@@ -7769,6 +7773,7 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 			}
 
 			// we can extend this to exclude MANY objects - and have an 'exclude from ray' flag instead of using GGRENDERLAYERS (optimization op)
+			dLayersStart = WickedCall_ProbeNow();
 			if (pIgnoreObject && !bThreadSafe) WickedCall_SetObjectRenderLayer(pIgnoreObject, GGRENDERLAYERS_NORMAL);
 			if (!bThreadSafe)
 			{
@@ -7779,6 +7784,7 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 				}
 			}
 			if (pGunObject && !bThreadSafe) WickedCall_SetObjectRenderLayer(pGunObject, GGRENDERLAYERS_NORMAL);
+			if (!bThreadSafe) WickedCall_ProbeAdd(WICKEDCALL_PROBE_PICK_LAYERS, dLayers + WickedCall_ProbeNow() - dLayersStart);
 		}
 	}
 

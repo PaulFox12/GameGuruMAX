@@ -6265,11 +6265,13 @@ bool WickedCall_SentRay4(float originx, float originy, float originz, float dire
 	uint32_t checkType = RENDERTYPE_ALL;
 	//PE: @Lee we have no checks on transparent objects, we cant shoot glass, no impact effects , no killing pradator ...
 	if (bOpaqueOnly == true) checkType = RENDERTYPE_OPAQUE | RENDERTYPE_TRANSPARENT;
+	double dPickStart = WickedCall_ProbeNow();
 #ifdef PICKBVHTHREADED
 	wiScene::PickResult hit = wiScene::PickThread(pickRay, checkType, GGRENDERLAYERS_NORMAL);
 #else
 	wiScene::PickResult hit = wiScene::Pick(pickRay, checkType, GGRENDERLAYERS_NORMAL);
 #endif
+	WickedCall_ProbeAdd(WICKEDCALL_PROBE_PICK_WICKED, WickedCall_ProbeNow() - dPickStart);
 	if (hit.entity > 0)
 	{
 		float fDX = hit.position.x - originx;
@@ -6278,6 +6280,7 @@ bool WickedCall_SentRay4(float originx, float originy, float originz, float dire
 		float fDistOfHit = sqrt(fabs(fDX*fDX)+fabs(fDY*fDY)+fabs(fDZ*fDZ));
 		if (fDistOfHit <= fDistanceOfRay)
 		{
+			WickedCallProbeScope probeLookup(WICKEDCALL_PROBE_PICK_LOOKUP);
 			sObject* pHitObject = m_ObjectManager.FindObjectFromWickedObjectEntityID(hit.entity);
 			if (pHitObject) *pdwObjectNumberHit = pHitObject->dwObjectNumber;
 			if (pHitObject && pHitObject->ppFrameList)
@@ -8363,6 +8366,62 @@ void WickedCall_UpdateWaterFog(float fMinDist, float fMaxDist, float fMinAmount)
 		weather->oceanParameters.fogMaxDist = fMaxDist;
 		weather->oceanParameters.fogMinAmount = fMinAmount;
 	}
+}
+
+static const char* g_pWickedCallProbeNames[WICKEDCALL_PROBE_COUNT] = { "pick", "pick layers", "pick wicked", "pick lookup", "decal create", "decal fade" };
+static double g_dWickedCallProbeFrame[WICKEDCALL_PROBE_COUNT] = {};
+static int g_iWickedCallProbeFrameCalls[WICKEDCALL_PROBE_COUNT] = {};
+static float g_fWickedCallProbeMilliseconds[WICKEDCALL_PROBE_COUNT][20] = {};
+static float g_fWickedCallProbeCalls[WICKEDCALL_PROBE_COUNT][20] = {};
+static int g_iWickedCallProbeSlot = 0;
+
+// milliseconds on the performance counter
+double WickedCall_ProbeNow(void)
+{
+	static LARGE_INTEGER freq = {};
+	if (freq.QuadPart == 0) QueryPerformanceFrequency(&freq);
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	return (double)now.QuadPart * 1000.0 / (double)freq.QuadPart;
+}
+
+void WickedCall_ProbeAdd(int iProbe, double dMilliseconds)
+{
+	if (iProbe < 0 || iProbe >= WICKEDCALL_PROBE_COUNT) return;
+	g_dWickedCallProbeFrame[iProbe] += dMilliseconds;
+	g_iWickedCallProbeFrameCalls[iProbe]++;
+}
+
+// once a frame: the frame's totals join the last 20 frames'
+void WickedCall_ProbeFrame(void)
+{
+	for (int i = 0; i < WICKEDCALL_PROBE_COUNT; i++)
+	{
+		g_fWickedCallProbeMilliseconds[i][g_iWickedCallProbeSlot] = (float)g_dWickedCallProbeFrame[i];
+		g_fWickedCallProbeCalls[i][g_iWickedCallProbeSlot] = (float)g_iWickedCallProbeFrameCalls[i];
+		g_dWickedCallProbeFrame[i] = 0;
+		g_iWickedCallProbeFrameCalls[i] = 0;
+	}
+	g_iWickedCallProbeSlot = (g_iWickedCallProbeSlot + 1) % 20;
+}
+
+// a probe's milliseconds and calls a frame, averaged over the last 20 frames; false for an unknown name
+bool WickedCall_ProbeGet(const char* pName, float* pMilliseconds, float* pCalls)
+{
+	for (int i = 0; i < WICKEDCALL_PROBE_COUNT; i++)
+	{
+		if (_stricmp(pName, g_pWickedCallProbeNames[i]) != 0) continue;
+		float fMilliseconds = 0, fCalls = 0;
+		for (int s = 0; s < 20; s++)
+		{
+			fMilliseconds += g_fWickedCallProbeMilliseconds[i][s];
+			fCalls += g_fWickedCallProbeCalls[i][s];
+		}
+		*pMilliseconds = fMilliseconds / 20.0f;
+		*pCalls = fCalls / 20.0f;
+		return true;
+	}
+	return false;
 }
 
 void WickedCall_UpdateTreeWind(float wind)
