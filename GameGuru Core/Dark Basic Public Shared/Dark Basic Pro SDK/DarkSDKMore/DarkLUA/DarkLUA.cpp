@@ -6120,14 +6120,17 @@ int SetRenderTiming ( lua_State *L )
 }
 // GetRenderTime([name]): milliseconds, averaged over the last 20 frames, of a timed range: "GPU Frame" (the default, the GPU's
 // time for a whole frame), "CPU Frame", or another range named in Tab Tab's performance data. -1 while SetRenderTiming is
-// off and for the first frames after it is turned on
+// off and for the first frames after it is turned on. The second value is how many frames the time has gone without a new
+// GPU result (0 when fresh), as the GPU's results arrive late when it runs far behind
 int GetRenderTime ( lua_State *L )
 {
 	lua = L;
 	const char* pName = "GPU Frame";
 	if ( LUA_GETTOP(L) >= 1 && lua_isstring(L, 1) ) pName = lua_tostring(L, 1);
-	lua_pushnumber ( L, wiProfiler::GetRangeTime ( pName ) );
-	return 1;
+	int iStaleFrames = 0;
+	lua_pushnumber ( L, wiProfiler::GetRangeTime ( pName, &iStaleFrames ) );
+	lua_pushinteger ( L, iStaleFrames );
+	return 2;
 }
 int GetPlrObjectPositionX ( lua_State *L )
 {

@@ -2592,7 +2592,7 @@ ClearGrassKillBox : ClearGrassKillBox ( [slot] ) -- without a slot clears them a
 GetVideoMemoryUsed : usedMB, budgetMB, sharedUsedMB, sharedBudgetMB = GetVideoMemoryUsed() -- the dedicated video memory the game uses, and the budget Windows gives it; then the shared system memory the card uses and its budget, which grows when the dedicated memory nears its budget and Windows moves resources out (slow: the early warning of running out)
 GetDrawCalls : main, shadow, transparent, triangles = GetDrawCalls() -- the last frame's draw calls and the main pass's triangles
 SetRenderTiming : SetRenderTiming ( on ) -- 1 times the renderer's work every frame so GetRenderTime can read it (a few GPU queries a frame), 0 stops; off again at the next level
-GetRenderTime : ms = GetRenderTime ( [name] ) -- milliseconds, averaged over 20 frames, of a timed range: "GPU Frame" (the default), "CPU Frame" or another name from Tab Tab's performance data; -1 while timing is off and for the first frames after it is turned on
+GetRenderTime : ms, stale = GetRenderTime ( [name] ) -- milliseconds, averaged over 20 frames, of a timed range: "GPU Frame" (the default), "CPU Frame" or another name from Tab Tab's performance data; -1 while timing is off and for the first frames after it is turned on; stale: how many frames the time has gone without a new GPU result (0 fresh), as results arrive late when the GPU runs far behind
 SetPlayerHealth : SetPlayerHealth ( v ) -- sets the player's health; taking it from above 0 to 0 or below starts the death sequence and the respawn, as damage does
 
 ***** The following five functions return multiple values, if you do not need them all just replace 
