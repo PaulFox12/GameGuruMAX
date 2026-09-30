@@ -35,4 +35,16 @@ bool PhysicsQuery_SweepBox(const float* pCentre, const float* pHalf, float fYawD
 // NarrowPhaseQuery::CollideShape with a BoxShape
 int PhysicsQuery_OverlapBox(const float* pCentre, const float* pHalf, float fYawDegrees, int iLayers, const int* pIgnore, int iIgnoreCount, int* pObjects, int iMax);
 
+// what the physics did in its last step, to find where its time goes. Jolt: the PhysicsSystem's active body and contact counts
+struct PhysicsStats
+{
+	int subSteps; // simulation steps taken in the last update
+	int awakeBodies; // bodies the simulation is moving or settling
+	int manifolds; // body pairs in contact
+	int contactPoints; // their contact points
+	int busiestObject; // the object with the most contact points, the ground and character capsules left out; -1 none
+	int busiestPoints;
+};
+void PhysicsQuery_Stats(PhysicsStats* pStats);
+
 #endif

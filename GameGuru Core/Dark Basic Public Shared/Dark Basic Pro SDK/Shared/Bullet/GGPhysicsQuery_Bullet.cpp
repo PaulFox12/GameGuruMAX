@@ -9,9 +9,12 @@
 #include "BulletCollision/NarrowPhaseCollision/btGjkEpaPenetrationDepthSolver.h"
 #include "BulletCollision/NarrowPhaseCollision/btVoronoiSimplexSolver.h"
 #include "..\..\..\..\GameGuru\Include\GGPhysicsQuery.h"
+#include <mutex>
 
 extern btDiscreteDynamicsWorld* g_dynamicsWorld;
 extern float gSc;
+extern std::recursive_mutex physicslock;
+extern int g_iPhysicsSubSteps;
 int ODEFindObjectNumberOfBody(const btCollisionObject* pObject);
 
 // the object number a body stands for: the one its creation stored (setUserIndex), else found in the physics object list; the
@@ -361,4 +364,61 @@ int PhysicsQuery_OverlapBox(const float* pCentre, const float* pHalf, float fYaw
 		if (!bListed && iCount < iMax) pObjects[iCount++] = iObject;
 	}
 	return iCount;
+}
+
+void PhysicsQuery_Stats(PhysicsStats* pStats)
+{
+	pStats->subSteps = 0;
+	pStats->awakeBodies = 0;
+	pStats->manifolds = 0;
+	pStats->contactPoints = 0;
+	pStats->busiestObject = -1;
+	pStats->busiestPoints = 0;
+	if (!g_dynamicsWorld) return;
+	physicslock.lock();
+	pStats->subSteps = g_iPhysicsSubSteps;
+	const btCollisionObjectArray& objects = g_dynamicsWorld->getCollisionObjectArray();
+	for (int i = 0; i < objects.size(); i++)
+	{
+		if (!objects[i]->isStaticObject() && objects[i]->isActive()) pStats->awakeBodies++;
+	}
+
+	// the manifolds left by the last sub-step; a body's points summed over all its pairs, the ground's and the character
+	// capsules' not counted, so what a capsule pushes against is the one named
+	btDispatcher* pDispatcher = g_dynamicsWorld->getDispatcher();
+	btAlignedObjectArray<const btCollisionObject*> bodies;
+	btAlignedObjectArray<int> points;
+	for (int m = 0; m < pDispatcher->getNumManifolds(); m++)
+	{
+		const btPersistentManifold* pManifold = pDispatcher->getManifoldByIndexInternal(m);
+		int iPoints = pManifold->getNumContacts();
+		if (iPoints == 0) continue;
+		pStats->manifolds++;
+		pStats->contactPoints += iPoints;
+		const btCollisionObject* pPair[2] = { pManifold->getBody0(), pManifold->getBody1() };
+		for (int b = 0; b < 2; b++)
+		{
+			const btBroadphaseProxy* pProxy = pPair[b]->getBroadphaseHandle();
+			if (pProxy && (pProxy->m_collisionFilterGroup & (PHYSICS_LAYER_TERRAIN | PHYSICS_LAYER_CHARACTER))) continue;
+			int iBody = bodies.findLinearSearch(pPair[b]);
+			if (iBody == bodies.size())
+			{
+				bodies.push_back(pPair[b]);
+				points.push_back(0);
+			}
+			points[iBody] += iPoints;
+		}
+	}
+	int iBusiest = -1;
+	for (int i = 0; i < bodies.size(); i++)
+	{
+		if (iBusiest < 0 || points[i] > points[iBusiest]) iBusiest = i;
+	}
+	if (iBusiest >= 0)
+	{
+		const btBroadphaseProxy* pProxy = bodies[iBusiest]->getBroadphaseHandle();
+		pStats->busiestObject = PhysicsQuery_ObjectNumber(bodies[iBusiest], pProxy ? pProxy->m_collisionFilterGroup : 0);
+		pStats->busiestPoints = points[iBusiest];
+	}
+	physicslock.unlock();
 }

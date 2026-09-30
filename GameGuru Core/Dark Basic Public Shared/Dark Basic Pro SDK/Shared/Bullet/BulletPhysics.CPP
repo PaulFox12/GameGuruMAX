@@ -933,6 +933,7 @@ float BULLETCosineInterpolate ( float y1, float y2, float mu )
 //#ifdef PUTPHYSICSBACKINMAINTHREADSEQUENCE
 //std::mutex physicslock = {};
 std::recursive_mutex physicslock = {};
+int g_iPhysicsSubSteps = 0; // the simulation steps the last update took (GGPhysicsQuery's stats)
 //#else
 //class physicslockclass
 //{
@@ -955,9 +956,9 @@ void Update(float fTimeStep)
 	physicslock.lock();
 	#ifdef FASTBULLETPHYSICS
 		//PE: fixed timestep with interpolation set at 1/60.
-		g_dynamicsWorld->stepSimulation(fTimeStep, 7, btScalar(1.) / btScalar(60.));
+		g_iPhysicsSubSteps = g_dynamicsWorld->stepSimulation(fTimeStep, 7, btScalar(1.) / btScalar(60.));
 	#else
-		g_dynamicsWorld->stepSimulation(fTimeStep, 7, 1.0f / 120.0f);
+		g_iPhysicsSubSteps = g_dynamicsWorld->stepSimulation(fTimeStep, 7, 1.0f / 120.0f);
 	#endif
 
 	physicslock.unlock();

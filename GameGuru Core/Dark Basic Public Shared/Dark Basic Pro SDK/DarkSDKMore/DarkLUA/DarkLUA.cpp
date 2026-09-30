@@ -7919,6 +7919,23 @@ int PhysicsOverlapBox(lua_State* L)
 	for (int i = 0; i < iCount; i++) lua_pushinteger(L, pObjects[i]);
 	return 2 + iCount;
 }
+
+// GetPhysicsStats(): what the physics did in its last update, to find what a costly physics frame is working on. Returns
+// subSteps (simulation steps taken, at most 7), awake (bodies moving or settling), manifolds (body pairs in contact),
+// points (their contact points), then busiestObject and busiestPoints: the object with the most contact points, the
+// ground and character capsules left out (-1 none), and its points
+int GetPhysicsStats(lua_State* L)
+{
+	PhysicsStats stats;
+	PhysicsQuery_Stats(&stats);
+	lua_pushinteger(L, stats.subSteps);
+	lua_pushinteger(L, stats.awakeBodies);
+	lua_pushinteger(L, stats.manifolds);
+	lua_pushinteger(L, stats.contactPoints);
+	lua_pushinteger(L, stats.busiestObject);
+	lua_pushinteger(L, stats.busiestPoints);
+	return 6;
+}
 int GetObjectNumCollisions(lua_State *L)
 {
 	int n = LUA_GETTOP(L);
@@ -16113,6 +16130,7 @@ void addFunctions()
 	lua_register(lua, "PhysicsRay", PhysicsRay);
 	lua_register(lua, "PhysicsSweepBox", PhysicsSweepBox);
 	lua_register(lua, "PhysicsOverlapBox", PhysicsOverlapBox);
+	lua_register(lua, "GetPhysicsStats", GetPhysicsStats);
 	lua_register(lua, "SetObjectDamping",        SetObjectDamping );
 	lua_register(lua, "SetHingeLimits",          SetHingeLimits );
 	lua_register(lua, "GetHingeAngle",           GetHingeAngle );
