@@ -7758,6 +7758,23 @@ void LuaRenderSettings_SetDelayedShadows(int iOn, int iLaptop)
 	LuaRenderSettings_Apply();
 }
 
+// forget the script's delayed shadow values and put back those of t.visuals (the level's, or the graphics quality's)
+void LuaRenderSettings_ResetDelayedShadows(void)
+{
+	if (g_LuaRenderSettings.iDelayedShadows < 0 && g_LuaRenderSettings.iDelayedShadowsLaptop < 0) return;
+	g_LuaRenderSettings.iDelayedShadows = -1;
+	g_LuaRenderSettings.iDelayedShadowsLaptop = -1;
+	LuaRenderSettings_SetDelayedShadowGlobals(t.visuals.g_bDelayedShadows, t.visuals.g_bDelayedShadowsLaptop);
+}
+
+// the delayed shadow refresh in force, and whether a script has set it
+void LuaRenderSettings_GetDelayedShadows(int* pOn, int* pLaptop, int* pScript)
+{
+	*pOn = g_bDelayedShadows ? 1 : 0;
+	*pLaptop = g_bDelayedShadowsLaptop ? 1 : 0;
+	*pScript = (g_LuaRenderSettings.iDelayedShadows >= 0 || g_LuaRenderSettings.iDelayedShadowsLaptop >= 0) ? 1 : 0;
+}
+
 // how far the sun's last shadow cascade reaches; kept past the fourth cascade's 30000 units and within the stock 500000.
 // 0 or less goes back to the pushed visuals' range
 void LuaRenderSettings_SetShadowRange(float fRange)

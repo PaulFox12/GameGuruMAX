@@ -2504,6 +2504,8 @@ SetOcclusionCulling : SetOcclusionCulling ( on [, objects [, animations [, terra
 SetLODMultiplier : SetLODMultiplier ( v ) -- models with LOD levels (a _lod.dbo) switch to LOD 1, 2, 3 past 400, 600, 800 units times v (0 to 15; the graphics quality sets 1 to 3); until the level ends
 SetShadowsLowestLOD : SetShadowsLowestLOD ( on ) -- models cast shadows from their lowest LOD (cheaper); until the level ends
 SetDelayedShadows : SetDelayedShadows ( on [, laptop] ) -- the sun's shadow cascades 1 to 4 redrawn every 2, 3, 4, 9 frames instead of every frame, point light shadows less often too; laptop also redraws cascade 0 every other frame and the rest every 3, 4, 5, 9 (on unless the level turned it off). An omitted or negative value keeps the current one; until the level ends
+ResetDelayedShadows : ResetDelayedShadows ( ) -- forget what SetDelayedShadows set and go back to the level's or the graphics quality's delayed shadows (e.g. on after a heli flight that turned them off)
+GetDelayedShadows : on, laptop, script = GetDelayedShadows ( ) -- the delayed shadow refresh in force now (1 or 0 each), and script 1 while a SetDelayedShadows value holds
 SetSSR : SetSSR ( on ) -- screen space reflections on (1) or off (0); until the level ends
 SetAO : SetAO ( on [, power] ) -- ambient occlusion (corners and gaps take less ambient light) on (1) or off (0), and its power 0 to 5 (1 is the editor's default; omitted keeps the current one); until the level ends
 SetShadowRange : SetShadowRange ( d ) -- how far the sun's last shadow cascade reaches, 31000 to 500000 units (500000 unless set): nothing beyond casts a sun shadow, nearer makes far shadows sharper. 0 goes back to the level's; until the level ends

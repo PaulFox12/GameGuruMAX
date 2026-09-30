@@ -13831,6 +13831,8 @@ extern void LuaRenderSettings_SetOcclusionCulling(int iOn, int iObjects, int iAn
 extern void LuaRenderSettings_SetLODMultiplier(float fMultiplier);
 extern void LuaRenderSettings_SetShadowsLowestLOD(int iOn);
 extern void LuaRenderSettings_SetDelayedShadows(int iOn, int iLaptop);
+extern void LuaRenderSettings_ResetDelayedShadows(void);
+extern void LuaRenderSettings_GetDelayedShadows(int* pOn, int* pLaptop, int* pScript);
 extern void LuaRenderSettings_SetShadowRange(float fRange);
 extern void LuaRenderSettings_SetSSR(int iOn);
 extern void LuaRenderSettings_SetAO(int iOn, float fPower);
@@ -13872,6 +13874,24 @@ int SetDelayedShadows(lua_State* L)
 	if (n < 1) return 0;
 	LuaRenderSettings_SetDelayedShadows((int)lua_tonumber(L, 1), (int)LuaOptionalNumber(L, n, 2));
 	return 0;
+}
+
+// ResetDelayedShadows(): forget what SetDelayedShadows set and go back to the level's or the graphics quality's choice
+int ResetDelayedShadows(lua_State* L)
+{
+	LuaRenderSettings_ResetDelayedShadows();
+	return 0;
+}
+
+// GetDelayedShadows(): on, laptop as in force now, and script 1 while a SetDelayedShadows value holds
+int GetDelayedShadows(lua_State* L)
+{
+	int iOn, iLaptop, iScript;
+	LuaRenderSettings_GetDelayedShadows(&iOn, &iLaptop, &iScript);
+	lua_pushinteger(L, iOn);
+	lua_pushinteger(L, iLaptop);
+	lua_pushinteger(L, iScript);
+	return 3;
 }
 
 // SetShadowRange(d): how far the sun's last shadow cascade reaches, 31000 to 500000 units (500000 unless set); nothing
@@ -17091,6 +17111,8 @@ void addFunctions()
 	lua_register(lua, "SetLODMultiplier", SetLODMultiplier);
 	lua_register(lua, "SetShadowsLowestLOD", SetShadowsLowestLOD);
 	lua_register(lua, "SetDelayedShadows", SetDelayedShadows);
+	lua_register(lua, "ResetDelayedShadows", ResetDelayedShadows);
+	lua_register(lua, "GetDelayedShadows", GetDelayedShadows);
 	lua_register(lua, "SetShadowRange", SetShadowRange);
 	lua_register(lua, "SetSSR", SetSSR);
 	lua_register(lua, "SetAO", SetAO);
