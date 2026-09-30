@@ -2444,7 +2444,11 @@ void visuals_shaderlevels_update_core (bool bUpdateEngine)
 	extern bool bThreadedPhysics;
 	bool bPerformAnUpdate = false;
 	int iChangeSkyType = -1;
-	if (t.visuals.shaderlevels.entities == 2) // CUSTOM (MEDIUM)
+	// GG: while a game runs from the level's own settings (High) and SetGlobalGraphicsSettings scales the other qualities,
+	// the fixed render controls and shadow resolutions below would overwrite them
+	extern bool quality_levelbasedactive(void);
+	bool bLevelBasedQuality = quality_levelbasedactive();
+	if (t.visuals.shaderlevels.entities == 2 || bLevelBasedQuality) // CUSTOM (MEDIUM)
 	{
 		// Custom settings - do not override
 	}
@@ -2610,13 +2614,13 @@ void visuals_shaderlevels_update_core (bool bUpdateEngine)
 		}
 
 		// "entities" controls shadow work
-		if (fInitialShadowPointResolution > 0)
+		if (fInitialShadowPointResolution > 0 && !bLevelBasedQuality)
 		{
 			t.visuals.iShadowPointResolution = fInitialShadowPointResolution;
 			if (t.visuals.shaderlevels.entities == 2) t.visuals.iShadowPointResolution = fInitialShadowPointResolution / 2;
 			if (t.visuals.shaderlevels.entities == 3) t.visuals.iShadowPointResolution = fInitialShadowPointResolution / 4;
 		}
-		if (fInitialShadowSpotResolution > 0)
+		if (fInitialShadowSpotResolution > 0 && !bLevelBasedQuality)
 		{
 			t.visuals.iShadowSpotResolution = fInitialShadowSpotResolution;
 			if (t.visuals.shaderlevels.entities == 2) t.visuals.iShadowSpotResolution = fInitialShadowSpotResolution / 2;

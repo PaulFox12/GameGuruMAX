@@ -14108,6 +14108,14 @@ int GetTreesNear(lua_State* L)
 	return 1;
 }
 
+// GetGameQuality(): the graphics quality in force, 1 Low, 2 Medium, 3 High (the level's own settings), 4 Ultra
+int GetGameQuality(lua_State* L)
+{
+	extern int quality_getapplied(void);
+	lua_pushinteger(L, quality_getapplied() + 1);
+	return 1;
+}
+
 namespace GGTerrain
 {
 	int GGTerrain_GetPagesNeeded();
@@ -16977,6 +16985,7 @@ void addFunctions()
 	lua_register(lua, "GetTreeTypeName", GetTreeTypeName);
 	lua_register(lua, "GetTreeCounts", GetTreeCounts);
 	lua_register(lua, "GetTerrainPageStats", GetTerrainPageStats);
+	lua_register(lua, "GetGameQuality", GetGameQuality);
 	lua_register(lua, "GunAnimationSetFrame", GunAnimationSetFrame);
 	lua_register(lua, "LoopGunAnimation", LoopGunAnimation);
 	lua_register(lua, "StopGunAnimation", StopGunAnimation);

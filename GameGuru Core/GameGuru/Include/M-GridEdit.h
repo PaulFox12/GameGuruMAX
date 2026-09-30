@@ -11,6 +11,12 @@ void mapeditorexecutable_loop(void);
 void mapeditorexecutable_finish(void);
 
 void SetGlobalGraphicsSettings( int level ); // 0=lowest, 1=medium, 2=high, 3=ultra, default to 2 (high)
+void SetGlobalGraphicsSettingsEx( int level, bool bTerrainMesh );
+void quality_keeplevel( bool bTerrain, bool bVisuals );
+void quality_applyterrain( int level, bool bTerrainMesh );
+bool quality_levelbasedactive( void );
+int quality_getapplied( void );
+int quality_levelstartquality( void );
 
 void editor_detect_invalid_screen ( void );
 void editor_showhelppage ( int iHelpType );

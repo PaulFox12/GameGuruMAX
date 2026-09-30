@@ -1042,11 +1042,19 @@ void mapfile_loadproject_fpm ( void )
 		GGTrees::GGTrees_ResetDistances();
 		GGTerrainFile_LoadTerrainData(TerrainDataFile_s.Get(),false);
 		GGTrees::GGTrees_KeepLevelDistances();
+		extern void quality_keeplevel(bool bTerrain, bool bVisuals);
+		quality_keeplevel(true, false);
 
 		// the level's tree distances give way to a quality the player has chosen, and all of them to Lua's
 		extern bool g_bGraphicsSettingsChangedByPlayer;
 		if (t.game.gameisexe == 1 && g_bGraphicsSettingsChangedByPlayer)
+		{
+			// the terrain's mesh settings too, before the terrain is built round the player
+			extern int quality_levelstartquality(void);
+			extern void quality_applyterrain(int level, bool bTerrainMesh);
+			quality_applyterrain(quality_levelstartquality(), true);
 			GGTrees::GGTrees_SetPerformanceMode(g.titlesettings.graphicsettingslevel - 1);
+		}
 		else
 			GGTrees::GGTrees_ApplyLuaOverrides();
 		extern bool bTreeGlobalInit;

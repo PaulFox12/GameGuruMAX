@@ -1727,8 +1727,213 @@ void gridedit_setsmartobjectvisibilityinrubberband(bool bVisible)
 	}
 }
 
+// the level's own quality settings, kept when a level loads (terrain) and at its first quality refresh (visuals), and
+// when a test game starts: High is exactly these, and Low, Medium and Ultra are scaled from them
+struct sLevelQuality
+{
+	bool bTerrainValid = false;
+	bool bVisualsValid = false;
+	bool bActive = false;
+	// terrain and grass
+	uint32_t lod_levels = 9;
+	uint32_t segments_per_chunk = 64;
+	float segment_size = 8.0f;
+	float detailScale = 1.0f;
+	uint32_t detailLimit = 0;
+	uint32_t readBackTextureReduction = 4;
+	float tilingPower = 0.56f;
+	int grassSimplePBR = 0;
+	// visuals
+	bool bSSR = false, bFXAA = true, bLightShafts = true, bLensFlare = true, bReflections = true;
+	int iSpotCascadeRes = 1024, iPointMax = 12, iPointRes = 512, iSpotMax = 8, iSpotRes = 512;
+	// render controls
+	bool bShadowsLowestLOD = false, bProbesLowestLOD = false, bReflectionsLowestLOD = false, bEnable30FpsAnimations = false;
+	bool bDelayedShadows = false, bDelayedShadowsLaptop = false;
+	float fApparentSize = 0.000008f, fLODMultiplier = 3.0f;
+	bool bOcclusionCulling = true, bObjectCulling = true, bTerrainChunkCulling = true, bPointShadowCulling = true;
+	bool bSpotShadowCulling = true, bAnimationCulling = true;
+};
+sLevelQuality g_LevelQuality;
+int g_iAppliedQuality = 2;
+
+void quality_keeplevel( bool bTerrain, bool bVisuals )
+{
+	sLevelQuality& q = g_LevelQuality;
+	if ( bTerrain )
+	{
+		q.lod_levels = GGTerrain::ggterrain_global_params.lod_levels;
+		q.segments_per_chunk = GGTerrain::ggterrain_global_params.segments_per_chunk;
+		q.segment_size = GGTerrain::ggterrain_global_params.segment_size;
+		q.detailScale = GGTerrain::ggterrain_global_render_params2.detailScale;
+		q.detailLimit = GGTerrain::ggterrain_global_render_params2.detailLimit;
+		q.readBackTextureReduction = GGTerrain::ggterrain_global_render_params2.readBackTextureReduction;
+		q.tilingPower = GGTerrain::ggterrain_global_render_params.tilingPower;
+		q.grassSimplePBR = GGGrass::gggrass_global_params.simplePBR;
+		q.bTerrainValid = true;
+	}
+	if ( bVisuals )
+	{
+		// the level's values are in t.gamevisuals, which quality changes never write
+		q.bSSR = t.gamevisuals.bSSREnabled;
+		q.bFXAA = t.gamevisuals.bFXAAEnabled;
+		q.bLightShafts = t.gamevisuals.bLightShafts;
+		q.bLensFlare = t.gamevisuals.bLensFlare;
+		q.bReflections = t.gamevisuals.bReflectionsEnabled;
+		q.iSpotCascadeRes = t.gamevisuals.iShadowSpotCascadeResolution;
+		q.iPointMax = t.gamevisuals.iShadowPointMax;
+		q.iPointRes = t.gamevisuals.iShadowPointResolution;
+		q.iSpotMax = t.gamevisuals.iShadowSpotMax;
+		q.iSpotRes = t.gamevisuals.iShadowSpotResolution;
+		q.bShadowsLowestLOD = t.gamevisuals.bShadowsLowestLOD;
+		q.bProbesLowestLOD = t.gamevisuals.bProbesLowestLOD;
+		q.bReflectionsLowestLOD = t.gamevisuals.bReflectionsLowestLOD;
+		q.bEnable30FpsAnimations = t.gamevisuals.bEnable30FpsAnimations;
+		q.bDelayedShadows = t.gamevisuals.g_bDelayedShadows;
+		q.bDelayedShadowsLaptop = t.gamevisuals.g_bDelayedShadowsLaptop;
+		q.fApparentSize = t.gamevisuals.ApparentSize;
+		q.fLODMultiplier = t.gamevisuals.fLODMultiplier;
+		q.bOcclusionCulling = t.gamevisuals.bOcclusionCulling;
+		q.bObjectCulling = t.gamevisuals.bEnableObjectCulling;
+		q.bTerrainChunkCulling = t.gamevisuals.bEnableTerrainChunkCulling;
+		q.bPointShadowCulling = t.gamevisuals.bEnablePointShadowCulling;
+		q.bSpotShadowCulling = t.gamevisuals.bEnableSpotShadowCulling;
+		q.bAnimationCulling = t.gamevisuals.bEnableAnimationCulling;
+		q.bVisualsValid = true;
+		q.bActive = true;
+	}
+}
+
+// true while a game runs from the level's own settings, so the fixed quality overrides elsewhere keep out of it
+bool quality_levelbasedactive( void )
+{
+	return g_LevelQuality.bActive && g_LevelQuality.bVisualsValid;
+}
+
+// the quality in force, 0=low, 1=medium, 2=high (the level's own), 3=ultra
+int quality_getapplied( void )
+{
+	return g_iAppliedQuality;
+}
+
+// the quality a level starts with: in a standalone game the player's once they have changed it, in a test game the editor's
+int quality_levelstartquality( void )
+{
+	if ( t.game.gameisexe == 1 )
+	{
+		extern bool g_bGraphicsSettingsChangedByPlayer;
+		if ( !g_bGraphicsSettingsChangedByPlayer ) return 2;
+		int iLevel = g.titlesettings.graphicsettingslevel - 1;
+		if ( iLevel < 0 ) iLevel = 0;
+		if ( iLevel > 3 ) iLevel = 3;
+		return iLevel;
+	}
+	return pref.iTestGameGraphicsQuality;
+}
+
+// the terrain and grass for a quality, from the level's own; the mesh settings (lod levels, segments, segment size) rebuild the
+// terrain, so they are left alone while a game is in play
+void quality_applyterrain( int level, bool bTerrainMesh )
+{
+	const sLevelQuality& q = g_LevelQuality;
+	if ( !q.bTerrainValid ) return;
+	bool bLow = (level == 0), bMed = (level == 1), bUltra = (level == 3);
+
+	// tiling costs nothing, so every quality keeps the level's
+	GGTerrain::ggterrain_global_render_params.tilingPower = q.tilingPower;
+	GGTerrain::ggterrain_global_render_params2.detailLimit = q.detailLimit + (bLow ? 2 : (bMed ? 1 : 0));
+	GGTerrain::ggterrain_global_render_params2.detailScale = q.detailScale * (bLow ? 0.5f : (bMed ? 0.75f : 1.0f));
+	// half as coarse again on Low and Medium; twice (8 from 4) would leave the read back sampling only pixels whose bit 2 is
+	// clear, so the shader's +1 to +3 fallback levels would never be requested
+	GGTerrain::ggterrain_global_render_params2.readBackTextureReduction = (bLow || bMed) ? (q.readBackTextureReduction * 3) / 2 : q.readBackTextureReduction;
+	GGGrass::gggrass_global_params.simplePBR = (bLow || bMed) ? 1 : q.grassSimplePBR;
+
+	if ( bTerrainMesh )
+	{
+		uint32_t segments = q.segments_per_chunk;
+		if ( bLow ) segments /= 4;
+		if ( bMed ) segments /= 2;
+		if ( bUltra ) segments *= 2;
+		if ( segments < 16 ) segments = 16;
+		if ( segments > 128 ) segments = 128;
+		GGTerrain::ggterrain_global_params.segments_per_chunk = segments;
+		GGTerrain::ggterrain_global_params.segment_size = (bLow || bMed) ? q.segment_size * 2.0f : q.segment_size;
+		GGTerrain::ggterrain_global_params.lod_levels = (bUltra && q.lod_levels > 1) ? q.lod_levels - 1 : q.lod_levels;
+	}
+}
+
+// the visuals and render controls for a quality, from the level's own; High is exactly the level's
+static void quality_applyvisuals( int level )
+{
+	const sLevelQuality& q = g_LevelQuality;
+	bool bLow = (level == 0), bMed = (level == 1), bUltra = (level == 3);
+	bool bCheap = bLow || bMed;
+
+	t.visuals.bSSREnabled = bCheap ? false : q.bSSR;
+	t.visuals.bFXAAEnabled = bLow ? false : q.bFXAA;
+	t.visuals.bLightShafts = bLow ? false : q.bLightShafts;
+	t.visuals.bLensFlare = bLow ? false : q.bLensFlare;
+	t.visuals.bReflectionsEnabled = bLow ? false : q.bReflections;
+
+	t.visuals.iShadowSpotCascadeResolution = bLow ? q.iSpotCascadeRes / 2 : (bUltra ? q.iSpotCascadeRes * 2 : q.iSpotCascadeRes);
+	if ( t.visuals.iShadowSpotCascadeResolution < 256 ) t.visuals.iShadowSpotCascadeResolution = 256;
+	if ( t.visuals.iShadowSpotCascadeResolution > 4096 ) t.visuals.iShadowSpotCascadeResolution = 4096;
+	float fPointScale = bLow ? 0.25f : (bMed ? 0.5f : (bUltra ? 1.33f : 1.0f));
+	float fSpotScale = bLow ? 0.25f : (bMed ? 0.5f : 1.0f);
+	t.visuals.iShadowPointMax = (int)(q.iPointMax * fPointScale + 0.5f);
+	t.visuals.iShadowSpotMax = (int)(q.iSpotMax * fSpotScale + 0.5f);
+	if ( q.iPointMax > 0 && t.visuals.iShadowPointMax < 1 ) t.visuals.iShadowPointMax = 1;
+	if ( q.iSpotMax > 0 && t.visuals.iShadowSpotMax < 1 ) t.visuals.iShadowSpotMax = 1;
+	t.visuals.iShadowPointResolution = bLow ? q.iPointRes / 2 : q.iPointRes;
+	t.visuals.iShadowSpotResolution = bLow ? q.iSpotRes / 2 : q.iSpotRes;
+	if ( t.visuals.iShadowPointResolution < 128 ) t.visuals.iShadowPointResolution = 128;
+	if ( t.visuals.iShadowSpotResolution < 128 ) t.visuals.iShadowSpotResolution = 128;
+
+	// render controls: the cheap setting on Low and Medium, the level's on High and Ultra
+	t.visuals.bShadowsLowestLOD = bCheap ? true : q.bShadowsLowestLOD;
+	t.visuals.bProbesLowestLOD = bCheap ? true : q.bProbesLowestLOD;
+	t.visuals.bReflectionsLowestLOD = bCheap ? true : q.bReflectionsLowestLOD;
+	t.visuals.bEnable30FpsAnimations = bLow ? true : q.bEnable30FpsAnimations;
+	t.visuals.g_bDelayedShadows = bCheap ? true : q.bDelayedShadows;
+	t.visuals.g_bDelayedShadowsLaptop = bLow ? true : q.bDelayedShadowsLaptop;
+	t.visuals.ApparentSize = q.fApparentSize;
+	if ( bLow && t.visuals.ApparentSize < 1.0f / 10000.0f ) t.visuals.ApparentSize = 1.0f / 10000.0f;
+	if ( bMed && t.visuals.ApparentSize < 0.5f / 10000.0f ) t.visuals.ApparentSize = 0.5f / 10000.0f;
+	t.visuals.fLODMultiplier = q.fLODMultiplier;
+	if ( bLow && t.visuals.fLODMultiplier > 1.0f ) t.visuals.fLODMultiplier = 1.0f;
+	if ( bMed && t.visuals.fLODMultiplier > 2.0f ) t.visuals.fLODMultiplier = 2.0f;
+	t.visuals.bOcclusionCulling = bCheap ? true : q.bOcclusionCulling;
+	t.visuals.bEnableObjectCulling = bCheap ? true : q.bObjectCulling;
+	t.visuals.bEnableTerrainChunkCulling = bCheap ? true : q.bTerrainChunkCulling;
+	t.visuals.bEnablePointShadowCulling = bCheap ? true : q.bPointShadowCulling;
+	t.visuals.bEnableSpotShadowCulling = bCheap ? true : q.bSpotShadowCulling;
+	t.visuals.bEnableAnimationCulling = bCheap ? true : q.bAnimationCulling;
+}
+
 void SetGlobalGraphicsSettings( int level ) // 0=lowest, 1=medium, 2=high, 3=ultra, default to 2 (high)
 {
+	SetGlobalGraphicsSettingsEx( level, true );
+}
+
+// bTerrainMesh false leaves the terrain's mesh settings for the next level load (a rebuild in play drops what stands on it)
+void SetGlobalGraphicsSettingsEx( int level, bool bTerrainMesh )
+{
+	// GG: with the level's own settings kept, High is exactly those and the other qualities are scaled from them
+	if ( g_LevelQuality.bVisualsValid && g_LevelQuality.bTerrainValid )
+	{
+		if ( level < 0 ) level = 0;
+		if ( level > 3 ) level = 3;
+		g_iAppliedQuality = level;
+		quality_applyterrain( level, bTerrainMesh );
+		GGTrees::GGTrees_SetPerformanceMode( level );
+		quality_applyvisuals( level );
+		Wicked_Update_Visuals( &t.visuals );
+		// performance levers a game script set still win
+		extern void LuaRenderSettings_Apply(void);
+		LuaRenderSettings_Apply();
+		return;
+	}
+	g_iAppliedQuality = level;
+
 	GGTerrain::GGTerrain_SetPerformanceMode( level );
 	GGTrees::GGTrees_SetPerformanceMode( level );
 	GGGrass::GGGrass_SetPerformanceMode( level );
@@ -15049,6 +15254,7 @@ void editor_previewmapormultiplayer_initcode ( int iUseVRTest )
 	gggrass_save_params = gggrass_global_params;
 	ggtrees_editor_lod_params = ggtrees_global_params;
 	GGTrees_KeepLevelDistances();
+	quality_keeplevel( true, true );
 
 	if(pref.iTestGameGraphicsQuality != 2)
 		SetGlobalGraphicsSettings( pref.iTestGameGraphicsQuality );
@@ -15888,6 +16094,11 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.fLevelDifficulty = t.gamevisuals.fLevelDifficulty;
 	
 	gggrass_global_params = gggrass_save_params;
+
+	// the test game's quality must not stay in the editor's terrain; the editor's own quality code applies again
+	if ( quality_levelbasedactive() && quality_getapplied() != 2 ) quality_applyterrain( 2, true );
+	g_LevelQuality.bActive = false;
+	g_iAppliedQuality = 2;
 
 	// tree distances set by the test game (quality preset or Lua) must not stay in the editor; Tab Tab
 	// changes were also written to the editor's copy, so they stay

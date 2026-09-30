@@ -1627,7 +1627,7 @@ void lua_setgamequality ( void )
 			g_bGraphicsSettingsChangedByPlayer = true;
 		//PE: Only change if player have changed the settings. else use "level designer" settings.
 		if(g_bGraphicsSettingsChangedByPlayer)
-			SetGlobalGraphicsSettings( g.titlesettings.graphicsettingslevel - 1 );
+			SetGlobalGraphicsSettingsEx( g.titlesettings.graphicsettingslevel - 1, false );
 	}
 
 }

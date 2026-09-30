@@ -3769,6 +3769,11 @@ void game_preparelevel_finally ( void )
 	// the standalone quality refresh takes its base values (grass distance, shadow resolution) from this level, not the first
 	extern bool g_bInitGraphicsSettingsValues;
 	g_bInitGraphicsSettingsValues = true;
+	// the level's own visuals are High; a chosen quality is scaled from them (its terrain mesh was set at load)
+	extern void quality_keeplevel(bool bTerrain, bool bVisuals);
+	extern int quality_levelstartquality(void);
+	quality_keeplevel(false, true);
+	if (quality_levelstartquality() != 2) SetGlobalGraphicsSettingsEx(quality_levelstartquality(), false);
 	visuals_shaderlevels_update ( );
 
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );
