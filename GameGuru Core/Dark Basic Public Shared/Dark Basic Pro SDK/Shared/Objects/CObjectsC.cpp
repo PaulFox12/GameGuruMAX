@@ -7667,7 +7667,9 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 			float pOutX, pOutY, pOutZ, pNormX, pNormY, pNormZ;
 			sObject* pIgnoreObject = NULL;
 			if (iIgnoreObjNo > 0) pIgnoreObject = GetObjectData(iIgnoreObjNo);
-			if (pIgnoreObject) WickedCall_SetObjectRenderLayer(pIgnoreObject, GGRENDERLAYERS_CURSOROBJECT);
+			// on the extra thread the ignored object and the gun are left out by the pick itself (WickedCall_SentRay4_ThreadSafe):
+			// changing their layers there raced the main thread's drawing and picks
+			if (pIgnoreObject && !bThreadSafe) WickedCall_SetObjectRenderLayer(pIgnoreObject, GGRENDERLAYERS_CURSOROBJECT);
 			if (!bThreadSafe)
 			{
 				// and any further objects the caller wants ignored (g_IntersectExtraIgnoreObjects, main thread only)
@@ -7681,14 +7683,14 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 			if (g_iCurrentGunObj > 0 && ObjectExist(g_iCurrentGunObj) == 1)
 			{
 				pGunObject = GetObjectData(g_iCurrentGunObj);
-				WickedCall_SetObjectRenderLayer(pGunObject, GGRENDERLAYERS_CURSOROBJECT);
+				if (!bThreadSafe) WickedCall_SetObjectRenderLayer(pGunObject, GGRENDERLAYERS_CURSOROBJECT);
 			}
 			float fDistanceOfRay = GGVec3Length(&vecDir);
 			DWORD dwObjectNumberHit = 0;
 			bool bRes = false;
 			#ifdef PICKBVHTHREADED
 			if (bThreadSafe)
-				bRes = WickedCall_SentRay4_ThreadSafe(vecFrom.x, vecFrom.y, vecFrom.z, vecDir.x, vecDir.y, vecDir.z, fDistanceOfRay, &pOutX, &pOutY, &pOutZ, &pNormX, &pNormY, &pNormZ, &dwObjectNumberHit, true);
+				bRes = WickedCall_SentRay4_ThreadSafe(vecFrom.x, vecFrom.y, vecFrom.z, vecDir.x, vecDir.y, vecDir.z, fDistanceOfRay, &pOutX, &pOutY, &pOutZ, &pNormX, &pNormY, &pNormZ, &dwObjectNumberHit, true, pIgnoreObject, pGunObject);
 			else
 				bRes = WickedCall_SentRay4(vecFrom.x, vecFrom.y, vecFrom.z, vecDir.x, vecDir.y, vecDir.z, fDistanceOfRay, &pOutX, &pOutY, &pOutZ, &pNormX, &pNormY, &pNormZ, &dwObjectNumberHit, true);
 			#else
@@ -7714,7 +7716,7 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 							bool bResesult = false;
 							#ifdef PICKBVHTHREADED
 							if (bThreadSafe)
-								bResesult = WickedCall_SentRay4_ThreadSafe(vecFrom.x, vecFrom.y, vecFrom.z, vecDir.x, vecDir.y, vecDir.z, fDistanceOfRay, &pOutX, &pOutY, &pOutZ, &pNormX, &pNormY, &pNormZ, &dwObjectNumberHit, true);
+								bResesult = WickedCall_SentRay4_ThreadSafe(vecFrom.x, vecFrom.y, vecFrom.z, vecDir.x, vecDir.y, vecDir.z, fDistanceOfRay, &pOutX, &pOutY, &pOutZ, &pNormX, &pNormY, &pNormZ, &dwObjectNumberHit, true, pIgnoreObject, pGunObject);
 							else
 								bResesult = WickedCall_SentRay4(vecFrom.x, vecFrom.y, vecFrom.z, vecDir.x, vecDir.y, vecDir.z, fDistanceOfRay, &pOutX, &pOutY, &pOutZ, &pNormX, &pNormY, &pNormZ, &dwObjectNumberHit, true);
 							#else
@@ -7767,7 +7769,7 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 			}
 
 			// we can extend this to exclude MANY objects - and have an 'exclude from ray' flag instead of using GGRENDERLAYERS (optimization op)
-			if (pIgnoreObject) WickedCall_SetObjectRenderLayer(pIgnoreObject, GGRENDERLAYERS_NORMAL);
+			if (pIgnoreObject && !bThreadSafe) WickedCall_SetObjectRenderLayer(pIgnoreObject, GGRENDERLAYERS_NORMAL);
 			if (!bThreadSafe)
 			{
 				for (int i = 0; i < (int)g_IntersectExtraIgnoreObjects.size(); i++)
@@ -7776,7 +7778,7 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 					if (iObj > 0 && iObj != iIgnoreObjNo && ObjectExist(iObj) == 1) WickedCall_SetObjectRenderLayer(GetObjectData(iObj), GGRENDERLAYERS_NORMAL);
 				}
 			}
-			if (pGunObject) WickedCall_SetObjectRenderLayer(pGunObject, GGRENDERLAYERS_NORMAL);
+			if (pGunObject && !bThreadSafe) WickedCall_SetObjectRenderLayer(pGunObject, GGRENDERLAYERS_NORMAL);
 		}
 	}
 

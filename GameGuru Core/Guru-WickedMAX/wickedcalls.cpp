@@ -6311,7 +6311,7 @@ bool WickedCall_SentRay4(float originx, float originy, float originz, float dire
 }
 
 #ifdef PICKBVHTHREADED
-bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly)
+bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly, sObject* pIgnore1, sObject* pIgnore2)
 {
 	// ray cast specifically used by game loop to find accurate position of animating objects (performant?)
 	RAY pickRay;
@@ -6328,7 +6328,20 @@ bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz,
 	uint32_t checkType = RENDERTYPE_ALL;
 	//PE: @Lee we have no checks on transparent objects, we cant shoot glass, no impact effects , no killing pradator ...
 	if (bOpaqueOnly == true) checkType = RENDERTYPE_OPAQUE | RENDERTYPE_TRANSPARENT;
-	wiScene::PickResult hit = wiScene::Pick(pickRay, checkType, GGRENDERLAYERS_NORMAL);
+
+	// the objects to leave out, by their frames' Wicked objects (the main thread's IntersectAllEx moves them to another
+	// layer instead, a scene change this thread must not make)
+	std::vector<wiECS::Entity> exclude;
+	sObject* pIgnore[2] = { pIgnore1, pIgnore2 };
+	for (int o = 0; o < 2; o++)
+	{
+		if (!pIgnore[o]) continue;
+		for (int iF = 0; iF < pIgnore[o]->iFrameCount; iF++)
+		{
+			if (pIgnore[o]->ppFrameList[iF] && pIgnore[o]->ppFrameList[iF]->wickedobjindex > 0) exclude.push_back(pIgnore[o]->ppFrameList[iF]->wickedobjindex);
+		}
+	}
+	wiScene::PickResult hit = wiScene::Pick(pickRay, checkType, GGRENDERLAYERS_NORMAL, wiScene::GetScene(), exclude.data(), (uint32_t)exclude.size());
 	if (hit.entity > 0)
 	{
 		float fDX = hit.position.x - originx;
