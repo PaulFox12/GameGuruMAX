@@ -69,15 +69,18 @@ namespace GGTrees
 		float x;
 		float y;
 		float z;
-		float scale;
+		float scale; // the trunk's thickness (a diameter) at this tree's scale
 		int type; // the tree type, as GGTrees_GetTypeName names it
+		float top; // the tree's top
+		float crown; // where its crown starts: below it only the bare trunk
+		float instanceScale; // the tree's own scale (1 is the type's size)
 	};
 
 	int GGTrees_GetClosest( float x, float z, float radius, GGTreePoint** pOutPoints ); // returns the number of trees in pOutPoints, pOutPoints must be undefined it will be created
 	int GGTrees_RayCast( RAY pickRay, float maxDist, float* outDist, uint32_t* treeID ); // returns 1 if hit, 0 if not. If hit then treeID will be populated
 	int GGTrees_RayCastTrunks( float x1, float y1, float z1, float x2, float y2, float z2, float* pOut ); // the first trunk on a segment, map-wide: pOut gets x, y, z, nx, ny, nz; returns 1 if hit
-	int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, const float* pMotion, float* pOut, int* pType = 0 ); // the first trunk a moving box meets: fraction, x, y, z, nx, ny, nz, and its tree type
-	int GGTrees_OverlapBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees ); // how many trunks a box touches
+	int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, const float* pMotion, float* pOut, int* pType = 0, bool bBareTrunk = false ); // the first trunk a moving box meets: fraction, x, y, z, nx, ny, nz, and its tree type; bBareTrunk tests each trunk only up to its crown
+	int GGTrees_OverlapBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, bool bBareTrunk = false ); // how many trunks a box touches
 	void GGTrees_SetTreePosition( uint32_t treeID, float x, float z );
 	
 	uint32_t GGTrees_GetDataSize(); // number of floats required in data array

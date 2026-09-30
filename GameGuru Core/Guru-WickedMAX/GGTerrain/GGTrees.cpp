@@ -348,8 +348,36 @@ struct TreeTrunk
 	float x, z;
 	float radius;
 	float base, top;
+	float crown; // where the crown starts: below it only the bare trunk
 	int type;
 };
+
+// the height above a type's base where its crown starts, at scale 1: the lowest vertex of its full detail branch and leaf
+// mesh (the whole height for a type without one), worked out once
+static float GGTrees_CrownBase( int type )
+{
+	static float crownBase[ numTreeTypes ];
+	static bool bDone = false;
+	if ( !bDone )
+	{
+		for( uint32_t i = 0; i < numTreeTypes; i++ )
+		{
+			float lowest = g_GGTrees[ i ].height;
+			const TreeMeshHigh* pBranches = g_GGTrees[ i ].branches;
+			if ( pBranches )
+			{
+				for( uint32_t v = 0; v < pBranches->numVertices; v++ )
+				{
+					if ( pBranches->pVertices[ v ].y < lowest ) lowest = pBranches->pVertices[ v ].y;
+				}
+			}
+			crownBase[ i ] = lowest > 0 ? lowest : 0;
+		}
+		bDone = true;
+	}
+	if ( type < 0 || type >= (int)numTreeTypes ) type = numTreeTypes - 1;
+	return crownBase[ type ];
+}
 
 struct TreeChunk
 {
@@ -585,6 +613,7 @@ struct TreeChunk
 				trunk.radius = pInstance->GetTreeThickness() * pInstance->GetScaleFloat() * 0.5f;
 				trunk.base = pInstance->y;
 				trunk.top = pInstance->y + treeHeight * pInstance->GetScaleFloat();
+				trunk.crown = pInstance->y + GGTrees_CrownBase( type ) * pInstance->GetScaleFloat();
 				trunk.type = pInstance->GetType();
 				trunks.push_back( trunk );
 			}
@@ -1667,6 +1696,10 @@ int GGTrees_GetClosest( float x, float z, float radius, GGTreePoint** pOutPoints
 				tree.y = pInstance->y;
 				tree.scale = pInstance->GetTreeThickness() * pInstance->GetScaleFloat();
 				tree.type = pInstance->GetType();
+				tree.instanceScale = pInstance->GetScaleFloat();
+				int heightType = tree.type < (int)numTreeTypes ? tree.type : numTreeTypes - 1;
+				tree.top = pInstance->y + g_GGTrees[ heightType ].height * tree.instanceScale;
+				tree.crown = pInstance->y + GGTrees_CrownBase( tree.type ) * tree.instanceScale;
 				points.AddItem( tree );
 			}
 
@@ -1898,7 +1931,7 @@ static bool GGTrees_PointMeetsRoundedRect( float px, float pz, float vx, float v
 // anywhere on the map: the same trunks as GGTrees_RayCastTrunks, each a cylinder from base to top. pOut gets the fraction
 // of the motion, the point and the trunk's normal there (fraction, x, y, z, nx, ny, nz); returns 1 on a hit, with fraction 0
 // for a box already touching a trunk
-int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, const float* pMotion, float* pOut, int* pType )
+int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, const float* pMotion, float* pOut, int* pType, bool bBareTrunk )
 {
 	if ( !ggtrees_initialised || !ggtrees_global_params.draw_enabled ) return 0;
 	float hx = fabsf( pHalf[0] ), hy = fabsf( pHalf[1] ), hz = fabsf( pHalf[2] );
@@ -1936,7 +1969,7 @@ int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawD
 
 			// and the box's height then reaches the trunk
 			float boxY = pCentre[1] + pMotion[1] * t;
-			if ( boxY - hy > trunk.top || boxY + hy < trunk.base ) continue;
+			if ( boxY - hy > (bBareTrunk ? trunk.crown : trunk.top) || boxY + hy < trunk.base ) continue;
 			bestT = t;
 			pBest = &trunk;
 		}
@@ -1960,8 +1993,9 @@ int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawD
 	float nx = nlx * c + nlz * s;
 	float nz = -nlx * s + nlz * c;
 	float hitY = pCentre[1] + pMotion[1] * t;
+	float hitTop = bBareTrunk ? pBest->crown : pBest->top;
 	if ( hitY < pBest->base ) hitY = pBest->base;
-	if ( hitY > pBest->top ) hitY = pBest->top;
+	if ( hitY > hitTop ) hitY = hitTop;
 	pOut[ 0 ] = t;
 	pOut[ 1 ] = pBest->x + nx * pBest->radius;
 	pOut[ 2 ] = hitY;
@@ -1972,7 +2006,7 @@ int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawD
 }
 
 // how many tree trunks a box (as GGTrees_SweepBoxTrunks's) touches now
-int GGTrees_OverlapBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees )
+int GGTrees_OverlapBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, bool bBareTrunk )
 {
 	if ( !ggtrees_initialised || !ggtrees_global_params.draw_enabled ) return 0;
 	float hx = fabsf( pHalf[0] ), hy = fabsf( pHalf[1] ), hz = fabsf( pHalf[2] );
@@ -1992,7 +2026,7 @@ int GGTrees_OverlapBoxTrunks( const float* pCentre, const float* pHalf, float ya
 		for( size_t j = 0; j < pChunk->trunks.size(); j++ )
 		{
 			const TreeTrunk& trunk = pChunk->trunks[ j ];
-			if ( pCentre[1] - hy > trunk.top || pCentre[1] + hy < trunk.base ) continue;
+			if ( pCentre[1] - hy > (bBareTrunk ? trunk.crown : trunk.top) || pCentre[1] + hy < trunk.base ) continue;
 			float dx = trunk.x - pCentre[0];
 			float dz = trunk.z - pCentre[2];
 			float t;
