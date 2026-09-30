@@ -8880,6 +8880,7 @@ int SetShaderVariable ( lua_State *L )
 void Wicked_Update_Cloud(void* visual);
 // set when a script changes these, so a full visuals push applies them again (M-GridEditB.cpp LuaGameVisuals_Apply)
 extern bool g_bLuaSetClouds, g_bLuaSetTreeWind, g_bLuaSetWind, g_bLuaSetWaterColor, g_bLuaSetWaterFog, g_bLuaSetLUT;
+extern bool g_bLuaSetTreeSubsurface;
 int GetCloudDensity(lua_State* L)
 {
 	lua_pushnumber(L, t.gamevisuals.SkyCloudiness);
@@ -8974,6 +8975,22 @@ int GetTreeWind(lua_State* L)
 	lua_pushnumber(L, t.gamevisuals.tree_wind);
 	lua_pushnumber(L, t.gamevisuals.tree_wind_speed);
 	return 2;
+}
+// SetTreeSubsurface(v): how brightly the sun shines through the leaves of trees seen against it, 0 to 1 as the editor's
+// Subsurface Scattering slider (full-detail trees and billboards). Kept through visuals pushes; the level's again at the
+// next level and when a test game ends
+int SetTreeSubsurface(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	t.gamevisuals.tree_sss = max(0.0f, min(1.0f, (float)lua_tonumber(L, 1)));
+	WickedCall_UpdateTreeSubsurface(t.gamevisuals.tree_sss);
+	g_bLuaSetTreeSubsurface = true;
+	return 0;
+}
+int GetTreeSubsurface(lua_State* L)
+{
+	lua_pushnumber(L, t.gamevisuals.tree_sss);
+	return 1;
 }
 
 
@@ -16903,6 +16920,8 @@ void addFunctions()
 	//PE: Other Shader
 	lua_register(lua, "SetTreeWind", SetTreeWind);
 	lua_register(lua, "GetTreeWind", GetTreeWind);
+	lua_register(lua, "SetTreeSubsurface", SetTreeSubsurface);
+	lua_register(lua, "GetTreeSubsurface", GetTreeSubsurface);
 
 	//Water Shader
 	//setter

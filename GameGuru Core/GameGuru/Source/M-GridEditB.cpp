@@ -7816,11 +7816,12 @@ void LuaRenderSettings_Clear(void)
 	}
 }
 
-// clouds, tree wind, wind, water colour, water fog and the LUT set from Lua are kept in t.gamevisuals, which the end
-// of a test game overwrites, so they never reach the editor. A full visuals push applies t.visuals, so the ones a
-// script has set are applied again after it, until the level ends
+// clouds, tree wind, the tree backlight, wind, water colour, water fog and the LUT set from Lua are kept in
+// t.gamevisuals, which the end of a test game overwrites, so they never reach the editor. A full visuals push applies
+// t.visuals, so the ones a script has set are applied again after it, until the level ends
 bool g_bLuaSetClouds = false;
 bool g_bLuaSetTreeWind = false;
+bool g_bLuaSetTreeSubsurface = false;
 bool g_bLuaSetWind = false;
 bool g_bLuaSetWaterColor = false;
 bool g_bLuaSetWaterFog = false;
@@ -7848,6 +7849,7 @@ void LuaGameVisuals_Apply(void* pPushedVisuals)
 		WickedCall_UpdateTreeWind(t.gamevisuals.tree_wind);
 		WickedCall_UpdateTreeWindSpeed(t.gamevisuals.tree_wind_speed);
 	}
+	if (g_bLuaSetTreeSubsurface) WickedCall_UpdateTreeSubsurface(t.gamevisuals.tree_sss);
 	if (g_bLuaSetWind) Wicked_Update_Wind(&t.gamevisuals);
 	if (g_bLuaSetWaterColor) WickedCall_UpdateWaterColor(t.gamevisuals.WaterRed_f, t.gamevisuals.WaterGreen_f, t.gamevisuals.WaterBlue_f);
 	if (g_bLuaSetWaterFog) WickedCall_UpdateWaterFog(t.gamevisuals.WaterFogMinDist, t.gamevisuals.WaterFogMaxDist, t.gamevisuals.WaterFogMinAmount);
@@ -7859,6 +7861,7 @@ void LuaGameVisuals_Clear(void)
 {
 	g_bLuaSetClouds = false;
 	g_bLuaSetTreeWind = false;
+	g_bLuaSetTreeSubsurface = false;
 	g_bLuaSetWind = false;
 	g_bLuaSetWaterColor = false;
 	g_bLuaSetWaterFog = false;

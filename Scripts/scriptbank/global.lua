@@ -2541,6 +2541,8 @@ GetEntityInstanceEmissive : r, g, b, strength = GetEntityInstanceEmissive ( e )
 
 SetTreeWind : SetTreeWind ( amount [, speed] ) -- how far trees and grass sway in the wind, and how fast (speed 0 or omitted ties the speed to the amount)
 GetTreeWind : amount, speed = GetTreeWind()
+SetTreeSubsurface : SetTreeSubsurface ( v ) -- how brightly the sun shines through the leaves of trees seen against it (0 to 1, the editor's Subsurface Scattering slider), full-detail trees and billboards; kept through visuals pushes, the level's own again at the next level and when a test game ends
+GetTreeSubsurface : v = GetTreeSubsurface ( )
 
 GetEntityLimbCount : n = GetEntityLimbCount ( e ) -- number of limbs of the entity's object; limbs are numbered 0 to n-1 as GetLimbName numbers them
 GetEntityLimbName : name = GetEntityLimbName ( e, limb ) -- "" if out of range

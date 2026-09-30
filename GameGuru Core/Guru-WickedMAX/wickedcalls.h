@@ -302,6 +302,7 @@ void WickedCall_UpdateWaterHeight(float height);
 void WickedCall_UpdateWaterColor(float red, float green, float blue);
 void WickedCall_UpdateTreeWind(float wind);
 void WickedCall_UpdateTreeWindSpeed(float speed);
+void WickedCall_UpdateTreeSubsurface(float sss);
 void WickedCall_UpdateWaterShoreMap(void);
 void WickedCall_UpdateWaterFog(float fMinDist, float fMaxDist, float fMinAmount);
 

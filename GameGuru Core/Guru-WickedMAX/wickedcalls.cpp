@@ -8406,6 +8406,16 @@ void WickedCall_UpdateWaterShoreMap(void)
 	timestampactivity(0, pLog);
 }
 
+// how brightly the sun shines through tree leaves seen against it (the editor's Subsurface Scattering slider)
+void WickedCall_UpdateTreeSubsurface(float sss)
+{
+	wiScene::WeatherComponent* weather = wiScene::GetScene().weathers.GetComponent(g_weatherEntityID);
+	if (weather)
+	{
+		weather->tree_sss = sss;
+	}
+}
+
 // tree and foliage sway speed, set apart from the amount; 0 ties it to the amount as before
 void WickedCall_UpdateTreeWindSpeed(float speed)
 {
