@@ -318,6 +318,15 @@ GPUBuffer bufferInstancesHigh[ numTreeTypes ];
 
 InstanceTreeGPU* treeInstancesHighShadow[ numTreeTypes ] = { 0 };
 uint16_t numTreeInstancesHighShadow[ numTreeTypes ] = { 0 };
+
+// GG: each chunk's run of trees in a type's shadow list, so a cascade draws only the chunks it can see
+struct ShadowChunkRun
+{
+	uint32_t chunk;
+	uint32_t start;
+	uint32_t count;
+};
+std::vector<ShadowChunkRun> shadowChunkRuns[ numTreeTypes ];
 GPUBuffer bufferInstancesHighShadow[ numTreeTypes ];
 
 #define GGTREES_MAX_ENVMAP_TREES 500
@@ -1142,6 +1151,13 @@ uint32_t GGTrees_GetNumHighDetail()
 {
 	uint32_t total = 0;
 	for( uint32_t i = 0; i < numTreeTypes; i++ ) total += numTreeInstancesHigh[ i ];
+	return total;
+}
+
+uint32_t GGTrees_GetNumHighDetailShadow()
+{
+	uint32_t total = 0;
+	for( uint32_t i = 0; i < numTreeTypes; i++ ) total += numTreeInstancesHighShadow[ i ];
 	return total;
 }
 
@@ -2856,6 +2872,7 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 	for (uint32_t i = 0; i < numTreeTypes; i++)
 	{
 		numTreeInstancesHighShadow[i] = 0;
+		shadowChunkRuns[i].clear();
 	}
 
 	// GUARD: Track total instances processed to detect runaway loops
@@ -2968,6 +2985,10 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 					treeInstancesHighShadow[treeType][index].z = pInstance->z;
 					treeInstancesHighShadow[treeType][index].data = pInstance->data;
 					numTreeInstancesHighShadow[treeType]++;
+
+					std::vector<ShadowChunkRun>& runs = shadowChunkRuns[treeType];
+					if (runs.empty() || runs.back().chunk != i) runs.push_back({ i, index, 1 });
+					else runs.back().count++;
 				}
 			}
 		}
@@ -3636,6 +3657,28 @@ extern "C" void GGTrees_Draw_Prepass( const Frustum* frustum, int mode, CommandL
 
 // must be extern "C" to allow /alternatename linker flag to be set correctly
 // called from WickedEngine wiRenderer::DrawShadowmaps()
+// GG: draws a type's full detail shadow trees in the chunks the cascade can see, joining neighbouring runs into one draw
+static void GGTrees_DrawShadowRuns( uint32_t type, uint32_t numIndices, const Frustum* frustum, CommandList cmd )
+{
+	GraphicsDevice* device = wiRenderer::GetDevice();
+	uint32_t drawStart = 0, drawCount = 0;
+	for( const ShadowChunkRun& run : shadowChunkRuns[ type ] )
+	{
+		AABB aabb;
+		pTreeChunks[ run.chunk ].GetBounds( &aabb );
+		if ( !frustum->CheckBoxFast( aabb ) ) continue;
+		if ( drawCount > 0 && drawStart + drawCount == run.start )
+		{
+			drawCount += run.count;
+			continue;
+		}
+		if ( drawCount > 0 ) device->DrawIndexedInstanced( numIndices, drawCount, 0, 0, drawStart, cmd );
+		drawStart = run.start;
+		drawCount = run.count;
+	}
+	if ( drawCount > 0 ) device->DrawIndexedInstanced( numIndices, drawCount, 0, 0, drawStart, cmd );
+}
+
 extern "C" void GGTrees_Draw_ShadowMap( const Frustum* frustum, int cascade, CommandList cmd )
 {
 	if (!ggtrees_initialised) return;
@@ -3694,7 +3737,7 @@ extern "C" void GGTrees_Draw_ShadowMap( const Frustum* frustum, int cascade, Com
 				const uint32_t strides2[] = { sizeof(VertexTreeHigh), sizeof(InstanceTreeGPU) };
 				device->BindVertexBuffers( vbs2, 0, 2, strides2, 0, cmd );
 				device->BindIndexBuffer( &bufferTreeHighIndices[i], INDEXFORMAT_16BIT, 0, cmd );
-				device->DrawIndexedInstanced( g_GGTrees[ i ].trunk->numIndices, numTreeInstancesHighShadow[i], 0, 0, 0, cmd );
+				GGTrees_DrawShadowRuns( i, g_GGTrees[ i ].trunk->numIndices, frustum, cmd );
 			}
 		}
 
@@ -3710,7 +3753,7 @@ extern "C" void GGTrees_Draw_ShadowMap( const Frustum* frustum, int cascade, Com
 				const uint32_t strides2[] = { sizeof(VertexTreeHigh), sizeof(InstanceTreeGPU) };
 				device->BindVertexBuffers( vbs2, 0, 2, strides2, 0, cmd );
 				device->BindIndexBuffer( &bufferBranchesHighIndices[i], INDEXFORMAT_16BIT, 0, cmd );
-				device->DrawIndexedInstanced( g_GGTrees[ i ].branches->numIndices, numTreeInstancesHighShadow[i], 0, 0, 0, cmd );
+				GGTrees_DrawShadowRuns( i, g_GGTrees[ i ].branches->numIndices, frustum, cmd );
 			}
 		}
 	}

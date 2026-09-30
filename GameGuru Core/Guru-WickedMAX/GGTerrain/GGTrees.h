@@ -105,6 +105,7 @@ namespace GGTrees
 	int GGTrees_UsingBrush();
 	uint32_t GGTrees_GetNumTypes();
 	uint32_t GGTrees_GetNumHighDetail();
+	uint32_t GGTrees_GetNumHighDetailShadow();
 	void GGTrees_ChangeDensity(int density);
 	void GGTrees_RepopulateInstances();
 	int GGTrees_UpdateInstances(int accurate);

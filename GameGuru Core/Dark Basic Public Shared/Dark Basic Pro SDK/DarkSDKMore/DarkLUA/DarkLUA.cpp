@@ -14108,6 +14108,15 @@ int GetTreesNear(lua_State* L)
 	return 1;
 }
 
+// GetTreeCounts(): the trees drawn at full detail this frame, and the trees in the full detail shadow list (both set by the
+// tree distance and transition)
+int GetTreeCounts(lua_State* L)
+{
+	lua_pushinteger(L, GGTrees::GGTrees_GetNumHighDetail());
+	lua_pushinteger(L, GGTrees::GGTrees_GetNumHighDetailShadow());
+	return 2;
+}
+
 // GetTreeTypeName(type): the name of a tree type (GetTreesNear's type, PhysicsRay's treetype), such as "jungletree3a"; ""
 // for none
 int GetTreeTypeName(lua_State* L)
@@ -16946,6 +16955,7 @@ void addFunctions()
 	lua_register(lua, "RayTrees", RayTrees);
 	lua_register(lua, "GetTreesNear", GetTreesNear);
 	lua_register(lua, "GetTreeTypeName", GetTreeTypeName);
+	lua_register(lua, "GetTreeCounts", GetTreeCounts);
 	lua_register(lua, "GunAnimationSetFrame", GunAnimationSetFrame);
 	lua_register(lua, "LoopGunAnimation", LoopGunAnimation);
 	lua_register(lua, "StopGunAnimation", StopGunAnimation);
