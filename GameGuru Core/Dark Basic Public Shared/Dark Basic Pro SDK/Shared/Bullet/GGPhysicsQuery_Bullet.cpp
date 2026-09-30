@@ -69,31 +69,72 @@ struct PhysicsQuerySweepCallback : public btCollisionWorld::ClosestConvexResultC
 	}
 };
 
-struct PhysicsQueryOverlapCallback : public btCollisionWorld::ContactResultCallback
+// the bodies whose bounds meet the box's, in the wanted layers
+struct PhysicsQueryAabbCallback : public btBroadphaseAabbCallback
 {
 	int iLayers;
 	const int* pIgnore;
 	int iIgnoreCount;
-	const btCollisionObject* pSelf;
-	int* pObjects;
-	int iMax;
-	int iCount;
-	virtual bool needsCollision(btBroadphaseProxy* pProxy) const
+	btAlignedObjectArray<const btCollisionObject*> candidates;
+	virtual bool process(const btBroadphaseProxy* pProxy)
 	{
-		return PhysicsQuery_Wanted(pProxy, iLayers, pIgnore, iIgnoreCount);
+		if (PhysicsQuery_Wanted((btBroadphaseProxy*)pProxy, iLayers, pIgnore, iIgnoreCount)) candidates.push_back((const btCollisionObject*)pProxy->m_clientObject);
+		return true;
 	}
+};
+
+// set by any contact between the box and one convex or compound body
+struct PhysicsQueryTouchCallback : public btCollisionWorld::ContactResultCallback
+{
+	bool bTouch;
+	PhysicsQueryTouchCallback() : bTouch(false) {}
 	virtual btScalar addSingleResult(btManifoldPoint& cp, const btCollisionObjectWrapper* pWrap0, int iPart0, int iIndex0, const btCollisionObjectWrapper* pWrap1, int iPart1, int iIndex1)
 	{
-		// the other body is whichever side isn't the query's box; each one counts once
-		const btCollisionObject* pOther = pWrap0->getCollisionObject() == pSelf ? pWrap1->getCollisionObject() : pWrap0->getCollisionObject();
-		const btBroadphaseProxy* pProxy = pOther->getBroadphaseHandle();
-		int iObject = PhysicsQuery_ObjectNumber(pOther, pProxy ? pProxy->m_collisionFilterGroup : 0);
-		for (int i = 0; i < iCount; i++)
-		{
-			if (pObjects[i] == iObject) return 0;
-		}
-		if (iCount < iMax) pObjects[iCount++] = iObject;
+		bTouch = true;
 		return 0;
+	}
+};
+
+// a triangle, in the box's own space, against the box: the separating axis test on the box's three axes, the triangle's
+// normal and the nine edge cross products
+static bool PhysicsQuery_BoxTriangle(const btVector3& half, const btVector3* v)
+{
+	for (int a = 0; a < 3; a++)
+	{
+		if (btMin(v[0][a], btMin(v[1][a], v[2][a])) > half[a]) return false;
+		if (btMax(v[0][a], btMax(v[1][a], v[2][a])) < -half[a]) return false;
+	}
+	const btVector3 edges[3] = { v[1] - v[0], v[2] - v[1], v[0] - v[2] };
+	btVector3 axes[10];
+	axes[0] = edges[0].cross(edges[1]);
+	for (int i = 0; i < 3; i++)
+	{
+		axes[1 + i * 3] = btVector3(0, -edges[i].z(), edges[i].y());
+		axes[2 + i * 3] = btVector3(edges[i].z(), 0, -edges[i].x());
+		axes[3 + i * 3] = btVector3(-edges[i].y(), edges[i].x(), 0);
+	}
+	for (int i = 0; i < 10; i++)
+	{
+		const btVector3& axis = axes[i];
+		btScalar p0 = axis.dot(v[0]), p1 = axis.dot(v[1]), p2 = axis.dot(v[2]);
+		btScalar r = half.x() * btFabs(axis.x()) + half.y() * btFabs(axis.y()) + half.z() * btFabs(axis.z());
+		if (btMin(p0, btMin(p1, p2)) > r || btMax(p0, btMax(p1, p2)) < -r) return false;
+	}
+	return true;
+}
+
+// a triangle mesh's triangles within the box's bounds, until one touches the box (Bullet's own contact test would build a
+// full contact for every one of them)
+struct PhysicsQueryBoxTriangleCallback : public btTriangleCallback
+{
+	btTransform shapeToBox;
+	btVector3 half;
+	bool bTouch;
+	virtual void processTriangle(btVector3* pTriangle, int iPart, int iIndex)
+	{
+		if (bTouch) return;
+		btVector3 v[3] = { shapeToBox(pTriangle[0]), shapeToBox(pTriangle[1]), shapeToBox(pTriangle[2]) };
+		bTouch = PhysicsQuery_BoxTriangle(half, v);
 	}
 };
 
@@ -158,14 +199,48 @@ int PhysicsQuery_OverlapBox(const float* pCentre, const float* pHalf, float fYaw
 	btCollisionObject query;
 	query.setCollisionShape(&box);
 	query.setWorldTransform(PhysicsQuery_BoxTransform(pCentre, fYawDegrees));
-	PhysicsQueryOverlapCallback callback;
-	callback.iLayers = iLayers;
-	callback.pIgnore = pIgnore;
-	callback.iIgnoreCount = iIgnoreCount;
-	callback.pSelf = &query;
-	callback.pObjects = pObjects;
-	callback.iMax = iMax;
-	callback.iCount = 0;
-	g_dynamicsWorld->contactTest(&query, callback);
-	return callback.iCount;
+	const btTransform& boxTransform = query.getWorldTransform();
+	btVector3 aabbMin, aabbMax;
+	box.getAabb(boxTransform, aabbMin, aabbMax);
+	PhysicsQueryAabbCallback bodies;
+	bodies.iLayers = iLayers;
+	bodies.pIgnore = pIgnore;
+	bodies.iIgnoreCount = iIgnoreCount;
+	g_dynamicsWorld->getBroadphase()->aabbTest(aabbMin, aabbMax, bodies);
+	int iCount = 0;
+	for (int c = 0; c < bodies.candidates.size(); c++)
+	{
+		const btCollisionObject* pOther = bodies.candidates[c];
+		const btCollisionShape* pShape = pOther->getCollisionShape();
+		bool bTouch = false;
+		if (pShape->isConcave())
+		{
+			PhysicsQueryBoxTriangleCallback triangles;
+			triangles.shapeToBox = boxTransform.inverse() * pOther->getWorldTransform();
+			triangles.half = box.getHalfExtentsWithMargin();
+			triangles.bTouch = false;
+			btVector3 localMin, localMax;
+			box.getAabb(pOther->getWorldTransform().inverse() * boxTransform, localMin, localMax);
+			((const btConcaveShape*)pShape)->processAllTriangles(&triangles, localMin, localMax);
+			bTouch = triangles.bTouch;
+		}
+		else
+		{
+			PhysicsQueryTouchCallback touch;
+			g_dynamicsWorld->contactPairTest(&query, (btCollisionObject*)pOther, touch);
+			bTouch = touch.bTouch;
+		}
+		if (!bTouch) continue;
+
+		// each object counts once
+		const btBroadphaseProxy* pProxy = pOther->getBroadphaseHandle();
+		int iObject = PhysicsQuery_ObjectNumber(pOther, pProxy ? pProxy->m_collisionFilterGroup : 0);
+		bool bListed = false;
+		for (int i = 0; i < iCount; i++)
+		{
+			if (pObjects[i] == iObject) bListed = true;
+		}
+		if (!bListed && iCount < iMax) pObjects[iCount++] = iObject;
+	}
+	return iCount;
 }

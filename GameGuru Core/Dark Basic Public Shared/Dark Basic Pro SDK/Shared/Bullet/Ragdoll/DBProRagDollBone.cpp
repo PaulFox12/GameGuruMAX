@@ -198,6 +198,7 @@ void DBProRagDollBone::CreateBone()
 	if (boneVolume < 500) boneVolume = btScalar(500);
 	m_collisionShape = new btCapsuleShapeZ(btScalar(diameter/scaleFactor/2),btScalar((height - diameter)/scaleFactor));
 	rigidBody = localCreateRigidBody(boneVolume, boneTrans, m_collisionShape, dbproRagDollBoneID, collisionGroup, collisionMask);
+	rigidBody->setUserIndex(dbproObjectID); // the object it stands for (GGPhysicsQuery)
 	initialRotation = rigidBody->getWorldTransform().getBasis();
 }
 
