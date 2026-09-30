@@ -4,6 +4,7 @@
 
 #define GGTREES_CONSTANTS_FULL_DECL
 #include "Shaders/GGTreesConstants.hlsli"
+#include <algorithm>
 
 #include "wiRenderer.h"
 #include "wiProfiler.h"
@@ -319,14 +320,25 @@ GPUBuffer bufferInstancesHigh[ numTreeTypes ];
 InstanceTreeGPU* treeInstancesHighShadow[ numTreeTypes ] = { 0 };
 uint16_t numTreeInstancesHighShadow[ numTreeTypes ] = { 0 };
 
-// GG: each chunk's run of trees in a type's shadow list, so a cascade draws only the chunks it can see
+// GG: each cell's run of trees in a type's shadow list, with the bounds of its trees, so a cascade draws only the cells it
+// can see (a whole chunk, a sixteenth of the tree area a side, was too coarse to cull anything for the near cascades)
+#define GGTREES_SHADOW_CELL 512.0f
 struct ShadowChunkRun
 {
-	uint32_t chunk;
+	uint32_t cell;
 	uint32_t start;
 	uint32_t count;
+	AABB bounds;
 };
 std::vector<ShadowChunkRun> shadowChunkRuns[ numTreeTypes ];
+struct ShadowCellTree
+{
+	uint32_t cell;
+	InstanceTreeGPU instance;
+	float halfWidth;
+	float height;
+};
+std::vector<ShadowCellTree> shadowCellTrees[ numTreeTypes ];
 GPUBuffer bufferInstancesHighShadow[ numTreeTypes ];
 
 #define GGTREES_MAX_ENVMAP_TREES 500
@@ -2916,6 +2928,7 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 	{
 		numTreeInstancesHighShadow[i] = 0;
 		shadowChunkRuns[i].clear();
+		shadowCellTrees[i].clear();
 	}
 
 	// GUARD: Track total instances processed to detect runaway loops
@@ -3018,26 +3031,66 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 
 			if (sqrDist <= sqrDistLODShadow)
 			{
-				// add tree to shadow draw list
-				uint32_t index = numTreeInstancesHighShadow[treeType];
-				if (index < GGTREES_MAX_HIGH_DETAIL_PER_TYPE)
+				// add tree to shadow draw list, by cell (written out sorted below)
+				std::vector<ShadowCellTree>& cellTrees = shadowCellTrees[treeType];
+				if (cellTrees.size() < GGTREES_MAX_HIGH_DETAIL_PER_TYPE)
 				{
 					// only if fit within dynamic array
-					treeInstancesHighShadow[treeType][index].x = pInstance->x;
-					treeInstancesHighShadow[treeType][index].y = pInstance->y;
-					treeInstancesHighShadow[treeType][index].z = pInstance->z;
-					treeInstancesHighShadow[treeType][index].data = pInstance->data;
-					numTreeInstancesHighShadow[treeType]++;
-
-					std::vector<ShadowChunkRun>& runs = shadowChunkRuns[treeType];
-					if (runs.empty() || runs.back().chunk != i) runs.push_back({ i, index, 1 });
-					else runs.back().count++;
+					ShadowCellTree tree;
+					int cellX = (int)floorf(pInstance->x / GGTREES_SHADOW_CELL);
+					int cellZ = (int)floorf(pInstance->z / GGTREES_SHADOW_CELL);
+					tree.cell = ((uint32_t)(cellX + 32768) << 16) | (uint32_t)(cellZ + 32768);
+					tree.instance.x = pInstance->x;
+					tree.instance.y = pInstance->y;
+					tree.instance.z = pInstance->z;
+					tree.instance.data = pInstance->data;
+					tree.halfWidth = height / 1.9f;
+					tree.height = height;
+					cellTrees.push_back(tree);
 				}
 			}
 		}
 
 		// GUARD: Break outer loop too if guard was triggered
 		if (bLoopGuardTriggered) break;
+	}
+
+	// GG: each type's shadow trees in cell order, one run per cell with the bounds of its trees
+	for (uint32_t i = 0; i < numTreeTypes; i++)
+	{
+		std::vector<ShadowCellTree>& cellTrees = shadowCellTrees[i];
+		if (cellTrees.empty()) continue;
+		std::sort(cellTrees.begin(), cellTrees.end(), [](const ShadowCellTree& a, const ShadowCellTree& b) { return a.cell < b.cell; });
+		std::vector<ShadowChunkRun>& runs = shadowChunkRuns[i];
+		for (uint32_t j = 0; j < (uint32_t)cellTrees.size(); j++)
+		{
+			const ShadowCellTree& tree = cellTrees[j];
+			treeInstancesHighShadow[i][j] = tree.instance;
+			XMFLOAT3 lo(tree.instance.x - tree.halfWidth, tree.instance.y, tree.instance.z - tree.halfWidth);
+			XMFLOAT3 hi(tree.instance.x + tree.halfWidth, tree.instance.y + tree.height, tree.instance.z + tree.halfWidth);
+			if (runs.empty() || runs.back().cell != tree.cell)
+			{
+				ShadowChunkRun run;
+				run.cell = tree.cell;
+				run.start = j;
+				run.count = 1;
+				run.bounds._min = lo;
+				run.bounds._max = hi;
+				runs.push_back(run);
+			}
+			else
+			{
+				ShadowChunkRun& run = runs.back();
+				run.count++;
+				if (lo.x < run.bounds._min.x) run.bounds._min.x = lo.x;
+				if (lo.y < run.bounds._min.y) run.bounds._min.y = lo.y;
+				if (lo.z < run.bounds._min.z) run.bounds._min.z = lo.z;
+				if (hi.x > run.bounds._max.x) run.bounds._max.x = hi.x;
+				if (hi.y > run.bounds._max.y) run.bounds._max.y = hi.y;
+				if (hi.z > run.bounds._max.z) run.bounds._max.z = hi.z;
+			}
+		}
+		numTreeInstancesHighShadow[i] = (uint16_t)cellTrees.size();
 	}
 
 	// DIAGNOSTIC: Log shadow tree counts periodically
@@ -3706,16 +3759,14 @@ extern "C" void GGTrees_Draw_Prepass( const Frustum* frustum, int mode, CommandL
 
 // must be extern "C" to allow /alternatename linker flag to be set correctly
 // called from WickedEngine wiRenderer::DrawShadowmaps()
-// GG: draws a type's full detail shadow trees in the chunks the cascade can see, joining neighbouring runs into one draw
+// GG: draws a type's full detail shadow trees in the cells the cascade can see, joining neighbouring runs into one draw
 static void GGTrees_DrawShadowRuns( uint32_t type, uint32_t numIndices, const Frustum* frustum, CommandList cmd )
 {
 	GraphicsDevice* device = wiRenderer::GetDevice();
 	uint32_t drawStart = 0, drawCount = 0;
 	for( const ShadowChunkRun& run : shadowChunkRuns[ type ] )
 	{
-		AABB aabb;
-		pTreeChunks[ run.chunk ].GetBounds( &aabb );
-		if ( !frustum->CheckBoxFast( aabb ) ) continue;
+		if ( !frustum->CheckBoxFast( run.bounds ) ) continue;
 		if ( drawCount > 0 && drawStart + drawCount == run.start )
 		{
 			drawCount += run.count;
