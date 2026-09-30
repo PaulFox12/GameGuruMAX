@@ -944,6 +944,91 @@ int g_iPhysicsSubSteps = 0; // the simulation steps the last update took (GGPhys
 //physicslockclass physicslock;
 //#endif
 
+// the world matrix and angles an object takes from its physics body (trans: the body's world transform); a box body is
+// centred on the object's collision box, a mesh body on its origin. Update sets them for a moving body's object, and
+// ODEGetBodyPose reads them for any body
+static void ODEObjectPoseFromBody ( sObjectList* pEntry, sObject* pObject, const btTransform& trans, GGMATRIX* pWorld, GGVECTOR3* pRotate )
+{
+	// get body angles
+	btQuaternion angles;
+	angles = pEntry->body->getOrientation();
+
+	// make the rotation matrix
+	GGMATRIX matRotation;
+	GGQUATERNION qRotation;
+	qRotation.x = angles.getX();
+	qRotation.y = angles.getY();
+	qRotation.z = angles.getZ();
+	qRotation.w = angles.getW();
+	GGMatrixRotationQuaternion(&matRotation, &qRotation);
+
+	// LEE, I think the matrix returned is a ZYX order rotation, but we need XYZ
+	// so it translates back properly. I could use ZYX in FPSC but it will screw up all maps..
+	// (not for a body made turned by the pivot already: ODESetBodyIncludesPivot)
+	if (pObject->position.bApplyPivot && !pEntry->bPivotInBody)
+		matRotation = pObject->position.matPivot * matRotation;
+
+	// Use physics object position
+	GGMATRIX matTranslation;
+	GGMatrixTranslation(&matTranslation, trans.getOrigin().getX()*gSc, trans.getOrigin().getY()*gSc, trans.getOrigin().getZ()*gSc);
+
+	// Use physics object position
+	GGMATRIX matCenterColOffset;
+	float fXSize = (pObject->collision.vecMax.x - pObject->collision.vecMin.x) * pObject->position.vecScale.x;//;
+	float fYSize = (pObject->collision.vecMax.y - pObject->collision.vecMin.y) * pObject->position.vecScale.y;//;
+	float fZSize = (pObject->collision.vecMax.z - pObject->collision.vecMin.z) * pObject->position.vecScale.z;//;
+	float fXOffset = (pObject->collision.vecMin.x * pObject->position.vecScale.x) + (fXSize / 2.0f);
+	float fYOffset = (pObject->collision.vecMin.y * pObject->position.vecScale.y) + (fYSize / 2.0f);
+	float fZOffset = (pObject->collision.vecMin.z * pObject->position.vecScale.z) + (fZSize / 2.0f);
+
+	// a mesh body (CreateMesh: polygon, convex hull, hull decomposition) is built in object space and placed at
+	// the object's origin, not at its collision box centre, so there is no centre to take off; doing so drew it
+	// off its physics by the box centre (a wreck with its origin at the ground sank by half its height)
+	if (!pEntry->bCentredOnCollisionBox)
+	{
+		fXOffset = 0.0f;
+		fYOffset = 0.0f;
+		fZOffset = 0.0f;
+	}
+
+	if (pObject->pFrame)
+	{
+		//PE: This only work for box, dont work for dynamic convexhull shapes ?
+		//PE: pFrame->vecOffset  is already in matTranslation, so only offset center of rotation.
+		fXOffset += -(pObject->pFrame->vecOffset.x * pObject->position.vecScale.x);
+		fYOffset += -(pObject->pFrame->vecOffset.y * pObject->position.vecScale.y);
+		fZOffset += -(pObject->pFrame->vecOffset.z * pObject->position.vecScale.z);
+		//PE: Add pFrame->vecRotation to matWorld.
+		GGMATRIX matRotateFrameX, matRotateFrameY, matRotateFrameZ;
+		GGMatrixRotationX(&matRotateFrameX, GGToRadian(pObject->pFrame->vecRotation.x));	// x rotation
+		GGMatrixRotationY(&matRotateFrameY, GGToRadian(pObject->pFrame->vecRotation.y));	// y rotation
+		GGMatrixRotationZ(&matRotateFrameZ, GGToRadian(pObject->pFrame->vecRotation.z));	// z rotation
+		matRotation = matRotateFrameX * matRotateFrameY * matRotateFrameZ * matRotation;
+	}
+
+	// All, the trick was to put 'matCenterColOffset' before the rotation step to correct object offset issue :)
+	GGMatrixTranslation(&matCenterColOffset, -fXOffset, -fYOffset, -fZOffset);
+	GGMATRIX matWorld = pObject->position.matScale * matCenterColOffset * matRotation * matTranslation;
+
+	GGVECTOR3 vecRotate = GGVECTOR3(0, 0, 0);
+	if (pObject->position.bApplyPivot && pEntry->bPivotInBody)
+	{
+		// the object's own rotation leaves its pivot out: the regular transform applies the pivot again once the
+		// body goes (CollisionOff), and a new body adds it again, so the model neither turns nor turns twice
+		float fDet;
+		GGMATRIX matPivotInverse;
+		GGMatrixInverse(&matPivotInverse, &fDet, &pObject->position.matPivot);
+		GGMATRIX matWithoutPivot = matPivotInverse * matWorld;
+		BULLETAnglesFromMatrix(&matWithoutPivot, &vecRotate);
+	}
+	else
+	{
+		BULLETAnglesFromMatrix(&matWorld, &vecRotate);
+	}
+	*pWorld = matWorld;
+	*pRotate = vecRotate;
+}
+
 void Update(float fTimeStep)
 {
 	// step physics simulation
@@ -1039,67 +1124,11 @@ void Update(float fTimeStep)
 			}
 			else
 			{
-				// get body angles
-				btQuaternion angles;
-				angles = body->getOrientation();
-
-				// make the rotation matrix
-				GGMATRIX matRotation;
-				GGQUATERNION qRotation;
-				qRotation.x = angles.getX();
-				qRotation.y = angles.getY();
-				qRotation.z = angles.getZ();
-				qRotation.w = angles.getW();
-				GGMatrixRotationQuaternion(&matRotation, &qRotation);
-
-				// LEE, I think the matrix returned is a ZYX order rotation, but we need XYZ
-				// so it translates back properly. I could use ZYX in FPSC but it will screw up all maps..
-				// (not for a body made turned by the pivot already: ODESetBodyIncludesPivot)
-				if (pObject->position.bApplyPivot && !g_PhyObjectList[j].bPivotInBody)
-					matRotation = pObject->position.matPivot * matRotation;
-
-				// Use physics object position
-				GGMATRIX matTranslation;
-				GGMatrixTranslation(&matTranslation, trans.getOrigin().getX()*gSc, trans.getOrigin().getY()*gSc, trans.getOrigin().getZ()*gSc);
-
-				// Use physics object position				
-				GGMATRIX matCenterColOffset;
-				float fXSize = (pObject->collision.vecMax.x - pObject->collision.vecMin.x) * pObject->position.vecScale.x;//;
-				float fYSize = (pObject->collision.vecMax.y - pObject->collision.vecMin.y) * pObject->position.vecScale.y;//;
-				float fZSize = (pObject->collision.vecMax.z - pObject->collision.vecMin.z) * pObject->position.vecScale.z;//;
-				float fXOffset = (pObject->collision.vecMin.x * pObject->position.vecScale.x) + (fXSize / 2.0f);
-				float fYOffset = (pObject->collision.vecMin.y * pObject->position.vecScale.y) + (fYSize / 2.0f);
-				float fZOffset = (pObject->collision.vecMin.z * pObject->position.vecScale.z) + (fZSize / 2.0f);
-
-				// a mesh body (CreateMesh: polygon, convex hull, hull decomposition) is built in object space and placed at
-				// the object's origin, not at its collision box centre, so there is no centre to take off; doing so drew it
-				// off its physics by the box centre (a wreck with its origin at the ground sank by half its height)
-				if (!g_PhyObjectList[j].bCentredOnCollisionBox)
-				{
-					fXOffset = 0.0f;
-					fYOffset = 0.0f;
-					fZOffset = 0.0f;
-				}
-
-				if (pObject->pFrame)
-				{
-					//PE: This only work for box, dont work for dynamic convexhull shapes ?
-					//PE: pFrame->vecOffset  is already in matTranslation, so only offset center of rotation.
-					fXOffset += -(pObject->pFrame->vecOffset.x * pObject->position.vecScale.x);
-					fYOffset += -(pObject->pFrame->vecOffset.y * pObject->position.vecScale.y);
-					fZOffset += -(pObject->pFrame->vecOffset.z * pObject->position.vecScale.z);
-					//PE: Add pFrame->vecRotation to matWorld.
-					GGMATRIX matRotateFrameX, matRotateFrameY, matRotateFrameZ;
-					GGMatrixRotationX(&matRotateFrameX, GGToRadian(pObject->pFrame->vecRotation.x));	// x rotation
-					GGMatrixRotationY(&matRotateFrameY, GGToRadian(pObject->pFrame->vecRotation.y));	// y rotation
-					GGMatrixRotationZ(&matRotateFrameZ, GGToRadian(pObject->pFrame->vecRotation.z));	// z rotation
-					matRotation = matRotateFrameX * matRotateFrameY * matRotateFrameZ * matRotation;
-				}
-
-				// All, the trick was to put 'matCenterColOffset' before the rotation step to correct object offset issue :)
+				// the object's world matrix and angles from its body
 				PositionObject(g_PhyObjectList[j].iID, trans.getOrigin().getX()*gSc, trans.getOrigin().getY()*gSc, trans.getOrigin().getZ()*gSc);
-				GGMatrixTranslation(&matCenterColOffset, -fXOffset, -fYOffset, -fZOffset);
-				GGMATRIX matWorld = pObject->position.matScale * matCenterColOffset * matRotation * matTranslation;
+				GGMATRIX matWorld;
+				GGVECTOR3 vecRotate;
+				ODEObjectPoseFromBody(&g_PhyObjectList[j], pObject, trans, &matWorld, &vecRotate);
 
 				// use ODE matrix, not regular DBPro matrix
 				pObject->position.bCustomWorldMatrix = true;
@@ -1110,22 +1139,6 @@ void Update(float fTimeStep)
 
 				// update DBPro object position and rotation to match physics
 				pObject->position.vecPosition = GGVECTOR3(matWorld._41, matWorld._42, matWorld._43);
-
-				GGVECTOR3 vecRotate = GGVECTOR3(0, 0, 0);
-				if (pObject->position.bApplyPivot && g_PhyObjectList[j].bPivotInBody)
-				{
-					// the object's own rotation leaves its pivot out: the regular transform applies the pivot again once the
-					// body goes (CollisionOff), and a new body adds it again, so the model neither turns nor turns twice
-					float fDet;
-					GGMATRIX matPivotInverse;
-					GGMatrixInverse(&matPivotInverse, &fDet, &pObject->position.matPivot);
-					GGMATRIX matWithoutPivot = matPivotInverse * matWorld;
-					BULLETAnglesFromMatrix(&matWithoutPivot, &vecRotate);
-				}
-				else
-				{
-					BULLETAnglesFromMatrix(&matWorld, &vecRotate);
-				}
 				pObject->position.vecRotate = vecRotate;
 				pObject->collision.bColCenterUpdated = true;
 				body->applyDamping(0.1f);
@@ -4570,6 +4583,47 @@ bool ODEGetBodyIsDynamic(int iObjectNumber)
 		}
 	}
 	return false;
+}
+
+// where an object's physics body is, as the pose it would give the object (the world position and angles in degrees,
+// as Update sets them for a moving body; a static body never moves its object, so this shows the collider against the
+// drawn object), and how many bodies the physics list holds for the object; the pose is the first body's, the one
+// ODEDestroyObject removes. A character capsule gives its centre and no angles
+int ODEGetBodyPose ( int iObjectNumber, float* pPosition, float* pAngles )
+{
+	int iBodies = 0;
+	physicslock.lock();
+	sObject* pObject = GetObjectData ( iObjectNumber );
+	for ( int j = 0; j < (int)g_PhyObjectList.size(); j++ )
+	{
+		if ( g_PhyObjectList[j].iID != iObjectNumber || g_PhyObjectList[j].body == NULL ) continue;
+		if ( iBodies == 0 && pObject )
+		{
+			const btTransform& trans = g_PhyObjectList[j].body->getWorldTransform();
+			if ( g_PhyObjectList[j].bCapsuleControl )
+			{
+				pPosition[0] = trans.getOrigin().getX() * gSc;
+				pPosition[1] = trans.getOrigin().getY() * gSc;
+				pPosition[2] = trans.getOrigin().getZ() * gSc;
+				pAngles[0] = pAngles[1] = pAngles[2] = 0.0f;
+			}
+			else
+			{
+				GGMATRIX matWorld;
+				GGVECTOR3 vecRotate;
+				ODEObjectPoseFromBody ( &g_PhyObjectList[j], pObject, trans, &matWorld, &vecRotate );
+				pPosition[0] = matWorld._41;
+				pPosition[1] = matWorld._42;
+				pPosition[2] = matWorld._43;
+				pAngles[0] = vecRotate.x;
+				pAngles[1] = vecRotate.y;
+				pAngles[2] = vecRotate.z;
+			}
+		}
+		iBodies++;
+	}
+	physicslock.unlock();
+	return iBodies;
 }
 
 int	ODEGetBodyNumCollisions( int iObjectNumber )

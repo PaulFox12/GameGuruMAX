@@ -159,6 +159,7 @@ DARKSDK float       ODEGetHingeAngle                        ( int iConstraint   
 DARKSDK float       ODEGetSliderPosition                    ( int iConstraint   );
 
 // Lua Collision support
+DARKSDK int			ODEGetBodyPose                          ( int iObjectNumber, float* pPosition, float* pAngles );
 DARKSDK int			ODEGetBodyNumCollisions                 ( int iObjectNumber );
 DARKSDK void		ODEGetBodyCollisionDetails              ( int iObjectNumber, int iColNumber, int &iColObj, float &fX, float &fY, float &fZ, float &fImpulse );
 DARKSDK int			ODEGetTerrainNumCollisions              ( int iObjectNumber );

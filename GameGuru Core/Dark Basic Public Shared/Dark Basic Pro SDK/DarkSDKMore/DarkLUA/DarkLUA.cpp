@@ -7936,6 +7936,20 @@ int GetPhysicsStats(lua_State* L)
 	lua_pushinteger(L, stats.busiestPoints);
 	return 6;
 }
+// GetPhysicsBodyPose(obj): where an object's physics body is, as the pose it would give the object: x, y, z and angles
+// x, y, z in degrees (as GetEntityAngleX/Y/Z), then bodies, how many bodies the physics holds for the object (more than
+// 1 is one left behind; the pose is the first's, the one CollisionOff removes). A static body never moves its object, so
+// this shows the collider against the drawn object. With no body: nil for the pose, and 0
+int GetPhysicsBodyPose(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	float fPos[3], fAng[3];
+	int iBodies = ODEGetBodyPose((int)lua_tointeger(L, 1), fPos, fAng);
+	for (int i = 0; i < 3; i++) { if (iBodies > 0) lua_pushnumber(L, fPos[i]); else lua_pushnil(L); }
+	for (int i = 0; i < 3; i++) { if (iBodies > 0) lua_pushnumber(L, fAng[i]); else lua_pushnil(L); }
+	lua_pushinteger(L, iBodies);
+	return 7;
+}
 int GetObjectNumCollisions(lua_State *L)
 {
 	int n = LUA_GETTOP(L);
@@ -16246,6 +16260,7 @@ void addFunctions()
 	lua_register(lua, "PhysicsSweepBox", PhysicsSweepBox);
 	lua_register(lua, "PhysicsOverlapBox", PhysicsOverlapBox);
 	lua_register(lua, "GetPhysicsStats", GetPhysicsStats);
+	lua_register(lua, "GetPhysicsBodyPose", GetPhysicsBodyPose);
 	lua_register(lua, "SetObjectDamping",        SetObjectDamping );
 	lua_register(lua, "SetHingeLimits",          SetHingeLimits );
 	lua_register(lua, "GetHingeAngle",           GetHingeAngle );
