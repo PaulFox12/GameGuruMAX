@@ -144,6 +144,50 @@ float treeAreaPerChunk = treeArea / treeSplit;
 
 uint32_t treeHighlighted = 0xFFFFFFFF;
 
+// each tree type's trunk collider at scale 1, fitted to its LOD0 trunk mesh 0.5 to 1.5 m up: radius, then the trunk's
+// centre (x, z) from the tree's origin before the tree is turned
+static const float g_TreeTrunkFit[ 38 ][ 3 ] =
+{
+	{   9.6f,  -1.1f,   1.5f }, // 0 birch
+	{  11.4f,   3.7f,  -4.7f }, // 1 cactus_var1
+	{  11.1f,  -4.7f,   0.5f }, // 2 cactus_var2
+	{  13.7f,   0.1f,   0.0f }, // 3 cactus_var3
+	{  20.5f,  -4.9f,   0.2f }, // 4 cactus_var4
+	{   5.3f,  -0.6f,   0.4f }, // 5 dead pine tree
+	{  16.0f,  -1.0f,  -0.2f }, // 6 drypine
+	{   5.0f,  -2.2f,  -1.5f }, // 7 italian pine
+	{  58.2f,  -1.6f,   7.6f }, // 8 jungletree1
+	{  53.5f,  -2.2f,  -3.7f }, // 9 jungletree2
+	{   8.0f,   0.5f,   3.0f }, // 10 jungletree3a
+	{   8.3f,   1.0f,   0.1f }, // 11 jungletree3b
+	{   8.0f,   0.5f,   3.0f }, // 12 jungletree4a
+	{   8.3f,   1.0f,   0.1f }, // 13 jungletree4b
+	{  22.4f,  -4.8f, -22.2f }, // 14 jungletree5a
+	{   9.5f,  -2.1f,  -6.5f }, // 15 jungletree5b
+	{   9.6f,   2.3f,  -0.9f }, // 16 jungletree6a
+	{  10.2f,  -1.0f,  -5.7f }, // 17 jungletree6b
+	{   4.2f,   3.1f,  -1.4f }, // 18 kentia palm
+	{   7.7f,   0.8f,   1.7f }, // 19 palm
+	{  11.2f,   1.6f,  -0.5f }, // 20 pine
+	{  12.1f,  -0.5f,  -5.5f }, // 21 scotspine1
+	{  13.3f,   3.9f,  -3.0f }, // 22 scotspine2
+	{  13.3f,   2.6f,  -2.4f }, // 23 scotspine dead
+	{  22.5f,   0.0f,   0.0f }, // 24 snow fir2 (low branches in the band, old size)
+	{  14.7f, -13.4f,   3.2f }, // 25 snow fir3
+	{   6.9f,  -0.1f,   0.5f }, // 26 snow fir1
+	{   8.3f,   0.6f,   0.8f }, // 27 snow pine
+	{   9.4f,  -0.7f,  -6.2f }, // 28 snow pine tall2
+	{   9.3f,   0.4f,   0.6f }, // 29 snow pine tall
+	{   7.6f,  -0.3f,   1.1f }, // 30 sparse pine
+	{  20.9f,   3.1f,   2.2f }, // 31 vine tree large
+	{  10.4f,  -3.8f,  17.0f }, // 32 vine tree small
+	{  16.0f,  -1.0f,  -0.2f }, // 33 westernpine
+	{   3.6f,   0.7f,  -0.3f }, // 34 white pine
+	{   9.6f,  -1.1f,   1.5f }, // 35 birch autumn1
+	{   9.6f,  -1.1f,   1.5f }, // 36 birch autumn2
+	{   9.6f,  -1.1f,   1.5f }, // 37 birch autumn3
+};
+
 struct InstanceTree
 {
 	float x, y, z;
@@ -245,80 +289,20 @@ struct InstanceTree
 	float GetTreeThickness()
 	{
 		int iTreeType = GetType();
-		float fThickness = 10.0f;
-		//sTreeTexturesName[0] = "Birch";
-		//sTreeTexturesName[1] = "Cactus Var 1";
-		//sTreeTexturesName[2] = "Cactus Var 2";
-		//sTreeTexturesName[3] = "Cactus Var 3";
-		//sTreeTexturesName[4] = "Cactus Var 4";
-		//sTreeTexturesName[5] = "Dead Pine Tree";
-		//sTreeTexturesName[6] = "Dry Pine";
-		//sTreeTexturesName[7] = "Italian Pine";
-		//sTreeTexturesName[8] = "Jungle Tree 1";
-		//sTreeTexturesName[9] = "Jungle Tree 2";
-		//sTreeTexturesName[10] = "Jungle Tree 3a";
-		//sTreeTexturesName[11] = "Jungle Tree 3b";
-		//sTreeTexturesName[12] = "Jungle Tree 4a";
-		//sTreeTexturesName[13] = "Jungle Tree 4b";
-		//sTreeTexturesName[14] = "Jungle Tree 5a";
-		//sTreeTexturesName[15] = "Jungle Tree 5b";
-		//sTreeTexturesName[16] = "Jungle Tree 6a";
-		//sTreeTexturesName[17] = "Jungle Tree 6b";
-		//sTreeTexturesName[18] = "Kentia Palm";
-		//sTreeTexturesName[19] = "Palm";
-		//sTreeTexturesName[20] = "Pine";
-		//sTreeTexturesName[21] = "Scots Pine 1";
-		//sTreeTexturesName[22] = "Scots Pine 2";
-		//sTreeTexturesName[23] = "Scots Pine Dead";
-		//sTreeTexturesName[24] = "Snow Fir 2";
-		//sTreeTexturesName[25] = "Snow Fir 3";
-		//sTreeTexturesName[26] = "Snow Fir";
-		//sTreeTexturesName[27] = "Snow Pine";
-		//sTreeTexturesName[28] = "Snow Pine Tall 2";
-		//sTreeTexturesName[29] = "Snow Pine Tall";
-		//sTreeTexturesName[30] = "Sparse Pine";
-		//sTreeTexturesName[31] = "Vine Tree Large";
-		//sTreeTexturesName[32] = "Vine Tree Small";
-		//sTreeTexturesName[33] = "Western Pine";
-		//sTreeTexturesName[34] = "White Pine";
-		//sTreeTexturesName[35] = "Autumn Birch 1";
-		//sTreeTexturesName[36] = "Autumn Birch 2";
-		//sTreeTexturesName[37] = "Autumn Birch 3";
-		switch (iTreeType)
-		{
-			case 1: fThickness = 25.0f; break;
-			case 2: fThickness = 20.0f; break;
-			case 3: fThickness = 30.0f; break;
-			case 4: fThickness = 40.0f; break;
-			case 5: fThickness = 15.0f; break;
-			case 6: fThickness = 30.0f; break;
-			case 7: fThickness = 15.0f; break;
-			case 8: fThickness = 80.0f; break;
-			case 9: fThickness = 80.0f; break;
-			case 14: fThickness = 50.0f; break;
-			case 15: fThickness = 30.0f; break;
-			case 17: fThickness = 20.0f; break;
-			case 19: fThickness = 20.0f; break;
-			case 21: fThickness = 30.0f; break;
-			case 22: fThickness = 30.0f; break;
-			case 23: fThickness = 30.0f; break;
-			case 24: fThickness = 30.0f; break;
-			case 25: fThickness = 20.0f; break;
-			case 26: fThickness = 20.0f; break;
-			case 27: fThickness = 30.0f; break;
-			case 28: fThickness = 20.0f; break;
-			case 29: fThickness = 15.0f; break;
-			case 30: fThickness = 15.0f; break;
-			case 31: fThickness = 35.0f; break;
-			case 32: fThickness = 35.0f; break;
-			case 33: fThickness = 30.0f; break;
-			case 34: fThickness = 15.0f; break;
-			case 35: fThickness = 15.0f; break;
-			case 36: fThickness = 20.0f; break;
-			case 37: fThickness = 20.0f; break;
-		}
-		fThickness *= 1.5f;
-		return fThickness;
+		if ( iTreeType >= 38 ) return 15.0f;
+		return g_TreeTrunkFit[ iTreeType ][ 0 ] * 2.0f;
+	}
+
+	// the trunk's centre: the tree's origin plus its type's trunk offset, turned and scaled as the tree is drawn
+	void GetTrunkCentre( float* pX, float* pZ )
+	{
+		int iTreeType = GetType();
+		float ox = 0, oz = 0;
+		if ( iTreeType < 38 ) { ox = g_TreeTrunkFit[ iTreeType ][ 1 ]; oz = g_TreeTrunkFit[ iTreeType ][ 2 ]; }
+		float ang = ((data >> 8) & 0x7) * 0.785398f;
+		float c = cosf( ang ), s = sinf( ang ), scale = GetScaleFloat();
+		*pX = x + (c * ox - s * oz) * scale;
+		*pZ = z + (s * ox + c * oz) * scale;
 	}
 };
 
@@ -588,8 +572,7 @@ struct TreeChunk
 				numValid++;
 
 				TreeTrunk trunk;
-				trunk.x = pInstance->x;
-				trunk.z = pInstance->z;
+				pInstance->GetTrunkCentre( &trunk.x, &trunk.z );
 				trunk.radius = pInstance->GetTreeThickness() * pInstance->GetScaleFloat() * 0.5f;
 				trunk.base = pInstance->y;
 				trunk.top = pInstance->y + treeHeight * pInstance->GetScaleFloat();
@@ -1662,9 +1645,8 @@ int GGTrees_GetClosest( float x, float z, float radius, GGTreePoint** pOutPoints
 			if ( pOutPoints ) 
 			{
 				GGTreePoint tree;
-				tree.x = pInstance->x;
+				pInstance->GetTrunkCentre( &tree.x, &tree.z );
 				tree.y = pInstance->y;
-				tree.z = pInstance->z;
 				tree.scale = pInstance->GetTreeThickness() * pInstance->GetScaleFloat();
 				tree.type = pInstance->GetType();
 				points.AddItem( tree );
