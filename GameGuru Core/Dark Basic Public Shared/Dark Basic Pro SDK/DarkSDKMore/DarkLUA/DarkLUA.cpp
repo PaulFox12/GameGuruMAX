@@ -13990,6 +13990,30 @@ int GetGrassDistance(lua_State* L)
 	lua_pushnumber(L, gggrass_global_params.lod_dist);
 	return 1;
 }
+// SetGrassShade(root [, tip]) - a grass blade's light at its root and at its tip, 0 to 2, lerped up the blade; tip left out
+// is root. 0.45 both is how the grass has always been drawn (the engine's height term was always 0); 0.45, 1.05 is the
+// ramp it was written with. Back to 0.45 at level start and test game end
+int SetGrassShade(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	float fRoot = (float)lua_tonumber(L, 1);
+	float fTip = (n >= 2) ? (float)lua_tonumber(L, 2) : fRoot;
+	if (fRoot < 0.0f) fRoot = 0.0f;
+	if (fRoot > 2.0f) fRoot = 2.0f;
+	if (fTip < 0.0f) fTip = 0.0f;
+	if (fTip > 2.0f) fTip = 2.0f;
+	GGGrass_SetShade(fRoot, fTip);
+	return 0;
+}
+int GetGrassShade(lua_State* L)
+{
+	float fRoot, fTip;
+	GGGrass_GetShade(&fRoot, &fTip);
+	lua_pushnumber(L, fRoot);
+	lua_pushnumber(L, fTip);
+	return 2;
+}
 // SetGrassKillBox(slot, x, y, z, halfx, halfy, halfz [, yaw [, trees]]) - slot 1 to 8: no grass blade whose root is inside
 // the box is drawn (under a vehicle, say). The box is centred on x, y, z, reaches half its size each way and is turned by
 // yaw degrees about Y, as an object's angle Y is; move it every frame to follow something. Cleared at level start and test
@@ -17011,6 +17035,8 @@ void addFunctions()
 	lua_register(lua, "SetGrassDistance", SetGrassDistance);
 	lua_register(lua, "GetGrassDistance", GetGrassDistance);
 	lua_register(lua, "SetGrassKillBox", SetGrassKillBox);
+	lua_register(lua, "SetGrassShade", SetGrassShade);
+	lua_register(lua, "GetGrassShade", GetGrassShade);
 	lua_register(lua, "ClearGrassKillBox", ClearGrassKillBox);
 	lua_register(lua, "SetTreeDistance", SetTreeDistance);
 	lua_register(lua, "GetTreeDistance", GetTreeDistance);

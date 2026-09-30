@@ -2588,6 +2588,8 @@ GetEntityInstanceTint : r, g, b = GetEntityInstanceTint ( e )
 GetEntityImmunity : n = GetEntityImmunity ( e ) -- 0 normally; -1 while SetEntityHealth(e,-99999) holds its health up, or the frames left of the brief immunity after a resurrection. While it is not 0, SetEntityHealth(e,0) does nothing
 
 SetGrassKillBox : SetGrassKillBox ( slot, x, y, z, halfx, halfy, halfz [, yaw [, trees] ] ) -- slot 1 to 8: no grass is drawn with its root inside the box (turned by yaw degrees about Y, as an object's angle Y), e.g. under a vehicle; set it every frame to follow one. Cleared at level start. trees 1 (a blast, not a vehicle; 0 when left out) also removes every tree whose trunk reaches into the box, for the rest of the level: they stay gone when the box moves or is cleared
+SetGrassShade : SetGrassShade ( root [, tip] ) -- a grass blade's light at its root and at its tip (0 to 2), lerped up the blade and multiplied into its lit colour; tip left out is root. 0.45 both is how the grass has always been drawn (the engine's height term was always 0), 0.45, 1.05 the ramp it was written with; back to 0.45 at level start and test game end
+GetGrassShade : root, tip = GetGrassShade ( )
 ClearGrassKillBox : ClearGrassKillBox ( [slot] ) -- without a slot clears them all
 
 GetVideoMemoryUsed : usedMB, budgetMB, sharedUsedMB, sharedBudgetMB = GetVideoMemoryUsed() -- the dedicated video memory the game uses, and the budget Windows gives it; then the shared system memory the card uses and its budget, which grows when the dedicated memory nears its budget and Windows moves resources out (slow: the early warning of running out)

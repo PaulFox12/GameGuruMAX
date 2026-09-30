@@ -49,8 +49,8 @@ cbuffer GrassCB : register( b2 )
 	float4 grass_wind; // xy: wind direction on x and z (normalised), z: sway amount (the tree wind), w: sway speed
 
 	uint grass_killbox_count;
-	float grass_killbox_pad1;
-	float grass_killbox_pad2;
+	float grass_shadeRoot; // a blade's light at its root and at its tip (SetGrassShade), 0.45 both as the engine has drawn it
+	float grass_shadeTip;
 	float grass_killbox_pad3;
 	float4 grass_killbox_centre[ GGGRASS_MAX_KILLSHAPES ]; // xyz: world centre, w: cos of the box's yaw
 	float4 grass_killbox_half[ GGGRASS_MAX_KILLSHAPES ]; // xyz: half size along the box's own axes, w: sin of its yaw; x below 0 is a circle of radius -x

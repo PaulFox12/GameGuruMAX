@@ -67,6 +67,7 @@ VertexOut main( VertexIn IN )
 
 	posOrig.w = lerp( 1, IN.position.y, dist );
 	*/
+	posOrig.w = IN.position.y; // 0 at the root, 1 at the tip, for the pixel shader's shade up the blade (was set only in the block above)
 	OUT.worldPos = pos.xyz;
 	OUT.position = mul( g_xCamera_VP, pos );
 	OUT.origPos = posOrig;

@@ -107,6 +107,10 @@ GrassKillBox gggrass_killboxes[ GGGRASS_MAX_KILLBOXES ];
 // nearest the camera fill the kill shapes the boxes above leave free
 std::vector<XMFLOAT4> gggrass_killcircles;
 
+// a blade's light at its root and at its tip (SetGrassShade); 0.45 both is the flat shade the grass has been drawn with
+float gggrass_shadeRoot = 0.45f;
+float gggrass_shadeTip = 0.45f;
+
 struct InstanceGrass
 {
 	float x, y, z;
@@ -1484,6 +1488,18 @@ void GGGrass_ClearKillBox( int slot )
 	}
 }
 
+void GGGrass_SetShade( float root, float tip )
+{
+	gggrass_shadeRoot = root;
+	gggrass_shadeTip = tip;
+}
+
+void GGGrass_GetShade( float* pRoot, float* pTip )
+{
+	*pRoot = gggrass_shadeRoot;
+	*pTip = gggrass_shadeTip;
+}
+
 // replaces the engine's kill circles, count of them as x, y, z, radius; a blade whose root is within the radius on x and z
 // and within the radius above or below is not drawn. Count 0 clears them
 void GGGrass_SetKillCircles( const float* pCircles, int count )
@@ -1977,6 +1993,8 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 	}
 
 	grassConstantData.grass_lodDist = gggrass_global_params.lod_dist;
+	grassConstantData.grass_shadeRoot = gggrass_shadeRoot;
+	grassConstantData.grass_shadeTip = gggrass_shadeTip;
 	grassConstantData.grass_scale = gggrass_global_params.grass_scale;
 	grassConstantData.grass_flags = 0;
 	if ( gggrass_global_params.simplePBR ) grassConstantData.grass_flags |= GGGRASS_FLAGS_SIMPLE_PBR;

@@ -302,7 +302,9 @@ GBuffer main( PixelIn IN )
 	float4 color = float4(0,0,0,0);
 	ApplyLighting(surface, lighting, color);
 
-	color.rgb *= (height * 0.6 + 0.45);
+	// height * 0.6 + 0.45 once, with height always 0 since the vertex shader's LOD block was commented out; now from the root's
+	// shade to the tip's, both 0.45 unless a script sets them
+	color.rgb *= lerp( grass_shadeRoot, grass_shadeTip, height );
 
 	//ApplyFog(dist, color);
 	color.rgb = ApplyFogCustom( IN.worldPos, dist, color.rgb, surface.V );

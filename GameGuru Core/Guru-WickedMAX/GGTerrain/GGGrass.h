@@ -78,6 +78,8 @@ namespace GGGrass
 	void GGGrass_SetKillBox( int slot, float x, float y, float z, float halfX, float halfY, float halfZ, float yawDegrees ); // no blade is drawn inside, slot 0 to GGGRASS_MAX_KILLBOXES-1
 	void GGGrass_ClearKillBox( int slot ); // -1 clears them all
 	void GGGrass_SetKillCircles( const float* pCircles, int count ); // x, y, z, radius each; the nearest fill the kill shapes the boxes leave
+	void GGGrass_SetShade( float root, float tip ); // a blade's light at its root and at its tip, 0.45 both by default
+	void GGGrass_GetShade( float* pRoot, float* pTip );
 }
 
 #endif // _H_GGGRAS

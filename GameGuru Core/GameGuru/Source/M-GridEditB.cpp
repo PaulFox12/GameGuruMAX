@@ -7892,8 +7892,9 @@ void LuaGameVisuals_Clear(void)
 		}
 	}
 
-	// and the grass a script hid (SetGrassKillBox) comes back in the editor
+	// and the grass a script hid (SetGrassKillBox) comes back in the editor, and its shade goes back to flat (SetGrassShade)
 	GGGrass_ClearKillBox(-1);
+	GGGrass_SetShade(0.45f, 0.45f);
 
 	// and the trees blasts removed (SetGrassKillBox and SetProjectedDecalGrass with trees), here and at level start
 	GGTrees_RestoreKilled();
