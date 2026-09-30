@@ -14108,6 +14108,26 @@ int GetTreesNear(lua_State* L)
 	return 1;
 }
 
+namespace GGTerrain
+{
+	int GGTerrain_GetPagesNeeded();
+	int GGTerrain_GetPagesActive();
+	void GGTerrain_GetPageCounts( uint32_t* pReadBacks, uint32_t* pPagesMade );
+}
+// GetTerrainPageStats(): the terrain's virtual texture: pages wanted on screen that aren't made yet (a backlog, which grows
+// while the ground shows lower detail), pages wanted on screen in all, then since the level started the read backs taken and
+// the pages made (take their change over a second for rates)
+int GetTerrainPageStats(lua_State* L)
+{
+	uint32_t uReadBacks = 0, uPagesMade = 0;
+	GGTerrain::GGTerrain_GetPageCounts(&uReadBacks, &uPagesMade);
+	lua_pushinteger(L, GGTerrain::GGTerrain_GetPagesNeeded());
+	lua_pushinteger(L, GGTerrain::GGTerrain_GetPagesActive());
+	lua_pushinteger(L, uReadBacks);
+	lua_pushinteger(L, uPagesMade);
+	return 4;
+}
+
 // GetTreeCounts(): the trees drawn at full detail this frame, and the trees in the full detail shadow list (both set by the
 // tree distance and transition)
 int GetTreeCounts(lua_State* L)
@@ -16956,6 +16976,7 @@ void addFunctions()
 	lua_register(lua, "GetTreesNear", GetTreesNear);
 	lua_register(lua, "GetTreeTypeName", GetTreeTypeName);
 	lua_register(lua, "GetTreeCounts", GetTreeCounts);
+	lua_register(lua, "GetTerrainPageStats", GetTerrainPageStats);
 	lua_register(lua, "GunAnimationSetFrame", GunAnimationSetFrame);
 	lua_register(lua, "LoopGunAnimation", LoopGunAnimation);
 	lua_register(lua, "StopGunAnimation", StopGunAnimation);

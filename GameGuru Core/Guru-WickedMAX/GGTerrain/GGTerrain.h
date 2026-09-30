@@ -296,6 +296,7 @@ int GGTerrain_GetMaterialIndex( float x, float z ); // returns an index between 
 
 int GGTerrain_GetPagesNeeded();
 int GGTerrain_GetPagesActive();
+void GGTerrain_GetPageCounts( uint32_t* pReadBacks, uint32_t* pPagesMade );
 int GGTerrain_GetDebugValue();
 int GGTerrain_GetPagesRefreshNeeded();
 

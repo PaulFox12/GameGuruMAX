@@ -3,6 +3,7 @@
 #define TERRAINTHREADSAFE
 #define ONLYLOADWHENUSED
 
+#include <chrono>
 #include <string>
 #include "Utility/stb_image.h"
 #include "CFileC.h"
@@ -875,6 +876,10 @@ PipelineState psoPageGen;
 // list of pages needed from the last read back frame
 PageNeededArray pagesNeeded;
 int GGTerrain_GetPagesNeeded() { return pagesNeeded.GetNumNewPages(); }
+// GG: read backs scanned and pages made since the level started, for a script to turn into rates
+uint32_t g_uTerrainReadBacks = 0;
+uint32_t g_uTerrainPagesMade = 0;
+void GGTerrain_GetPageCounts( uint32_t* pReadBacks, uint32_t* pPagesMade ) { *pReadBacks = g_uTerrainReadBacks; *pPagesMade = g_uTerrainPagesMade; }
 int GGTerrain_GetPagesActive() { return pagesNeeded.NumItems(); }
 int GGTerrain_GetPagesRefreshNeeded() { return pageRefreshList.NumItems(); }
 
@@ -7915,6 +7920,7 @@ int GGTerrain_GeneratePage( PageEntry* pPage )
 	}
 			
 	pageGenerationList.AddItem( pPage );
+	g_uTerrainPagesMade++;
 	return 1;
 }
 
@@ -7970,11 +7976,13 @@ void GGTerrain_CheckPageShift()
 			stride /= 2;
 		}
 		
-		// generate commonly needed physical texture pages, at least the 16 4x4 level pages must be generated
+		// generate commonly needed physical texture pages, every page of the lowest detail level must be generated
+		// GG: that level is pagesX >> (GGTERRAIN_MAX_PAGE_TABLE_MIP-1) pages wide (8 since the mip count went from 7 to 6), not 4
 		uint32_t detailLevel = (numLODLevels - 1) + GGTERRAIN_MAX_PAGE_TABLE_MIP - 1; // lowest detail level
-		for( int y = 0; y < 4; y++ )
+		int lowestSize = pagesX >> (GGTERRAIN_MAX_PAGE_TABLE_MIP - 1);
+		for( int y = 0; y < lowestSize; y++ )
 		{
-			for( int x = 0; x < 4; x++ )
+			for( int x = 0; x < lowestSize; x++ )
 			{
 				PageEntry* pPage = pagesFree.PopItem();
 				assert( pPage );
@@ -8172,13 +8180,14 @@ void GGTerrain_CheckPageShift()
 				device->UpdateTexture( &texPageTableFinal, level, 0, 0, &pageTableData[ pageLevel ], stride, -1 );
 			}
 						
-			// generate any new 4x4 level pages
+			// generate any new lowest level pages
 			uint32_t detailLevel = (numLODLevels - 1) + GGTERRAIN_MAX_PAGE_TABLE_MIP - 1; // lowest detail level
-			for( int y = 0; y < 4; y++ )
+			int lowestSize = pagesX >> (GGTERRAIN_MAX_PAGE_TABLE_MIP - 1);
+			for( int y = 0; y < lowestSize; y++ )
 			{
-				for( int x = 0; x < 4; x++ )
+				for( int x = 0; x < lowestSize; x++ )
 				{
-					uint32_t index = y * 4 + x;
+					uint32_t index = y * lowestSize + x;
 					if ( pageTableData[ detailLevel ][ index ] ) continue;
 
 					PageEntry* pPage = pagesFree.PopItem();
@@ -8280,6 +8289,21 @@ void GGTerrain_CheckReadBack(wiGraphics::CommandList cmd)
 		}
 
 		uint32_t pitch = mapping.rowpitch / sizeof(uint32_t);
+
+		// GG: the work below is per read back, so slow frames made fewer pages a second while the camera needed as many;
+		// from 60 fps down to 30 the scan takes rows more often (every 7th to every 3rd) and up to twice the new pages
+		static std::chrono::steady_clock::time_point lastReadBack = std::chrono::steady_clock::now();
+		std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+		float frameMs = std::chrono::duration<float, std::milli>( now - lastReadBack ).count();
+		lastReadBack = now;
+		float slowness = frameMs / 16.7f;
+		if ( slowness < 1.0f ) slowness = 1.0f;
+		if ( slowness > 2.0f ) slowness = 2.0f;
+		uint32_t rowStride = (uint32_t) (7.0f / slowness);
+		if ( rowStride < 3 ) rowStride = 3;
+		uint32_t pageBudget = (uint32_t) (GGTERRAIN_EVICTION_PAGE_MAX * slowness);
+		if ( pageBudget > GGTERRAIN_REPLACEMENT_PAGE_MAX ) pageBudget = GGTERRAIN_REPLACEMENT_PAGE_MAX;
+		g_uTerrainReadBacks++;
 		
 		#ifdef PEOPTIMIZING
 		//PE: OPT1 No need to update all pages each frame. Moving camera from Lod to Lod takes many frames.
@@ -8291,7 +8315,7 @@ void GGTerrain_CheckReadBack(wiGraphics::CommandList cmd)
 			uint32_t index = y * pitch;
 			uint32_t* dataPtr = ((uint32_t*)mapping.data) + index;
 
-			if ((y + iFrameCount) % 7 == 0)
+			if ((y + iFrameCount) % rowStride == 0)
 			{
 				for (uint32_t x = 0; x < texWidth; x++)
 				{
@@ -8340,7 +8364,7 @@ void GGTerrain_CheckReadBack(wiGraphics::CommandList cmd)
 		range = wiProfiler::BeginRangeCPU( "Max - Terrain Read Back Check" );
 
 		// check loaded pages against the needed pages
-		PageEntry* pEvictionCandiates[ GGTERRAIN_EVICTION_PAGE_MAX ] = {0};
+		PageEntry* pEvictionCandiates[ GGTERRAIN_REPLACEMENT_PAGE_MAX ] = {0};
 		uint32_t evictionMin = 0;
 		for( uint32_t y = 0; y < physPagesY; y++ )
 		{
@@ -8369,10 +8393,10 @@ void GGTerrain_CheckReadBack(wiGraphics::CommandList cmd)
 				if ( pPage->GetDetailLevel() >= maxLevel ) continue; // never evict lowest LOD level pages
 				
 				// keep a list of the most unused pages
-				if ( pagesFree.NumItems() < GGTERRAIN_EVICTION_PAGE_MAX && pPage->evictionCheck > evictionMin )
+				if ( pagesFree.NumItems() < pageBudget && pPage->evictionCheck > evictionMin )
 				{
 					PageEntry* pReplacement = pPage;
-					for( int i = 0; i < GGTERRAIN_EVICTION_PAGE_MAX; i++ )
+					for( uint32_t i = 0; i < pageBudget; i++ )
 					{
 						if ( !pEvictionCandiates[ i ] )
 						{
@@ -8388,9 +8412,9 @@ void GGTerrain_CheckReadBack(wiGraphics::CommandList cmd)
 						}
 					}
 
-					if ( pEvictionCandiates[ GGTERRAIN_EVICTION_PAGE_MAX-1 ] != 0 )
+					if ( pEvictionCandiates[ pageBudget-1 ] != 0 )
 					{
-						evictionMin = pEvictionCandiates[ GGTERRAIN_EVICTION_PAGE_MAX-1 ]->evictionCheck;
+						evictionMin = pEvictionCandiates[ pageBudget-1 ]->evictionCheck;
 					}
 				}
 			}
@@ -8409,8 +8433,8 @@ void GGTerrain_CheckReadBack(wiGraphics::CommandList cmd)
 		range = wiProfiler::BeginRangeCPU( "Max - Terrain Read Back Replace" );
 		
 		// select a number of new pages to load this frame
-		PageNeeded* pNewPages[ GGTERRAIN_EVICTION_PAGE_MAX ] = { 0 };
-		numNewPages = pagesNeeded.GetNewPages( pNewPages, GGTERRAIN_EVICTION_PAGE_MAX );
+		PageNeeded* pNewPages[ GGTERRAIN_REPLACEMENT_PAGE_MAX ] = { 0 };
+		numNewPages = pagesNeeded.GetNewPages( pNewPages, pageBudget );
 		
 		uint32_t evictionIndex = 0;
 		for( uint32_t i = 0; i < numNewPages; i++ )
@@ -8421,10 +8445,11 @@ void GGTerrain_CheckReadBack(wiGraphics::CommandList cmd)
 			PageEntry* pPageEntry = pagesFree.PopItem();
 			if ( !pPageEntry ) 
 			{
-				if ( evictionIndex >= GGTERRAIN_EVICTION_PAGE_MAX ) break;
+				if ( evictionIndex >= pageBudget ) break;
 				pPageEntry = pEvictionCandiates[ evictionIndex ];
 				evictionIndex++;
 				assert( pPageEntry );
+				if ( !pPageEntry ) break; // GG: fewer eviction candidates than new pages this time
 
 				// if the replacement page is less requested than the evicted page then keep the evicted pages instead
 				if ( pPageEntry->unusedCount == 0 && pPageEntry->GetRequestedCount() > pNewPage->GetRequestedCount() ) break;
