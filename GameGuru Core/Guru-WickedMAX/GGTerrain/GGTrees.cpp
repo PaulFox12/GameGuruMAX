@@ -2759,7 +2759,7 @@ void GGTrees_UpdateFrustumCulling( wiScene::CameraComponent* camera )
 		if ( cameraZ > aabb._max.z ) sqrDist += (cameraZ - aabb._max.z) * (cameraZ - aabb._max.z);
 		else if ( cameraZ < aabb._min.z ) sqrDist += (cameraZ - aabb._min.z) * (cameraZ - aabb._min.z);
 
-		float distLOD = ggtrees_global_params.lod_dist + ggtrees_global_params.lod_transition*2 + treeMaxHeight;
+		float distLOD = ggtrees_global_params.lod_dist + ggtrees_global_params.lod_transition; // GG: where the full detail tree has faded (TreeLODFade)
 		float sqrDistLOD = distLOD * distLOD;
 
 		if ( sqrDist > sqrDistLOD ) continue;
@@ -2975,7 +2975,7 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 		if (camZ > aabb._max.z) sqrDist += (camZ - aabb._max.z) * (camZ - aabb._max.z);
 		else if (camZ < aabb._min.z) sqrDist += (camZ - aabb._min.z) * (camZ - aabb._min.z);
 
-		float distLODShadow = ggtrees_global_params.lod_dist_shadow + ggtrees_global_params.lod_transition_shadow * 2 + treeMaxHeight;
+		float distLODShadow = ggtrees_global_params.lod_dist_shadow + ggtrees_global_params.lod_transition_shadow; // GG: as distLOD
 		float sqrDistLODShadow = distLODShadow * distLODShadow;
 
 		if (sqrDist > sqrDistLODShadow) continue;

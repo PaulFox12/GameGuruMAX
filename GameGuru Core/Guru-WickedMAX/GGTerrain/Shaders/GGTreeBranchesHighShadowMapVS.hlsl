@@ -24,6 +24,7 @@ struct VertexOut
 	float3 worldPos : TEXCOORD0;
 	float2 uv : TEXCOORD1;
 	uint data : TEXCOORD2;
+	nointerpolation float lodFade : TEXCOORD5;
 };
 
 VertexOut main( VertexIn IN )
@@ -51,6 +52,7 @@ VertexOut main( VertexIn IN )
 	OUT.uv = IN.uv;
 	OUT.data = IN.data;
     
+	OUT.lodFade = TreeLODFade( IN.offset, tree_playerPos, tree_lodDistShadow, tree_lodTransitionShadow );
 	return OUT;
 }
 

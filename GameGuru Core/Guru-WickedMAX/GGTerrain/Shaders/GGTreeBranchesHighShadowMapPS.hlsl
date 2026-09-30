@@ -13,6 +13,7 @@ struct PixelIn
 	float3 worldPos : TEXCOORD0;
 	float2 uv : TEXCOORD1;
 	uint data : TEXCOORD2;
+	nointerpolation float lodFade : TEXCOORD5;
 };
 
 float4 main( PixelIn IN ) : SV_TARGET
@@ -20,14 +21,10 @@ float4 main( PixelIn IN ) : SV_TARGET
 	uint treeType = GetTreeType( IN.data );
 	uint index = GetTreeVariation( IN.data );
 
+	if ( TreeDither( IN.position.xy ) < IN.lodFade ) discard;
+
 	float alpha = texBranchesHigh.Sample( samplerTrilinearWrap, float3(IN.uv, treeType) ).a;
 	if ( alpha < 0.3 ) discard;
-
-	float3 diff = tree_playerPos - IN.worldPos;
-	float sqrDist = dot( diff, diff );
-	float noise = texNoise.Sample( samplerBilinearWrap, IN.uv*3 );
-	float limit = (noise * tree_lodTransitionShadow) + tree_lodDistShadow + tree_lodTransitionShadow;
-	if ( sqrDist > limit*limit ) discard;
 
 	return float4( 1, 1, 1, 1 );
 }

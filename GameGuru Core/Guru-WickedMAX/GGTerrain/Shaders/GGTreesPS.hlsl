@@ -24,6 +24,7 @@ struct PixelIn
 	float2 dir : TEXCOORD4;
 	uint data : TEXCOORD2;
 	bool isFront : SV_IsFrontFace;
+	nointerpolation float lodFade : TEXCOORD5;
 };
 
 struct GBuffer
@@ -141,9 +142,7 @@ GBuffer main( PixelIn IN )
 
 	if ( !any(g_xCamera_ClipPlane) )
 	{
-		float noise = texNoise.Sample( samplerBilinearWrap, IN.uv*3 );
-		float limit = noise * tree_lodTransition + tree_lodDist;
-		if( sqrDist < limit*limit ) discard;
+		if ( TreeDither( IN.position.xy ) >= IN.lodFade ) discard;
 	}
 
 	float dist = sqrt( sqrDist );

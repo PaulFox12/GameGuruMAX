@@ -28,6 +28,7 @@ struct VertexOut
 	float2 uv : TEXCOORD2;
     uint data : TEXCOORD4;
 	float3 origPos : TEXCOORD3;
+	nointerpolation float lodFade : TEXCOORD5;
 };
 
 VertexOut main( VertexIn IN )
@@ -62,6 +63,7 @@ VertexOut main( VertexIn IN )
 	OUT.origPos = IN.position.xyz;
 	OUT.uv = IN.uv;
 		
+	OUT.lodFade = TreeLODFade( IN.offset, g_xCamera_CamPos, tree_lodDist, tree_lodTransition );
     return OUT;
 }
 

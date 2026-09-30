@@ -14,6 +14,7 @@ struct PixelIn
 	float  clip : SV_ClipDistance0;
 	float2 uv : TEXCOORD1;
 	uint data : TEXCOORD2;
+	nointerpolation float lodFade : TEXCOORD5;
 };
 
 struct Output
@@ -35,9 +36,7 @@ Output main( PixelIn IN )
 	float3 viewDir = g_xCamera_CamPos - IN.worldPos;
 	float sqrDist = dot( viewDir, viewDir );
 
-	float noise = texNoise.Sample( samplerBilinearWrap, IN.uv*3 );
-	float limit = (noise * tree_lodTransition) + tree_lodTransition + tree_lodDist;
-	if ( sqrDist > limit*limit ) discard;
+	if ( TreeDither( IN.position.xy ) < IN.lodFade ) discard;
 
 	Output output;
 	output.velocity = float4( 0, 0, 0, alpha );

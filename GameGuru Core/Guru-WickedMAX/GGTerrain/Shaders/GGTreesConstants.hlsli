@@ -55,6 +55,18 @@ float GetTreeScale( uint data ) { return ((data >> 16) & 0xFE) / 170.0 + 0.5; }
 
 #ifndef __cplusplus
 // sway speed set on its own (SetTreeWind's second value), otherwise tied to the amount as before
+// GG: a full detail tree and its billboard cross fade over one band: both take the tree's own fade (0 all full detail, 1 all
+// billboard, from the distance of its base) and the same threshold at each pixel, so each pixel shows exactly one of them
+float TreeLODFade( float3 treePos, float3 viewPos, float lodDist, float transition )
+{
+	return saturate( (distance( treePos, viewPos ) - lodDist) / max( transition, 1.0 ) );
+}
+
+float TreeDither( float2 pixel )
+{
+	return frac( 52.9829189 * frac( dot( pixel, float2( 0.06711056, 0.00583715 ) ) ) );
+}
+
 float TreeSwaySpeed()
 {
     return (g_xFrame_TreeWindSpeed > 0) ? g_xFrame_TreeWindSpeed : g_xFrame_TreeWind * 6.0;
