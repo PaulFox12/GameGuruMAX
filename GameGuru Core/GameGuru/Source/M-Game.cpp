@@ -2585,7 +2585,9 @@ bool game_masterroot_gameloop_loopcode(int iUseVRTest)
 
 	//  Update screen
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling game_sync");
+	auto rangeSync = wiProfiler::BeginRangeCPU("Update - Logic - Sync");
 	game_sync ( );
+	wiProfiler::EndRange(rangeSync);
 
 	// determine if end of game loop
 	if (t.game.gameloop != 1)
@@ -4365,6 +4367,9 @@ void game_main_loop ( void )
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling game_timeelapsed");
 	game_timeelapsed ( );
 
+	// the rest of the logic is timed in named parts, so "Update - Logic" less its parts is only glue
+	auto rangeSound = wiProfiler::BeginRangeCPU("Update - Logic - Sound");
+
 	//  Music processing
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling music_loop");
 	music_loop ( );
@@ -4376,6 +4381,7 @@ void game_main_loop ( void )
 	{
 		character_sound_update ( );
 	}
+	wiProfiler::EndRange(rangeSound);
 
 	//  Force a shader update to ensure correct shadows are used at start
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling visuals_shaderlevels_update");
@@ -4467,7 +4473,9 @@ void game_main_loop ( void )
 
 		//  Control slider menus (based on tab page)
 		if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling sliders_loop");
+		auto rangeSliders = wiProfiler::BeginRangeCPU("Update - Logic - Sliders");
 		sliders_loop ( );
+		wiProfiler::EndRange(rangeSliders);
 
 		// CTRL+H to hide the hud when testing levels. For reason some the key results don't match what they should be from keymap?
 		if (t.game.gameisexe == 0)
@@ -4485,7 +4493,9 @@ void game_main_loop ( void )
 
 		//  update all projectiles
 		if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling weapon_projectile_loop");
+		auto rangeProjectiles = wiProfiler::BeginRangeCPU("Update - Logic - Projectiles");
 		weapon_projectile_loop ( );
+		wiProfiler::EndRange(rangeProjectiles);
 
 		//  Prompt
 		if ( g.gproducelogfiles == 2 ) timestampactivity(0,"checking prompts");
@@ -4659,13 +4669,16 @@ void game_main_loop ( void )
 		if ( t.hardwareinfoglobals.noguns == 0 ) 
 		{
 			if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling gun_manager");
+			auto rangeWeapons = wiProfiler::BeginRangeCPU("Update - Logic - Weapons");
 			gun_manager ( );
 			t.slidersmenuindex=t.slidersmenunames.weapon ; sliders_readall ( );
+			wiProfiler::EndRange(rangeWeapons);
 		}
 		t.game.perf.gun += PerformanceTimer()-g.gameperftimestamp ; g.gameperftimestamp=PerformanceTimer();
 	}
 
 	//  update all particles and emitters
+	auto rangeParticles = wiProfiler::BeginRangeCPU("Update - Logic - Particles");
 	update_env_particles();
 	ravey_particles_update();
 
@@ -4691,15 +4704,21 @@ void game_main_loop ( void )
 			}
 		}
 	}
+	wiProfiler::EndRange(rangeParticles);
 
 	//  Decal control
+	auto rangeDecals = wiProfiler::BeginRangeCPU("Update - Logic - Decals");
 	decalelement_control();
+	wiProfiler::EndRange(rangeDecals);
 
 	// bullethole manegement
+	auto rangeBulletHoles = wiProfiler::BeginRangeCPU("Update - Logic - Bullet Holes");
 	bulletholes_update();
+	wiProfiler::EndRange(rangeBulletHoles);
 
 	// projected decals (AddProjectedDecal): age, fade and remove them, and clear the grass under them; a gap over a quarter
 	// of a second (a pause, a load) counts as a quarter
+	auto rangeProjectedDecals = wiProfiler::BeginRangeCPU("Update - Logic - Projected Decals");
 	{
 		static DWORD dwProjectedDecalsLastTime = 0;
 		DWORD dwNow = timeGetTime();
@@ -4713,6 +4732,7 @@ void game_main_loop ( void )
 		extern void WickedCall_UpdateLuaTextureScroll(float fSeconds);
 		WickedCall_UpdateLuaTextureScroll(fSeconds);
 	}
+	wiProfiler::EndRange(rangeProjectedDecals);
 
 	//  Steam call moved here as camera changes need to be BEFORE the shadow update
 	if (  t.game.runasmultiplayer == 1 ) 
@@ -4742,7 +4762,9 @@ void game_main_loop ( void )
 	if (  t.hardwareinfoglobals.nosky == 0 ) 
 	{
 		if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling sky_loop");
+		auto rangeSky = wiProfiler::BeginRangeCPU("Update - Logic - Sky");
 		sky_loop ( );
+		wiProfiler::EndRange(rangeSky);
 	}
 	t.game.perf.terrain3 += PerformanceTimer()-g.gameperftimestamp ; g.gameperftimestamp=PerformanceTimer();
 
@@ -4771,6 +4793,7 @@ void game_main_loop ( void )
 	}
 
 	// Handle occlusion if active
+	auto rangeOcclusion = wiProfiler::BeginRangeCPU("Update - Logic - Occlusion");
 	if ( g.globals.occlusionmode == 1 ) 
 	{
 		// VR software cannot use occlusion at the moment
@@ -4815,9 +4838,11 @@ void game_main_loop ( void )
 			g_occluderOn = true;
 		}
 	}
+	wiProfiler::EndRange(rangeOcclusion);
 	t.game.perf.occlusion += PerformanceTimer()-g.gameperftimestamp ; g.gameperftimestamp=PerformanceTimer();
 
 	// Final post processing step
+	auto rangeVisuals = wiProfiler::BeginRangeCPU("Update - Logic - Visuals");
 
 	// Render pre-terrain post process cameras (includes lightray rendering)
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling postprocess_preterrain");
@@ -4839,6 +4864,7 @@ void game_main_loop ( void )
 	visuals_loop ( );
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling lighting_loop");
 	lighting_loop ( );
+	wiProfiler::EndRange(rangeVisuals);
 	t.game.perf.postprocessing += PerformanceTimer()-g.gameperftimestamp ; g.gameperftimestamp=PerformanceTimer();
 
 	// Check for player guns switched off
@@ -4850,6 +4876,7 @@ void game_main_loop ( void )
 	}
 
 	//  Update HUD Layer objects (jetpack)
+	auto rangeHUD = wiProfiler::BeginRangeCPU("Update - Logic - HUD");
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling hud_updatehudlayerobjects");
 	hud_updatehudlayerobjects ( );
 
@@ -4860,6 +4887,7 @@ void game_main_loop ( void )
 		extern void GrabBackBufferForAnImage (void);
 		GrabBackBufferForAnImage();
 	}
+	wiProfiler::EndRange(rangeHUD);
 }
 
 extern int howManyOccluders;

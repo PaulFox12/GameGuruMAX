@@ -30,6 +30,7 @@ bool g_bInitExtraThreadForGameLogic = true;
 bool g_bTriggerSomeGameLogic = false;
 int g_iCountNumberOfExtraThreadCalls = 0;
 #include "GGThread.h"
+#include "wiProfiler.h"
 using namespace GGThread;
 
 class GuruLogicClass : public GGThread
@@ -202,7 +203,9 @@ bool GuruLoopLogic ( void )
 		common_loop_logic();
 
 		// as new wicked engine never uses Sync(), we still need regular update work for sound and animation
+		auto rangeNonDisplay = wiProfiler::BeginRangeCPU("Update - Logic - Non Display");
 		ConstantNonDisplayUpdate();
+		wiProfiler::EndRange(rangeNonDisplay);
 
 		// normal operations
 		return true;
