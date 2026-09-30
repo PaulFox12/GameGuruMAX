@@ -1,3 +1,7 @@
+// GG: lit as the full detail leaves are (GGTreeBranchesHighPS): the backlit-leaf term, environment maps and voxel GI, so a
+// billboard matches its tree at every sun angle
+#define SUBSURFACESCATTERING
+
 Texture2DArray texTree : register( t50 );
 Texture2D<float> texNoise : register( t51 );
 Texture2DArray texTreeNormal : register( t53 );
@@ -37,6 +41,85 @@ inline void TiledLighting(inout Surface surface, inout Lighting lighting)
 {
 	const uint2 tileIndex = uint2(floor(surface.pixel / TILED_CULLING_BLOCKSIZE));
 	const uint flatTileIndex = flatten2D(tileIndex, g_xFrame_EntityCullingTileCount.xy) * SHADER_ENTITY_TILE_BUCKET_COUNT;
+
+#ifndef DISABLE_ENVMAPS
+	// Apply environment maps:
+	float4 envmapAccumulation = 0;
+
+#ifndef DISABLE_LOCALENVPMAPS
+	[branch]
+	if (g_xFrame_EnvProbeArrayCount > 0)
+	{
+		// Loop through envmap buckets in the tile:
+		const uint first_item = g_xFrame_EnvProbeArrayOffset;
+		const uint last_item = first_item + g_xFrame_EnvProbeArrayCount - 1;
+		const uint first_bucket = first_item / 32;
+		const uint last_bucket = min(last_item / 32, max(0, SHADER_ENTITY_TILE_BUCKET_COUNT - 1));
+		[loop]
+		for (uint bucket = first_bucket; bucket <= last_bucket; ++bucket)
+		{
+			uint bucket_bits = EntityTiles[flatTileIndex + bucket];
+
+			// Bucket scalarizer - Siggraph 2017 - Improved Culling [Michal Drobot]:
+			bucket_bits = WaveReadLaneFirst(WaveActiveBitOr(bucket_bits));
+
+			[loop]
+			while (bucket_bits != 0)
+			{
+				// Retrieve global entity index from local bucket, then remove bit from local bucket:
+				const uint bucket_bit_index = firstbitlow(bucket_bits);
+				const uint entity_index = bucket * 32 + bucket_bit_index;
+				bucket_bits ^= 1 << bucket_bit_index;
+
+				[branch]
+				if (entity_index >= first_item && entity_index <= last_item && envmapAccumulation.a < 1)
+				{
+					ShaderEntity probe = EntityArray[entity_index];
+
+					const float4x4 probeProjection = MatrixArray[probe.GetMatrixIndex()];
+					const float3 clipSpacePos = mul(probeProjection, float4(surface.P, 1)).xyz;
+					const float3 uvw = clipSpacePos.xyz * float3(0.5, -0.5, 0.5) + 0.5;
+					[branch]
+					if (is_saturated(uvw))
+					{
+						const float4 envmapColor = EnvironmentReflection_Local(surface, probe, probeProjection, clipSpacePos);
+						// perform manual blending of probes:
+						//  NOTE: they are sorted top-to-bottom, but blending is performed bottom-to-top
+						envmapAccumulation.rgb = (1 - envmapAccumulation.a) * (envmapColor.a * envmapColor.rgb) + envmapAccumulation.rgb;
+						envmapAccumulation.a = envmapColor.a + (1 - envmapColor.a) * envmapAccumulation.a;
+						[branch]
+						if (envmapAccumulation.a >= 1.0)
+						{
+							// force exit:
+							bucket = SHADER_ENTITY_TILE_BUCKET_COUNT;
+							break;
+						}
+					}
+				}
+				else if (entity_index > last_item)
+				{
+					// force exit:
+					bucket = SHADER_ENTITY_TILE_BUCKET_COUNT;
+					break;
+				}
+
+			}
+		}
+	}
+#endif // DISABLE_LOCALENVPMAPS
+
+	// Apply global envmap where there is no local envmap information:
+	[branch]
+	if (envmapAccumulation.a < 0.99)
+	{
+		envmapAccumulation.rgb = lerp(EnvironmentReflection_Global(surface), envmapAccumulation.rgb, envmapAccumulation.a);
+	}
+	lighting.indirect.specular += max(0, envmapAccumulation.rgb);
+#endif // DISABLE_ENVMAPS
+
+#ifndef DISABLE_VOXELGI
+	VoxelGI(surface, lighting);
+#endif //DISABLE_VOXELGI
 
 	[branch]
 	if (g_xFrame_LightArrayCount > 0)
@@ -167,8 +250,8 @@ GBuffer main( PixelIn IN )
 	normal.x = normX;
 	normal.z = normZ;
 
-	float3 dir = float3( -sinAng, 0, -cosAng );
-	normal = lerp( dir, normal, 2 );
+	// GG: the map's own normal; lerp( dir, normal, 2 ) pushed it out to up to three times unit length, so the card lit flat
+	normal = normalize( normal );
 	
 	/*
 	output.g0 = float4( normal*0.5 + 0.5, 1 );
