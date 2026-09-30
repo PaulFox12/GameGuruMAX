@@ -1463,6 +1463,7 @@ bool commonexecutable_loop_for_game(void)
 
 	//PE: Support delayed terrain update in standalone.
 	extern int iTriggerInvalidateAfterFrames;
+	auto rangeCommon = wiProfiler::BeginRangeCPU("Update - Logic - Common");
 
 	if (iBlockRenderingForFrames > 0)
 	{
@@ -1545,6 +1546,7 @@ bool commonexecutable_loop_for_game(void)
 
 	void RenderPreviewEmitter(void);
 	RenderPreviewEmitter();
+	wiProfiler::EndRange(rangeCommon);
 
 	if (iLaunchAfterSync == 201)
 	{
@@ -2188,6 +2190,8 @@ void launchOrShowBuildingEditor(void)
 
 void mapeditorexecutable_loop(void)
 {
+	auto rangeEditor = wiProfiler::BeginRangeCPU("Update - Logic - Editor");
+
 	// keep the title's modified mark in step with the flag, which many edits set without updating it
 	gridedit_changemodifiedflag();
 
@@ -2258,6 +2262,8 @@ void mapeditorexecutable_loop(void)
 	SetIconSetCheck(false);
 
 	bSmallVideoFrameStart = true;
+	wiProfiler::EndRange(rangeEditor);
+
 	// special modes used when in test game or standalone game
 	if (commonexecutable_loop_for_game() == true) return;
 

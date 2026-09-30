@@ -2392,6 +2392,7 @@ bool game_masterroot_gameloop_loopcode(int iUseVRTest)
 	}
 
 	//  Game cycle loop
+	auto rangeLoopStart = wiProfiler::BeginRangeCPU("Update - Logic - Loop Start");
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"winddown mp_closeconnection");
 	if ( t.game.gameloopwinddown == 1 )
 	{
@@ -2486,6 +2487,7 @@ bool game_masterroot_gameloop_loopcode(int iUseVRTest)
 			else
 			{
 				// cycle
+				wiProfiler::EndRange(rangeLoopStart);
 				return false;
 			}
 		}
@@ -2493,7 +2495,10 @@ bool game_masterroot_gameloop_loopcode(int iUseVRTest)
 		g_iInGameMenuState = 0;
 	}
 
+	wiProfiler::EndRange(rangeLoopStart);
+
 	// Fade in gamescreen (using post process shader)
+	auto rangeFade = wiProfiler::BeginRangeCPU("Update - Logic - Fade");
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"fade game screen logic");
 	if ( t.postprocessings.fadeinvalue_f<1.0 ) 
 	{
@@ -2578,6 +2583,8 @@ bool game_masterroot_gameloop_loopcode(int iUseVRTest)
 		t.huddamage.immunity=t.huddamage.immunity-(10*g.timeelapsed_f);
 		if (  t.huddamage.immunity<0  )  t.huddamage.immunity = 0;
 	}
+
+	wiProfiler::EndRange(rangeFade);
 
 	//  Run all game subroutines		
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling game_main_loop");
@@ -4365,7 +4372,9 @@ void game_main_loop ( void )
 
 	//  Timer (  based movement )
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling game_timeelapsed");
+	auto rangeTiming = wiProfiler::BeginRangeCPU("Update - Logic - Timing");
 	game_timeelapsed ( );
+	wiProfiler::EndRange(rangeTiming);
 
 	// the rest of the logic is timed in named parts, so "Update - Logic" less its parts is only glue
 	auto rangeSound = wiProfiler::BeginRangeCPU("Update - Logic - Sound");
@@ -4399,6 +4408,7 @@ void game_main_loop ( void )
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"checking levelendingcycle");
 	if ( t.game.levelendingcycle == 0 )
 	{
+		auto rangeKeys = wiProfiler::BeginRangeCPU("Update - Logic - Keys");
 		if ( (t.game.gameisexe == 0 || g.gprofileinstandalone == 1) && (t.game.runasmultiplayer == 0 || bSocialVRDebugTABTAB == true)  ) 
 		{
 			// Test Game Mode
@@ -4468,6 +4478,8 @@ void game_main_loop ( void )
 			#endif
 		}
 
+		wiProfiler::EndRange(rangeKeys);
+
 		//  Measure Sync (  to loop start )
 		t.game.perf.resttosync += PerformanceTimer()-g.gameperftimestamp ; g.gameperftimestamp=PerformanceTimer();
 
@@ -4498,6 +4510,7 @@ void game_main_loop ( void )
 		wiProfiler::EndRange(rangeProjectiles);
 
 		//  Prompt
+		auto rangeCamera = wiProfiler::BeginRangeCPU("Update - Logic - Camera");
 		if ( g.gproducelogfiles == 2 ) timestampactivity(0,"checking prompts");
 		if (  t.sky.currenthour_f<1.0 || t.sky.currenthour_f >= 13.0 ) 
 		{
@@ -4544,6 +4557,8 @@ void game_main_loop ( void )
 			physics_render_debug_meshes();
 		}
 
+		wiProfiler::EndRange(rangeCamera);
+
 		//  loop physics
 		if (  t.hardwareinfoglobals.nophysics == 0 )
 		{
@@ -4562,6 +4577,7 @@ void game_main_loop ( void )
 
 			physics_player_handledeath (); // handles sound, so keep in main thread
 			wiProfiler::EndRange(range2);
+			auto rangeAttachments = wiProfiler::BeginRangeCPU("Update - Logic - Attachments");
 
 			// read all slider values for player
 			if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling sliders readall");
@@ -4574,6 +4590,7 @@ void game_main_loop ( void )
 				t.e = t.charanimstates[g.charanimindex].originale;
 				if ( t.e > 0 ) entity_monitorattachments ( );
 			}
+			wiProfiler::EndRange(rangeAttachments);
 
 			//  Construction Kit control
 			if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling conkit_loop");
@@ -4631,7 +4648,9 @@ void game_main_loop ( void )
 				wiProfiler::EndRange(range3);
 
 				// handle any AI stuff related to recastretour
+				auto rangeNavmesh = wiProfiler::BeginRangeCPU("Update - Logic - Navmesh");
 				game_updatenavmeshsystem();
+				wiProfiler::EndRange(rangeNavmesh);
 			}
 			t.game.perf.ai += PerformanceTimer()-t.ttempoverallaiperftimerstamp;
 		}
