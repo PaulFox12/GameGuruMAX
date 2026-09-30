@@ -7361,6 +7361,8 @@ void tab_tab_visuals(int iPage, int iMode)
 	}
 }
 
+void LuaRenderSettings_ShadowValues(int* pSun, int* pSpot, int* pPoint, int* pSpotMax, int* pPointMax);
+
 void Wicked_Update_Shadows(void *voidvisual)
 {
 	extern int spot_lights_count;
@@ -7368,6 +7370,18 @@ void Wicked_Update_Shadows(void *voidvisual)
 
 	visualstype* visuals = (visualstype *)voidvisual;
 	if (visuals == NULL) visuals = &t.visuals;
+
+	// the pushed visuals' shadow sizes and light shadow counts, or a script's (SetShadowResolution, SetShadowLights); capped
+	// at 2048 as below, first in the visuals too, so an unchanged value is not seen as a change at the next push
+	if (visuals->iShadowSpotCascadeResolution > 2048) visuals->iShadowSpotCascadeResolution = 2048;
+	if (visuals->iShadowSpotResolution > 2048) visuals->iShadowSpotResolution = 2048;
+	if (visuals->iShadowPointResolution > 2048) visuals->iShadowPointResolution = 2048;
+	int iSunResolution = visuals->iShadowSpotCascadeResolution;
+	int iSpotResolution = visuals->iShadowSpotResolution;
+	int iPointResolution = visuals->iShadowPointResolution;
+	int iSpotMax = visuals->iShadowSpotMax;
+	int iPointMax = visuals->iShadowPointMax;
+	LuaRenderSettings_ShadowValues(&iSunResolution, &iSpotResolution, &iPointResolution, &iSpotMax, &iPointMax);
 
 	static int total_active_2d_shadows = -1;
 
@@ -7380,17 +7394,17 @@ void Wicked_Update_Shadows(void *voidvisual)
 		bTransparentChanged = true;
 	}
 
-	if (old_iShadowSpotCascadeResolution != visuals->iShadowSpotCascadeResolution || bTransparentChanged )
+	if (old_iShadowSpotCascadeResolution != iSunResolution || bTransparentChanged )
 	{
 		char debug[256];
 		sprintf(debug, "wiRenderer::SetShadowProps2D: 5");
 		timestampactivity(0, debug);
-		if (visuals->iShadowSpotCascadeResolution > 2048) visuals->iShadowSpotCascadeResolution = 2048;
-		old_iShadowSpotCascadeResolution = visuals->iShadowSpotCascadeResolution;
-		if(visuals->iShadowSpotCascadeResolution == 0)
-			wiRenderer::SetShadowProps2D(visuals->iShadowSpotCascadeResolution, 0 ); //cascade only now.
+		if (iSunResolution > 2048) iSunResolution = 2048;
+		old_iShadowSpotCascadeResolution = iSunResolution;
+		if(iSunResolution == 0)
+			wiRenderer::SetShadowProps2D(iSunResolution, 0 ); //cascade only now.
 		else
-			wiRenderer::SetShadowProps2D(visuals->iShadowSpotCascadeResolution, 5); //cascade only now.
+			wiRenderer::SetShadowProps2D(iSunResolution, 5); //cascade only now.
 	}
 
 
@@ -7400,20 +7414,20 @@ void Wicked_Update_Shadows(void *voidvisual)
 	else if (shadows <= 8) shadows = 8;
 	else if (shadows <= 12) shadows = 12;
 	else if (shadows <= 16) shadows = 16;
-	if (shadows > visuals->iShadowSpotMax) shadows = visuals->iShadowSpotMax;
+	if (shadows > iSpotMax) shadows = iSpotMax;
 	
-	if (old_iShadowSpotResolution != visuals->iShadowSpotResolution || shadows > total_active_2d_shadows || (bForceRefreshLightCount && shadows != total_active_2d_shadows) || bTransparentChanged)
+	if (old_iShadowSpotResolution != iSpotResolution || shadows > total_active_2d_shadows || (bForceRefreshLightCount && shadows != total_active_2d_shadows) || bTransparentChanged)
 	{
 		char debug[256];
 		sprintf(debug, "wiRenderer::SetShadowPropsSpot2D: %d", shadows);
 		timestampactivity(0, debug);
 		total_active_2d_shadows = shadows;
-		if (visuals->iShadowSpotResolution > 2048) visuals->iShadowSpotResolution = 2048;
-		old_iShadowSpotResolution = visuals->iShadowSpotResolution;
-		if(visuals->iShadowSpotResolution == 0 || visuals->iShadowSpotMax == 0 )
-			wiRenderer::SetShadowPropsSpot2D(visuals->iShadowSpotResolution, 0);//soft shadow removed from here , -1);
+		if (iSpotResolution > 2048) iSpotResolution = 2048;
+		old_iShadowSpotResolution = iSpotResolution;
+		if(iSpotResolution == 0 || iSpotMax == 0 )
+			wiRenderer::SetShadowPropsSpot2D(iSpotResolution, 0);//soft shadow removed from here , -1);
 		else
-			wiRenderer::SetShadowPropsSpot2D(visuals->iShadowSpotResolution, total_active_2d_shadows);//soft shadow removed from here , -1);
+			wiRenderer::SetShadowPropsSpot2D(iSpotResolution, total_active_2d_shadows);//soft shadow removed from here , -1);
 	}
 
 	//PE: MEM - 1546 : END SetShadowProps2D                                     S:529MB V: (4157,0)     
@@ -7426,21 +7440,21 @@ void Wicked_Update_Shadows(void *voidvisual)
 	else if (shadowscube <= 16) shadowscube = 16;
 
 	//LB: Increased cap in Wicked to SIXTEEN as hitting issues on even small interior levels, lets see what the fall out is
-	if (shadowscube > visuals->iShadowPointMax) shadowscube = visuals->iShadowPointMax;
+	if (shadowscube > iPointMax) shadowscube = iPointMax;
 	
-	if (old_iShadowPointResolution != visuals->iShadowPointResolution || shadowscube > total_active_cube_shadows || (bForceRefreshLightCount && shadowscube != total_active_cube_shadows ) || bTransparentChanged )
+	if (old_iShadowPointResolution != iPointResolution || shadowscube > total_active_cube_shadows || (bForceRefreshLightCount && shadowscube != total_active_cube_shadows ) || bTransparentChanged )
 	{
 		bForceRefreshLightCount = false;
 		char debug[256];
 		sprintf(debug, "wiRenderer::SetShadowPropsCube: %d", shadowscube);
 		timestampactivity(0, debug);
 		total_active_cube_shadows = shadowscube;
-		if (visuals->iShadowPointResolution > 2048) visuals->iShadowPointResolution = 2048;
-		old_iShadowPointResolution = visuals->iShadowPointResolution;
-		if(visuals->iShadowPointResolution == 0 || visuals->iShadowPointMax == 0)
-			wiRenderer::SetShadowPropsCube(visuals->iShadowPointResolution, 0);
+		if (iPointResolution > 2048) iPointResolution = 2048;
+		old_iShadowPointResolution = iPointResolution;
+		if(iPointResolution == 0 || iPointMax == 0)
+			wiRenderer::SetShadowPropsCube(iPointResolution, 0);
 		else
-			wiRenderer::SetShadowPropsCube(visuals->iShadowPointResolution, total_active_cube_shadows);
+			wiRenderer::SetShadowPropsCube(iPointResolution, total_active_cube_shadows);
 	}
 
 	if(bForceRefreshLightCount) bForceRefreshLightCount = false;
@@ -7679,6 +7693,30 @@ struct sLuaRenderSettings
 	int iSSR = -1;
 	int iAO = -1;
 	float fAOPower = -1;
+	int iSpotShadowCulling = -1; // spot light shadows apart from point light shadows
+	int iFXAA = -1;
+	int iReflections = -1;
+	int iProbesLowestLOD = -1;
+	int iReflectionsLowestLOD = -1;
+	int iAnimations30Fps = -1;
+	float fMaxApparentSize = -1;
+	int iSunShadowResolution = -1;
+	int iSpotShadowResolution = -1;
+	int iPointShadowResolution = -1;
+	int iSpotShadowMax = -1;
+	int iPointShadowMax = -1;
+	int iShadowCascades = -1;
+	float fShadowSplits[4] = { -1, -1, -1, -1 };
+	// the terrain's detail and the grass's lighting, and what they were before a script set them (the graphics quality
+	// sets them from the level's own, with nothing to put back from)
+	int iTerrainDetailLimit = -1;
+	float fTerrainDetailScale = -1;
+	int iTerrainReadBackReduction = -1;
+	int iGrassSimpleLighting = -1;
+	int iTerrainDetailLimitBefore = 0;
+	float fTerrainDetailScaleBefore = 1.0f;
+	int iTerrainReadBackReductionBefore = 4;
+	int iGrassSimpleLightingBefore = 0;
 };
 sLuaRenderSettings g_LuaRenderSettings;
 
@@ -7693,6 +7731,13 @@ extern bool g_bDelayedShadows;
 extern bool g_bDelayedShadowsLaptop;
 extern bool bEnableDelayPointShadow;
 extern float pointShadowScaler;
+extern bool bProbesLowestLOD;
+extern bool bReflectionsLowestLOD;
+extern bool bEnable30FpsAnimations;
+extern float maxApparentSize;
+extern uint32_t g_iWickedShadowCascades;
+extern float g_fWickedShadowSplits[4];
+void Wicked_Update_Shadows(void *voidvisual);
 
 // the delayed shadow refresh as Wicked_Update_Visuals sets it: point shadows follow it, refreshed less on a laptop
 static void LuaRenderSettings_SetDelayedShadowGlobals(bool bDelayed, bool bLaptop)
@@ -7710,6 +7755,21 @@ void LuaRenderSettings_Apply(void)
 	if (p->iAnimationCulling >= 0) bEnableAnimationCulling = p->iAnimationCulling != 0;
 	if (p->iTerrainCulling >= 0) bEnableTerrainChunkCulling = p->iTerrainCulling != 0;
 	if (p->iShadowCulling >= 0) bEnablePointShadowCulling = bEnableSpotShadowCulling = p->iShadowCulling != 0;
+	if (p->iSpotShadowCulling >= 0) bEnableSpotShadowCulling = p->iSpotShadowCulling != 0;
+	if (p->iProbesLowestLOD >= 0) bProbesLowestLOD = p->iProbesLowestLOD != 0;
+	if (p->iReflectionsLowestLOD >= 0) bReflectionsLowestLOD = p->iReflectionsLowestLOD != 0;
+	if (p->iAnimations30Fps >= 0) bEnable30FpsAnimations = p->iAnimations30Fps != 0;
+	if (p->fMaxApparentSize >= 0) maxApparentSize = p->fMaxApparentSize;
+	if (p->iShadowCascades >= 0) g_iWickedShadowCascades = (uint32_t)p->iShadowCascades;
+	if (p->fShadowSplits[0] >= 0) for (int i = 0; i < 4; i++) g_fWickedShadowSplits[i] = p->fShadowSplits[i];
+	if (p->iTerrainDetailLimit >= 0) ggterrain_global_render_params2.detailLimit = (uint32_t)p->iTerrainDetailLimit;
+	if (p->fTerrainDetailScale >= 0) ggterrain_global_render_params2.detailScale = p->fTerrainDetailScale;
+	if (p->iTerrainReadBackReduction >= 0) ggterrain_global_render_params2.readBackTextureReduction = (uint32_t)p->iTerrainReadBackReduction;
+	if (p->iGrassSimpleLighting >= 0) gggrass_global_params.simplePBR = p->iGrassSimpleLighting;
+	if (p->iSunShadowResolution >= 0 || p->iSpotShadowResolution >= 0 || p->iPointShadowResolution >= 0 || p->iSpotShadowMax >= 0 || p->iPointShadowMax >= 0)
+	{
+		Wicked_Update_Shadows(&t.visuals);
+	}
 	if (p->iOcclusion >= 0) wiRenderer::SetOcclusionCullingEnabled(p->iOcclusion != 0);
 	if (p->fLODMultiplier >= 0) fLODMultiplier = p->fLODMultiplier;
 	if (p->iShadowsLowestLOD >= 0) bShadowsLowestLOD = p->iShadowsLowestLOD != 0;
@@ -7724,6 +7784,8 @@ void LuaRenderSettings_Apply(void)
 	{
 		if (p->iSSR >= 0) master_renderer->setSSREnabled(p->iSSR != 0);
 		if (p->iAO >= 0) master_renderer->setAO(p->iAO ? RenderPath3D::AO_MSAO : RenderPath3D::AO_DISABLED);
+		if (p->iFXAA >= 0) master_renderer->setFXAAEnabled(p->iFXAA != 0);
+		if (p->iReflections >= 0) master_renderer->setReflectionsEnabled(p->iReflections != 0);
 		if (p->fAOPower >= 0) master_renderer->setAOPower(p->fAOPower);
 	}
 }
@@ -7805,6 +7867,150 @@ void LuaRenderSettings_SetAO(int iOn, float fPower)
 	LuaRenderSettings_Apply();
 }
 
+// values below 0 keep the current setting. spotShadows split from shadows (SetOcclusionCulling's sixth value)
+void LuaRenderSettings_SetSpotShadowCulling(int iOn)
+{
+	if (iOn >= 0) g_LuaRenderSettings.iSpotShadowCulling = iOn ? 1 : 0;
+	LuaRenderSettings_Apply();
+}
+
+void LuaRenderSettings_SetFXAA(int iOn)
+{
+	if (iOn >= 0) g_LuaRenderSettings.iFXAA = iOn ? 1 : 0;
+	LuaRenderSettings_Apply();
+}
+
+void LuaRenderSettings_SetReflections(int iOn)
+{
+	if (iOn >= 0) g_LuaRenderSettings.iReflections = iOn ? 1 : 0;
+	LuaRenderSettings_Apply();
+}
+
+void LuaRenderSettings_SetLowestLOD(int iProbes, int iReflections)
+{
+	if (iProbes >= 0) g_LuaRenderSettings.iProbesLowestLOD = iProbes ? 1 : 0;
+	if (iReflections >= 0) g_LuaRenderSettings.iReflectionsLowestLOD = iReflections ? 1 : 0;
+	LuaRenderSettings_Apply();
+}
+
+void LuaRenderSettings_SetAnimations30Fps(int iOn)
+{
+	if (iOn >= 0) g_LuaRenderSettings.iAnimations30Fps = iOn ? 1 : 0;
+	LuaRenderSettings_Apply();
+}
+
+// as the visuals push keeps it: 0.000001 to 0.2
+void LuaRenderSettings_SetMaxApparentSize(float fSize)
+{
+	if (fSize >= 0) g_LuaRenderSettings.fMaxApparentSize = fSize < 0.000001f ? 0.000001f : (fSize > 0.2f ? 0.2f : fSize);
+	LuaRenderSettings_Apply();
+}
+
+// resolutions 0 (none) to 2048 as the shadow push caps them; the counts 0 to 16. A change recreates the shadow maps, a hitch
+void LuaRenderSettings_SetShadowResolution(int iSun, int iSpot, int iPoint)
+{
+	if (iSun >= 0) g_LuaRenderSettings.iSunShadowResolution = iSun > 2048 ? 2048 : iSun;
+	if (iSpot >= 0) g_LuaRenderSettings.iSpotShadowResolution = iSpot > 2048 ? 2048 : iSpot;
+	if (iPoint >= 0) g_LuaRenderSettings.iPointShadowResolution = iPoint > 2048 ? 2048 : iPoint;
+	LuaRenderSettings_Apply();
+}
+
+void LuaRenderSettings_SetShadowLights(int iSpotMax, int iPointMax)
+{
+	if (iSpotMax >= 0) g_LuaRenderSettings.iSpotShadowMax = iSpotMax > 16 ? 16 : iSpotMax;
+	if (iPointMax >= 0) g_LuaRenderSettings.iPointShadowMax = iPointMax > 16 ? 16 : iPointMax;
+	LuaRenderSettings_Apply();
+}
+
+// the pushed visuals' shadow sizes and counts, replaced by any a script set (read by Wicked_Update_Shadows)
+void LuaRenderSettings_ShadowValues(int* pSun, int* pSpot, int* pPoint, int* pSpotMax, int* pPointMax)
+{
+	const sLuaRenderSettings* p = &g_LuaRenderSettings;
+	if (p->iSunShadowResolution >= 0) *pSun = p->iSunShadowResolution;
+	if (p->iSpotShadowResolution >= 0) *pSpot = p->iSpotShadowResolution;
+	if (p->iPointShadowResolution >= 0) *pPoint = p->iPointShadowResolution;
+	if (p->iSpotShadowMax >= 0) *pSpotMax = p->iSpotShadowMax;
+	if (p->iPointShadowMax >= 0) *pPointMax = p->iPointShadowMax;
+}
+
+// cascades 1 to 5; the four splits only if all are above 0 and rising
+void LuaRenderSettings_SetShadowCascades(int iCascades, const float* pSplits)
+{
+	if (iCascades >= 0) g_LuaRenderSettings.iShadowCascades = iCascades < 1 ? 1 : (iCascades > 5 ? 5 : iCascades);
+	if (pSplits && pSplits[0] > 0 && pSplits[1] > pSplits[0] && pSplits[2] > pSplits[1] && pSplits[3] > pSplits[2])
+	{
+		for (int i = 0; i < 4; i++) g_LuaRenderSettings.fShadowSplits[i] = pSplits[i];
+	}
+	LuaRenderSettings_Apply();
+}
+
+// detail limit 0 to 4, scale 0.25 to 2, read back reduction 4 to 6 (#113: higher leaves fallback levels unrequested)
+void LuaRenderSettings_SetTerrainDetail(int iLimit, float fScale, int iReadBack)
+{
+	sLuaRenderSettings* p = &g_LuaRenderSettings;
+	if (iLimit >= 0)
+	{
+		if (p->iTerrainDetailLimit < 0) p->iTerrainDetailLimitBefore = (int)ggterrain_global_render_params2.detailLimit;
+		p->iTerrainDetailLimit = iLimit > 4 ? 4 : iLimit;
+	}
+	if (fScale >= 0)
+	{
+		if (p->fTerrainDetailScale < 0) p->fTerrainDetailScaleBefore = ggterrain_global_render_params2.detailScale;
+		p->fTerrainDetailScale = fScale < 0.25f ? 0.25f : (fScale > 2.0f ? 2.0f : fScale);
+	}
+	if (iReadBack >= 0)
+	{
+		if (p->iTerrainReadBackReduction < 0) p->iTerrainReadBackReductionBefore = (int)ggterrain_global_render_params2.readBackTextureReduction;
+		p->iTerrainReadBackReduction = iReadBack < 4 ? 4 : (iReadBack > 6 ? 6 : iReadBack);
+	}
+	LuaRenderSettings_Apply();
+}
+
+void LuaRenderSettings_SetGrassSimpleLighting(int iOn)
+{
+	sLuaRenderSettings* p = &g_LuaRenderSettings;
+	if (iOn >= 0)
+	{
+		if (p->iGrassSimpleLighting < 0) p->iGrassSimpleLightingBefore = gggrass_global_params.simplePBR;
+		p->iGrassSimpleLighting = iOn ? 1 : 0;
+	}
+	LuaRenderSettings_Apply();
+}
+
+// the values in force, for a graphics menu (GetGraphicsSettings)
+void LuaRenderSettings_GetValues(int* pFXAA, int* pReflections, int* pProbesLowestLOD, int* pReflectionsLowestLOD, int* pAnimations30Fps, float* pMaxApparentSize)
+{
+	*pFXAA = master_renderer ? (master_renderer->getFXAAEnabled() ? 1 : 0) : 0;
+	*pReflections = master_renderer ? (master_renderer->getReflectionsEnabled() ? 1 : 0) : 0;
+	*pProbesLowestLOD = bProbesLowestLOD ? 1 : 0;
+	*pReflectionsLowestLOD = bReflectionsLowestLOD ? 1 : 0;
+	*pAnimations30Fps = bEnable30FpsAnimations ? 1 : 0;
+	*pMaxApparentSize = maxApparentSize;
+}
+
+void LuaRenderSettings_GetShadows(int* pSun, int* pSpot, int* pPoint, int* pSpotMax, int* pPointMax, int* pCascades, float* pSplits)
+{
+	*pSun = t.visuals.iShadowSpotCascadeResolution;
+	*pSpot = t.visuals.iShadowSpotResolution;
+	*pPoint = t.visuals.iShadowPointResolution;
+	*pSpotMax = t.visuals.iShadowSpotMax;
+	*pPointMax = t.visuals.iShadowPointMax;
+	LuaRenderSettings_ShadowValues(pSun, pSpot, pPoint, pSpotMax, pPointMax);
+	if (*pSun > 2048) *pSun = 2048;
+	if (*pSpot > 2048) *pSpot = 2048;
+	if (*pPoint > 2048) *pPoint = 2048;
+	*pCascades = (int)g_iWickedShadowCascades;
+	for (int i = 0; i < 4; i++) pSplits[i] = g_fWickedShadowSplits[i];
+}
+
+void LuaRenderSettings_GetTerrainDetail(int* pLimit, float* pScale, int* pReadBack, int* pGrassSimpleLighting)
+{
+	*pLimit = (int)ggterrain_global_render_params2.detailLimit;
+	*pScale = ggterrain_global_render_params2.detailScale;
+	*pReadBack = (int)ggterrain_global_render_params2.readBackTextureReduction;
+	*pGrassSimpleLighting = gggrass_global_params.simplePBR;
+}
+
 // forget the Lua values and put back those of t.visuals (the level's, or the editor's when a test game ends)
 void LuaRenderSettings_Clear(void)
 {
@@ -7814,7 +8020,7 @@ void LuaRenderSettings_Clear(void)
 	if (old.iObjectCulling >= 0) bEnableObjectCulling = visuals->bEnableObjectCulling;
 	if (old.iAnimationCulling >= 0) bEnableAnimationCulling = visuals->bEnableAnimationCulling;
 	if (old.iTerrainCulling >= 0) bEnableTerrainChunkCulling = visuals->bEnableTerrainChunkCulling;
-	if (old.iShadowCulling >= 0)
+	if (old.iShadowCulling >= 0 || old.iSpotShadowCulling >= 0)
 	{
 		bEnablePointShadowCulling = visuals->bEnablePointShadowCulling;
 		bEnableSpotShadowCulling = visuals->bEnableSpotShadowCulling;
@@ -7824,7 +8030,27 @@ void LuaRenderSettings_Clear(void)
 	if (old.iShadowsLowestLOD >= 0) bShadowsLowestLOD = visuals->bShadowsLowestLOD;
 	if (old.iDelayedShadows >= 0 || old.iDelayedShadowsLaptop >= 0) LuaRenderSettings_SetDelayedShadowGlobals(visuals->g_bDelayedShadows, visuals->g_bDelayedShadowsLaptop);
 	if (old.fShadowRange >= 0) WickedCall_SetShadowRange(visuals->fShadowFarPlane);
+	if (old.iProbesLowestLOD >= 0) bProbesLowestLOD = visuals->bProbesLowestLOD;
+	if (old.iReflectionsLowestLOD >= 0) bReflectionsLowestLOD = visuals->bReflectionsLowestLOD;
+	if (old.iAnimations30Fps >= 0) bEnable30FpsAnimations = visuals->bEnable30FpsAnimations;
+	if (old.fMaxApparentSize >= 0) maxApparentSize = visuals->ApparentSize;
+	if (old.iShadowCascades >= 0 || old.fShadowSplits[0] >= 0)
+	{
+		g_iWickedShadowCascades = 5;
+		const float fSplits[4] = { 380.0f, 950.0f, 7500.0f, 30000.0f };
+		for (int i = 0; i < 4; i++) g_fWickedShadowSplits[i] = fSplits[i];
+	}
+	if (old.iTerrainDetailLimit >= 0) ggterrain_global_render_params2.detailLimit = (uint32_t)old.iTerrainDetailLimitBefore;
+	if (old.fTerrainDetailScale >= 0) ggterrain_global_render_params2.detailScale = old.fTerrainDetailScaleBefore;
+	if (old.iTerrainReadBackReduction >= 0) ggterrain_global_render_params2.readBackTextureReduction = (uint32_t)old.iTerrainReadBackReductionBefore;
+	if (old.iGrassSimpleLighting >= 0) gggrass_global_params.simplePBR = old.iGrassSimpleLightingBefore;
+	if (old.iSunShadowResolution >= 0 || old.iSpotShadowResolution >= 0 || old.iPointShadowResolution >= 0 || old.iSpotShadowMax >= 0 || old.iPointShadowMax >= 0)
+	{
+		Wicked_Update_Shadows(visuals);
+	}
 	if (old.iSSR >= 0 && master_renderer) master_renderer->setSSREnabled(visuals->bSSREnabled);
+	if (old.iFXAA >= 0 && master_renderer) master_renderer->setFXAAEnabled(visuals->bFXAAEnabled);
+	if (old.iReflections >= 0 && master_renderer) master_renderer->setReflectionsEnabled(visuals->bReflectionsEnabled);
 	if ((old.iAO >= 0 || old.fAOPower >= 0) && master_renderer)
 	{
 		// as the last visuals push left it

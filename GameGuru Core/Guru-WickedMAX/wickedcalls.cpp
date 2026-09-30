@@ -154,6 +154,9 @@ int iEnterGodMode = 0;
 bool bTmpTesting = false;
 
 float fWickedCallShadowFarPlane = DEFAULT_FAR_PLANE;
+// the sun's shadow cascades in use (1 to 5) and the view depths the first four end at (wiRenderer; SetShadowCascades)
+uint32_t g_iWickedShadowCascades = 5;
+float g_fWickedShadowSplits[4] = { 380.0f, 950.0f, 7500.0f, 30000.0f };
 
 
 // Image Management

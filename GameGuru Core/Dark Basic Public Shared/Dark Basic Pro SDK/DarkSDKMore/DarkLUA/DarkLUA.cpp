@@ -13850,15 +13850,31 @@ extern void LuaRenderSettings_GetDelayedShadows(int* pOn, int* pLaptop, int* pSc
 extern void LuaRenderSettings_SetShadowRange(float fRange);
 extern void LuaRenderSettings_SetSSR(int iOn);
 extern void LuaRenderSettings_SetAO(int iOn, float fPower);
+extern void LuaRenderSettings_SetSpotShadowCulling(int iOn);
+extern void LuaRenderSettings_SetFXAA(int iOn);
+extern void LuaRenderSettings_SetReflections(int iOn);
+extern void LuaRenderSettings_SetLowestLOD(int iProbes, int iReflections);
+extern void LuaRenderSettings_SetAnimations30Fps(int iOn);
+extern void LuaRenderSettings_SetMaxApparentSize(float fSize);
+extern void LuaRenderSettings_SetShadowResolution(int iSun, int iSpot, int iPoint);
+extern void LuaRenderSettings_SetShadowLights(int iSpotMax, int iPointMax);
+extern void LuaRenderSettings_SetShadowCascades(int iCascades, const float* pSplits);
+extern void LuaRenderSettings_SetTerrainDetail(int iLimit, float fScale, int iReadBack);
+extern void LuaRenderSettings_SetGrassSimpleLighting(int iOn);
+extern void LuaRenderSettings_GetValues(int* pFXAA, int* pReflections, int* pProbesLowestLOD, int* pReflectionsLowestLOD, int* pAnimations30Fps, float* pMaxApparentSize);
+extern void LuaRenderSettings_GetShadows(int* pSun, int* pSpot, int* pPoint, int* pSpotMax, int* pPointMax, int* pCascades, float* pSplits);
+extern void LuaRenderSettings_GetTerrainDetail(int* pLimit, float* pScale, int* pReadBack, int* pGrassSimpleLighting);
 
-// SetOcclusionCulling(on [, objects [, animations [, terrain [, shadows]]]]): the GPU occlusion culling, which skips what
-// stands wholly behind something (a frame late, and nothing within 1500 units), and what it is used for: objects, the
-// animation of an occluded character (it pauses), terrain chunks, and point and spot light shadows. 1 or 0 each
+// SetOcclusionCulling(on [, objects [, animations [, terrain [, shadows [, spotShadows]]]]]): the GPU occlusion culling,
+// which skips what stands wholly behind something (a frame late, and nothing within 1500 units), and what it is used for:
+// objects, the animation of an occluded character (it pauses), terrain chunks, and point and spot light shadows (shadows
+// both, or point only when spotShadows is given). 1 or 0 each
 int SetOcclusionCulling(lua_State* L)
 {
 	int n = LUA_GETTOP(L);
 	if (n < 1) return 0;
 	LuaRenderSettings_SetOcclusionCulling((int)lua_tonumber(L, 1), (int)LuaOptionalNumber(L, n, 2), (int)LuaOptionalNumber(L, n, 3), (int)LuaOptionalNumber(L, n, 4), (int)LuaOptionalNumber(L, n, 5));
+	if (n >= 6) LuaRenderSettings_SetSpotShadowCulling((int)lua_tonumber(L, 6));
 	return 0;
 }
 
@@ -13906,6 +13922,131 @@ int GetDelayedShadows(lua_State* L)
 	lua_pushinteger(L, iLaptop);
 	lua_pushinteger(L, iScript);
 	return 3;
+}
+
+// the rest of what the graphics quality sets, for a graphics menu with its own options (kept through visuals pushes and
+// quality changes, the level's own again at the next level and when a test game ends; a negative value keeps the current)
+// SetFXAA(on), SetReflections(on): the FXAA pass and the planar reflections
+int SetFXAA(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetFXAA((int)lua_tonumber(L, 1));
+	return 0;
+}
+int SetReflections(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetReflections((int)lua_tonumber(L, 1));
+	return 0;
+}
+// SetProbesLowestLOD(on), SetReflectionsLowestLOD(on): environment probes and reflections drawn from each model's lowest LOD
+int SetProbesLowestLOD(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetLowestLOD((int)lua_tonumber(L, 1), -1);
+	return 0;
+}
+int SetReflectionsLowestLOD(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetLowestLOD(-1, (int)lua_tonumber(L, 1));
+	return 0;
+}
+// SetAnimations30Fps(on): far characters animate at 30 frames a second
+int SetAnimations30Fps(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetAnimations30Fps((int)lua_tonumber(L, 1));
+	return 0;
+}
+// SetMaxApparentSize(v): objects smaller on screen than this (0.000001 to 0.2, the editor's value / 10000) aren't drawn
+int SetMaxApparentSize(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetMaxApparentSize((float)lua_tonumber(L, 1));
+	return 0;
+}
+// SetShadowResolution(sun [, spot [, point]]): shadow map sizes, 0 (none) to 2048; a change recreates the maps (a hitch)
+int SetShadowResolution(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaRenderSettings_SetShadowResolution((int)lua_tonumber(L, 1), (int)LuaOptionalNumber(L, n, 2), (int)LuaOptionalNumber(L, n, 3));
+	return 0;
+}
+// SetShadowLights(spotMax [, pointMax]): how many spot and point lights cast shadows at once, 0 to 16
+int SetShadowLights(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaRenderSettings_SetShadowLights((int)lua_tonumber(L, 1), (int)LuaOptionalNumber(L, n, 2));
+	return 0;
+}
+// SetShadowCascades(n [, split1, split2, split3, split4]): the sun's shadow cascades in use, 1 to 5 (past the last, no sun
+// shadow), and the view depths the first four end at (380, 950, 7500, 30000 unless set; used only if all four are given,
+// above 0 and rising). Moving a split changes that cascade's texel size, so its shadows sharpen or blur; each cascade's depth
+// bias was tuned to the stock splits, so acne or light leaks may show
+int SetShadowCascades(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	float fSplits[4];
+	bool bSplits = n >= 5;
+	for (int i = 0; i < 4 && bSplits; i++) fSplits[i] = (float)lua_tonumber(L, 2 + i);
+	LuaRenderSettings_SetShadowCascades((int)lua_tonumber(L, 1), bSplits ? fSplits : NULL);
+	return 0;
+}
+// SetTerrainDetail(limit [, scale [, readBack]]): the terrain texture's detail as the graphics quality sets it: the detail
+// limit 0 (finest) to 4, the detail scale 0.25 to 2, the read back reduction 4 to 6 (higher reads back less, coarser pages)
+int SetTerrainDetail(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaRenderSettings_SetTerrainDetail((int)lua_tonumber(L, 1), (float)LuaOptionalNumber(L, n, 2), (int)LuaOptionalNumber(L, n, 3));
+	return 0;
+}
+// SetGrassSimpleLighting(on): the grass lit by the simpler, cheaper PBR (Low and Medium quality)
+int SetGrassSimpleLighting(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetGrassSimpleLighting((int)lua_tonumber(L, 1));
+	return 0;
+}
+// GetGraphicsSettings(): the values in force as a table: fxaa, reflections, probesLowestLOD, reflectionsLowestLOD,
+// animations30Fps, maxApparentSize, sunShadow, spotShadow, pointShadow (resolutions), spotShadowLights, pointShadowLights,
+// shadowCascades, shadowSplits (a table of four), terrainDetailLimit, terrainDetailScale, terrainReadBack, grassSimpleLighting
+int GetGraphicsSettings(lua_State* L)
+{
+	int iFXAA, iReflections, iProbes, iReflectionsLOD, i30Fps;
+	float fApparentSize;
+	LuaRenderSettings_GetValues(&iFXAA, &iReflections, &iProbes, &iReflectionsLOD, &i30Fps, &fApparentSize);
+	int iSun, iSpot, iPoint, iSpotMax, iPointMax, iCascades;
+	float fSplits[4];
+	LuaRenderSettings_GetShadows(&iSun, &iSpot, &iPoint, &iSpotMax, &iPointMax, &iCascades, fSplits);
+	int iLimit, iReadBack, iGrassSimple;
+	float fScale;
+	LuaRenderSettings_GetTerrainDetail(&iLimit, &fScale, &iReadBack, &iGrassSimple);
+	lua_newtable(L);
+	lua_pushinteger(L, iFXAA); lua_setfield(L, -2, "fxaa");
+	lua_pushinteger(L, iReflections); lua_setfield(L, -2, "reflections");
+	lua_pushinteger(L, iProbes); lua_setfield(L, -2, "probesLowestLOD");
+	lua_pushinteger(L, iReflectionsLOD); lua_setfield(L, -2, "reflectionsLowestLOD");
+	lua_pushinteger(L, i30Fps); lua_setfield(L, -2, "animations30Fps");
+	lua_pushnumber(L, fApparentSize); lua_setfield(L, -2, "maxApparentSize");
+	lua_pushinteger(L, iSun); lua_setfield(L, -2, "sunShadow");
+	lua_pushinteger(L, iSpot); lua_setfield(L, -2, "spotShadow");
+	lua_pushinteger(L, iPoint); lua_setfield(L, -2, "pointShadow");
+	lua_pushinteger(L, iSpotMax); lua_setfield(L, -2, "spotShadowLights");
+	lua_pushinteger(L, iPointMax); lua_setfield(L, -2, "pointShadowLights");
+	lua_pushinteger(L, iCascades); lua_setfield(L, -2, "shadowCascades");
+	lua_newtable(L);
+	for (int i = 0; i < 4; i++) { lua_pushnumber(L, fSplits[i]); lua_rawseti(L, -2, i + 1); }
+	lua_setfield(L, -2, "shadowSplits");
+	lua_pushinteger(L, iLimit); lua_setfield(L, -2, "terrainDetailLimit");
+	lua_pushnumber(L, fScale); lua_setfield(L, -2, "terrainDetailScale");
+	lua_pushinteger(L, iReadBack); lua_setfield(L, -2, "terrainReadBack");
+	lua_pushinteger(L, iGrassSimple); lua_setfield(L, -2, "grassSimpleLighting");
+	return 1;
 }
 
 // SetShadowRange(d): how far the sun's last shadow cascade reaches, 31000 to 500000 units (500000 unless set); nothing
@@ -17141,6 +17282,18 @@ void addFunctions()
 	lua_register(lua, "SetLODMultiplier", SetLODMultiplier);
 	lua_register(lua, "SetShadowsLowestLOD", SetShadowsLowestLOD);
 	lua_register(lua, "SetDelayedShadows", SetDelayedShadows);
+	lua_register(lua, "SetFXAA", SetFXAA);
+	lua_register(lua, "SetReflections", SetReflections);
+	lua_register(lua, "SetProbesLowestLOD", SetProbesLowestLOD);
+	lua_register(lua, "SetReflectionsLowestLOD", SetReflectionsLowestLOD);
+	lua_register(lua, "SetAnimations30Fps", SetAnimations30Fps);
+	lua_register(lua, "SetMaxApparentSize", SetMaxApparentSize);
+	lua_register(lua, "SetShadowResolution", SetShadowResolution);
+	lua_register(lua, "SetShadowLights", SetShadowLights);
+	lua_register(lua, "SetShadowCascades", SetShadowCascades);
+	lua_register(lua, "SetTerrainDetail", SetTerrainDetail);
+	lua_register(lua, "SetGrassSimpleLighting", SetGrassSimpleLighting);
+	lua_register(lua, "GetGraphicsSettings", GetGraphicsSettings);
 	lua_register(lua, "ResetDelayedShadows", ResetDelayedShadows);
 	lua_register(lua, "GetDelayedShadows", GetDelayedShadows);
 	lua_register(lua, "SetShadowRange", SetShadowRange);
