@@ -627,6 +627,7 @@ TreeChunk pTreeChunks[ numTreeChunks ];
 
 TreeCB treeConstantData = {};
 GPUBuffer treeConstantBuffer;
+GPUBuffer treeConstantBufferNoShadowCut; // GG: for cascades without full detail tree shadows
 
 // low detail
 GPUBuffer bufferTreeVertices;
@@ -1531,6 +1532,7 @@ void GGTrees_Init()
 	bd.CPUAccessFlags = 0;
 	bd.MiscFlags = 0;
 	wiRenderer::GetDevice()->CreateBuffer( &bd, nullptr, &treeConstantBuffer );
+	wiRenderer::GetDevice()->CreateBuffer( &bd, nullptr, &treeConstantBufferNoShadowCut );
 
 	// vertex buffer
 	GPUBufferDesc bufferDesc = {};
@@ -3092,6 +3094,12 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 
 	wiRenderer::GetDevice()->UpdateBuffer(&treeConstantBuffer, &treeConstantData, cmd, sizeof(TreeCB));
 
+	// GG: with no full detail shadows in a cascade, its billboard shadows start at the tree, not at the shadow distance
+	TreeCB treeConstantDataNoShadowCut = treeConstantData;
+	treeConstantDataNoShadowCut.tree_lodDistShadow = 0;
+	treeConstantDataNoShadowCut.tree_lodTransitionShadow = 0;
+	wiRenderer::GetDevice()->UpdateBuffer(&treeConstantBufferNoShadowCut, &treeConstantDataNoShadowCut, cmd, sizeof(TreeCB));
+
 	wiProfiler::EndRange(range);
 }
 
@@ -3699,9 +3707,12 @@ extern "C" void GGTrees_Draw_ShadowMap( const Frustum* frustum, int cascade, Com
 
 	device->BindPipelineState( &psoTreesShadow, cmd );
 
+	// GG: without full detail shadows here, nearer trees need their billboard shadows
+	const GPUBuffer* pTreeCB = &treeConstantBuffer;
+	if ( cascade >= ggtrees_global_params.tree_shadow_range_high ) pTreeCB = &treeConstantBufferNoShadowCut;
 	uint32_t bindSlot = 2;
-	device->BindConstantBuffer( VS, &treeConstantBuffer, bindSlot, cmd );
-	device->BindConstantBuffer( PS, &treeConstantBuffer, bindSlot, cmd );
+	device->BindConstantBuffer( VS, pTreeCB, bindSlot, cmd );
+	device->BindConstantBuffer( PS, pTreeCB, bindSlot, cmd );
 	
 	device->BindResource( PS, &texTree, 50, cmd );
 	device->BindResource( PS, &texNoise, 51, cmd );
