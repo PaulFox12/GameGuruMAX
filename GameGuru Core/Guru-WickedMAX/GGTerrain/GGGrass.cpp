@@ -2016,6 +2016,19 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 
 // must be extern "C" to allow /alternatename linker flag to be set correctly
 // called from WickedEngine RenderPath3D::Render()
+// true when every point of a chunk lies beyond grassRadius from the camera, where the grass pixel shaders cut every
+// blade (the distance plus the whole noise band), as with a helicopter high above it
+static bool GGGrass_ChunkBeyondCut( const AABB& aabb )
+{
+	float nearX = grassCameraX < aabb._min.x ? aabb._min.x : (grassCameraX > aabb._max.x ? aabb._max.x : grassCameraX);
+	float nearY = grassCameraY < aabb._min.y ? aabb._min.y : (grassCameraY > aabb._max.y ? aabb._max.y : grassCameraY);
+	float nearZ = grassCameraZ < aabb._min.z ? aabb._min.z : (grassCameraZ > aabb._max.z ? aabb._max.z : grassCameraZ);
+	float diffX = nearX - grassCameraX;
+	float diffY = nearY - grassCameraY;
+	float diffZ = nearZ - grassCameraZ;
+	return diffX*diffX + diffY*diffY + diffZ*diffZ > grassRadius*grassRadius;
+}
+
 extern "C" void GGGrass_Draw_Prepass( const Frustum* frustum, int mode, CommandList cmd )
 {
 	if (!gggrass_initialised) return;
@@ -2061,6 +2074,7 @@ extern "C" void GGGrass_Draw_Prepass( const Frustum* frustum, int mode, CommandL
 		float dist = diffX*diffX + diffY*diffY + diffZ*diffZ;
 
 		if ( dist > checkRadius*checkRadius ) continue;
+		if ( GGGrass_ChunkBeyondCut( aabb ) ) continue;
 
 		if ( !frustum->CheckBoxFast( aabb ) ) continue;
 
@@ -2172,6 +2186,7 @@ extern "C" void GGGrass_Draw( const Frustum* frustum, int mode, CommandList cmd 
 		float dist = diffX*diffX + diffY*diffY + diffZ*diffZ;
 
 		if ( dist > checkRadius*checkRadius ) continue;
+		if ( GGGrass_ChunkBeyondCut( aabb ) ) continue;
 
 		if ( !frustum->CheckBoxFast( aabb ) ) continue;
 

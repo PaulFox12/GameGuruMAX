@@ -30,15 +30,16 @@ Output main( PixelIn IN )
 	uint grassType = GetGrassType( IN.data );
 	uint index = GetGrassVariation( IN.data );
 
-	float alpha = texGrass.Sample( samplerTrilinearClamp, float3(IN.uv, grassType) ).a;
-	if ( alpha < 0.5 ) discard;
-
+	// GG: the distance cut first, so a blade past it reads no grass texture (every blade, seen from high above)
 	float3 view = g_xCamera_CamPos - IN.worldPos;
 	float sqrDist = dot( view, view );
 
 	float noise = texNoise.Sample( samplerTrilinearWrap, IN.uvNoise );
 	float limit = noise * GGGRASS_LOD_TRANSITION + grass_lodDist;
 	if( sqrDist > limit*limit ) discard;
+
+	float alpha = texGrass.Sample( samplerTrilinearClamp, float3(IN.uv, grassType) ).a;
+	if ( alpha < 0.5 ) discard;
 
 	alpha = (alpha - 0.5) / max(fwidth(alpha),0.0001) + 0.5;
 	//float alpha = 1;

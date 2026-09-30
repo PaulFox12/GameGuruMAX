@@ -195,6 +195,15 @@ GBuffer main( PixelIn IN )
 	uint grassType = GetGrassType( IN.data );
 	uint index = GetGrassVariation( IN.data );
 
+	// GG: the distance cut first, so a blade past it reads no grass texture (every blade, seen from high above)
+	Surface surface;
+	surface.P = IN.worldPos;
+	surface.V = g_xCamera_CamPos - surface.P;
+	float sqrDist = dot( surface.V, surface.V );
+	float noise = texNoise.Sample( samplerTrilinearWrap, IN.uvNoise );
+	float limit = noise * GGGRASS_LOD_TRANSITION + grass_lodDist;
+	if( sqrDist > limit*limit ) discard;
+
 	float4 baseColor = texGrass.Sample( samplerTrilinearClamp, float3(IN.uv, grassType) );
 	float alpha = baseColor.a;
 	if ( alpha < 0.5 ) discard;
@@ -213,16 +222,6 @@ GBuffer main( PixelIn IN )
 	output.g1 = float4( 0, 1, 0, 1 ); // RGB=normal, A=roughness
 	return output;
 	*/
-
-	Surface surface;
-	surface.P = IN.worldPos;
-	surface.V = g_xCamera_CamPos - surface.P;
-	
-	float sqrDist = dot( surface.V, surface.V );
-
-	float noise = texNoise.Sample( samplerTrilinearWrap, IN.uvNoise );
-	float limit = noise * GGGRASS_LOD_TRANSITION + grass_lodDist;
-	if( sqrDist > limit*limit ) discard;
 
 	float dist = sqrt( sqrDist );
 	surface.V /= dist;
