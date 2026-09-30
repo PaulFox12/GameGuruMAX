@@ -2,6 +2,9 @@
 // Wicked Calls Header
 //
 
+// GG: included more than once in some files (DarkLUA.cpp), which default arguments and types can't bear
+#pragma once
+
 // Includes
 #include <memory>
 #include <vector>
