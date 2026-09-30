@@ -2241,38 +2241,45 @@ void GGTrees_ResetDistances()
 	ggtrees_global_params.tree_shadow_range_high = defaults.tree_shadow_range_high;
 }
 
+// GG: the tree distances the level was made with (set at level load and when a test game starts); the qualities scale them
+GGTreesParams ggtrees_level_lod_params;
+
+void GGTrees_KeepLevelDistances()
+{
+	ggtrees_level_lod_params = ggtrees_global_params;
+}
+
 void GGTrees_SetPerformanceMode( uint32_t mode )
 {
+	// GG: High is the level's own tree distances and the other qualities scale them, as the grass distance does; they used
+	// to replace them with fixed values (Low 1000, Medium 2000, High 3000, Ultra 4000) and left the transitions alone
+	float scale = 1.0f;
 	switch( mode )
 	{
-		case GGTERRAIN_PERFORMANCE_LOW:
-		{
-			ggtrees_global_params.lod_dist = 1000.0f;
-			ggtrees_global_params.lod_dist_shadow = 750.0f;
-			ggtrees_global_params.tree_shadow_range = 2;
-		} break;
-
-		case GGTERRAIN_PERFORMANCE_MED:
-		{
-			ggtrees_global_params.lod_dist = 2000.0f;
-			ggtrees_global_params.lod_dist_shadow = 1500.0f;
-			ggtrees_global_params.tree_shadow_range = 3;
-		} break;
-
-		case GGTERRAIN_PERFORMANCE_HIGH:
-		{
-			ggtrees_global_params.lod_dist = 3000.0f;
-			ggtrees_global_params.lod_dist_shadow = 2500.0f;
-			ggtrees_global_params.tree_shadow_range = 4;
-		} break;
-
-		case GGTERRAIN_PERFORMANCE_ULTRA:
-		{
-			ggtrees_global_params.lod_dist = 4000.0f;
-			ggtrees_global_params.lod_dist_shadow = 4000.0f;
-			ggtrees_global_params.tree_shadow_range = 4;
-		} break;
+		case GGTERRAIN_PERFORMANCE_LOW: scale = 0.4f; break;
+		case GGTERRAIN_PERFORMANCE_MED: scale = 0.7f; break;
+		case GGTERRAIN_PERFORMANCE_HIGH: scale = 1.0f; break;
+		case GGTERRAIN_PERFORMANCE_ULTRA: scale = 1.3f; break;
 	}
+	const GGTreesParams& level = ggtrees_level_lod_params;
+	ggtrees_global_params.lod_dist = level.lod_dist * scale;
+	ggtrees_global_params.lod_dist_shadow = level.lod_dist_shadow * scale;
+
+	// a narrow crossfade close to the camera shows the swap, so keep at least 300 units (or the level's own if less)
+	float minTransition = level.lod_transition < 300.0f ? level.lod_transition : 300.0f;
+	float minTransitionShadow = level.lod_transition_shadow < 300.0f ? level.lod_transition_shadow : 300.0f;
+	float transition = level.lod_transition * scale;
+	float transitionShadow = level.lod_transition_shadow * scale;
+	if ( transition < minTransition ) transition = minTransition;
+	if ( transitionShadow < minTransitionShadow ) transitionShadow = minTransitionShadow;
+	if ( transition > 4000.0f ) transition = 4000.0f;
+	if ( transitionShadow > 4000.0f ) transitionShadow = 4000.0f;
+	ggtrees_global_params.lod_transition = transition;
+	ggtrees_global_params.lod_transition_shadow = transitionShadow;
+
+	// trees cast into cascades 0-2 at most; Low keeps them to the nearest two
+	ggtrees_global_params.tree_shadow_range = level.tree_shadow_range;
+	if ( mode == GGTERRAIN_PERFORMANCE_LOW && ggtrees_global_params.tree_shadow_range > 2 ) ggtrees_global_params.tree_shadow_range = 2;
 
 	// a game that set its own tree distances keeps them through a quality change
 	GGTrees_ApplyLuaOverrides();

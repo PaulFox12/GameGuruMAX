@@ -86,7 +86,8 @@ namespace GGTrees
 	int GGTrees_SetData( float* data ); // number of floats must be equal to GGTrees_GetSculptDataSize(), returns 1 on success
 	int GGTrees_GetSnapshot(uint8_t* data);
 
-	void GGTrees_SetPerformanceMode( uint32_t mode );
+	void GGTrees_SetPerformanceMode( uint32_t mode ); // scales the level's tree distances kept by GGTrees_KeepLevelDistances
+	void GGTrees_KeepLevelDistances(); // the current tree distances become the level's, which the qualities scale
 	void GGTrees_ResetDistances(); // the stock tree distances, for a level saved without its own
 
 	// values set from Lua override the performance presets until cleared; a distance or width of 0 or less,

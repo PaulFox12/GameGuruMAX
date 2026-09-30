@@ -1041,6 +1041,7 @@ void mapfile_loadproject_fpm ( void )
 		if (FileExist(TerrainDataFile_s.Get()) == 0) g_bNeedToConvertClassicPositionsToMAX = true;
 		GGTrees::GGTrees_ResetDistances();
 		GGTerrainFile_LoadTerrainData(TerrainDataFile_s.Get(),false);
+		GGTrees::GGTrees_KeepLevelDistances();
 
 		// the level's tree distances give way to a quality the player has chosen, and all of them to Lua's
 		extern bool g_bGraphicsSettingsChangedByPlayer;

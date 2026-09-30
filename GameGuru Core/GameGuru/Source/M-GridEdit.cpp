@@ -15048,6 +15048,7 @@ void editor_previewmapormultiplayer_initcode ( int iUseVRTest )
 
 	gggrass_save_params = gggrass_global_params;
 	ggtrees_editor_lod_params = ggtrees_global_params;
+	GGTrees_KeepLevelDistances();
 
 	if(pref.iTestGameGraphicsQuality != 2)
 		SetGlobalGraphicsSettings( pref.iTestGameGraphicsQuality );
