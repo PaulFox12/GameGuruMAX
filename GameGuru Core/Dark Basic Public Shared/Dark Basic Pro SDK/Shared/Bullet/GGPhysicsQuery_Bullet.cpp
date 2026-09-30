@@ -4,6 +4,10 @@
 #include "btBulletDynamicsCommon.h"
 #include "BulletCollision/CollisionDispatch/btGhostObject.h"
 #include "BulletCollision/CollisionDispatch/btCollisionObjectWrapper.h"
+#include "BulletCollision/CollisionShapes/btTriangleShape.h"
+#include "BulletCollision/NarrowPhaseCollision/btContinuousConvexCollision.h"
+#include "BulletCollision/NarrowPhaseCollision/btGjkEpaPenetrationDepthSolver.h"
+#include "BulletCollision/NarrowPhaseCollision/btVoronoiSimplexSolver.h"
 #include "..\..\..\..\GameGuru\Include\GGPhysicsQuery.h"
 
 extern btDiscreteDynamicsWorld* g_dynamicsWorld;
@@ -123,6 +127,81 @@ static bool PhysicsQuery_BoxTriangle(const btVector3& half, const btVector3* v)
 	return true;
 }
 
+// a triangle, in the box's own space, against the volume the box sweeps along motion: the separating axis test on the
+// box's axes, the triangle's normal, the swept sides (motion x box axes) and the edge cross products with the box's axes
+// and the motion
+static bool PhysicsQuery_SweptBoxTriangle(const btVector3& half, const btVector3& motion, const btVector3* v)
+{
+	const btVector3 edges[3] = { v[1] - v[0], v[2] - v[1], v[0] - v[2] };
+	btVector3 axes[19];
+	axes[0] = btVector3(1, 0, 0);
+	axes[1] = btVector3(0, 1, 0);
+	axes[2] = btVector3(0, 0, 1);
+	axes[3] = edges[0].cross(edges[1]);
+	for (int a = 0; a < 3; a++) axes[4 + a] = motion.cross(axes[a]);
+	for (int i = 0; i < 3; i++)
+	{
+		axes[7 + i * 4] = btVector3(0, -edges[i].z(), edges[i].y());
+		axes[8 + i * 4] = btVector3(edges[i].z(), 0, -edges[i].x());
+		axes[9 + i * 4] = btVector3(-edges[i].y(), edges[i].x(), 0);
+		axes[10 + i * 4] = motion.cross(edges[i]);
+	}
+	for (int i = 0; i < 19; i++)
+	{
+		const btVector3& axis = axes[i];
+		btScalar p0 = axis.dot(v[0]), p1 = axis.dot(v[1]), p2 = axis.dot(v[2]);
+		btScalar r = half.x() * btFabs(axis.x()) + half.y() * btFabs(axis.y()) + half.z() * btFabs(axis.z());
+		btScalar m = axis.dot(motion);
+		if (btMin(p0, btMin(p1, p2)) > btMax(btScalar(0), m) + r) return false;
+		if (btMax(p0, btMax(p1, p2)) < btMin(btScalar(0), m) - r) return false;
+	}
+	return true;
+}
+
+// a triangle mesh's triangles along a box sweep. Bullet's own sweep casts the box at every one of them over the whole
+// motion; here a triangle the box can't reach before the nearest hit so far is dropped by the swept test, and the rest
+// are cast as Bullet casts them (btTriangleConvexcastCallback) but only as far as that hit
+struct PhysicsQuerySweepTriangleCallback : public btTriangleCallback
+{
+	const btConvexShape* pBox;
+	btTransform boxFrom;
+	btVector3 motion;
+	btTransform worldToBox;
+	btTransform shapeToWorld;
+	btVector3 half;
+	btScalar fMargin;
+	const btCollisionObject* pObject;
+	btCollisionWorld::ClosestConvexResultCallback* pResult;
+	virtual void processTriangle(btVector3* pTriangle, int iPart, int iIndex)
+	{
+		btScalar fBest = pResult->m_closestHitFraction;
+		if (fBest <= 0) return;
+		btVector3 v[3];
+		for (int i = 0; i < 3; i++) v[i] = worldToBox(shapeToWorld(pTriangle[i]));
+		if (!PhysicsQuery_SweptBoxTriangle(half, worldToBox.getBasis() * (motion * fBest), v)) return;
+		btTriangleShape triangle(pTriangle[0], pTriangle[1], pTriangle[2]);
+		triangle.setMargin(fMargin);
+		btVoronoiSimplexSolver simplex;
+		btGjkEpaPenetrationDepthSolver epa;
+		btContinuousConvexCollision caster(pBox, &triangle, &simplex, &epa);
+		btConvexCast::CastResult cast;
+		cast.m_fraction = 1;
+		cast.m_allowedPenetration = 0;
+		btTransform boxTo = boxFrom;
+		boxTo.setOrigin(boxFrom.getOrigin() + motion * fBest);
+		if (!caster.calcTimeOfImpact(boxFrom, boxTo, shapeToWorld, shapeToWorld, cast)) return;
+		if (cast.m_normal.length2() <= btScalar(0.0001)) return;
+		btScalar fFraction = cast.m_fraction * fBest;
+		if (fFraction >= fBest) return;
+		cast.m_normal.normalize();
+		btCollisionWorld::LocalShapeInfo shapeInfo;
+		shapeInfo.m_shapePart = iPart;
+		shapeInfo.m_triangleIndex = iIndex;
+		btCollisionWorld::LocalConvexResult result(pObject, &shapeInfo, cast.m_normal, cast.m_hitPoint, fFraction);
+		pResult->addSingleResult(result, true);
+	}
+};
+
 // a triangle mesh's triangles within the box's bounds, until one touches the box (Bullet's own contact test would build a
 // full contact for every one of them)
 struct PhysicsQueryBoxTriangleCallback : public btTriangleCallback
@@ -177,7 +256,46 @@ bool PhysicsQuery_SweepBox(const float* pCentre, const float* pHalf, float fYawD
 	callback.iLayers = iLayers;
 	callback.pIgnore = pIgnore;
 	callback.iIgnoreCount = iIgnoreCount;
-	g_dynamicsWorld->convexSweepTest(&box, from, to, callback);
+
+	// the bodies whose bounds meet the swept box's; triangle meshes by the swept test below, the rest as Bullet sweeps them
+	btVector3 aabbMin, aabbMax, toMin, toMax;
+	box.getAabb(from, aabbMin, aabbMax);
+	box.getAabb(to, toMin, toMax);
+	aabbMin.setMin(toMin);
+	aabbMax.setMax(toMax);
+	PhysicsQueryAabbCallback bodies;
+	bodies.iLayers = iLayers;
+	bodies.pIgnore = pIgnore;
+	bodies.iIgnoreCount = iIgnoreCount;
+	g_dynamicsWorld->getBroadphase()->aabbTest(aabbMin, aabbMax, bodies);
+	btVector3 motion = to.getOrigin() - from.getOrigin();
+	for (int c = 0; c < bodies.candidates.size() && callback.m_closestHitFraction > 0; c++)
+	{
+		btCollisionObject* pOther = (btCollisionObject*)bodies.candidates[c];
+		const btCollisionShape* pShape = pOther->getCollisionShape();
+		const btTransform& shapeToWorld = pOther->getWorldTransform();
+		if (pShape->getShapeType() == TRIANGLE_MESH_SHAPE_PROXYTYPE)
+		{
+			PhysicsQuerySweepTriangleCallback triangles;
+			triangles.pBox = &box;
+			triangles.boxFrom = from;
+			triangles.motion = motion;
+			triangles.worldToBox = from.inverse();
+			triangles.shapeToWorld = shapeToWorld;
+			triangles.half = box.getHalfExtentsWithMargin() + btVector3(0.01f, 0.01f, 0.01f);
+			triangles.fMargin = pShape->getMargin();
+			triangles.pObject = pOther;
+			triangles.pResult = &callback;
+			btTransform worldToShape = shapeToWorld.inverse();
+			btVector3 boxMinLocal, boxMaxLocal;
+			box.getAabb(btTransform(worldToShape.getBasis() * from.getBasis()), boxMinLocal, boxMaxLocal);
+			((btBvhTriangleMeshShape*)pShape)->performConvexcast(&triangles, worldToShape * from.getOrigin(), worldToShape * to.getOrigin(), boxMinLocal, boxMaxLocal);
+		}
+		else
+		{
+			btCollisionWorld::objectQuerySingle(&box, from, to, pOther, pShape, shapeToWorld, callback, 0);
+		}
+	}
 	if (!callback.hasHit()) return false;
 	pHit->hit = true;
 	pHit->fraction = callback.m_closestHitFraction;
