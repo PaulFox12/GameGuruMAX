@@ -829,13 +829,19 @@ uint16_t pageTableData[ GGTERRAIN_PAGE_TABLE_DEPTH ][ pagesX * pagesY ];
 Texture texPagesColorAndMetal; // R8G8B8A8
 Texture texPagesNormalsRoughnessAO; // R8G8 = normals, B8 = roughness, A8 = ambient occlusion
 Texture texReadBackCompute;
-#define NUM_READ_BACK_TEXTURES 3 // must be at least 2 to avoid GPU stalls, 3 seems to be safest
+// GG: was 3; a GPU-bound frame can run more frames behind than that, and then no read back was ever finished in time
+#define NUM_READ_BACK_TEXTURES 8 // must be at least 2 to avoid GPU stalls, 3 seems to be safest
 Texture texReadBackStaging[ NUM_READ_BACK_TEXTURES ];
 
 #define RESTOREDEC2025TERRAINSYSTEM
 #ifdef RESTOREDEC2025TERRAINSYSTEM
 uint32_t currReadBackTex = 0;
 uint32_t readBackValid = 0;
+// GG: which copy each staging texture holds (0 none), the last copy read, and the frames since one was read
+uint32_t readBackSeq[ NUM_READ_BACK_TEXTURES ] = {};
+uint32_t readBackNextSeq = 1;
+uint32_t readBackReadSeq = 0;
+uint32_t readBackMissed = 0;
 #else
 static std::atomic<uint32_t> g_currReadBackTex{ 0 };
 static constexpr uint32_t READBACK_INVALID = 0xFFFFFFFFu;
@@ -7538,6 +7544,9 @@ void GGTerrain_WindowResized()
 	#ifdef RESTOREDEC2025TERRAINSYSTEM
 	readBackValid = 0;
 	currReadBackTex = 0;
+	for ( uint32_t i = 0; i < NUM_READ_BACK_TEXTURES; i++ ) readBackSeq[ i ] = 0;
+	readBackReadSeq = 0;
+	readBackMissed = 0;
 	#else
 	g_currReadBackTex = 0;
 	g_lastReadBackWrittenIndex.store(READBACK_INVALID, std::memory_order_release);
@@ -7938,6 +7947,9 @@ void GGTerrain_CheckPageShift()
 		#ifdef RESTOREDEC2025TERRAINSYSTEM
 		readBackValid = 0;
 		currReadBackTex = 0;
+		for ( uint32_t i = 0; i < NUM_READ_BACK_TEXTURES; i++ ) readBackSeq[ i ] = 0;
+		readBackReadSeq = 0;
+		readBackMissed = 0;
 		#else
 		g_currReadBackTex = 0;
 		g_lastReadBackWrittenIndex.store(READBACK_INVALID, std::memory_order_release);
@@ -8000,6 +8012,9 @@ void GGTerrain_CheckPageShift()
 		#ifdef RESTOREDEC2025TERRAINSYSTEM
 		readBackValid = 0;
 		currReadBackTex = 0;
+		for ( uint32_t i = 0; i < NUM_READ_BACK_TEXTURES; i++ ) readBackSeq[ i ] = 0;
+		readBackReadSeq = 0;
+		readBackMissed = 0;
 		#else
 		g_currReadBackTex = 0;
 		g_lastReadBackWrittenIndex.store(READBACK_INVALID, std::memory_order_release);
@@ -8234,7 +8249,35 @@ void GGTerrain_CheckReadBack(wiGraphics::CommandList cmd)
 		#ifdef RESTOREDEC2025TERRAINSYSTEM
 		auto rangeTotal = wiProfiler::BeginRangeCPU("Max - Terrain Read Back (All)");
 		auto range = wiProfiler::BeginRangeCPU("Max - Terrain Read Back Collect");
-		device->Map(&texReadBackStaging[currReadBackTex], &mapping);
+		// GG: the newest copy the GPU has finished and that hasn't been read (Map doesn't wait, so a copy still in flight gives
+		// no data); if none has come for as many frames as there are staging textures, wait for the oldest unread one, so
+		// the pages keep coming however far behind the GPU runs
+		int chosen = -1;
+		for ( uint32_t step = 1; step <= NUM_READ_BACK_TEXTURES && chosen < 0; step++ )
+		{
+			uint32_t idx = (currReadBackTex + NUM_READ_BACK_TEXTURES - step) % NUM_READ_BACK_TEXTURES;
+			if ( readBackSeq[ idx ] <= readBackReadSeq ) break;
+			device->Map( &texReadBackStaging[ idx ], &mapping );
+			if ( mapping.data ) chosen = (int) idx;
+		}
+		if ( chosen < 0 && ++readBackMissed >= NUM_READ_BACK_TEXTURES )
+		{
+			for ( uint32_t step = 0; step < NUM_READ_BACK_TEXTURES; step++ )
+			{
+				uint32_t idx = (currReadBackTex + step) % NUM_READ_BACK_TEXTURES;
+				if ( readBackSeq[ idx ] <= readBackReadSeq ) continue;
+				mapping._flags = Mapping::FLAG_READ | Mapping::FLAG_WAIT;
+				device->Map( &texReadBackStaging[ idx ], &mapping );
+				mapping._flags = Mapping::FLAG_READ;
+				if ( mapping.data ) chosen = (int) idx;
+				break;
+			}
+		}
+		if ( chosen >= 0 )
+		{
+			readBackReadSeq = readBackSeq[ chosen ];
+			readBackMissed = 0;
+		}
 		#else
 		ID3D11DeviceContext* g_d3dImmediateCtx = (ID3D11DeviceContext*)wiRenderer::GetDevice()->GetImmediateForIMGUI();
 		if (!g_d3dImmediateCtx) return;
@@ -8350,7 +8393,7 @@ void GGTerrain_CheckReadBack(wiGraphics::CommandList cmd)
 #endif
 
 		#ifdef RESTOREDEC2025TERRAINSYSTEM
-		device->Unmap(&texReadBackStaging[currReadBackTex]);
+		device->Unmap(&texReadBackStaging[chosen]);
 		#else
 		device->Unmap( &texReadBackStaging[chosen] );
 		#endif
@@ -10691,6 +10734,7 @@ extern "C" void GGTerrain_VirtualTexReadBack(Texture texReadBack, uint32_t sampl
 
 	#ifdef RESTOREDEC2025TERRAINSYSTEM
 	device->CopyResource(&texReadBackStaging[currReadBackTex], &texReadBackCompute, cmd);
+	readBackSeq[currReadBackTex] = readBackNextSeq++;
 	currReadBackTex++;
 	if (currReadBackTex >= NUM_READ_BACK_TEXTURES)
 	{
