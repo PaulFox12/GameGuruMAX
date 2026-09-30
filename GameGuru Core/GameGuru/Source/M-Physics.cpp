@@ -894,6 +894,11 @@ void physics_setupebestructure ( void )
 	}
 }
 
+// an entity's static body was made or removed since the physics shapes view captured the static bodies, which it does
+// once; physics_render_debug_meshes captures them again (tree cylinders and the terrain are left out, as they come and
+// go with the camera)
+bool g_bPhysicsDebugStaticsChanged = false;
+
 void physics_setupobject ( void )
 {
 	// default is no special handling of OBJ collision meshes
@@ -1090,6 +1095,7 @@ void physics_setupobject ( void )
 			}
 		}
 	}
+	if ( t.tphyobj > 0 && ODEFind ( t.tphyobj ) == 1 && !ODEGetBodyIsDynamic ( t.tphyobj ) ) g_bPhysicsDebugStaticsChanged = true;
 	ODESetMeshFilename("");
 	ODESetOBJLoadingFilename("");
 }
@@ -1219,6 +1225,7 @@ void physics_setuptreecylinder ( void )
 
 void physics_disableobject ( void )
 {
+	if ( ODEFind ( t.tphyobj ) == 1 && !ODEGetBodyIsDynamic ( t.tphyobj ) ) g_bPhysicsDebugStaticsChanged = true;
 	ODEDestroyObject (  t.tphyobj );
 }
 
@@ -3607,6 +3614,10 @@ void physics_render_debug_meshes()
 	{
 		int elementCount = 0;
 
+		// a static body made or removed since the capture: start again, as unticking and ticking the view does (at most once
+		// a frame, after the last frame's changes)
+		if (t.iPhysicsCreatedStaticMesh == 1 && g_bPhysicsDebugStaticsChanged) physics_clear_debug_draw();
+
 		if (t.iPhysicsCreatedStaticMesh == 0)
 		{
 			// Get all of the points in the static physics geometry.
@@ -3619,6 +3630,7 @@ void physics_render_debug_meshes()
 
 			// Flag set to ensure we only get the static geometry once.
 			t.iPhysicsCreatedStaticMesh = 1;
+			g_bPhysicsDebugStaticsChanged = false;
 
 			// Clear the static physics data so we can get the dynamic data.
 			BPhys_ClearDebugDrawData();
