@@ -1161,19 +1161,22 @@ void Sample_TileMesh::rasteriseBakeInputs( TileMeshData* tempData, int index, co
 		}
 	}
 
-	// tree trunks: solid boxes from 100 below to 100 above the base, as the old navmesh's tree obstacle
+	// tree trunks: solid boxes from 100 below the base to 100 above it, as the old navmesh's tree obstacle, or to 100 above
+	// the ground at the trunk where the tree is set deeper (bakeTile)
 	if ( index >= 0 && index + 1 < (int)m_treeTileStart.size() )
 	{
 		static const int boxTris[12][3] = { {0,1,2},{0,2,3},{4,6,5},{4,7,6},{0,4,5},{0,5,1},{1,5,6},{1,6,2},{2,6,7},{2,7,3},{3,7,4},{3,4,0} };
-		for ( uint32_t k = m_treeTileStart[ index ]; k < m_treeTileStart[ index + 1 ]; k++ )
+		const uint32_t first = m_treeTileStart[ index ];
+		for ( uint32_t k = first; k < m_treeTileStart[ index + 1 ]; k++ )
 		{
 			const float* pTree = &m_pBake->pTrees[ m_treeTileIndex[ k ] * 4 ];
 			const float half = rcMax( pTree[3] * 0.5f, 5.0f );
+			const float top = (k - first < tempData->m_treeTops.size()) ? tempData->m_treeTops[ k - first ] : pTree[1] + 100.0f;
 			const float corners[8][3] = {
 				{ pTree[0]-half, pTree[1]-100.0f, pTree[2]-half }, { pTree[0]+half, pTree[1]-100.0f, pTree[2]-half },
 				{ pTree[0]+half, pTree[1]-100.0f, pTree[2]+half }, { pTree[0]-half, pTree[1]-100.0f, pTree[2]+half },
-				{ pTree[0]-half, pTree[1]+100.0f, pTree[2]-half }, { pTree[0]+half, pTree[1]+100.0f, pTree[2]-half },
-				{ pTree[0]+half, pTree[1]+100.0f, pTree[2]+half }, { pTree[0]-half, pTree[1]+100.0f, pTree[2]+half } };
+				{ pTree[0]-half, top, pTree[2]-half }, { pTree[0]+half, top, pTree[2]-half },
+				{ pTree[0]+half, top, pTree[2]+half }, { pTree[0]-half, top, pTree[2]+half } };
 			for ( int t = 0; t < 12; t++ )
 			{
 				areas.push_back( RC_NULL_AREA );
@@ -1242,6 +1245,19 @@ void Sample_TileMesh::bakeTile( TileMeshData* tempData, TileWork* pWork, const f
 	{
 		pWork->bUnderwater = true;
 		return;
+	}
+	// a tree's trunk box reaches 100 above the ground at its centre, however deep a tree on a slope is set (GGTrees_SlopeSink)
+	if ( index >= 0 && index + 1 < (int)m_treeTileStart.size() )
+	{
+		for ( uint32_t k = m_treeTileStart[ index ]; k < m_treeTileStart[ index + 1 ]; k++ )
+		{
+			const float* pTree = &m_pBake->pTrees[ m_treeTileIndex[ k ] * 4 ];
+			float top = pTree[1] + 100.0f;
+			float ground = 0;
+			if ( m_pBake->pfnHeight && m_pBake->pfnHeight( pTree[0], pTree[2], &ground ) && ground == ground ) top = rcMax( top, ground + 100.0f );
+			tempData->m_treeTops.push_back( top );
+			maxY = rcMax( maxY, top );
+		}
 	}
 	minY = rcMin( minY, tempData->m_terrainMinY );
 	maxY = rcMax( maxY, tempData->m_terrainMaxY );

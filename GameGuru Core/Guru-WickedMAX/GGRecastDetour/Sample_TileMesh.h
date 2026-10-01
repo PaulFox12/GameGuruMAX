@@ -92,10 +92,12 @@ struct TileMeshData
 	float m_cellSize = 0; // the cell size this tile is built at, 0 for the sample's
 	std::vector<float> m_bakeTris;
 	std::vector<unsigned char> m_bakeAreas;
+	std::vector<float> m_treeTops; // the tops of the tile's tree trunk boxes, in the order its trees are listed
 
 	void cleanup()
 	{
 		m_hasSamples = false;
+		m_treeTops.clear();
 		if ( m_triareas ) delete [] m_triareas;
 		m_triareas = 0;
 		rcFreeHeightField(m_solid);
