@@ -4063,41 +4063,42 @@ extern "C" void GGTrees_Draw_EnvProbe( const SPHERE* culler, const Frustum* frus
 	device->BindConstantBuffer(PS, &wiRenderer::constantBuffers[CBTYPE_FORWARDENTITYMASK], CB_GETBINDSLOT(ForwardEntityMaskCB), cmd);
 
 	// draw trees
+	// GG: every type's buffer is filled first and each type drawn once; the draws were inside the loop over the types, so a
+	// type was drawn once for every type with trees, the earlier times from its buffer before this probe had refilled it
 	for( uint32_t i = 0; i < numTreeTypes; i++ )
 	{
 		if ( numTreeInstancesHighEnvProbe[ i ] == 0 ) continue;
-		
 		GGTrees_FillInstanceBuffer( &bufferInstancesHighEnvProbe[i], treeInstancesHighEnvProbe[i], numTreeInstancesHighEnvProbe[i], cmd );
-		
-		device->BindPipelineState( &psoTreesHighEnvProbe, cmd );
-		device->BindResource( PS, &texTreeHigh, 52, cmd );
-		
-		for( uint32_t i = 0; i < numTreeTypes; i++ )
-		{
-			if ( numTreeInstancesHighEnvProbe[i] > 0 )
-			{
-				const GPUBuffer* vbs[] = { &bufferTreeHighVertices[i], &bufferInstancesHighEnvProbe[i] };
-				const uint32_t strides[] = { sizeof(VertexTreeHigh), sizeof(InstanceTreeGPU) };
-				device->BindVertexBuffers( vbs, 0, 2, strides, 0, cmd );
-				device->BindIndexBuffer( &bufferTreeHighIndices[i], INDEXFORMAT_16BIT, 0, cmd );
-				device->DrawIndexedInstanced( g_GGTrees[ i ].trunk->numIndices, numTreeInstancesHighEnvProbe[i], 0, 0, 0, cmd );
-			}
-		}
+	}
 
-		device->BindPipelineState( &psoBranchesHighEnvProbe, cmd );
-		device->BindResource( PS, &texBranchesHigh, 54, cmd );
-		
-		for( uint32_t i = 0; i < numTreeTypes; i++ )
+	device->BindPipelineState( &psoTreesHighEnvProbe, cmd );
+	device->BindResource( PS, &texTreeHigh, 52, cmd );
+
+	for( uint32_t i = 0; i < numTreeTypes; i++ )
+	{
+		if ( numTreeInstancesHighEnvProbe[i] > 0 )
 		{
-			if ( !g_GGTrees[ i ].branches ) continue; // some trees don't have branches
-			if ( numTreeInstancesHighEnvProbe[ i ] > 0 )
-			{
-				const GPUBuffer* vbs[] = { &bufferBranchesHighVertices[i], &bufferInstancesHighEnvProbe[i] };
-				const uint32_t strides[] = { sizeof(VertexTreeHigh), sizeof(InstanceTreeGPU) };
-				device->BindVertexBuffers( vbs, 0, 2, strides, 0, cmd );
-				device->BindIndexBuffer( &bufferBranchesHighIndices[i], INDEXFORMAT_16BIT, 0, cmd );
-				device->DrawIndexedInstanced( g_GGTrees[ i ].branches->numIndices, numTreeInstancesHighEnvProbe[i], 0, 0, 0, cmd );
-			}
+			const GPUBuffer* vbs[] = { &bufferTreeHighVertices[i], &bufferInstancesHighEnvProbe[i] };
+			const uint32_t strides[] = { sizeof(VertexTreeHigh), sizeof(InstanceTreeGPU) };
+			device->BindVertexBuffers( vbs, 0, 2, strides, 0, cmd );
+			device->BindIndexBuffer( &bufferTreeHighIndices[i], INDEXFORMAT_16BIT, 0, cmd );
+			device->DrawIndexedInstanced( g_GGTrees[ i ].trunk->numIndices, numTreeInstancesHighEnvProbe[i], 0, 0, 0, cmd );
+		}
+	}
+
+	device->BindPipelineState( &psoBranchesHighEnvProbe, cmd );
+	device->BindResource( PS, &texBranchesHigh, 54, cmd );
+
+	for( uint32_t i = 0; i < numTreeTypes; i++ )
+	{
+		if ( !g_GGTrees[ i ].branches ) continue; // some trees don't have branches
+		if ( numTreeInstancesHighEnvProbe[ i ] > 0 )
+		{
+			const GPUBuffer* vbs[] = { &bufferBranchesHighVertices[i], &bufferInstancesHighEnvProbe[i] };
+			const uint32_t strides[] = { sizeof(VertexTreeHigh), sizeof(InstanceTreeGPU) };
+			device->BindVertexBuffers( vbs, 0, 2, strides, 0, cmd );
+			device->BindIndexBuffer( &bufferBranchesHighIndices[i], INDEXFORMAT_16BIT, 0, cmd );
+			device->DrawIndexedInstanced( g_GGTrees[ i ].branches->numIndices, numTreeInstancesHighEnvProbe[i], 0, 0, 0, cmd );
 		}
 	}
 
