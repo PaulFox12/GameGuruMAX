@@ -7713,6 +7713,7 @@ struct sLuaRenderSettings
 	float fTerrainDetailScale = -1;
 	int iTerrainReadBackReduction = -1;
 	int iGrassSimpleLighting = -1;
+	int iShadowJobWait = -1;
 	int iTerrainDetailLimitBefore = 0;
 	float fTerrainDetailScaleBefore = 1.0f;
 	int iTerrainReadBackReductionBefore = 4;
@@ -7737,6 +7738,7 @@ extern bool bEnable30FpsAnimations;
 extern float maxApparentSize;
 extern uint32_t g_iWickedShadowCascades;
 extern float g_fWickedShadowSplits[4];
+extern bool g_bShadowJobWaits;
 void Wicked_Update_Shadows(void *voidvisual);
 
 // the delayed shadow refresh as Wicked_Update_Visuals sets it: point shadows follow it, refreshed less on a laptop
@@ -7766,6 +7768,7 @@ void LuaRenderSettings_Apply(void)
 	if (p->fTerrainDetailScale >= 0) ggterrain_global_render_params2.detailScale = p->fTerrainDetailScale;
 	if (p->iTerrainReadBackReduction >= 0) ggterrain_global_render_params2.readBackTextureReduction = (uint32_t)p->iTerrainReadBackReduction;
 	if (p->iGrassSimpleLighting >= 0) gggrass_global_params.simplePBR = p->iGrassSimpleLighting;
+	if (p->iShadowJobWait >= 0) g_bShadowJobWaits = p->iShadowJobWait != 0;
 	if (p->iSunShadowResolution >= 0 || p->iSpotShadowResolution >= 0 || p->iPointShadowResolution >= 0 || p->iSpotShadowMax >= 0 || p->iPointShadowMax >= 0)
 	{
 		Wicked_Update_Shadows(&t.visuals);
@@ -7966,6 +7969,13 @@ void LuaRenderSettings_SetTerrainDetail(int iLimit, float fScale, int iReadBack)
 	LuaRenderSettings_Apply();
 }
 
+// the shadow job waits for the frame set up and prepass jobs even with delayed shadows off, as it does with them on
+void LuaRenderSettings_SetShadowJobWait(int iOn)
+{
+	if (iOn >= 0) g_LuaRenderSettings.iShadowJobWait = iOn ? 1 : 0;
+	LuaRenderSettings_Apply();
+}
+
 void LuaRenderSettings_SetGrassSimpleLighting(int iOn)
 {
 	sLuaRenderSettings* p = &g_LuaRenderSettings;
@@ -8098,6 +8108,7 @@ void LuaRenderSettings_Clear(void)
 	if (old.iDelayedShadows >= 0 || old.iDelayedShadowsLaptop >= 0) LuaRenderSettings_SetDelayedShadowGlobals(visuals->g_bDelayedShadows, visuals->g_bDelayedShadowsLaptop);
 	if (old.fShadowRange >= 0) WickedCall_SetShadowRange(visuals->fShadowFarPlane);
 	LuaRenderSettings_RestoreGraphics(old, visuals);
+	if (old.iShadowJobWait >= 0) g_bShadowJobWaits = false;
 	if (old.iSSR >= 0 && master_renderer) master_renderer->setSSREnabled(visuals->bSSREnabled);
 	if ((old.iAO >= 0 || old.fAOPower >= 0) && master_renderer)
 	{

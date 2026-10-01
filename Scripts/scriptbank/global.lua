@@ -2506,6 +2506,7 @@ SetLODMultiplier : SetLODMultiplier ( v ) -- models with LOD levels (a _lod.dbo)
 SetShadowsLowestLOD : SetShadowsLowestLOD ( on ) -- models cast shadows from their lowest LOD (cheaper); until the level ends
 SetDelayedShadows : SetDelayedShadows ( on [, laptop] ) -- the sun's shadow cascades 1 to 4 redrawn every 2, 3, 4, 9 frames instead of every frame, point light shadows less often too; laptop also redraws cascade 0 every other frame and the rest every 3, 4, 5, 9 (on unless the level turned it off). An omitted or negative value keeps the current one; until the level ends
 ResetDelayedShadows : ResetDelayedShadows ( ) -- forget what SetDelayedShadows set and go back to the level's or the graphics quality's delayed shadows (e.g. on after a heli flight that turned them off)
+SetShadowJobWait : SetShadowJobWait ( on ) -- the render's shadow job waits for the frame set up and prepass jobs even with delayed shadows off, as it does with them on (off by default; a test for the stalls in Wicked's Render with delayed shadows off); off again at the next level and test end
 GetDelayedShadows : on, laptop, script = GetDelayedShadows ( ) -- the delayed shadow refresh in force now (1 or 0 each), and script 1 while a SetDelayedShadows value holds
 SetFXAA : SetFXAA ( on ) -- the FXAA pass (1 or 0); like every graphics setting below it holds through visuals pushes and quality changes and goes back to the level's at the next level and when a test game ends
 SetReflections : SetReflections ( on ) -- the planar reflections (1 or 0)

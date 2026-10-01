@@ -157,6 +157,8 @@ float fWickedCallShadowFarPlane = DEFAULT_FAR_PLANE;
 // the sun's shadow cascades in use (1 to 5) and the view depths the first four end at (wiRenderer; SetShadowCascades)
 uint32_t g_iWickedShadowCascades = 5;
 float g_fWickedShadowSplits[4] = { 380.0f, 950.0f, 7500.0f, 30000.0f };
+// the shadow job waits for the frame set up and prepass jobs with delayed shadows off too (RenderPath3D; SetShadowJobWait)
+bool g_bShadowJobWaits = false;
 
 
 // Image Management
