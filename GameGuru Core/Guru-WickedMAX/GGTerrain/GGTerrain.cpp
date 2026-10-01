@@ -1052,6 +1052,10 @@ Texture texQuad;
 
 void GGTerrain_CreateEmptyTexture( int width, int height, int mipLevels, int levels, FORMAT format, Texture* tex );
 
+// the chunk indices only depend on the number of segments, so every chunk shares one index buffer
+GPUBuffer chunkIndexBuffer;
+uint32_t chunkIndexBufferSegments = 0;
+
 class GGTerrainChunk
 {
 public:
@@ -1062,11 +1066,8 @@ public:
 	float* pHeightMap = 0;
 	float* pHeightMapNoFlat = 0; // height without flat areas
 	uint32_t* pNormalMap = 0; // 0x00ZZYYXX
-	GPUBuffer indexBuffer;
 	GPUBuffer vertexBuffer;
 	TerrainVertex* pVertices = 0; // temporary storage for chunk generation
-	uint16_t* pIndices = 0; // temporary storage for threading
-	uint32_t numIndices = 0; 
 	uint32_t numVertices = 0;
 	float offsetX = 0; // chunk world X offset
 	float offsetZ = 0; // chunk world Z offset
@@ -1109,22 +1110,8 @@ public:
 		
 	void Reset()
 	{
-		GraphicsDevice* device = wiRenderer::GetDevice();
-		
-		// clear vertex and index buffers by replacing them with smaller versions
-		GPUBufferDesc bd = {};
-		bd.ByteWidth = 4;
-		bd.BindFlags = BIND_VERTEX_BUFFER;
-		bd.CPUAccessFlags = 0;
-		bd.MiscFlags = 0;
-		device->CreateBuffer( &bd, nullptr, &vertexBuffer );
+		// keep the vertex buffer, the chunk will be recycled and refill it with UpdateBuffer instead of creating a new one
 
-		bd.ByteWidth = 4;
-		bd.BindFlags = BIND_INDEX_BUFFER;
-		bd.CPUAccessFlags = 0;
-		bd.MiscFlags = 0;
-		device->CreateBuffer( &bd, nullptr, &indexBuffer );
-		
 		pNextChunk = 0;
 		
 		offsetX = 0;
@@ -2281,13 +2268,10 @@ public:
 		uint32_t numSegments = ggterrain_local_params.segments_per_chunk;
 
 		numVertices = (numSegments+1) * (numSegments+1);
-		numIndices = (numSegments*2 + 3) * numSegments - 1;
 
 		if ( pVertices ) delete [] pVertices;
-		if ( pIndices ) delete [] pIndices;
 
 		pVertices = new TerrainVertex[ numVertices ];
-		pIndices = new uint16_t[ numIndices ];
 
 		SetGenerating( 1 );
 		//uint8_t lodLevel = (flags >> 4) & 0xF;
@@ -2531,25 +2515,6 @@ public:
 			}
 		}
 
-		// indices
-		uint32_t countI = 0;
-		for ( uint32_t z = 0; z < numSegments; z++ )
-		{
-			pIndices[ countI++ ] = z * (numSegments+1);
-			pIndices[ countI++ ] = (z+1) * (numSegments+1);
-
-			for ( uint32_t x = 0; x < numSegments; x++ )
-			{
-				pIndices[ countI++ ] = z*(numSegments+1) + x+1;
-				pIndices[ countI++ ] = (z+1)*(numSegments+1) + x+1;
-			}
-
-			if ( z < numSegments-1 ) 
-			{
-				pIndices[ countI++ ] = 0xFFFF; // primitive restart
-			}
-		}
-
 		// update bounds
 		aabbBounds._min.x = offsetX;
 		aabbBounds._min.y = minHeight;
@@ -2623,37 +2588,76 @@ public:
 		*/
 	}
 
-	// must not be called on a thread
-	void GenerateGPUBuffers()
+	// must not be called on a thread, see ChunkGenerator::UploadReadyChunks
+	// cmd can be INVALID_COMMANDLIST outside of a frame, the buffer is then created instead of updated
+	void GenerateGPUBuffers( CommandList cmd )
 	{
-		if ( !pVertices || !pIndices ) return;
+		if ( !pVertices ) return;
 
 		GraphicsDevice* device = wiRenderer::GetDevice();
 
-		// index buffer
+		// vertex buffer, a recycled chunk refills the one it already has
+		uint32_t size = sizeof(TerrainVertex) * numVertices;
+		if ( cmd != INVALID_COMMANDLIST && vertexBuffer.IsValid() && vertexBuffer.GetDesc().ByteWidth == size )
+		{
+			device->UpdateBuffer( &vertexBuffer, pVertices, cmd, size );
+		}
+		else
+		{
+			SubresourceData data = {};
+			data.pSysMem = pVertices;
+
+			GPUBufferDesc bd = {};
+			bd.ByteWidth = size;
+			bd.BindFlags = BIND_VERTEX_BUFFER;
+			bd.CPUAccessFlags = 0;
+			bd.MiscFlags = 0;
+			device->CreateBuffer( &bd, &data, &vertexBuffer );
+		}
+
+		delete [] pVertices;
+		pVertices = 0;
+	}
+
+	// must not be called on a thread
+	static void CreateIndexBuffer()
+	{
+		uint32_t numSegments = ggterrain_local_params.segments_per_chunk;
+		if ( chunkIndexBuffer.IsValid() && chunkIndexBufferSegments == numSegments ) return;
+
+		uint32_t numIndices = (numSegments*2 + 3) * numSegments - 1;
+		uint16_t* pIndices = new uint16_t[ numIndices ];
+
+		uint32_t countI = 0;
+		for ( uint32_t z = 0; z < numSegments; z++ )
+		{
+			pIndices[ countI++ ] = z * (numSegments+1);
+			pIndices[ countI++ ] = (z+1) * (numSegments+1);
+
+			for ( uint32_t x = 0; x < numSegments; x++ )
+			{
+				pIndices[ countI++ ] = z*(numSegments+1) + x+1;
+				pIndices[ countI++ ] = (z+1)*(numSegments+1) + x+1;
+			}
+
+			if ( z < numSegments-1 )
+			{
+				pIndices[ countI++ ] = 0xFFFF; // primitive restart
+			}
+		}
+
 		SubresourceData data = {};
 		data.pSysMem = pIndices;
 
 		GPUBufferDesc bd = {};
-		bd.ByteWidth = sizeof(unsigned short) * numIndices;
+		bd.ByteWidth = sizeof(uint16_t) * numIndices;
 		bd.BindFlags = BIND_INDEX_BUFFER;
 		bd.CPUAccessFlags = 0;
 		bd.MiscFlags = 0;
-		device->CreateBuffer( &bd, &data, &indexBuffer );
+		wiRenderer::GetDevice()->CreateBuffer( &bd, &data, &chunkIndexBuffer );
 
 		delete [] pIndices;
-		pIndices = 0;
-
-		// vertex buffer
-		data.pSysMem = pVertices;
-		bd.ByteWidth = sizeof(TerrainVertex) * numVertices;
-		bd.BindFlags = BIND_VERTEX_BUFFER;
-		bd.CPUAccessFlags = 0;
-		bd.MiscFlags = 0;
-		device->CreateBuffer( &bd, &data, &vertexBuffer );
-
-		delete [] pVertices;
-		pVertices = 0;
+		chunkIndexBufferSegments = numSegments;
 	}
 			
 	GGTerrainChunk() 
@@ -2672,10 +2676,8 @@ public:
 		if ( pNormalMap ) delete [] pNormalMap;
 
 		if ( pVertices ) delete [] pVertices;
-		if ( pIndices ) delete [] pIndices;
 
 		pVertices = 0;
-		pIndices = 0;
 	}
 };
 
@@ -2685,6 +2687,9 @@ protected:
 	static GGTerrainChunk* pWaitingList;
 	static threadLock waitingLock;
 	static threadCondition workReady;
+
+	static GGTerrainChunk* pReadyList; // generated chunks waiting for the main thread to fill their GPU buffers
+	static threadLock readyLock;
 	
 	static ChunkGenerator** pThreads;
 	static uint32_t iNumThreads;
@@ -2703,9 +2708,7 @@ public:
 			// ever calls a D3D device method, so the cross-thread race is gone.
 			pChunk->pNextChunk = 0;
 			pChunk->Generate();            // pure CPU
-			pChunk->GenerateGPUBuffers();  // D3D CreateBuffer, now on main thread (as its comment requires)
-			MemoryBarrier();
-			pChunk->SetGenerating(0);
+			AddReadyChunk( pChunk );       // GPU buffers are filled by UploadReadyChunks, also on the main thread
 			return;
 		}
 
@@ -2730,6 +2733,38 @@ public:
 		workReady.Signal();
 	}
 
+	static void AddReadyChunk( GGTerrainChunk* pChunk )
+	{
+		readyLock.Acquire();
+		pChunk->pNextChunk = pReadyList;
+		pReadyList = pChunk;
+		readyLock.Release();
+	}
+
+	// must not be called on a thread, fills the GPU buffers of any chunks the threads have generated
+	// device calls on the generator threads stalled for seconds against the render jobs, so the threads only do the CPU work
+	static void UploadReadyChunks( CommandList cmd )
+	{
+		readyLock.Acquire();
+		GGTerrainChunk* pChunk = pReadyList;
+		pReadyList = 0;
+		readyLock.Release();
+
+		if ( !pChunk ) return;
+
+		GGTerrainChunk::CreateIndexBuffer();
+
+		while( pChunk )
+		{
+			GGTerrainChunk* pNext = pChunk->pNextChunk;
+			pChunk->pNextChunk = 0;
+			pChunk->GenerateGPUBuffers( cmd );
+			MemoryBarrier(); // prevent pChunk->status being set before all previous data has been written, can happen with CPU instruction reordering
+			pChunk->SetGenerating( 0 );
+			pChunk = pNext;
+		}
+	}
+
 	static void StopAndFinishAll()
 	{
 		// stop all threads and wait for them to finish
@@ -2739,6 +2774,7 @@ public:
 
 		// clear the waiting list, don't need locks here as everything is stopped
 		pWaitingList = 0;
+		pReadyList = 0;
 	}
 
 	static void StartThreads()
@@ -2809,9 +2845,7 @@ public:
 			if ( pChunk ) 
 			{
 				pChunk->Generate();
-				pChunk->GenerateGPUBuffers();
-				MemoryBarrier(); // prevent pChunk->status being set before all previous data has been written, can happen with CPU instruction reordering
-				pChunk->SetGenerating( 0 );
+				AddReadyChunk( pChunk ); // the main thread fills the GPU buffers
 			}
 		}
 
@@ -2832,6 +2866,8 @@ public:
 GGTerrainChunk* ChunkGenerator::pWaitingList = 0;
 threadLock ChunkGenerator::waitingLock;
 threadCondition ChunkGenerator::workReady;
+GGTerrainChunk* ChunkGenerator::pReadyList = 0;
+threadLock ChunkGenerator::readyLock;
 uint32_t ChunkGenerator::iNumThreads = 0;
 ChunkGenerator** ChunkGenerator::pThreads = 0;
 
@@ -9990,12 +10026,18 @@ void GGTerrain_Update( float playerX, float playerY, float playerZ, wiGraphics::
 	if (ggterrain_update_enabled)
 	{
 		ggterrain.CheckParams();
+		ChunkGenerator::UploadReadyChunks(cmd);
 		ggterrain.UpdateChunks(playerX, playerZ);
 
 		// wait for the lowest level to complete
 		GGTerrainLODSet* pCurrLODs = ggterrain.GetCurrentLODs();
 		uint32_t timeout = 0;
-		while (pCurrLODs->IsGenerating() && !pCurrLODs->pLevels[pCurrLODs->GetNumLevels() - 1].IsReady() && timeout++ < 300) Sleep(1);
+		ChunkGenerator::UploadReadyChunks(cmd);
+		while (pCurrLODs->IsGenerating() && !pCurrLODs->pLevels[pCurrLODs->GetNumLevels() - 1].IsReady() && timeout++ < 300)
+		{
+			Sleep(1);
+			ChunkGenerator::UploadReadyChunks(cmd);
+		}
 		if (timeout >= 300)
 		{
 			pCurrLODs->iFlags &= ~GGTERRAIN_LOD_GENERATING; // terrain is not looking correct after this.
@@ -10018,12 +10060,18 @@ void GGTerrain_Update( float playerX, float playerY, float playerZ, wiGraphics::
 			if (ggterrain_update_enabled)
 			{
 				ggterrain.CheckParams();
+				ChunkGenerator::UploadReadyChunks(cmd);
 				ggterrain.UpdateChunks(playerX, playerZ);
 
 				// wait for the lowest level to complete
 				GGTerrainLODSet* pCurrLODs = ggterrain.GetCurrentLODs();
 				uint32_t timeout = 0;
-				while (pCurrLODs->IsGenerating() && !pCurrLODs->pLevels[pCurrLODs->GetNumLevels() - 1].IsReady() && timeout++ < 300) Sleep(1);
+				ChunkGenerator::UploadReadyChunks(cmd);
+				while (pCurrLODs->IsGenerating() && !pCurrLODs->pLevels[pCurrLODs->GetNumLevels() - 1].IsReady() && timeout++ < 300)
+				{
+					Sleep(1);
+					ChunkGenerator::UploadReadyChunks(cmd);
+				}
 				if (timeout >= 300)
 				{
 					pCurrLODs->iFlags &= ~GGTERRAIN_LOD_GENERATING; // terrain is not looking correct after this.
@@ -10895,7 +10943,7 @@ extern "C" void GGTerrain_Draw_Prepass( const Frustum* frustum, CommandList cmd 
 			const GPUBuffer* vbs[] = { &pChunk->vertexBuffer };
 			uint32_t stride = sizeof( TerrainVertex );
 			device->BindVertexBuffers( vbs, 0, 1, &stride, 0, cmd );
-			device->BindIndexBuffer( &pChunk->indexBuffer, INDEXFORMAT_16BIT, 0, cmd );
+			device->BindIndexBuffer( &chunkIndexBuffer, INDEXFORMAT_16BIT, 0, cmd );
 			device->DrawIndexed( numIndices, 0, 0, cmd );
 		}
 	}
@@ -10957,7 +11005,7 @@ extern "C" void GGTerrain_Draw_Prepass_Reflections( const Frustum* frustum, Comm
 			const GPUBuffer* vbs[] = { &pChunk->vertexBuffer };
 			uint32_t stride = sizeof( TerrainVertex );
 			device->BindVertexBuffers( vbs, 0, 1, &stride, 0, cmd );
-			device->BindIndexBuffer( &pChunk->indexBuffer, INDEXFORMAT_16BIT, 0, cmd );
+			device->BindIndexBuffer( &chunkIndexBuffer, INDEXFORMAT_16BIT, 0, cmd );
 			device->DrawIndexed( numIndices, 0, 0, cmd );
 		}
 	}
@@ -11011,7 +11059,7 @@ extern "C" void GGTerrain_Draw_ShadowMap( const Frustum* frustum, int cascade, C
 			const GPUBuffer* vbs[] = { &pChunk->vertexBuffer };
 			uint32_t stride = sizeof( TerrainVertex );
 			device->BindVertexBuffers( vbs, 0, 1, &stride, 0, cmd );
-			device->BindIndexBuffer( &pChunk->indexBuffer, INDEXFORMAT_16BIT, 0, cmd );
+			device->BindIndexBuffer( &chunkIndexBuffer, INDEXFORMAT_16BIT, 0, cmd );
 			device->DrawIndexed( numIndices, 0, 0, cmd );
 		}
 	}
@@ -11117,7 +11165,7 @@ extern "C" void GGTerrain_Draw_EnvProbe( const SPHERE* culler, const Frustum* fr
 			const GPUBuffer* vbs[] = { &pChunk->vertexBuffer };
 			uint32_t stride = sizeof( TerrainVertex );
 			device->BindVertexBuffers( vbs, 0, 1, &stride, 0, cmd );
-			device->BindIndexBuffer( &pChunk->indexBuffer, INDEXFORMAT_16BIT, 0, cmd );
+			device->BindIndexBuffer( &chunkIndexBuffer, INDEXFORMAT_16BIT, 0, cmd );
 			device->DrawIndexedInstanced( numIndices, 6, 0, 0, 0, cmd );
 		}
 	}
@@ -11232,7 +11280,7 @@ extern "C" void GGTerrain_Draw( const Frustum* frustum, int mode, CommandList cm
 			const GPUBuffer* vbs[] = { &pChunk->vertexBuffer };
 			uint32_t stride = sizeof( TerrainVertex );
 			device->BindVertexBuffers( vbs, 0, 1, &stride, 0, cmd );
-			device->BindIndexBuffer( &pChunk->indexBuffer, INDEXFORMAT_16BIT, 0, cmd );
+			device->BindIndexBuffer( &chunkIndexBuffer, INDEXFORMAT_16BIT, 0, cmd );
 			device->DrawIndexed( numIndices, 0, 0, cmd );
 		}
 	}
@@ -11577,10 +11625,16 @@ int GGTerrain_GetTriangleListHighQuality(KMaths::Vector3** vertices, float minXo
 				if (ggterrain_update_enabled)
 				{
 					ggterrain.CheckParams();
+					ChunkGenerator::UploadReadyChunks(INVALID_COMMANDLIST);
 					ggterrain.UpdateChunks(centerX, centerZ);
 					GGTerrainLODSet* pCurrLODs = ggterrain.GetCurrentLODs();
 					uint32_t timeout = 0;
-					while (pCurrLODs->IsGenerating() && !pCurrLODs->pLevels[pCurrLODs->GetNumLevels() - 1].IsReady() && timeout++ < 300) Sleep(1);
+					ChunkGenerator::UploadReadyChunks(INVALID_COMMANDLIST);
+					while (pCurrLODs->IsGenerating() && !pCurrLODs->pLevels[pCurrLODs->GetNumLevels() - 1].IsReady() && timeout++ < 300)
+					{
+						Sleep(1);
+						ChunkGenerator::UploadReadyChunks(INVALID_COMMANDLIST);
+					}
 					if (timeout >= 300)
 					{
 						// investigate why this stalled, maybe more than 300ms?
