@@ -7974,6 +7974,45 @@ int GetPhysicsStats(lua_State* L)
 	lua_pushinteger(L, stats.busiestPoints);
 	return 6;
 }
+// GetPhysicsStatsTop([n]): the bodies with the most contact points in the physics' last update, most first, up to n (5 by
+// default, at most 32), the ground and character capsules left out: a table of entries { e (the entity, -1 none), obj (-1
+// unknown), points, awake (true while the simulation moves or settles it), speed (units a second), kind ("dynamic",
+// "static", "tree" for the trunk cylinders round the camera, else "other") }
+int GetPhysicsStatsTop(lua_State* L)
+{
+	int iMax = 5;
+	if (LUA_GETTOP(L) >= 1) iMax = (int)lua_tointeger(L, 1);
+	if (iMax < 1) iMax = 1;
+	if (iMax > 32) iMax = 32;
+	PhysicsStatsBody bodies[32];
+	int iCount = PhysicsQuery_StatsTop(bodies, iMax);
+	lua_createtable(L, iCount, 0);
+	for (int i = 0; i < iCount; i++)
+	{
+		const PhysicsStatsBody& body = bodies[i];
+		int iEntity = -1;
+		if (body.object > 0)
+		{
+			for (int e = 1; e <= g.entityelementlist; e++)
+			{
+				if (t.entityelement[e].obj == body.object) { iEntity = e; break; }
+			}
+		}
+		const char* pKind = "other";
+		if (LuaPhysicsIsTreeCylinder(body.object)) pKind = "tree";
+		else if (body.layer & PHYSICS_LAYER_DYNAMIC) pKind = "dynamic";
+		else if (body.layer & PHYSICS_LAYER_STATIC) pKind = "static";
+		lua_createtable(L, 0, 6);
+		lua_pushinteger(L, iEntity); lua_setfield(L, -2, "e");
+		lua_pushinteger(L, body.object); lua_setfield(L, -2, "obj");
+		lua_pushinteger(L, body.points); lua_setfield(L, -2, "points");
+		lua_pushboolean(L, body.awake ? 1 : 0); lua_setfield(L, -2, "awake");
+		lua_pushnumber(L, body.speed); lua_setfield(L, -2, "speed");
+		lua_pushstring(L, pKind); lua_setfield(L, -2, "kind");
+		lua_rawseti(L, -2, i + 1);
+	}
+	return 1;
+}
 // GetPhysicsBodyPose(obj): where an object's physics body is, as the pose it would give the object: x, y, z and angles
 // x, y, z in degrees (as GetEntityAngleX/Y/Z), then bodies, how many bodies the physics holds for the object (more than
 // 1 is one left behind; the pose is the first's, the one CollisionOff removes). A static body never moves its object, so
@@ -16625,6 +16664,7 @@ void addFunctions()
 	lua_register(lua, "PhysicsSweepBox", PhysicsSweepBox);
 	lua_register(lua, "PhysicsOverlapBox", PhysicsOverlapBox);
 	lua_register(lua, "GetPhysicsStats", GetPhysicsStats);
+	lua_register(lua, "GetPhysicsStatsTop", GetPhysicsStatsTop);
 	lua_register(lua, "GetPhysicsBodyPose", GetPhysicsBodyPose);
 	lua_register(lua, "SetObjectDamping",        SetObjectDamping );
 	lua_register(lua, "SetHingeLimits",          SetHingeLimits );

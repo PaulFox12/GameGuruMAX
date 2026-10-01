@@ -47,4 +47,16 @@ struct PhysicsStats
 };
 void PhysicsQuery_Stats(PhysicsStats* pStats);
 
+// the bodies with the most contact points in the last step, most first (the ground and character capsules left out, as in
+// PhysicsQuery_Stats); how many were written, at most iMax. Jolt: the contact listener's counts per body
+struct PhysicsStatsBody
+{
+	int object; // -1 unknown
+	int points; // its contact points over all its pairs
+	bool awake;
+	float speed; // linear, in units a second
+	int layer; // its PHYSICS_LAYER_ group bits
+};
+int PhysicsQuery_StatsTop(PhysicsStatsBody* pBodies, int iMax);
+
 #endif

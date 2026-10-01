@@ -422,3 +422,58 @@ void PhysicsQuery_Stats(PhysicsStats* pStats)
 	}
 	physicslock.unlock();
 }
+
+int PhysicsQuery_StatsTop(PhysicsStatsBody* pBodies, int iMax)
+{
+	if (!g_dynamicsWorld || iMax <= 0) return 0;
+	physicslock.lock();
+
+	// the same sums as PhysicsQuery_Stats: a body's points over all its pairs from the last sub-step
+	btDispatcher* pDispatcher = g_dynamicsWorld->getDispatcher();
+	btAlignedObjectArray<const btCollisionObject*> bodies;
+	btAlignedObjectArray<int> points;
+	for (int m = 0; m < pDispatcher->getNumManifolds(); m++)
+	{
+		const btPersistentManifold* pManifold = pDispatcher->getManifoldByIndexInternal(m);
+		int iPoints = pManifold->getNumContacts();
+		if (iPoints == 0) continue;
+		const btCollisionObject* pPair[2] = { pManifold->getBody0(), pManifold->getBody1() };
+		for (int b = 0; b < 2; b++)
+		{
+			const btBroadphaseProxy* pProxy = pPair[b]->getBroadphaseHandle();
+			if (pProxy && (pProxy->m_collisionFilterGroup & (PHYSICS_LAYER_TERRAIN | PHYSICS_LAYER_CHARACTER))) continue;
+			int iBody = bodies.findLinearSearch(pPair[b]);
+			if (iBody == bodies.size())
+			{
+				bodies.push_back(pPair[b]);
+				points.push_back(0);
+			}
+			points[iBody] += iPoints;
+		}
+	}
+
+	// the busiest first, picked one at a time (iMax is small)
+	int iCount = 0;
+	while (iCount < iMax)
+	{
+		int iBest = -1;
+		for (int i = 0; i < bodies.size(); i++)
+		{
+			if (points[i] > 0 && (iBest < 0 || points[i] > points[iBest])) iBest = i;
+		}
+		if (iBest < 0) break;
+		const btCollisionObject* pBody = bodies[iBest];
+		const btBroadphaseProxy* pProxy = pBody->getBroadphaseHandle();
+		short iGroup = pProxy ? pProxy->m_collisionFilterGroup : 0;
+		PhysicsStatsBody& out = pBodies[iCount++];
+		out.object = PhysicsQuery_ObjectNumber(pBody, iGroup);
+		out.points = points[iBest];
+		out.awake = pBody->isActive();
+		const btRigidBody* pRigid = btRigidBody::upcast(pBody);
+		out.speed = pRigid ? pRigid->getLinearVelocity().length() : 0.0f;
+		out.layer = iGroup;
+		points[iBest] = 0;
+	}
+	physicslock.unlock();
+	return iCount;
+}
