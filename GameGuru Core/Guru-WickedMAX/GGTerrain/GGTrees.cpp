@@ -195,6 +195,51 @@ static const float g_TreeTrunkFit[ 38 ][ 3 ] =
 	{   9.6f,  -1.1f,   1.5f }, // 37 birch autumn3
 };
 
+// GG: where each tree type's trunk meets the ground, for setting it on a slope (GGTrees_SlopeSink): up to 5 points (r, y)
+// at scale 1, the radius from the tree's centre and the height there of the lowest part of the LOD0 trunk mesh, taken as
+// the upper envelope over every 5 degree side; {0, -1e9} is unused
+static const float g_TreeGroundContact[ 38 ][ 5 ][ 2 ] =
+{
+	{ { 10.3f, -4.2f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 0 birch
+	{ { 6.5f, 5.4f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 1 cactus_var1
+	{ { 5.8f, 3.3f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 2 cactus_var2
+	{ { 7.7f, 4.2f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 3 cactus_var3
+	{ { 7.7f, 4.2f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 4 cactus_var4
+	{ { 8.0f, 6.9f }, { 13.9f, -0.6f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 5 dead pine tree
+	{ { 19.1f, 0.4f }, { 21.9f, -0.2f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 6 drypine
+	{ { 3.9f, 4.6f }, { 4.5f, 3.8f }, { 4.9f, 3.0f }, { 7.0f, -3.5f }, { 7.6f, -5.6f } }, // 7 italian pine
+	{ { 46.1f, 7.1f }, { 76.7f, 5.3f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 8 jungletree1
+	{ { 15.6f, 5.9f }, { 26.5f, 5.4f }, { 59.2f, 3.6f }, { 79.1f, 0.8f }, { 81.1f, -6.1f } }, // 9 jungletree2
+	{ { 3.2f, 4.9f }, { 5.5f, 4.8f }, { 12.2f, 4.1f }, { 17.5f, 1.5f }, { 0.0f, -1e9f } }, // 10 jungletree3a
+	{ { 5.5f, 5.7f }, { 9.7f, 5.4f }, { 12.5f, 3.8f }, { 15.1f, 2.3f }, { 0.0f, -1e9f } }, // 11 jungletree3b
+	{ { 3.2f, 4.9f }, { 5.5f, 4.8f }, { 12.2f, 4.1f }, { 17.5f, 1.5f }, { 0.0f, -1e9f } }, // 12 jungletree4a
+	{ { 5.5f, 5.7f }, { 9.7f, 5.4f }, { 12.5f, 3.8f }, { 15.1f, 2.3f }, { 0.0f, -1e9f } }, // 13 jungletree4b
+	{ { 52.1f, 0.4f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 14 jungletree5a
+	{ { 13.9f, 1.9f }, { 15.8f, 1.7f }, { 16.9f, 1.4f }, { 17.2f, 0.9f }, { 0.0f, -1e9f } }, // 15 jungletree5b
+	{ { 8.8f, 6.9f }, { 13.7f, 6.8f }, { 17.4f, -0.5f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 16 jungletree6a
+	{ { 23.0f, 6.2f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 17 jungletree6b
+	{ { 2.7f, 3.1f }, { 3.7f, 3.0f }, { 5.1f, 2.7f }, { 5.5f, -5.2f }, { 0.0f, -1e9f } }, // 18 kentia palm
+	{ { 9.0f, 2.3f }, { 9.9f, -2.2f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 19 palm
+	{ { 22.6f, 6.5f }, { 28.0f, 5.0f }, { 31.2f, 2.5f }, { 33.8f, -2.3f }, { 0.0f, -1e9f } }, // 20 pine
+	{ { 14.4f, -4.2f }, { 21.4f, -4.8f }, { 21.5f, -5.4f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 21 scotspine1
+	{ { 11.5f, 6.6f }, { 15.3f, 6.5f }, { 18.2f, 6.4f }, { 28.4f, -6.6f }, { 0.0f, -1e9f } }, // 22 scotspine2
+	{ { 17.0f, 6.6f }, { 17.6f, 6.2f }, { 27.7f, -5.9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 23 scotspine dead
+	{ { 45.4f, 2.7f }, { 61.6f, 2.3f }, { 64.4f, 0.7f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 24 snow fir2
+	{ { 4.7f, 0.6f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 25 snow fir3
+	{ { 7.5f, 0.0f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 26 snow fir
+	{ { 8.7f, 1.3f }, { 9.6f, 1.2f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 27 snow pine
+	{ { 13.2f, -0.3f }, { 16.8f, -0.4f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 28 snow pine tall2
+	{ { 10.3f, -0.3f }, { 10.6f, -0.4f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 29 snow pine tall
+	{ { 9.0f, 6.9f }, { 11.7f, 3.2f }, { 13.5f, -0.0f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 30 sparse pine
+	{ { 46.3f, 5.1f }, { 78.8f, -9.4f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 31 vine tree large
+	{ { 5.1f, 7.0f }, { 30.2f, 5.2f }, { 37.3f, 4.6f }, { 63.6f, -8.2f }, { 0.0f, -1e9f } }, // 32 vine tree small
+	{ { 19.1f, 0.4f }, { 21.9f, -0.2f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 33 western pine
+	{ { 4.0f, -5.7f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 34 white pine
+	{ { 10.3f, -4.2f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 35 birch autumn1
+	{ { 10.3f, -4.2f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 36 birch autumn2
+	{ { 10.3f, -4.2f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f }, { 0.0f, -1e9f } }, // 37 birch autumn3
+};
+
 struct InstanceTree
 {
 	float x, y, z;
@@ -1232,6 +1277,21 @@ uint32_t GGTrees_GetNumHighDetailShadow()
 	return total;
 }
 
+// GG: how far below the terrain at its centre a tree is set on a slope whose normal has this y. The stock sink, or deeper
+// where the type's roots or buttresses reach out far enough to hang in the air on the downhill side: then every ground
+// contact ends no more than 6 units above the slope, a gap the grass hides, and the uphill side runs into the bank
+static float GGTrees_SlopeSink( InstanceTree* pInstance, float ny )
+{
+	const float scale = pInstance->GetScaleFloat();
+	const float sink = (1 - ny) * 75 * scale;
+	const int type = pInstance->GetType();
+	if ( type >= 38 ) return sink;
+	const float tanA = sqrtf( fmaxf( 0.0f, 1 - ny * ny ) ) / fmaxf( ny, 0.001f );
+	float reach = -1e9f;
+	for ( int k = 0; k < 5; k++ ) reach = fmaxf( reach, g_TreeGroundContact[ type ][ k ][ 1 ] + tanA * g_TreeGroundContact[ type ][ k ][ 0 ] );
+	return fmaxf( sink, scale * reach - 16 ); // 16: the 10 every tree is set below, and the 6 the grass hides
+}
+
 // only call this when tree heights need to be updated, e.g. when the terrain has changed
 int GGTrees_UpdateInstances( int accurate )
 {
@@ -1261,7 +1321,7 @@ int GGTrees_UpdateInstances( int accurate )
 		}
 		pTreeHeightValid[ j ] = 1;
 
-		float adjustment = (1 - ny) * 75 * pInstance->GetScaleFloat();
+		float adjustment = GGTrees_SlopeSink( pInstance, ny );
 		pInstance->y = height - 10 - adjustment;
 		
 		if ( (height > g.gdefaultwaterheight + ggtrees_global_params.water_dist && ny > 0.7) || pInstance->IsUserMoved() )
@@ -2462,7 +2522,7 @@ void GGTrees_SetTreePosition( uint32_t treeID, float x, float z )
 	GGTerrain_GetNormal( pInstance->x, pInstance->z, 0, &ny, 0 );
 	if ( (height > g.gdefaultwaterheight + ggtrees_global_params.water_dist && ny > 0.7) || pInstance->IsUserMoved() )
 	{
-		float adjustment = (1 - ny) * 75 * pInstance->GetScaleFloat();
+		float adjustment = GGTrees_SlopeSink( pInstance, ny );
 		pInstance->y = height - 10 - adjustment;
 		if ( pOldChunk != pNewChunk && pNewChunk ) 
 		{
