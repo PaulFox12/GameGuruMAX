@@ -2330,7 +2330,7 @@ void game_masterroot_gameloop_afterescapepressed(void)
 	if ( t.currentgunobj>0 ) { if ( ObjectExist(t.currentgunobj) == 1 ) { gun_SetObjectSpeed (  t.currentgunobj,t.currentgunanimspeed_f); } }
 	physics_resumephysics ( );
 	entity_resumeanimations ( );
-	t.aisystem.cumilativepauses=Timer()-t.tremembertimer;
+	t.aisystem.cumilativepauses+=Timer()-t.tremembertimer;
 	game_main_snapshotsoundresume ( );
 	t.strwork = ""; t.strwork = t.strwork + "resuming game loop with flag "+Str(t.game.gameloop);
 	timestampactivity(0, t.strwork.Get() );
