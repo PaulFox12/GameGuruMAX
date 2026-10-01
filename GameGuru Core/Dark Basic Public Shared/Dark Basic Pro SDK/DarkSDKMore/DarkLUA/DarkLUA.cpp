@@ -6142,14 +6142,16 @@ int GetDrawCalls ( lua_State *L )
 	lua_pushinteger ( L, wiProfiler::GetPolygons() );
 	return 4;
 }
-// SetRenderTiming(on): 1 times the renderer's work every frame (the ranges of Tab Tab's performance data) so GetRenderTime
-// can read them, 0 stops. It costs a few GPU timestamp queries a frame while on, and is off again at the next level
+// SetRenderTiming(mode): 1 times the renderer's work every frame (the ranges of Tab Tab's performance data) so GetRenderTime
+// can read them, 2 the CPU ranges only (no GPU timestamp queries, so no GPU times), 0 stops. Off again at the next level
 int SetRenderTiming ( lua_State *L )
 {
 	lua = L;
 	if ( LUA_GETTOP(L) < 1 ) return 0;
 	extern bool g_bLuaRenderTiming;
-	g_bLuaRenderTiming = ( lua_tointeger(L, 1) != 0 );
+	int iMode = (int)lua_tointeger(L, 1);
+	g_bLuaRenderTiming = ( iMode != 0 );
+	wiProfiler::SetGPUEnabled ( iMode != 2 );
 	wiProfiler::SetEnabled ( g_bLuaRenderTiming );
 	return 0;
 }
@@ -14389,7 +14391,8 @@ namespace GGTerrain
 // "decal fade" (a decal's alpha change); and timed on any thread, for the frame stalls: "thread pick" (the extra logic
 // thread's picks), "thread frame" (its whole cycle), "texture load" (a texture read and made), "object add" (an object put
 // into the Wicked scene), "gpu create" (a GPU buffer or texture made, any caller), "gpu map" (a map, unmap or buffer
-// update), "present" (the frame presented). A third value is the longest single call in those 20 frames. Nothing for an unknown name
+// update), "present" (the frame presented), "profiler queries" (the GPU timestamp queries the profiler issued a frame, as the
+// value), "profiler lock" (waits for the lock the profiler's ranges share). A third value is the longest single call in those 20 frames. Nothing for an unknown name
 int GetEngineProbe(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;

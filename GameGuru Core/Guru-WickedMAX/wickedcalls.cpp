@@ -8384,7 +8384,8 @@ void WickedCall_UpdateWaterFog(float fMinDist, float fMaxDist, float fMinAmount)
 }
 
 static const char* g_pWickedCallProbeNames[WICKEDCALL_PROBE_COUNT] = { "pick", "pick layers", "pick wicked", "pick lookup", "decal create", "decal fade",
-	"thread pick", "thread frame", "texture load", "object add", "gpu create", "gpu map", "present" };
+	"thread pick", "thread frame", "texture load", "object add", "gpu create", "gpu map", "present",
+	"profiler queries", "profiler lock" };
 static double g_dWickedCallProbeFrame[WICKEDCALL_PROBE_COUNT] = {};
 static int g_iWickedCallProbeFrameCalls[WICKEDCALL_PROBE_COUNT] = {};
 static double g_dWickedCallProbeFrameLongest[WICKEDCALL_PROBE_COUNT] = {};
@@ -8401,7 +8402,18 @@ static std::atomic<int64_t> g_iWickedCallProbeAnyLongestMicro[WICKEDCALL_PROBE_C
 // Wicked tells this how long each buffer and texture creation, map, buffer update and present took, on any thread
 // ("gpu create", "gpu map", "present")
 static void WickedCall_ProbeDeviceCall(double dMilliseconds, const WickedDeviceCallInfo& info);
-static struct WickedCallProbeHook { WickedCallProbeHook() { g_pfnWickedDeviceCall = WickedCall_ProbeDeviceCall; } } g_WickedCallProbeHook;
+// and the profiler its GPU queries a frame ("profiler queries": the count as the probe's value) and its lock waits
+static void WickedCall_ProbeProfilerQueries(uint32_t queries);
+static void WickedCall_ProbeProfilerLockWait(double dMilliseconds);
+static struct WickedCallProbeHook
+{
+	WickedCallProbeHook()
+	{
+		g_pfnWickedDeviceCall = WickedCall_ProbeDeviceCall;
+		g_pfnWickedProfilerQueries = WickedCall_ProbeProfilerQueries;
+		g_pfnWickedProfilerLockWait = WickedCall_ProbeProfilerLockWait;
+	}
+} g_WickedCallProbeHook;
 
 // the slowest device call over 50 ms of each probe, with its callers, kept for 20 frames (WickedCall_ProbeDetail)
 struct WickedCallProbeSlowCall
@@ -8470,6 +8482,16 @@ static void WickedCall_ProbeDeviceCall(double dMilliseconds, const WickedDeviceC
 	std::lock_guard<std::mutex> lock(g_WickedCallProbeSlowLock);
 	WickedCallProbeSlowCall& slowest = g_WickedCallProbeSlow[iProbe];
 	if (call.iFrame - slowest.iFrame > 20 || dMilliseconds > slowest.dMilliseconds) slowest = call;
+}
+
+static void WickedCall_ProbeProfilerQueries(uint32_t queries)
+{
+	WickedCall_ProbeAddAnyThread(WICKEDCALL_PROBE_PROFILER_QUERIES, (double)queries);
+}
+
+static void WickedCall_ProbeProfilerLockWait(double dMilliseconds)
+{
+	WickedCall_ProbeAddAnyThread(WICKEDCALL_PROBE_PROFILER_LOCK, dMilliseconds);
 }
 
 const char* WickedCall_ProbeDetail(const char* pName)

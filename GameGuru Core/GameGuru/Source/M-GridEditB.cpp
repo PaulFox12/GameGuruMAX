@@ -8411,6 +8411,7 @@ void LuaGameVisuals_Clear(void)
 	g_bLuaSetLUT = false;
 	if (g_bLuaRenderTiming && !bProfilerEnable) wiProfiler::SetEnabled(false);
 	g_bLuaRenderTiming = false;
+	wiProfiler::SetGPUEnabled(true);
 
 	// and 3D sounds go back to real-world doppler (SetDopplerScale)
 	wiAudio::SetDopplerScale(1.0f);
