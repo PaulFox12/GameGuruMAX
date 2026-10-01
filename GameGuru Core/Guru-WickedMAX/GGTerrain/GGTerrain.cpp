@@ -11254,28 +11254,9 @@ extern "C" void GGTerrain_Draw( const Frustum* frustum, int mode, CommandList cm
 			const AABB* aabb = pChunk->GetBounds();
 			if ( !frustum->CheckBoxFast( *aabb ) ) continue;
 			
-			if (wiRenderer::GetOcclusionCullingEnabled() && bEnableTerrainChunkCulling)
-			{
-				sCO[lod][i].bChunkVisible = true;
-				sCO[lod][i].aabb = *aabb;
-				if (lod >= OCCLODSTART && lod < 9)
-				{
-					if (sCO[lod][i].history == 0)
-					{
-						if (mode == 0)
-						{
-							if (!bImGuiInTestGame)
-							{
-								//XMFLOAT3 center = aabb->getCenter();
-								//char tmp[80] = "*\0";
-								//DrawDot(tmp, center.x, center.y, center.z);
-							}
-							iOccludedTerrainChunks++;
-						}
-						continue;
-					}
-				}
-			}
+			// no occlusion culling of chunks here: the depth prepass draws every chunk in the frustum, so a chunk skipped in
+			// this pass kept the previous frame's colour in its pixels (the far terrain smeared and striped as the camera
+			// moved), and this pass's depth test already rejects the pixels an occluder hides
 
 			const GPUBuffer* vbs[] = { &pChunk->vertexBuffer };
 			uint32_t stride = sizeof( TerrainVertex );
