@@ -70,6 +70,7 @@ public:
 	}
 	uint32_t Run()
 	{
+		g_dwWickedCallProbeExtraThread = GetCurrentThreadId();
 		while (1)
 		{
 			if (bTerminate) return 0;

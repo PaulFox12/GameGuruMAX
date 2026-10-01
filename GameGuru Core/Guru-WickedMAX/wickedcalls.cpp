@@ -6,6 +6,9 @@
 #include "stdafx.h"
 #include "wickedcalls.h"
 #include <atomic>
+#include <mutex>
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
 #include <vector>
 #include <unordered_map>
 
@@ -8381,7 +8384,7 @@ void WickedCall_UpdateWaterFog(float fMinDist, float fMaxDist, float fMinAmount)
 }
 
 static const char* g_pWickedCallProbeNames[WICKEDCALL_PROBE_COUNT] = { "pick", "pick layers", "pick wicked", "pick lookup", "decal create", "decal fade",
-	"thread pick", "thread frame", "texture load", "object add", "gpu create" };
+	"thread pick", "thread frame", "texture load", "object add", "gpu create", "gpu map", "present" };
 static double g_dWickedCallProbeFrame[WICKEDCALL_PROBE_COUNT] = {};
 static int g_iWickedCallProbeFrameCalls[WICKEDCALL_PROBE_COUNT] = {};
 static double g_dWickedCallProbeFrameLongest[WICKEDCALL_PROBE_COUNT] = {};
@@ -8395,10 +8398,28 @@ static std::atomic<int64_t> g_iWickedCallProbeAnyMicro[WICKEDCALL_PROBE_COUNT];
 static std::atomic<int32_t> g_iWickedCallProbeAnyCalls[WICKEDCALL_PROBE_COUNT];
 static std::atomic<int64_t> g_iWickedCallProbeAnyLongestMicro[WICKEDCALL_PROBE_COUNT];
 
-// Wicked tells this how long each buffer and texture creation took, on any thread (GetEngineProbe("gpu create"))
-extern void (*g_pfnWickedResourceCreated)(double dMilliseconds);
-static void WickedCall_ProbeResourceCreated(double dMilliseconds);
-static struct WickedCallProbeHook { WickedCallProbeHook() { g_pfnWickedResourceCreated = WickedCall_ProbeResourceCreated; } } g_WickedCallProbeHook;
+// Wicked tells this how long each buffer and texture creation, map, buffer update and present took, on any thread
+// ("gpu create", "gpu map", "present")
+static void WickedCall_ProbeDeviceCall(double dMilliseconds, const WickedDeviceCallInfo& info);
+static struct WickedCallProbeHook { WickedCallProbeHook() { g_pfnWickedDeviceCall = WickedCall_ProbeDeviceCall; } } g_WickedCallProbeHook;
+
+// the slowest device call over 50 ms of each probe, with its callers, kept for 20 frames (WickedCall_ProbeDetail)
+struct WickedCallProbeSlowCall
+{
+	double dMilliseconds = 0;
+	int iFrame = -1000;
+	DWORD dwThread = 0;
+	char pWhat[96] = "";
+	void* pStack[12] = {};
+	USHORT iFrames = 0;
+	bool bFormatted = false;
+	char pDetail[768] = "";
+};
+static std::mutex g_WickedCallProbeSlowLock;
+static WickedCallProbeSlowCall g_WickedCallProbeSlow[WICKEDCALL_PROBE_COUNT];
+static std::atomic<int> g_iWickedCallProbeFrameNumber{ 0 };
+static DWORD g_dwWickedCallProbeMainThread = 0;
+DWORD g_dwWickedCallProbeExtraThread = 0;
 
 // milliseconds on the performance counter
 double WickedCall_ProbeNow(void)
@@ -8428,14 +8449,73 @@ void WickedCall_ProbeAddAnyThread(int iProbe, double dMilliseconds)
 	while (iMicro > iLongest && !g_iWickedCallProbeAnyLongestMicro[iProbe].compare_exchange_weak(iLongest, iMicro)) {}
 }
 
-static void WickedCall_ProbeResourceCreated(double dMilliseconds)
+static void WickedCall_ProbeDeviceCall(double dMilliseconds, const WickedDeviceCallInfo& info)
 {
-	WickedCall_ProbeAddAnyThread(WICKEDCALL_PROBE_GPU_CREATE, dMilliseconds);
+	int iProbe = info.call == 0 ? WICKEDCALL_PROBE_GPU_CREATE : (info.call == 1 ? WICKEDCALL_PROBE_GPU_MAP : WICKEDCALL_PROBE_PRESENT);
+	WickedCall_ProbeAddAnyThread(iProbe, dMilliseconds);
+	if (dMilliseconds < 50.0) return;
+
+	// a slow one: who asked for it
+	WickedCallProbeSlowCall call;
+	call.dMilliseconds = dMilliseconds;
+	call.iFrame = g_iWickedCallProbeFrameNumber.load();
+	call.dwThread = GetCurrentThreadId();
+	if (info.call == 0 && info.width > 0)
+		sprintf_s(call.pWhat, "%s %ux%u format %u", info.op, info.width, info.height, info.format);
+	else if (info.bytes > 0)
+		sprintf_s(call.pWhat, "%s %llu B", info.op, (unsigned long long)info.bytes);
+	else
+		sprintf_s(call.pWhat, "%s", info.op);
+	call.iFrames = CaptureStackBackTrace(2, 12, call.pStack, NULL);
+	std::lock_guard<std::mutex> lock(g_WickedCallProbeSlowLock);
+	WickedCallProbeSlowCall& slowest = g_WickedCallProbeSlow[iProbe];
+	if (call.iFrame - slowest.iFrame > 20 || dMilliseconds > slowest.dMilliseconds) slowest = call;
+}
+
+const char* WickedCall_ProbeDetail(const char* pName)
+{
+	int iProbe = -1;
+	for (int i = 0; i < WICKEDCALL_PROBE_COUNT; i++) if (_stricmp(pName, g_pWickedCallProbeNames[i]) == 0) iProbe = i;
+	if (iProbe != WICKEDCALL_PROBE_GPU_CREATE && iProbe != WICKEDCALL_PROBE_GPU_MAP && iProbe != WICKEDCALL_PROBE_PRESENT) return "";
+	std::lock_guard<std::mutex> lock(g_WickedCallProbeSlowLock);
+	WickedCallProbeSlowCall& slowest = g_WickedCallProbeSlow[iProbe];
+	if (g_iWickedCallProbeFrameNumber.load() - slowest.iFrame > 20) return "";
+	if (!slowest.bFormatted)
+	{
+		// the callers' names from the exe's pdb (DbgHelp, on this thread only)
+		static bool bSymbols = false;
+		if (!bSymbols)
+		{
+			SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+			bSymbols = SymInitialize(GetCurrentProcess(), NULL, TRUE) != FALSE;
+		}
+		const char* pThread = slowest.dwThread == g_dwWickedCallProbeMainThread ? "main" : (slowest.dwThread == g_dwWickedCallProbeExtraThread ? "extra" : "worker");
+		int iLen = sprintf_s(slowest.pDetail, "%s %.0f ms, %s thread", slowest.pWhat, slowest.dMilliseconds, pThread);
+		char pSymbolBuffer[sizeof(SYMBOL_INFO) + 256] = {};
+		SYMBOL_INFO* pSymbol = (SYMBOL_INFO*)pSymbolBuffer;
+		pSymbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+		pSymbol->MaxNameLen = 255;
+		int iNamed = 0;
+		for (USHORT f = 0; f < slowest.iFrames && iNamed < 6 && iLen > 0 && iLen < (int)sizeof(slowest.pDetail) - 80; f++)
+		{
+			DWORD64 dwDisplacement = 0;
+			if (!bSymbols || !SymFromAddr(GetCurrentProcess(), (DWORD64)slowest.pStack[f], &dwDisplacement, pSymbol)) continue;
+			iLen += sprintf_s(slowest.pDetail + iLen, sizeof(slowest.pDetail) - iLen, "%s%s", iNamed == 0 ? ": " : " < ", pSymbol->Name);
+			iNamed++;
+		}
+		slowest.bFormatted = true;
+	}
+	// a copy, as another thread may replace the record once the lock is let go
+	static char pResult[sizeof(slowest.pDetail)];
+	strcpy_s(pResult, slowest.pDetail);
+	return pResult;
 }
 
 // once a frame: the frame's totals join the last 20 frames'
 void WickedCall_ProbeFrame(void)
 {
+	g_dwWickedCallProbeMainThread = GetCurrentThreadId();
+	g_iWickedCallProbeFrameNumber++;
 	for (int i = 0; i < WICKEDCALL_PROBE_COUNT; i++)
 	{
 		double dAnyLongest = g_iWickedCallProbeAnyLongestMicro[i].exchange(0) / 1000.0;

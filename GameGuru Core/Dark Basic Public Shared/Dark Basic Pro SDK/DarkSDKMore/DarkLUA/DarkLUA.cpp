@@ -14388,7 +14388,8 @@ namespace GGTerrain
 // "pick lookup" (finding the object hit), "decal create" (decalelement_create: impacts, splashes, rain rings),
 // "decal fade" (a decal's alpha change); and timed on any thread, for the frame stalls: "thread pick" (the extra logic
 // thread's picks), "thread frame" (its whole cycle), "texture load" (a texture read and made), "object add" (an object put
-// into the Wicked scene), "gpu create" (a GPU buffer or texture made, any caller). A third value is the longest single call in those 20 frames. Nothing for an unknown name
+// into the Wicked scene), "gpu create" (a GPU buffer or texture made, any caller), "gpu map" (a map, unmap or buffer
+// update), "present" (the frame presented). A third value is the longest single call in those 20 frames. Nothing for an unknown name
 int GetEngineProbe(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
@@ -14399,6 +14400,15 @@ int GetEngineProbe(lua_State* L)
 	lua_pushnumber(L, fCalls);
 	lua_pushnumber(L, fLongest);
 	return 3;
+}
+// GetEngineProbeDetail(name): for "gpu create", "gpu map" or "present", the slowest call over 50 ms in the last 20 frames:
+// what it was, how long, the thread (main, extra or worker) and its callers by name; "" if none
+int GetEngineProbeDetail(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	const char* pName = lua_tostring(L, 1);
+	lua_pushstring(L, pName ? WickedCall_ProbeDetail(pName) : "");
+	return 1;
 }
 int GetTextureSource(lua_State* L)
 {
@@ -17500,6 +17510,7 @@ void addFunctions()
 	lua_register(lua, "GetGrassShade", GetGrassShade);
 	lua_register(lua, "GetTextureSource", GetTextureSource);
 	lua_register(lua, "GetEngineProbe", GetEngineProbe);
+	lua_register(lua, "GetEngineProbeDetail", GetEngineProbeDetail);
 	lua_register(lua, "ClearGrassKillBox", ClearGrassKillBox);
 	lua_register(lua, "SetTreeDistance", SetTreeDistance);
 	lua_register(lua, "GetTreeDistance", GetTreeDistance);
