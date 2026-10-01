@@ -387,13 +387,9 @@ void GGRecastDetour::DoTokenDrop(float x, float y, float z, int iType, float fDu
 	}
 	if (bAnyNavMeshTokenDropStateChanged == true)
 	{
-		extern bool g_bShowRecastDetourDebugVisuals;
-		if (g_bShowRecastDetourDebugVisuals == true)
-		{
-			extern GGRecastDetour g_RecastDetour;
-			g_RecastDetour.cleanupDebugRender();
-			g_RecastDetour.handleDebugRender();
-		}
+		// GG: only the token drops' debug object is made again, at the next debug render (making every debug object again
+		// here, the navmesh's too, took 20-30 ms a call on a whole map navmesh)
+		if (sample) sample->GetDD()->setDebugObjectSlot(5, true);
 	}
 }
 void GGRecastDetour::ManageTokenDropSystem(float fTimeDelta)
@@ -606,13 +602,9 @@ void GGRecastDetour::ToggleBlocker(float x, float y, float z, float radius, bool
 	}
 	if (bAnyNavMeshBlockerStateChanged == true)
 	{
-		extern bool g_bShowRecastDetourDebugVisuals;
-		if (g_bShowRecastDetourDebugVisuals == true)
-		{
-			extern GGRecastDetour g_RecastDetour;
-			g_RecastDetour.cleanupDebugRender();
-			g_RecastDetour.handleDebugRender();
-		}
+		// GG: only the blockers' debug object is made again, at the next debug render (making every debug object again
+		// here, the navmesh's too, took 20-30 ms a call on a whole map navmesh)
+		if (sample) sample->GetDD()->setDebugObjectSlot(4, true);
 	}
 }
 

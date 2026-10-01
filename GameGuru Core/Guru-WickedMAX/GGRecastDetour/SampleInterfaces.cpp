@@ -379,6 +379,13 @@ void DebugDrawMAX::hideDebugObjects(void)
 	}
 }
 
+bool DebugDrawMAX::isDebugObjectSlotRefreshed(int iSlot)
+{
+	// true while the slot's debug object is current, when anything drawn into it is dropped by end()
+	if (iSlot < 0 || iSlot > 99) return false;
+	return m_bDebugObjectRefreshed[iSlot];
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 FileIO::FileIO() :

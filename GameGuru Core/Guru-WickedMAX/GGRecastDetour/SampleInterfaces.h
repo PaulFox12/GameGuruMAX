@@ -85,6 +85,7 @@ public:
 	void init();
 	void setDebugObjectSlot(int iSlot, bool bNeedRefresh = false);
 	void hideDebugObjects(void);
+	bool isDebugObjectSlotRefreshed(int iSlot);
 
 protected:
 	int m_iDebugObject;

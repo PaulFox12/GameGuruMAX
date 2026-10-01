@@ -502,7 +502,10 @@ void Sample_TileMesh::handleRender()
 				g_iLastFocusNavMeshVisualAtZ = g_iFocusNavMeshVisualAtZ;
 			}
 			m_dd.setDebugObjectSlot(1, g_bRefreshNavMeshDebugObjectWhenFocusChanges);
-			duDebugDrawNavMeshWithClosedList(&m_dd, *m_navMesh, *m_navQuery, m_navMeshDrawFlags);
+			// GG: drawn only when its debug object is to be made again (when it is current, end() drops the drawing), not
+			// every frame
+			if (m_dd.isDebugObjectSlotRefreshed(1) == false)
+				duDebugDrawNavMeshWithClosedList(&m_dd, *m_navMesh, *m_navQuery, m_navMeshDrawFlags);
 			g_bRefreshNavMeshDebugObjectWhenFocusChanges = false;
 		}
 		if (m_drawMode == DRAWMODE_NAVMESH_BVTREE)

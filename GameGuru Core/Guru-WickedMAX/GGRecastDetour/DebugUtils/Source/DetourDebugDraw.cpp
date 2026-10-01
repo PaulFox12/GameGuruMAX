@@ -272,18 +272,33 @@ void duDebugDrawNavMeshWithClosedList(struct duDebugDraw* dd, const dtNavMesh& m
 	extern int g_iFocusNavMeshVisualAtZ;
 	if(bOnlyRenderLocalFocusedNavMeshView == true )
 	{
-		for (int i = 0; i < mesh.getMaxTiles(); ++i)
+		// GG: the tiles within 1000 units of the focus looked up by their grid position, nearest first, so the debug object's
+		// triangle limit leaves out the furthest; testing every tile took 45-100 ms a frame on a whole map navmesh (some
+		// 100,000 tiles)
+		const float focus[3] = { (float)g_iFocusNavMeshVisualAtX, 0, (float)g_iFocusNavMeshVisualAtZ };
+		const float lo[3] = { focus[0] - 1000.0f, 0, focus[2] - 1000.0f };
+		const float hi[3] = { focus[0] + 1000.0f, 0, focus[2] + 1000.0f };
+		int fx = 0, fz = 0, tx0 = 0, tz0 = 0, tx1 = 0, tz1 = 0;
+		mesh.calcTileLoc(focus, &fx, &fz);
+		mesh.calcTileLoc(lo, &tx0, &tz0);
+		mesh.calcTileLoc(hi, &tx1, &tz1);
+		const int rings = dtMax(dtMax(fx - tx0, tx1 - fx), dtMax(fz - tz0, tz1 - fz));
+		const dtMeshTile* tiles[32];
+		for (int r = 0; r <= rings; ++r)
 		{
-			const dtMeshTile* tile = mesh.getTile(i);
-			if (!tile->header) continue;
-			if(	g_iFocusNavMeshVisualAtX < tile->header->bmin[0] - 1000 || 
-				g_iFocusNavMeshVisualAtX > tile->header->bmax[0] + 1000 ||
-				g_iFocusNavMeshVisualAtZ < tile->header->bmin[2] - 1000 ||
-				g_iFocusNavMeshVisualAtZ > tile->header->bmax[2] + 1000)
+			for (int tz = dtMax(fz - r, tz0); tz <= dtMin(fz + r, tz1); ++tz)
 			{
-				continue;
+				for (int tx = dtMax(fx - r, tx0); tx <= dtMin(fx + r, tx1); ++tx)
+				{
+					if (tx != fx - r && tx != fx + r && tz != fz - r && tz != fz + r)
+						continue; // drawn in an inner ring
+					const int n = mesh.getTilesAt(tx, tz, tiles, 32);
+					for (int i = 0; i < n; ++i)
+					{
+						if (tiles[i]->header) drawMeshTile(dd, mesh, q, tiles[i], flags);
+					}
+				}
 			}
-			drawMeshTile(dd, mesh, q, tile, flags);
 		}
 	}
 	else
