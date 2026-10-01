@@ -270,6 +270,9 @@ int GGTerrain_IsReady();
 
 int GGTerrain_RayCast( RAY pickRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, uint32_t* lodLevel, int includeFlatAreas=1 );
 int GGTerrain_GetHeight( float x, float z, float* outHeight, int accurateButSlow=0, int includeFlatAreas=1 );
+// GG: a hash of everything the accurate height reads (the noise and heightmap settings, the imported heightmap, the sculpt
+// and flat area maps, the flat areas): the whole map navmesh samples the terrain under its tiles again only when it changes
+uint64_t GGTerrain_GetHeightFingerprint();
 int GGTerrain_GetNormal( float x, float z, float* outNx, float* outNy, float* outNz );
 
 void GGTerrain_CancelRamp();

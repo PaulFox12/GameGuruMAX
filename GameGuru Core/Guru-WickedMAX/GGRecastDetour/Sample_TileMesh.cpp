@@ -37,6 +37,9 @@
 #include "GGThread.h"
 using namespace GGThread;
 
+#include <float.h>
+#include "miniz.h"
+
 void timestampactivity(int i, char* desc_s);
 
 #ifdef OPTICK_ENABLE
@@ -100,7 +103,25 @@ struct TileWork
 	int dataSize = 0;
 	uint32_t x = 0;
 	uint32_t y = 0;
+	bool bChanged = false; // GG whole map bake: its inputs changed, so pOutData is its new data (0 for none)
+	bool bUnderwater = false;
+	uint64_t hash = 0;
+	uint64_t terrainHash = 0;
 };
+
+// GG: a 64 bit hash for the whole map bake's change checks: FNV-1a over 32 bit words, finished with a mix
+static inline uint64_t GGNavHashWords( uint64_t h, const void* pData, size_t words )
+{
+	const uint32_t* p = (const uint32_t*)pData;
+	for ( size_t i = 0; i < words; i++ ) { h ^= p[i]; h *= 0x100000001b3ULL; }
+	return h;
+}
+static inline uint64_t GGNavHashFinish( uint64_t h )
+{
+	h ^= h >> 33; h *= 0xff51afd7ed558ccdULL; h ^= h >> 33; h *= 0xc4ceb9fe1a85ec53ULL; h ^= h >> 33;
+	return h ? h : 1;
+}
+static const uint64_t GGNAV_HASH_SEED = 0xcbf29ce484222325ULL;
 
 class TileMeshThread : public GGThread
 {
@@ -121,7 +142,7 @@ protected:
 
 public:
 
-	static void SetWork( Sample_TileMesh* tileMesh, float tileSize, TileWork *data, uint32_t numTiles )
+	static void SetWork( Sample_TileMesh* tileMesh, float tileSize, TileWork *data, uint32_t numTiles, const float* pMin = 0, const float* pMax = 0 )
 	{
 		pSample_TileMesh = tileMesh;
 		pTiles = data;
@@ -129,8 +150,8 @@ public:
 		fTileSize = tileSize;
 		iNumTiles = numTiles;
 
-		bmin = pSample_TileMesh->getInputGeom()->getNavMeshBoundsMin();
-		bmax = pSample_TileMesh->getInputGeom()->getNavMeshBoundsMax();
+		bmin = pMin ? pMin : pSample_TileMesh->getInputGeom()->getNavMeshBoundsMin();
+		bmax = pMax ? pMax : pSample_TileMesh->getInputGeom()->getNavMeshBoundsMax();
 	}
 
 	static bool AnyRunning()
@@ -199,7 +220,8 @@ public:
 			tileMax[2] = bmin[2] + (pWork->y+1)*fTileSize;
 	
 			int dataSize = 0;
-			pWork->pOutData = pSample_TileMesh->buildTileMesh(&tempData, pWork->x, pWork->y, tileMin, tileMax, pWork->dataSize);
+			if ( pSample_TileMesh->isBaking() ) pSample_TileMesh->bakeTile( &tempData, pWork, tileMin, tileMax );
+			else pWork->pOutData = pSample_TileMesh->buildTileMesh(&tempData, pWork->x, pWork->y, tileMin, tileMax, pWork->dataSize);
 			tempData.cleanup();
 		}
 
@@ -973,6 +995,513 @@ void Sample_TileMesh::buildAllTiles()
 	}
 }
 
+// GG: the whole map bake ------------------------------------------------------------------------------------------------
+
+// the settings and the area the tiles depend on: any change and no tile can be kept
+uint64_t Sample_TileMesh::wholeMapKey( const GGNavMeshBake* pBake )
+{
+	const float values[] = { 1.0f /* format */, m_cellSize, m_cellHeight, m_agentHeight, m_agentRadius, m_agentMaxClimb, m_agentMaxSlope,
+		m_regionMinSize, m_regionMergeSize, m_edgeMaxLen, m_edgeMaxError, m_vertsPerPoly, m_detailSampleDist, m_detailSampleMaxError,
+		(float)m_partitionType, m_tileSize, pBake->sampleSpacing, pBake->bmin[0], pBake->bmin[2], pBake->bmax[0], pBake->bmax[2],
+		pBake->waterY, m_filterLowHangingObstacles ? 1.0f : 0.0f, m_filterLedgeSpans ? 1.0f : 0.0f, m_filterWalkableLowHeightSpans ? 1.0f : 0.0f };
+	return GGNavHashFinish( GGNavHashWords( GGNAV_HASH_SEED, values, sizeof(values) / 4 ) );
+}
+
+// the terrain's height on the grid over the rect, which neighbouring tiles share (the grid is fixed to the world)
+void Sample_TileMesh::sampleTerrain( TileMeshData* tempData, const float* bmin, const float* bmax )
+{
+	const float s = m_pBake->sampleSpacing;
+	const int x0 = (int)floorf( bmin[0] / s ), x1 = (int)ceilf( bmax[0] / s );
+	const int z0 = (int)floorf( bmin[2] / s ), z1 = (int)ceilf( bmax[2] / s );
+	tempData->m_samplesX = x1 - x0 + 1;
+	tempData->m_samplesZ = z1 - z0 + 1;
+	tempData->m_samplesMinX = x0 * s;
+	tempData->m_samplesMinZ = z0 * s;
+	tempData->m_heights.resize( tempData->m_samplesX * tempData->m_samplesZ );
+	tempData->m_terrainMinY = FLT_MAX;
+	tempData->m_terrainMaxY = -FLT_MAX;
+	float* pHeight = tempData->m_heights.data();
+	for ( int z = z0; z <= z1; z++ )
+	{
+		for ( int x = x0; x <= x1; x++ )
+		{
+			float y = 0;
+			if ( !m_pBake->pfnHeight || !m_pBake->pfnHeight( x * s, z * s, &y ) || y != y ) y = -FLT_MAX; // no terrain here
+			else
+			{
+				if ( y < tempData->m_terrainMinY ) tempData->m_terrainMinY = y;
+				if ( y > tempData->m_terrainMaxY ) tempData->m_terrainMaxY = y;
+			}
+			*pHeight++ = y;
+		}
+	}
+	tempData->m_hasSamples = true;
+}
+
+// the static object triangles and the trees on the rect, combined in any order (an object added elsewhere changes no
+// other tile's hash), with their height range
+uint64_t Sample_TileMesh::hashTileObjects( int index, const float* bmin, const float* bmax, float* pMinY, float* pMaxY, int* pCount )
+{
+	uint64_t sum = 0;
+	int count = 0;
+	if ( m_geom && m_geom->getMesh() && m_geom->getChunkyMesh() )
+	{
+		const float* verts = m_geom->getMesh()->getVerts();
+		const rcChunkyTriMesh* chunkyMesh = m_geom->getChunkyMesh();
+		float tbmin[2] = { bmin[0], bmin[2] };
+		float tbmax[2] = { bmax[0], bmax[2] };
+		int* cid = 0;
+		const int ncid = rcGetChunksOverlappingRect( chunkyMesh, tbmin, tbmax, &cid );
+		for ( int i = 0; i < ncid; i++ )
+		{
+			const rcChunkyTriMeshNode& node = chunkyMesh->nodes[ cid[i] ];
+			const int* ctris = &chunkyMesh->tris[ node.i*3 ];
+			for ( int t = 0; t < node.n; t++ )
+			{
+				const float* v0 = &verts[ ctris[t*3+0]*3 ];
+				const float* v1 = &verts[ ctris[t*3+1]*3 ];
+				const float* v2 = &verts[ ctris[t*3+2]*3 ];
+				if ( rcMax( v0[0], rcMax( v1[0], v2[0] ) ) < bmin[0] || rcMin( v0[0], rcMin( v1[0], v2[0] ) ) > bmax[0] ) continue;
+				if ( rcMax( v0[2], rcMax( v1[2], v2[2] ) ) < bmin[2] || rcMin( v0[2], rcMin( v1[2], v2[2] ) ) > bmax[2] ) continue;
+				uint64_t h = GGNavHashWords( GGNAV_HASH_SEED, v0, 3 );
+				h = GGNavHashWords( h, v1, 3 );
+				h = GGNavHashWords( h, v2, 3 );
+				sum += GGNavHashFinish( h );
+				*pMinY = rcMin( *pMinY, rcMin( v0[1], rcMin( v1[1], v2[1] ) ) );
+				*pMaxY = rcMax( *pMaxY, rcMax( v0[1], rcMax( v1[1], v2[1] ) ) );
+				count++;
+			}
+		}
+		if ( cid ) delete [] cid;
+	}
+	if ( index >= 0 && index + 1 < (int)m_treeTileStart.size() )
+	{
+		for ( uint32_t k = m_treeTileStart[ index ]; k < m_treeTileStart[ index + 1 ]; k++ )
+		{
+			const float* pTree = &m_pBake->pTrees[ m_treeTileIndex[ k ] * 4 ];
+			sum += GGNavHashFinish( GGNavHashWords( GGNAV_HASH_SEED ^ 0x9e3779b97f4a7c15ULL, pTree, 4 ) );
+			*pMinY = rcMin( *pMinY, pTree[1] - 100.0f );
+			*pMaxY = rcMax( *pMaxY, pTree[1] + 100.0f );
+			count++;
+		}
+	}
+	*pCount = count;
+	return sum;
+}
+
+// the terrain as triangles on its sample grid (the diagonal GGTerrain's own triangle list uses), the tree trunks as boxes
+// that nothing stands on, and every surface below the water dropped
+void Sample_TileMesh::rasteriseBakeInputs( TileMeshData* tempData, int index, const rcConfig& cfg )
+{
+	std::vector<float>& tris = tempData->m_bakeTris;
+	std::vector<unsigned char>& areas = tempData->m_bakeAreas;
+	tris.clear();
+	areas.clear();
+	const float walkableThr = cosf( cfg.walkableSlopeAngle / 180.0f * RC_PI );
+
+	if ( tempData->m_hasSamples )
+	{
+		const float s = m_pBake->sampleSpacing;
+		const int sx = tempData->m_samplesX;
+		const float* H = tempData->m_heights.data();
+		for ( int z = 0; z < tempData->m_samplesZ - 1; z++ )
+		{
+			for ( int x = 0; x < sx - 1; x++ )
+			{
+				const float h00 = H[ z*sx + x ], h10 = H[ z*sx + x + 1 ];
+				const float h01 = H[ (z+1)*sx + x ], h11 = H[ (z+1)*sx + x + 1 ];
+				if ( h00 == -FLT_MAX || h10 == -FLT_MAX || h01 == -FLT_MAX || h11 == -FLT_MAX ) continue;
+				const float fx = tempData->m_samplesMinX + x * s;
+				const float fz = tempData->m_samplesMinZ + z * s;
+				const float quad[6][3] = { { fx, h00, fz }, { fx, h01, fz + s }, { fx + s, h10, fz },
+										   { fx + s, h10, fz }, { fx, h01, fz + s }, { fx + s, h11, fz + s } };
+				for ( int t = 0; t < 2; t++ )
+				{
+					const float* v0 = quad[t*3+0];
+					const float* v1 = quad[t*3+1];
+					const float* v2 = quad[t*3+2];
+					float e0[3], e1[3], n[3];
+					rcVsub( e0, v1, v0 );
+					rcVsub( e1, v2, v0 );
+					rcVcross( n, e0, e1 );
+					const float len = sqrtf( rcVdot( n, n ) );
+					areas.push_back( (len > 0 && n[1] / len > walkableThr) ? RC_WALKABLE_AREA : RC_NULL_AREA );
+					for ( int v = 0; v < 3; v++ ) { tris.push_back( quad[t*3+v][0] ); tris.push_back( quad[t*3+v][1] ); tris.push_back( quad[t*3+v][2] ); }
+				}
+			}
+		}
+	}
+
+	// tree trunks: solid boxes from 100 below to 100 above the base, as the old navmesh's tree obstacle
+	if ( index >= 0 && index + 1 < (int)m_treeTileStart.size() )
+	{
+		static const int boxTris[12][3] = { {0,1,2},{0,2,3},{4,6,5},{4,7,6},{0,4,5},{0,5,1},{1,5,6},{1,6,2},{2,6,7},{2,7,3},{3,7,4},{3,4,0} };
+		for ( uint32_t k = m_treeTileStart[ index ]; k < m_treeTileStart[ index + 1 ]; k++ )
+		{
+			const float* pTree = &m_pBake->pTrees[ m_treeTileIndex[ k ] * 4 ];
+			const float half = rcMax( pTree[3] * 0.5f, 5.0f );
+			const float corners[8][3] = {
+				{ pTree[0]-half, pTree[1]-100.0f, pTree[2]-half }, { pTree[0]+half, pTree[1]-100.0f, pTree[2]-half },
+				{ pTree[0]+half, pTree[1]-100.0f, pTree[2]+half }, { pTree[0]-half, pTree[1]-100.0f, pTree[2]+half },
+				{ pTree[0]-half, pTree[1]+100.0f, pTree[2]-half }, { pTree[0]+half, pTree[1]+100.0f, pTree[2]-half },
+				{ pTree[0]+half, pTree[1]+100.0f, pTree[2]+half }, { pTree[0]-half, pTree[1]+100.0f, pTree[2]+half } };
+			for ( int t = 0; t < 12; t++ )
+			{
+				areas.push_back( RC_NULL_AREA );
+				for ( int v = 0; v < 3; v++ ) { tris.push_back( corners[ boxTris[t][v] ][0] ); tris.push_back( corners[ boxTris[t][v] ][1] ); tris.push_back( corners[ boxTris[t][v] ][2] ); }
+			}
+		}
+	}
+
+	if ( !areas.empty() ) rcRasterizeTriangles( 0, tris.data(), areas.data(), (int)areas.size(), *tempData->m_solid, cfg.walkableClimb );
+
+	// below the water nothing is walkable; a bridge or pier above it keeps its surface
+	if ( m_pBake->waterY > -1e29f )
+	{
+		rcHeightfield& hf = *tempData->m_solid;
+		for ( int i = 0; i < hf.width * hf.height; i++ )
+		{
+			for ( rcSpan* pSpan = hf.spans[ i ]; pSpan; pSpan = pSpan->next )
+			{
+				if ( hf.bmin[1] + pSpan->smax * hf.ch < m_pBake->waterY ) pSpan->area = RC_NULL_AREA;
+			}
+		}
+	}
+}
+
+// one tile: its inputs hashed, and built again only if they changed (called from the build threads)
+void Sample_TileMesh::bakeTile( TileMeshData* tempData, TileWork* pWork, const float* tileMin, const float* tileMax )
+{
+	const int index = pWork->y * m_tilesX + pWork->x;
+	const float border = (ceilf( m_agentRadius / m_cellSize ) + 3) * m_cellSize; // buildTileMesh's cfg.borderSize
+	const float rmin[3] = { tileMin[0] - border, 0, tileMin[2] - border };
+	const float rmax[3] = { tileMax[0] + border, 0, tileMax[2] + border };
+
+	float minY = FLT_MAX, maxY = -FLT_MAX;
+	int objects = 0;
+	const uint64_t objectsHash = hashTileObjects( index, rmin, rmax, &minY, &maxY, &objects );
+
+	// the terrain's hash as stored while its inputs are those the tiles were built from, else from fresh samples
+	const bool bKnown = m_tilesBuildKey == m_pBake->buildKey && index < (int)m_tileHash.size();
+	uint64_t terrainHash;
+	if ( bKnown && m_tilesTerrainFingerprint == m_pBake->terrainFingerprint )
+	{
+		terrainHash = m_tileTerrainHash[ index ];
+	}
+	else
+	{
+		sampleTerrain( tempData, rmin, rmax );
+		const float grid[4] = { tempData->m_samplesMinX, tempData->m_samplesMinZ, (float)tempData->m_samplesX, (float)tempData->m_samplesZ };
+		terrainHash = GGNavHashFinish( GGNavHashWords( GGNavHashWords( GGNAV_HASH_SEED, grid, 4 ), tempData->m_heights.data(), tempData->m_heights.size() ) );
+	}
+	const uint64_t parts[3] = { terrainHash, objectsHash, m_pBake->buildKey };
+	const uint64_t hash = GGNavHashFinish( GGNavHashWords( GGNAV_HASH_SEED, parts, 6 ) );
+	pWork->hash = hash;
+	pWork->terrainHash = terrainHash;
+	if ( bKnown && m_tileHash[ index ] == hash ) return; // unchanged: the navmesh keeps the tile it has
+
+	pWork->bChanged = true;
+	if ( !tempData->m_hasSamples ) sampleTerrain( tempData, rmin, rmax );
+	if ( objects == 0 && tempData->m_terrainMaxY < m_pBake->waterY )
+	{
+		pWork->bUnderwater = true;
+		return;
+	}
+	minY = rcMin( minY, tempData->m_terrainMinY );
+	maxY = rcMax( maxY, tempData->m_terrainMaxY );
+	if ( minY > maxY ) return; // nothing at all here
+	const float tmin[3] = { tileMin[0], minY, tileMin[2] };
+	const float tmax[3] = { tileMax[0], maxY, tileMax[2] };
+	pWork->pOutData = buildTileMesh( tempData, pWork->x, pWork->y, tmin, tmax, pWork->dataSize );
+}
+
+bool Sample_TileMesh::bakeWholeMap( const GGNavMeshBake* pBake, uint64_t objectsHash, GGNavMeshBakeStats* pStats )
+{
+	LARGE_INTEGER freq, start, end;
+	QueryPerformanceFrequency( &freq );
+	QueryPerformanceCounter( &start );
+
+	int gw = 0, gh = 0;
+	rcCalcGridSize( pBake->bmin, pBake->bmax, m_cellSize, &gw, &gh );
+	const int ts = (int)m_tileSize;
+	const int tw = (gw + ts-1) / ts;
+	const int th = (gh + ts-1) / ts;
+	const float tcs = m_tileSize * m_cellSize;
+	pStats->tilesX = tw;
+	pStats->tilesZ = th;
+
+	// the navmesh held (loaded or kept from the last bake) if it was built with these settings over this area, else a new one
+	pStats->fresh = !m_navMesh || m_tilesBuildKey != pBake->buildKey || m_tilesX != tw || m_tilesZ != th || (int)m_tileHash.size() != tw*th;
+	if ( pStats->fresh )
+	{
+		dtFreeNavMesh( m_navMesh );
+		m_navMesh = dtAllocNavMesh();
+		if ( !m_navMesh ) return false;
+		dtNavMeshParams params;
+		memset( &params, 0, sizeof(params) );
+		rcVcopy( params.orig, pBake->bmin );
+		params.tileWidth = tcs;
+		params.tileHeight = tcs;
+		params.maxTiles = tw * th;
+		params.maxPolys = 1 << DT_POLY_BITS;
+		dtStatus status = m_navMesh->init( &params );
+		if ( dtStatusFailed( status ) )
+		{
+			char pLog[256];
+			sprintf_s( pLog, 256, "Navmesh (whole map): init failed (status 0x%x) for %d x %d tiles", status, tw, th );
+			timestampactivity( 0, pLog );
+			return false;
+		}
+		m_tileHash.assign( tw * th, 0 );
+		m_tileTerrainHash.assign( tw * th, 0 );
+		m_tilesBuildKey = 0;
+		m_tilesTerrainFingerprint = 0;
+		m_tilesX = tw;
+		m_tilesZ = th;
+	}
+	// search nodes per path query, as handleBuild
+	if ( dtStatusFailed( m_navQuery->init( m_navMesh, 4096 ) ) ) return false;
+
+	// the trees bucketed by the tiles (with their borders) they overlap
+	const float border = (ceilf( m_agentRadius / m_cellSize ) + 3) * m_cellSize;
+	m_treeTileStart.assign( tw * th + 1, 0 );
+	m_treeTileIndex.clear();
+	for ( int pass = 0; pass < 2; pass++ )
+	{
+		std::vector<uint32_t> fill;
+		if ( pass == 1 )
+		{
+			for ( int i = 0; i < tw * th; i++ ) m_treeTileStart[ i + 1 ] += m_treeTileStart[ i ];
+			m_treeTileIndex.resize( m_treeTileStart[ tw * th ] );
+			fill.assign( m_treeTileStart.begin(), m_treeTileStart.end() - 1 );
+		}
+		for ( uint32_t n = 0; n < pBake->numTrees; n++ )
+		{
+			const float* pTree = &pBake->pTrees[ n * 4 ];
+			const float reach = rcMax( pTree[3] * 0.5f, 5.0f ) + border;
+			const int x0 = rcMax( 0, (int)floorf( (pTree[0] - reach - pBake->bmin[0]) / tcs ) );
+			const int x1 = rcMin( tw - 1, (int)floorf( (pTree[0] + reach - pBake->bmin[0]) / tcs ) );
+			const int z0 = rcMax( 0, (int)floorf( (pTree[2] - reach - pBake->bmin[2]) / tcs ) );
+			const int z1 = rcMin( th - 1, (int)floorf( (pTree[2] + reach - pBake->bmin[2]) / tcs ) );
+			for ( int z = z0; z <= z1; z++ )
+			{
+				for ( int x = x0; x <= x1; x++ )
+				{
+					if ( pass == 0 ) m_treeTileStart[ z * tw + x + 1 ]++;
+					else m_treeTileIndex[ fill[ z * tw + x ]++ ] = n;
+				}
+			}
+		}
+	}
+
+	// every tile, on the build threads
+	m_pBake = pBake;
+	TileWork* pWork = new TileWork[ tw * th ];
+	for ( int z = 0; z < th; z++ )
+	{
+		for ( int x = 0; x < tw; x++ )
+		{
+			pWork[ z * tw + x ].x = x;
+			pWork[ z * tw + x ].y = z;
+		}
+	}
+	int get_gameisexe(void);
+	int isExe = get_gameisexe();
+	extern int g_iLastProgressPercentage;
+	SYSTEM_INFO sysinfo;
+	GetSystemInfo( &sysinfo );
+	uint32_t numThreads = sysinfo.dwNumberOfProcessors;
+	if ( numThreads > 3 ) numThreads--;
+	TileMeshThread::SetThreads( numThreads );
+	TileMeshThread::SetWork( this, tcs, pWork, tw * th, pBake->bmin, pBake->bmax );
+	TileMeshThread::StartThreads();
+	while ( TileMeshThread::AnyRunning() )
+	{
+		int iProgressPercentage = 20 + ((TileMeshThread::GetProgress() * 80) / 100);
+		if ( isExe == 0 && g_iLastProgressPercentage != iProgressPercentage )
+		{
+			g_iLastProgressPercentage = iProgressPercentage;
+			char pProgressStr[256];
+			sprintf_s( pProgressStr, 256, "BUILDING NAVIGATION MESH - %d\\100 Complete", iProgressPercentage );
+			printscreenprompt( pProgressStr );
+		}
+		Sleep( 10 );
+	}
+	m_pBake = 0;
+
+	// the changed tiles replace the old (Detour links them to their neighbours)
+	for ( int i = 0; i < tw * th; i++ )
+	{
+		TileWork& work = pWork[ i ];
+		m_tileTerrainHash[ i ] = work.terrainHash;
+		if ( !work.bChanged ) continue;
+		pStats->rebuilt++;
+		if ( work.bUnderwater ) pStats->underwater++;
+		dtTileRef ref = m_navMesh->getTileRefAt( work.x, work.y, 0 );
+		if ( ref ) m_navMesh->removeTile( ref, 0, 0 );
+		if ( work.pOutData )
+		{
+			if ( dtStatusFailed( m_navMesh->addTile( work.pOutData, work.dataSize, DT_TILE_FREE_DATA, 0, 0 ) ) )
+			{
+				dtFree( work.pOutData );
+				pStats->failed++;
+			}
+		}
+		m_tileHash[ i ] = work.hash;
+	}
+	delete [] pWork;
+	m_treeTileStart.clear();
+	m_treeTileIndex.clear();
+	m_tilesBuildKey = pBake->buildKey;
+	m_tilesTerrainFingerprint = pBake->terrainFingerprint;
+	m_tilesObjectsHash = objectsHash;
+
+	// what the navmesh holds now
+	const dtNavMesh* pNav = m_navMesh;
+	for ( int i = 0; i < pNav->getMaxTiles(); i++ )
+	{
+		const dtMeshTile* pTile = pNav->getTile( i );
+		if ( !pTile || !pTile->header || !pTile->dataSize ) continue;
+		pStats->withData++;
+		pStats->bytes += pTile->dataSize;
+		pStats->polys += pTile->header->polyCount;
+		pStats->verts += pTile->header->vertCount;
+		pStats->detailVerts += pTile->header->detailVertCount;
+		pStats->detailTris += pTile->header->detailTriCount;
+	}
+	QueryPerformanceCounter( &end );
+	pStats->milliseconds = (double)(end.QuadPart - start.QuadPart) * 1000.0 / (double)freq.QuadPart;
+	return true;
+}
+
+// the saved navmesh: a header, then one miniz stream of every tile's input and terrain hashes and each tile with data
+struct GGNavMeshFileHeader
+{
+	uint32_t magic; // 'GGNV'
+	uint32_t version;
+	uint64_t buildKey;
+	uint64_t terrainFingerprint;
+	uint64_t objectsHash;
+	dtNavMeshParams params;
+	int32_t tilesX, tilesZ;
+	uint32_t tileCount;
+	uint32_t reserved;
+	uint64_t rawSize;
+	uint64_t compressedSize;
+};
+static const uint32_t GGNAV_FILE_MAGIC = 'G' | ('G' << 8) | ('N' << 16) | ('V' << 24);
+static const uint32_t GGNAV_FILE_VERSION = 1;
+
+uint64_t Sample_TileMesh::saveWholeMap( const char* pPath )
+{
+	if ( !m_navMesh || !m_tilesBuildKey ) return 0;
+	const dtNavMesh* pNav = m_navMesh;
+	const int numTiles = m_tilesX * m_tilesZ;
+	uint64_t rawSize = (uint64_t)numTiles * 16;
+	uint32_t tileCount = 0;
+	for ( int i = 0; i < pNav->getMaxTiles(); i++ )
+	{
+		const dtMeshTile* pTile = pNav->getTile( i );
+		if ( !pTile || !pTile->header || !pTile->dataSize ) continue;
+		rawSize += 12 + pTile->dataSize;
+		tileCount++;
+	}
+	std::vector<unsigned char> raw( (size_t)rawSize );
+	unsigned char* p = raw.data();
+	memcpy( p, m_tileHash.data(), numTiles * 8 ); p += numTiles * 8;
+	memcpy( p, m_tileTerrainHash.data(), numTiles * 8 ); p += numTiles * 8;
+	for ( int i = 0; i < pNav->getMaxTiles(); i++ )
+	{
+		const dtMeshTile* pTile = pNav->getTile( i );
+		if ( !pTile || !pTile->header || !pTile->dataSize ) continue;
+		const int32_t rec[3] = { pTile->header->x, pTile->header->y, pTile->dataSize };
+		memcpy( p, rec, 12 ); p += 12;
+		memcpy( p, pTile->data, pTile->dataSize ); p += pTile->dataSize;
+	}
+
+	mz_ulong compressedSize = mz_compressBound( (mz_ulong)rawSize );
+	std::vector<unsigned char> compressed( compressedSize );
+	if ( mz_compress2( compressed.data(), &compressedSize, raw.data(), (mz_ulong)rawSize, MZ_BEST_SPEED ) != MZ_OK ) return 0;
+
+	GGNavMeshFileHeader header;
+	memset( &header, 0, sizeof(header) );
+	header.magic = GGNAV_FILE_MAGIC;
+	header.version = GGNAV_FILE_VERSION;
+	header.buildKey = m_tilesBuildKey;
+	header.terrainFingerprint = m_tilesTerrainFingerprint;
+	header.objectsHash = m_tilesObjectsHash;
+	header.params = *pNav->getParams();
+	header.tilesX = m_tilesX;
+	header.tilesZ = m_tilesZ;
+	header.tileCount = tileCount;
+	header.rawSize = rawSize;
+	header.compressedSize = compressedSize;
+
+	// written beside and then moved over the old file, so a failed save leaves the old one
+	char pTemp[MAX_PATH];
+	sprintf_s( pTemp, MAX_PATH, "%s.tmp", pPath );
+	FILE* fp = 0;
+	if ( fopen_s( &fp, pTemp, "wb" ) != 0 || !fp ) return 0;
+	bool bOk = fwrite( &header, sizeof(header), 1, fp ) == 1 && fwrite( compressed.data(), 1, compressedSize, fp ) == compressedSize;
+	fclose( fp );
+	if ( !bOk || !MoveFileExA( pTemp, pPath, MOVEFILE_REPLACE_EXISTING ) )
+	{
+		DeleteFileA( pTemp );
+		return 0;
+	}
+	return sizeof(header) + compressedSize;
+}
+
+int Sample_TileMesh::loadWholeMap( const char* pPath, uint64_t buildKey )
+{
+	FILE* fp = 0;
+	if ( fopen_s( &fp, pPath, "rb" ) != 0 || !fp ) return -1;
+	GGNavMeshFileHeader header;
+	bool bOk = fread( &header, sizeof(header), 1, fp ) == 1 && header.magic == GGNAV_FILE_MAGIC && header.version == GGNAV_FILE_VERSION && header.buildKey == buildKey;
+	std::vector<unsigned char> compressed;
+	if ( bOk )
+	{
+		compressed.resize( (size_t)header.compressedSize );
+		bOk = fread( compressed.data(), 1, compressed.size(), fp ) == compressed.size();
+	}
+	fclose( fp );
+	if ( !bOk ) return -1;
+
+	const int numTiles = header.tilesX * header.tilesZ;
+	std::vector<unsigned char> raw( (size_t)header.rawSize );
+	mz_ulong rawSize = (mz_ulong)header.rawSize;
+	if ( header.rawSize < (uint64_t)numTiles * 16 || mz_uncompress( raw.data(), &rawSize, compressed.data(), (mz_ulong)compressed.size() ) != MZ_OK || rawSize != header.rawSize ) return -1;
+	compressed.clear();
+	compressed.shrink_to_fit();
+
+	m_tilesBuildKey = 0; // nothing held counts as built until the load has finished
+	dtFreeNavMesh( m_navMesh );
+	m_navMesh = dtAllocNavMesh();
+	if ( !m_navMesh || dtStatusFailed( m_navMesh->init( &header.params ) ) ) return -1;
+	const unsigned char* p = raw.data();
+	m_tileHash.assign( (const uint64_t*)p, (const uint64_t*)p + numTiles ); p += numTiles * 8;
+	m_tileTerrainHash.assign( (const uint64_t*)p, (const uint64_t*)p + numTiles ); p += numTiles * 8;
+	const unsigned char* pEnd = raw.data() + raw.size();
+	int loaded = 0;
+	for ( uint32_t t = 0; t < header.tileCount && p + 12 <= pEnd; t++ )
+	{
+		int32_t rec[3];
+		memcpy( rec, p, 12 ); p += 12;
+		if ( rec[2] <= 0 || p + rec[2] > pEnd ) break;
+		unsigned char* pData = (unsigned char*)dtAlloc( rec[2], DT_ALLOC_PERM );
+		memcpy( pData, p, rec[2] ); p += rec[2];
+		if ( dtStatusFailed( m_navMesh->addTile( pData, rec[2], DT_TILE_FREE_DATA, 0, 0 ) ) ) dtFree( pData );
+		else loaded++;
+	}
+	m_tilesBuildKey = header.buildKey;
+	m_tilesTerrainFingerprint = header.terrainFingerprint;
+	m_tilesObjectsHash = header.objectsHash;
+	m_tilesX = header.tilesX;
+	m_tilesZ = header.tilesZ;
+	if ( dtStatusFailed( m_navQuery->init( m_navMesh, 4096 ) ) ) return -1;
+	return loaded;
+}
+
 void Sample_TileMesh::removeAllTiles()
 {
 	if (!m_geom || !m_navMesh)
@@ -994,18 +1523,20 @@ void Sample_TileMesh::removeAllTiles()
 
 unsigned char* Sample_TileMesh::buildTileMesh(TileMeshData* tempData, const int tx, const int ty, const float* bmin, const float* bmax, int& dataSize)
 {
-	if (!m_geom || !m_geom->getMesh() || !m_geom->getChunkyMesh())
+	// GG: the whole map bake builds a tile from the terrain and trees too, so it needs no static objects
+	const bool bHasStatics = m_geom && m_geom->getMesh() && m_geom->getChunkyMesh();
+	if (!bHasStatics && !m_pBake)
 	{
 		tileLog(RC_LOG_ERROR, "buildNavigation: Input mesh is not specified.");
 		return 0;
 	}
 	
 	cleanup();
-	
-	const float* verts = m_geom->getMesh()->getVerts();
-	const int nverts = m_geom->getMesh()->getVertCount();
-	const int ntris = m_geom->getMesh()->getTriCount();
-	const rcChunkyTriMesh* chunkyMesh = m_geom->getChunkyMesh();
+
+	const float* verts = bHasStatics ? m_geom->getMesh()->getVerts() : 0;
+	const int nverts = bHasStatics ? m_geom->getMesh()->getVertCount() : 0;
+	const int ntris = bHasStatics ? m_geom->getMesh()->getTriCount() : 0;
+	const rcChunkyTriMesh* chunkyMesh = bHasStatics ? m_geom->getChunkyMesh() : 0;
 
 	rcConfig& cfg = tempData->m_cfg;
 		
@@ -1056,6 +1587,12 @@ unsigned char* Sample_TileMesh::buildTileMesh(TileMeshData* tempData, const int 
 	cfg.bmin[2] -= cfg.borderSize*cfg.cs;
 	cfg.bmax[0] += cfg.borderSize*cfg.cs;
 	cfg.bmax[2] += cfg.borderSize*cfg.cs;
+	if (m_pBake)
+	{
+		// GG: the tile's own height range (bmin and bmax carry it), with room for an agent above the highest surface
+		cfg.bmin[1] -= cfg.ch * 2;
+		cfg.bmax[1] += m_agentHeight + cfg.ch * 2;
+	}
 	
 	tileLog(RC_LOG_PROGRESS, "Building navigation:");
 	tileLog(RC_LOG_PROGRESS, " - %d x %d cells", cfg.width, cfg.height);
@@ -1074,6 +1611,8 @@ unsigned char* Sample_TileMesh::buildTileMesh(TileMeshData* tempData, const int 
 		return 0;
 	}
 	
+	if (bHasStatics)
+	{
 	// Allocate array that can hold triangle flags.
 	// If you have multiple meshes you need to process, allocate
 	// and array which can hold the max number of triangles you need to process.
@@ -1092,7 +1631,7 @@ unsigned char* Sample_TileMesh::buildTileMesh(TileMeshData* tempData, const int 
 	int* cid = 0;
 	const int ncid = rcGetChunksOverlappingRect(chunkyMesh, tbmin, tbmax, &cid);
 	if ( !cid ) return 0;
-	else if ( !ncid )
+	else if ( !ncid && !m_pBake )
 	{
 		delete [] cid;
 		return 0;
@@ -1109,13 +1648,20 @@ unsigned char* Sample_TileMesh::buildTileMesh(TileMeshData* tempData, const int 
 								verts, nverts, ctris, nctris, tempData->m_triareas);
 		
 		if (!rcRasterizeTriangles(0, verts, nverts, ctris, tempData->m_triareas, nctris, *tempData->m_solid, cfg.walkableClimb))
+		{
+			delete [] cid;
 			return 0;
+		}
 	}
 
 	delete [] cid;
 	
 	delete [] tempData->m_triareas;
 	tempData->m_triareas = 0;
+	}
+
+	// GG: the whole map bake's terrain and trees, and its water
+	if (m_pBake) rasteriseBakeInputs(tempData, ty * m_tilesX + tx, cfg);
 		
 	// Once all geometry is rasterized, we do initial pass of filtering to
 	// remove unwanted overhangs caused by the conservative rasterization

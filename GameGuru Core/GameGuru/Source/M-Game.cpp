@@ -303,6 +303,311 @@ float* loadVertices(const std::string& filename, int& outNumVertices)
 	return pVertices;
 }
 
+// GG: the static entities the navmesh is built around, as limbs of iBuildAllLevelObj (both navmesh builders), with a hash
+// of what was added, combined in any order, for the whole map navmesh's change check
+static uint64_t game_navmeshmix(const void* pData, size_t bytes)
+{
+	uint64_t h = 0xcbf29ce484222325ULL;
+	const uint32_t* p = (const uint32_t*)pData;
+	for (size_t i = 0; i < bytes / 4; i++) { h ^= p[i]; h *= 0x100000001b3ULL; }
+	h ^= h >> 33; h *= 0xff51afd7ed558ccdULL; h ^= h >> 33;
+	return h;
+}
+
+static uint64_t game_addnavmeshstatics(int iBuildAllLevelObj, int iBuildAllLevelMesh, int& iLimbIndex, float editableSize, bool bUsingNavMeshLimitCustomArea, GGVECTOR3 vecCustomPlayAreaMin, GGVECTOR3 vecCustomPlayAreaMax, bool bAddLimbs = true)
+{
+	uint64_t uHash = 0;
+	for (int e = 1; e <= g.entityelementlist; e++)
+	{
+		if (t.entityelement[e].staticflag == 1)
+		{
+			int iObj = t.entityelement[e].obj;
+			int iBankindex = t.entityelement[e].bankindex;
+			bool bValid = true;
+			if (t.entityprofile[iBankindex].ismarker != 0) bValid = false;
+			if (t.entityprofile[iBankindex].collisionmode == 11) bValid = false;
+			if (t.entityprofile[iBankindex].collisionmode == 12) bValid = false;
+			if (t.entityprofile[iBankindex].isammo == 1) bValid = false;
+			if (t.entityprofile[iBankindex].isweapon_s.Len() > 1) bValid = false;
+
+			if (bValid && iObj > 0 && ObjectExist(iObj) == 1)
+			{
+				// get position of static obstruction
+				GGVECTOR3 vecPos = GGVECTOR3(ObjectPositionX(iObj), ObjectPositionY(iObj), ObjectPositionZ(iObj));
+				if (vecPos.x > editableSize || vecPos.x < -editableSize || vecPos.z > editableSize || vecPos.z < -editableSize) continue;
+
+				// also reject if object is moved to a non-visible position
+				if (vecPos.y <= -50000) continue;
+
+				// extra feature called NAVMESH LIMIT
+				if (bUsingNavMeshLimitCustomArea == true)
+				{
+					if (vecPos.x < vecCustomPlayAreaMin.x ||
+						vecPos.x > vecCustomPlayAreaMax.x ||
+						vecPos.z < vecCustomPlayAreaMin.z ||
+						vecPos.z > vecCustomPlayAreaMax.z)
+					{
+						// this object outside of custom navmesh limit area, can ignore
+						continue;
+					}
+				}
+
+				// GG: what the whole map navmesh's change check sees of it
+				const float fHashed[14] = { (float)iBankindex, (float)t.entityprofile[iBankindex].collisionmode, vecPos.x, vecPos.y, vecPos.z,
+					ObjectAngleX(iObj), ObjectAngleY(iObj), ObjectAngleZ(iObj), ObjectScaleX(iObj), ObjectScaleY(iObj), ObjectScaleZ(iObj),
+					t.entityelement[e].abscolx_f, t.entityelement[e].abscolz_f, t.entityelement[e].abscolradius_f };
+				uHash += game_navmeshmix(fHashed, sizeof(fHashed));
+				if (bAddLimbs == false) continue;
+
+				//PE: Add physics shapes here.
+				if (GetMeshExist(iBuildAllLevelMesh) == 1) DeleteMesh(iBuildAllLevelMesh);
+				if (iBankindex > 0 && t.entityprofile[iBankindex].collisionmode >= 50 && t.entityprofile[iBankindex].collisionmode < 60)
+				{
+					int newobj = g.tempobjectoffset + 1;
+					if (ObjectExist(newobj)) DeleteObject(newobj);
+					MakeObjectCylinder(newobj, 1);
+
+					t.tSizeY_f = ObjectSizeY(iObj, 1);
+
+					//  if have ABS position from AI OBSTACLE calc, use that instead
+					if (t.entityelement[e].abscolx_f != -1)
+					{
+						t.tFinalX_f = t.entityelement[e].abscolx_f;
+						t.tFinalZ_f = t.entityelement[e].abscolz_f;
+					}
+					else
+					{
+						t.tFinalX_f = ObjectPositionX(iObj);
+						t.tFinalZ_f = ObjectPositionZ(iObj);
+					}
+					t.tFinalY_f = ObjectPositionY(iObj) + (t.tSizeY_f / 2.0);
+
+					//  if have ABS radius from AI OBSTACLE calc, use that instead
+					if (t.entityelement[e].abscolradius_f != -1)
+					{
+						t.tSizeX_f = t.entityelement[e].abscolradius_f;
+						t.tSizeZ_f = t.entityelement[e].abscolradius_f;
+					}
+					else
+					{
+						t.tSizeX_f = 20;
+						t.tSizeZ_f = 20;
+					}
+
+					//  increase size by 25%
+					t.tSizeX_f = t.tSizeX_f * 1.25;
+					t.tSizeZ_f = t.tSizeZ_f * 1.25;
+
+					ScaleObject(newobj, t.tSizeX_f * 100, t.tSizeY_f * 100, t.tSizeZ_f * 100);
+					MakeMeshFromObject(iBuildAllLevelMesh, newobj);
+					AddLimb(iBuildAllLevelObj, iLimbIndex, iBuildAllLevelMesh);
+					OffsetLimb(iBuildAllLevelObj, iLimbIndex, ObjectPositionX(iObj), ObjectPositionY(iObj) + (t.tSizeY_f * 0.5), ObjectPositionZ(iObj));
+					iLimbIndex++;
+				}
+				else
+				{
+					// to make a cleaner NAVMESH, stairs are better as ramps, so use OBJ if present for this purpose
+					// if object uses convex hull, see if there is an OBJ we can swap inplace of the objects full mesh
+					int iObjToUseForNavMesh = iObj;
+					bool bHeavyPOlyShapesShouldCheckForOBJ = false;
+					if (t.entityprofile[iBankindex].collisionmode == 1) bHeavyPOlyShapesShouldCheckForOBJ = true; // polygon
+					if (t.entityprofile[iBankindex].collisionmode == 8) bHeavyPOlyShapesShouldCheckForOBJ = true; // polygon with OBJ
+					if (t.entityprofile[iBankindex].collisionmode == 9) bHeavyPOlyShapesShouldCheckForOBJ = true; // convex hull
+					if (t.entityprofile[iBankindex].collisionmode == 10) bHeavyPOlyShapesShouldCheckForOBJ = true; // hull decomp
+					if (bHeavyPOlyShapesShouldCheckForOBJ == true)
+					{
+						char pNoFPE[MAX_PATH];
+						strcpy(pNoFPE, t.entitybank_s[iBankindex].Get());
+						pNoFPE[strlen(pNoFPE) - 4] = 0;
+						char pOBJCollisionMesh[MAX_PATH];
+						sprintf(pOBJCollisionMesh, "%s\\Files\\entitybank\\%s.obj", g.fpscrootdir_s.Get(), pNoFPE);
+						GG_GetRealPath(pOBJCollisionMesh, 0);
+						if (FileExist(pOBJCollisionMesh) == 0)
+						{
+							sprintf(pOBJCollisionMesh, "%s\\Files\\entitybank\\%s_COL.obj", g.fpscrootdir_s.Get(), pNoFPE);
+							GG_GetRealPath(pOBJCollisionMesh, 0);
+						}
+						if (FileExist(pOBJCollisionMesh) == 1)
+						{
+							// can optimize this by keeping the low poly OBJ, perhaps add to DBO as a LOD??
+							if (ObjectExist(g.temp2objectoffset) == 1) DeleteObject(g.temp2objectoffset);
+							LoadObject (pOBJCollisionMesh, g.temp2objectoffset);
+							iObjToUseForNavMesh = g.temp2objectoffset;
+							RotateObject(iObjToUseForNavMesh, ObjectAngleX(iObj), ObjectAngleY(iObj), ObjectAngleZ(iObj));
+							ScaleObject(iObjToUseForNavMesh, ObjectScaleX(iObj), ObjectScaleY(iObj), ObjectScaleZ(iObj));
+						}
+					}
+					// regular mesh from object
+					MakeMeshFromObject(iBuildAllLevelMesh, iObjToUseForNavMesh);
+					AddLimb(iBuildAllLevelObj, iLimbIndex, iBuildAllLevelMesh);
+					OffsetLimb(iBuildAllLevelObj, iLimbIndex, ObjectPositionX(iObj), ObjectPositionY(iObj), ObjectPositionZ(iObj));
+					iLimbIndex++;
+				}
+			}
+		}
+	}
+	return uHash;
+}
+
+// GG: the whole map navmesh ------------------------------------------------------------------------------------------------
+int g_iNavMeshWholeMap = 1; // setup.ini navmeshwholemap: 0 builds the old navmesh (the area round the entities, from a terrain scan, at every game start)
+int g_iNavMeshVertsPerPoly = 6; // setup.ini navmeshvertsperpoly (3 to 6): a triangle per polygon took a whole six vertex polygon each
+int g_iNavMeshLimitFlags = 0; // setup.ini navmeshlimitflags: 1 keeps the whole map navmesh inside the NAVMESH LIMIT flags' box (they were the way round the old tile cap)
+
+// the terrain's height for the navmesh's tiles, from the build threads: the accurate path, which reads no terrain chunks;
+// where a flat area's height is not known yet (NaN), the height without flat areas
+static int game_navmeshterrainheight(float x, float z, float* pY)
+{
+	float y = 0;
+	if (!GGTerrain_GetHeight(x, z, &y, 1, 1)) return 0;
+	if (y != y && !GGTerrain_GetHeight(x, z, &y, 1, 0)) return 0;
+	*pY = y;
+	return 1;
+}
+
+// the .nav file beside the level's .fpm (resolved for reading or for writing)
+static bool game_navmeshfile(char* pOut, bool bWrite)
+{
+	pOut[0] = 0;
+	if (g.projectfilename_s.Len() < 5) return false;
+	strcpy_s(pOut, MAX_PATH, g.projectfilename_s.Get());
+	char* pExt = strrchr(pOut, '.');
+	if (!pExt || _stricmp(pExt, ".fpm") != 0) { pOut[0] = 0; return false; }
+	strcpy_s(pExt, MAX_PATH - (pExt - pOut), ".nav");
+	GG_GetRealPath(pOut, bWrite ? 1 : 0);
+	return true;
+}
+
+// tiles over the whole editable area (or the NAVMESH LIMIT flags' box) built from the terrain, the static entities and
+// the trees, kept in a .nav file with the level; only tiles whose inputs changed are built again
+static void game_createwholemapnavmesh(bool bStandalone)
+{
+	float editableSize = GGTerrain_GetEditableSize();
+	GGNavMeshBake bake;
+	bake.bmin[0] = -editableSize; bake.bmin[1] = -100000.0f; bake.bmin[2] = -editableSize;
+	bake.bmax[0] = editableSize; bake.bmax[1] = 100000.0f; bake.bmax[2] = editableSize;
+	bool bUsingNavMeshLimitCustomArea = false;
+	GGVECTOR3 vecCustomPlayAreaMin = GGVECTOR3(999999, 999999, 999999);
+	GGVECTOR3 vecCustomPlayAreaMax = GGVECTOR3(-999999, -999999, -999999);
+	for (int e = 1; e <= g.entityelementlist; e++)
+	{
+		int entid = t.entityelement[e].bankindex;
+		if (g_iNavMeshLimitFlags == 1 && t.entityprofile[entid].ismarker == 11 && stricmp(t.entityelement[e].eleprof.name_s.Get(), "navmesh limit") == NULL)
+		{
+			if (t.entityelement[e].x > vecCustomPlayAreaMax.x) vecCustomPlayAreaMax.x = t.entityelement[e].x;
+			if (t.entityelement[e].z > vecCustomPlayAreaMax.z) vecCustomPlayAreaMax.z = t.entityelement[e].z;
+			if (t.entityelement[e].x < vecCustomPlayAreaMin.x) vecCustomPlayAreaMin.x = t.entityelement[e].x;
+			if (t.entityelement[e].z < vecCustomPlayAreaMin.z) vecCustomPlayAreaMin.z = t.entityelement[e].z;
+			bUsingNavMeshLimitCustomArea = true;
+		}
+	}
+	if (bUsingNavMeshLimitCustomArea)
+	{
+		if (vecCustomPlayAreaMin.x > bake.bmin[0]) bake.bmin[0] = vecCustomPlayAreaMin.x;
+		if (vecCustomPlayAreaMin.z > bake.bmin[2]) bake.bmin[2] = vecCustomPlayAreaMin.z;
+		if (vecCustomPlayAreaMax.x < bake.bmax[0]) bake.bmax[0] = vecCustomPlayAreaMax.x;
+		if (vecCustomPlayAreaMax.z < bake.bmax[2]) bake.bmax[2] = vecCustomPlayAreaMax.z;
+	}
+	bake.waterY = t.terrain.waterliney_f;
+	bake.pfnHeight = game_navmeshterrainheight;
+	bake.terrainFingerprint = GGTerrain_GetHeightFingerprint();
+
+	// the static entities as the old navmesh takes them, first only their hash
+	int iBuildAllLevelMesh = g.meshgeneralwork;
+	int iBuildAllLevelObj = g.tempobjectoffset + 0;
+	int iLimbIndex = 1;
+	uint64_t objectsHash = game_addnavmeshstatics(iBuildAllLevelObj, iBuildAllLevelMesh, iLimbIndex, editableSize, bUsingNavMeshLimitCustomArea, vecCustomPlayAreaMin, vecCustomPlayAreaMax, false);
+
+	// the trees, as trunks of their own thickness
+	std::vector<float> trees;
+	if (ggtrees_global_params.draw_enabled == 1)
+	{
+		float fCenterX = (bake.bmin[0] + bake.bmax[0]) / 2;
+		float fCenterZ = (bake.bmin[2] + bake.bmax[2]) / 2;
+		float fHalfX = (bake.bmax[0] - bake.bmin[0]) / 2;
+		float fHalfZ = (bake.bmax[2] - bake.bmin[2]) / 2;
+		GGTrees::GGTreePoint* pOutPoints = NULL;
+		int iTreeCount = GGTrees::GGTrees_GetClosest(fCenterX, fCenterZ, sqrtf(fHalfX * fHalfX + fHalfZ * fHalfZ), &pOutPoints);
+		if (pOutPoints)
+		{
+			trees.reserve(iTreeCount * 4);
+			for (int n = 0; n < iTreeCount; n++)
+			{
+				const GGTrees::GGTreePoint& tree = pOutPoints[n];
+				if (tree.x < bake.bmin[0] - 100 || tree.x > bake.bmax[0] + 100 || tree.z < bake.bmin[2] - 100 || tree.z > bake.bmax[2] + 100) continue;
+				const float fTree[4] = { tree.x, tree.y, tree.z, tree.scale };
+				trees.insert(trees.end(), fTree, fTree + 4);
+				objectsHash += game_navmeshmix(fTree, sizeof(fTree)) ^ 0x9e3779b97f4a7c15ULL;
+			}
+			delete[] pOutPoints;
+		}
+	}
+	bake.pTrees = trees.data();
+	bake.numTrees = (uint32_t)(trees.size() / 4);
+
+
+	// the file beside the level; a standalone game that must build its own keeps it in navbank
+	char pLevelNav[MAX_PATH], pLevelNavWrite[MAX_PATH], pCacheNav[MAX_PATH] = "";
+	game_navmeshfile(pLevelNav, false);
+	game_navmeshfile(pLevelNavWrite, true);
+	if (bStandalone && pLevelNav[0])
+	{
+		cstr importer_getfilenameonly(LPSTR pFileAndPossiblePath);
+		cstr filenameonly = importer_getfilenameonly(g.projectfilename_s.Get());
+		std::string cachename = filenameonly.Get();
+		replaceAll(cachename, ".fpm", ".nav");
+		DARKSDK LPSTR GetDir(void);
+		std::string fullname = (char*)GetDir();
+		fullname = fullname + "\\navbank\\";
+		CreateDirectoryA(fullname.c_str(), NULL);
+		fullname = fullname + cachename;
+		strcpy_s(pCacheNav, MAX_PATH, fullname.c_str());
+	}
+
+	// the navmesh held or saved, if it was built from these inputs
+	char pReport[2048];
+	char pNavLog[1024];
+	bool bCurrent = false;
+	if (bStandalone) bCurrent = g_RecastDetour.prepareWholeMap(&bake, objectsHash, g_iNavMeshVertsPerPoly, g.projectfilename_s.Get(), pCacheNav, pLevelNav, pReport, 2048);
+	else bCurrent = g_RecastDetour.prepareWholeMap(&bake, objectsHash, g_iNavMeshVertsPerPoly, g.projectfilename_s.Get(), pLevelNav, 0, pReport, 2048);
+	sprintf_s(pNavLog, 1024, "Navmesh (whole map): x %.0f to %.0f, z %.0f to %.0f%s, %u trees, water %.0f; %s%s",
+		bake.bmin[0], bake.bmax[0], bake.bmin[2], bake.bmax[2], bUsingNavMeshLimitCustomArea ? " (NAVMESH LIMIT flags)" : "",
+		bake.numTrees, bake.waterY, pReport, bCurrent ? "inputs unchanged, nothing built" : "inputs changed");
+	timestampactivity(0, pNavLog);
+	if (bCurrent)
+	{
+		// the level saved under a new name keeps its navmesh too
+		if (bStandalone == false && pLevelNavWrite[0] && FileExist(pLevelNav) == 0)
+		{
+			uint64_t bytes = g_RecastDetour.saveWholeMap(pLevelNavWrite);
+			sprintf_s(pNavLog, 1024, "Navmesh (whole map): %s %s (%llu bytes)", bytes ? "saved" : "could not save", pLevelNavWrite, (unsigned long long)bytes);
+			timestampactivity(0, pNavLog);
+		}
+		return;
+	}
+
+	// else the static entities in one triangle soup, and the tiles whose inputs changed built again
+	if (ObjectExist(iBuildAllLevelObj) == 1) DeleteObject(iBuildAllLevelObj);
+	MakeObjectPlane(iBuildAllLevelObj, 1, 1);
+	HideObject(iBuildAllLevelObj);
+	game_addnavmeshstatics(iBuildAllLevelObj, iBuildAllLevelMesh, iLimbIndex, editableSize, bUsingNavMeshLimitCustomArea, vecCustomPlayAreaMin, vecCustomPlayAreaMax);
+	float* pStaticVerts = 0;
+	uint32_t numStaticVerts = 0;
+	if (iLimbIndex > 1)
+	{
+		numStaticVerts = GetObjectNavMeshVertexCount(iBuildAllLevelObj);
+		pStaticVerts = new float[numStaticVerts * 3];
+		GetObjectNavMeshVertices(iBuildAllLevelObj, pStaticVerts);
+	}
+	DeleteObject(iBuildAllLevelObj);
+	sprintf_s(pNavLog, 1024, "Navmesh (whole map): %u static triangles", numStaticVerts / 3);
+	timestampactivity(0, pNavLog);
+
+	g_RecastDetour.bakeWholeMap(&bake, pStaticVerts, numStaticVerts, objectsHash, bStandalone ? pCacheNav : pLevelNavWrite, pReport, 2048);
+	timestampactivity(0, pReport);
+	if (pStaticVerts) delete[] pStaticVerts;
+}
+
 void game_createnavmeshfromlevel ( bool bForceGeneration )
 {
 	bool bStandalone = bForceGeneration;
@@ -311,6 +616,13 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 	g_RecastDetour.ResetBlockerSystem();
 	g_RecastDetour.ResetTokenDropSystem();
 	g_RecastDetour.SetWaterTableY(t.terrain.waterliney_f);
+
+	// GG: the whole map navmesh, built tile by tile and kept with the level (setup.ini navmeshwholemap=0 for the old one)
+	if (g_iNavMeshWholeMap == 1 && t.visuals.bEnableZeroNavMeshMode == false)
+	{
+		game_createwholemapnavmesh(bStandalone);
+		return;
+	}
 
 	if (bStandalone)
 	{
@@ -579,128 +891,7 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 	// all static objects in level
 	if (bIgnoreStaticStuff == false)
 	{
-		for (int e = 1; e <= g.entityelementlist; e++)
-		{
-			if (t.entityelement[e].staticflag == 1)
-			{
-				int iObj = t.entityelement[e].obj;
-				int iBankindex = t.entityelement[e].bankindex;
-				bool bValid = true;
-				if (t.entityprofile[iBankindex].ismarker != 0) bValid = false;
-				if (t.entityprofile[iBankindex].collisionmode == 11) bValid = false;
-				if (t.entityprofile[iBankindex].collisionmode == 12) bValid = false;
-				if (t.entityprofile[iBankindex].isammo == 1) bValid = false;
-				if (t.entityprofile[iBankindex].isweapon_s.Len() > 1) bValid = false;
-
-				if (bValid && iObj > 0 && ObjectExist(iObj) == 1)
-				{
-					// get position of static obstruction
-					GGVECTOR3 vecPos = GGVECTOR3(ObjectPositionX(iObj), ObjectPositionY(iObj), ObjectPositionZ(iObj));
-					if (vecPos.x > editableSize || vecPos.x < -editableSize || vecPos.z > editableSize || vecPos.z < -editableSize) continue;
-
-					// also reject if object is moved to a non-visible position
-					if (vecPos.y <= -50000) continue;
-
-					// extra feature called NAVMESH LIMIT
-					if (bUsingNavMeshLimitCustomArea == true)
-					{
-						if (vecPos.x < vecCustomPlayAreaMin.x ||
-							vecPos.x > vecCustomPlayAreaMax.x ||
-							vecPos.z < vecCustomPlayAreaMin.z ||
-							vecPos.z > vecCustomPlayAreaMax.z)
-						{
-							// this object outside of custom navmesh limit area, can ignore
-							continue;
-						}
-					}
-
-					//PE: Add physics shapes here.
-					if (GetMeshExist(iBuildAllLevelMesh) == 1) DeleteMesh(iBuildAllLevelMesh);
-					if (iBankindex > 0 && t.entityprofile[iBankindex].collisionmode >= 50 && t.entityprofile[iBankindex].collisionmode < 60)
-					{
-						int newobj = g.tempobjectoffset + 1;
-						if (ObjectExist(newobj)) DeleteObject(newobj);
-						MakeObjectCylinder(newobj, 1);
-
-						t.tSizeY_f = ObjectSizeY(iObj, 1);
-
-						//  if have ABS position from AI OBSTACLE calc, use that instead
-						if (t.entityelement[e].abscolx_f != -1)
-						{
-							t.tFinalX_f = t.entityelement[e].abscolx_f;
-							t.tFinalZ_f = t.entityelement[e].abscolz_f;
-						}
-						else
-						{
-							t.tFinalX_f = ObjectPositionX(iObj);
-							t.tFinalZ_f = ObjectPositionZ(iObj);
-						}
-						t.tFinalY_f = ObjectPositionY(iObj) + (t.tSizeY_f / 2.0);
-
-						//  if have ABS radius from AI OBSTACLE calc, use that instead
-						if (t.entityelement[e].abscolradius_f != -1)
-						{
-							t.tSizeX_f = t.entityelement[e].abscolradius_f;
-							t.tSizeZ_f = t.entityelement[e].abscolradius_f;
-						}
-						else
-						{
-							t.tSizeX_f = 20;
-							t.tSizeZ_f = 20;
-						}
-
-						//  increase size by 25%
-						t.tSizeX_f = t.tSizeX_f * 1.25;
-						t.tSizeZ_f = t.tSizeZ_f * 1.25;
-
-						ScaleObject(newobj, t.tSizeX_f * 100, t.tSizeY_f * 100, t.tSizeZ_f * 100);
-						MakeMeshFromObject(iBuildAllLevelMesh, newobj);
-						AddLimb(iBuildAllLevelObj, iLimbIndex, iBuildAllLevelMesh);
-						OffsetLimb(iBuildAllLevelObj, iLimbIndex, ObjectPositionX(iObj), ObjectPositionY(iObj) + (t.tSizeY_f * 0.5), ObjectPositionZ(iObj));
-						iLimbIndex++;
-					}
-					else
-					{
-						// to make a cleaner NAVMESH, stairs are better as ramps, so use OBJ if present for this purpose
-						// if object uses convex hull, see if there is an OBJ we can swap inplace of the objects full mesh
-						int iObjToUseForNavMesh = iObj;
-						bool bHeavyPOlyShapesShouldCheckForOBJ = false;
-						if (t.entityprofile[iBankindex].collisionmode == 1) bHeavyPOlyShapesShouldCheckForOBJ = true; // polygon
-						if (t.entityprofile[iBankindex].collisionmode == 8) bHeavyPOlyShapesShouldCheckForOBJ = true; // polygon with OBJ
-						if (t.entityprofile[iBankindex].collisionmode == 9) bHeavyPOlyShapesShouldCheckForOBJ = true; // convex hull
-						if (t.entityprofile[iBankindex].collisionmode == 10) bHeavyPOlyShapesShouldCheckForOBJ = true; // hull decomp
-						if (bHeavyPOlyShapesShouldCheckForOBJ == true)
-						{
-							char pNoFPE[MAX_PATH];
-							strcpy(pNoFPE, t.entitybank_s[iBankindex].Get());
-							pNoFPE[strlen(pNoFPE) - 4] = 0;
-							char pOBJCollisionMesh[MAX_PATH];
-							sprintf(pOBJCollisionMesh, "%s\\Files\\entitybank\\%s.obj", g.fpscrootdir_s.Get(), pNoFPE);
-							GG_GetRealPath(pOBJCollisionMesh, 0);
-							if (FileExist(pOBJCollisionMesh) == 0)
-							{
-								sprintf(pOBJCollisionMesh, "%s\\Files\\entitybank\\%s_COL.obj", g.fpscrootdir_s.Get(), pNoFPE);
-								GG_GetRealPath(pOBJCollisionMesh, 0);
-							}
-							if (FileExist(pOBJCollisionMesh) == 1)
-							{
-								// can optimize this by keeping the low poly OBJ, perhaps add to DBO as a LOD??
-								if (ObjectExist(g.temp2objectoffset) == 1) DeleteObject(g.temp2objectoffset);
-								LoadObject (pOBJCollisionMesh, g.temp2objectoffset);
-								iObjToUseForNavMesh = g.temp2objectoffset;
-								RotateObject(iObjToUseForNavMesh, ObjectAngleX(iObj), ObjectAngleY(iObj), ObjectAngleZ(iObj));
-								ScaleObject(iObjToUseForNavMesh, ObjectScaleX(iObj), ObjectScaleY(iObj), ObjectScaleZ(iObj));
-							}
-						}
-						// regular mesh from object
-						MakeMeshFromObject(iBuildAllLevelMesh, iObjToUseForNavMesh);
-						AddLimb(iBuildAllLevelObj, iLimbIndex, iBuildAllLevelMesh);
-						OffsetLimb(iBuildAllLevelObj, iLimbIndex, ObjectPositionX(iObj), ObjectPositionY(iObj), ObjectPositionZ(iObj));
-						iLimbIndex++;
-					}
-				}
-			}
-		}
+		game_addnavmeshstatics(iBuildAllLevelObj, iBuildAllLevelMesh, iLimbIndex, editableSize, bUsingNavMeshLimitCustomArea, vecCustomPlayAreaMin, vecCustomPlayAreaMax);
 	}
 
 	// simple obstacle object/mesh to punch into navmesh

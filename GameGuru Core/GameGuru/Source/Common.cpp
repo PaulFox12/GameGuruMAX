@@ -3118,6 +3118,18 @@ void FPSC_LoadSETUPINI (bool bUseMySystemFolder)
 					// DOCDOC: terrainsafegpu = Set to 1 to build terrain GPU buffers on the main thread only. Slower terrain streaming, but fixes intermittent DEVICE LOST GPU crashes.
 					extern int ggterrain_safe_gpu_singlethread;
 					t.tryfield_s = "terrainsafegpu"; if (t.field_s == t.tryfield_s) ggterrain_safe_gpu_singlethread = t.value1;
+
+					// DOCDOC: navmeshwholemap = 1 (the default) builds the navmesh over the whole map tile by tile and keeps it in a .nav file beside the level, building again only the tiles whose terrain, static objects or trees changed; 0 builds the old navmesh, round the entities, at every game start.
+					extern int g_iNavMeshWholeMap;
+					t.tryfield_s = "navmeshwholemap"; if (t.field_s == t.tryfield_s) g_iNavMeshWholeMap = t.value1;
+
+					// DOCDOC: navmeshvertsperpoly = The most vertices a navmesh polygon has, 3 to 6 (6 by default; fewer means more, smaller polygons and a larger navmesh).
+					extern int g_iNavMeshVertsPerPoly;
+					t.tryfield_s = "navmeshvertsperpoly"; if (t.field_s == t.tryfield_s) g_iNavMeshVertsPerPoly = (t.value1 < 3) ? 3 : ((t.value1 > 6) ? 6 : t.value1);
+
+					// DOCDOC: navmeshlimitflags = 1 keeps the whole map navmesh inside the box the NAVMESH LIMIT flags mark; 0 (the default) covers the whole editable area whatever flags the level has.
+					extern int g_iNavMeshLimitFlags;
+					t.tryfield_s = "navmeshlimitflags"; if (t.field_s == t.tryfield_s) g_iNavMeshLimitFlags = t.value1;
 				}
 			}
 		}

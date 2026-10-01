@@ -10491,6 +10491,38 @@ int GGTerrain_GetHeight( float x, float z, float* outHeight, int accurateButSlow
 	}
 }
 
+uint64_t GGTerrain_GetHeightFingerprint()
+{
+	uint64_t h = 0xcbf29ce484222325ULL;
+	auto mix = [&h]( const void* pData, size_t bytes )
+	{
+		const uint64_t* p = (const uint64_t*)pData;
+		const size_t n = bytes / 8;
+		for ( size_t i = 0; i < n; i++ ) { h ^= p[i]; h *= 0x100000001b3ULL; }
+		const unsigned char* pTail = (const unsigned char*)pData + n * 8;
+		for ( size_t i = 0; i < (bytes & 7); i++ ) { h ^= pTail[i]; h *= 0x100000001b3ULL; }
+	};
+
+	// the settings, copied with their (zeroed) padding; the heightmap's pointer and the force flag change no height
+	GGTerrainParams params;
+	memcpy( &params, &ggterrain_local_params, sizeof(params) );
+	params.pHeightmapMain = 0;
+	params.bForceUpdate = false;
+	mix( &params, sizeof(params) );
+	if ( ggterrain_local_params.pHeightmapMain ) mix( ggterrain_local_params.pHeightmapMain, ggterrain_local_params.heightmap_width * ggterrain_local_params.heightmap_height * sizeof(uint16_t) );
+	mix( &ggterrain_local_render_params2.editable_size, sizeof(float) );
+
+	const size_t texels = GGTERRAIN_HEIGHTMAP_EDIT_SIZE * GGTERRAIN_HEIGHTMAP_EDIT_SIZE;
+	if ( pHeightMapEdit ) mix( pHeightMapEdit, texels * sizeof(float) );
+	if ( pHeightMapEditType ) mix( pHeightMapEditType, texels * sizeof(uint8_t) );
+	if ( pHeightMapFlatAreas ) mix( pHeightMapFlatAreas, texels * sizeof(uint16_t) );
+	for ( uint32_t i = 0; i < ggterrain_flat_areas_array_size; i++ )
+	{
+		if ( ggterrain_flat_areas[ i ].IsValid() ) mix( &ggterrain_flat_areas[ i ], sizeof(GGTerrainFlatArea) );
+	}
+	return h ? h : 1;
+}
+
 int GGTerrain_GetNormal( float x, float z, float* outNx, float* outNy, float* outNz )
 {
 	return ggterrain.GetNormal( x, z, outNx, outNy, outNz );

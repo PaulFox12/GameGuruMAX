@@ -112,6 +112,110 @@ int GGRecastDetour::buildall (float* pVertices, uint32_t numVertices)
 	return 1;
 }
 
+static double GGRecastDetour_Milliseconds( const LARGE_INTEGER& start )
+{
+	LARGE_INTEGER freq, now;
+	QueryPerformanceFrequency( &freq );
+	QueryPerformanceCounter( &now );
+	return (double)(now.QuadPart - start.QuadPart) * 1000.0 / (double)freq.QuadPart;
+}
+
+bool GGRecastDetour::prepareWholeMap( GGNavMeshBake* pBake, uint64_t objectsHash, int vertsPerPoly, const char* pLevelId, const char* pLoadFile, const char* pLoadFile2,
+	char* pReport, int reportSize )
+{
+	// another level's saved navmesh replaces the one held; without one the held navmesh is brought up to date, which
+	// builds nothing for the same level under another name
+	if ( !pLevelId ) pLevelId = "";
+	const bool bLevelChanged = m_sWholeMapLevel != pLevelId;
+	m_sWholeMapLevel = pLevelId;
+	if ( !sample )
+	{
+		sample = new Sample_TileMesh();
+		sample->getDebugDraw().init();
+		sample->setContext( &ctx );
+	}
+	Sample_TileMesh* pTiles = (Sample_TileMesh*)sample;
+	pTiles->setVertsPerPoly( vertsPerPoly );
+	pBake->buildKey = pTiles->wholeMapKey( pBake );
+
+	// the saved navmesh, while none is held for these settings
+	char pLoad[640] = "";
+	LARGE_INTEGER start;
+	if ( !pTiles->hasWholeMap( pBake->buildKey ) || bLevelChanged )
+	{
+		const char* pFiles[2] = { pLoadFile, pLoadFile2 };
+		for ( int f = 0; f < 2 && pLoad[0] == 0; f++ )
+		{
+			if ( !pFiles[f] || !pFiles[f][0] ) continue;
+			QueryPerformanceCounter( &start );
+			int tiles = pTiles->loadWholeMap( pFiles[f], pBake->buildKey );
+			if ( tiles >= 0 ) sprintf_s( pLoad, 640, "loaded %d tiles from %s in %.0f ms; ", tiles, pFiles[f], GGRecastDetour_Milliseconds( start ) );
+		}
+		if ( pLoad[0] == 0 ) sprintf_s( pLoad, 640, "no saved navmesh for these settings and this area%s; ", pTiles->hasWholeMap( pBake->buildKey ) ? " (the one held is updated)" : "" );
+	}
+	strcpy_s( pReport, reportSize, pLoad );
+
+	// nothing changed since it was built
+	if ( pTiles->isWholeMapCurrent( pBake->buildKey, pBake->terrainFingerprint, objectsHash ) )
+	{
+		if ( !tool ) tool = new NavMeshTesterTool;
+		tool->init( sample );
+		return true;
+	}
+	return false;
+}
+
+int GGRecastDetour::bakeWholeMap( GGNavMeshBake* pBake, float* pStaticVerts, uint32_t numStaticVerts, uint64_t objectsHash, const char* pSaveFile, char* pReport, int reportSize )
+{
+	if ( !sample ) return 0;
+	Sample_TileMesh* pTiles = (Sample_TileMesh*)sample;
+	LARGE_INTEGER start;
+
+	// the static objects
+	if ( geom ) delete geom;
+	geom = new InputGeom;
+	if ( numStaticVerts > 0 && !geom->loadData( &ctx, pStaticVerts, numStaticVerts ) )
+	{
+		delete geom;
+		geom = 0;
+	}
+	pTiles->setBakeGeom( geom );
+
+	GGNavMeshBakeStats stats;
+	if ( !pTiles->bakeWholeMap( pBake, objectsHash, &stats ) )
+	{
+		// the tool may point at a navmesh the failed bake let go, so path queries answer nothing until one is built
+		if ( tool )
+		{
+			delete tool;
+			tool = 0;
+		}
+		sprintf_s( pReport, reportSize, "Navmesh (whole map): the bake failed" );
+		return 0;
+	}
+	if ( !tool ) tool = new NavMeshTesterTool;
+	tool->init( sample );
+
+	char pSave[640] = "";
+	if ( pSaveFile && pSaveFile[0] )
+	{
+		QueryPerformanceCounter( &start );
+		uint64_t bytes = pTiles->saveWholeMap( pSaveFile );
+		if ( bytes ) sprintf_s( pSave, 640, "; saved %s, %llu bytes, in %.0f ms", pSaveFile, (unsigned long long)bytes, GGRecastDetour_Milliseconds( start ) );
+		else sprintf_s( pSave, 640, "; could not save %s", pSaveFile );
+	}
+	sprintf_s( pReport, reportSize, "Navmesh (whole map): %d x %d tiles, %d built%s (%d under water, %d refused) in %.0f ms; now %d tiles, %llu bytes: %u polys, %u verts, %u detail verts, %u detail tris%s",
+		stats.tilesX, stats.tilesZ, stats.rebuilt, stats.fresh ? " (all)" : "", stats.underwater, stats.failed, stats.milliseconds,
+		stats.withData, (unsigned long long)stats.bytes, stats.polys, stats.verts, stats.detailVerts, stats.detailTris, pSave );
+	return 1;
+}
+
+uint64_t GGRecastDetour::saveWholeMap( const char* pSaveFile )
+{
+	if ( !sample || !pSaveFile || !pSaveFile[0] ) return 0;
+	return ((Sample_TileMesh*)sample)->saveWholeMap( pSaveFile );
+}
+
 int GGRecastDetour::findPath (float fStart[3], float fEnd[3])
 {
 	if (tool)

@@ -4281,6 +4281,19 @@ bool addtocollection ( char* file_s )
 			Dim (  t.filecollection_s,tarrsize+50  );
 		}
 		t.filecollection_s[g.filecollectionmax]=file_s;
+
+		// GG: a level's whole map navmesh goes with it
+		size_t len = strlen(file_s);
+		if (len > 4 && len < MAX_PATH && _stricmp(file_s + len - 4, ".fpm") == 0)
+		{
+			char pNav[MAX_PATH];
+			strcpy_s(pNav, MAX_PATH, file_s);
+			strcpy_s(pNav + len - 4, MAX_PATH - (len - 4), ".nav");
+			char pRealNav[MAX_PATH];
+			strcpy_s(pRealNav, MAX_PATH, pNav);
+			GG_GetRealPath(pRealNav, 0);
+			if (FileExist(pRealNav) == 1) addtocollection(pNav);
+		}
 		return true;
 	}
 	return false;
