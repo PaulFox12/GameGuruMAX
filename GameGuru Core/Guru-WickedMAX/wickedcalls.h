@@ -310,14 +310,15 @@ void WickedCall_UpdateWaterColor(float red, float green, float blue);
 enum eWickedCallProbe { WICKEDCALL_PROBE_PICK, WICKEDCALL_PROBE_PICK_LAYERS, WICKEDCALL_PROBE_PICK_WICKED, WICKEDCALL_PROBE_PICK_LOOKUP,
 	WICKEDCALL_PROBE_DECAL_CREATE, WICKEDCALL_PROBE_DECAL_FADE, WICKEDCALL_PROBE_THREAD_PICK, WICKEDCALL_PROBE_THREAD_FRAME,
 	WICKEDCALL_PROBE_TEXTURE_LOAD, WICKEDCALL_PROBE_OBJECT_ADD, WICKEDCALL_PROBE_GPU_CREATE, WICKEDCALL_PROBE_GPU_MAP,
-	WICKEDCALL_PROBE_PRESENT, WICKEDCALL_PROBE_PROFILER_QUERIES, WICKEDCALL_PROBE_PROFILER_LOCK, WICKEDCALL_PROBE_COUNT };
+	WICKEDCALL_PROBE_PRESENT, WICKEDCALL_PROBE_PROFILER_QUERIES, WICKEDCALL_PROBE_PROFILER_LOCK,
+	WICKEDCALL_PROBE_PROFILER_HOLD, WICKEDCALL_PROBE_COUNT };
 double WickedCall_ProbeNow(void);
 void WickedCall_ProbeAdd(int iProbe, double dMilliseconds);
 void WickedCall_ProbeAddAnyThread(int iProbe, double dMilliseconds);
 void WickedCall_ProbeFrame(void);
 bool WickedCall_ProbeGet(const char* pName, float* pMilliseconds, float* pCalls, float* pLongest = NULL);
-// the slowest call over 50 ms of a device probe ("gpu create", "gpu map", "present") in the last 20 frames: what, how long,
-// the thread and the callers; empty if none (main thread)
+// the slowest call over 50 ms of a device probe ("gpu create", "gpu map", "present") or hold of the profiler's lock
+// ("profiler hold") in the last 20 frames: what, how long, the thread and the callers; empty if none (main thread)
 const char* WickedCall_ProbeDetail(const char* pName);
 extern DWORD g_dwWickedCallProbeExtraThread;
 struct WickedCallProbeScope

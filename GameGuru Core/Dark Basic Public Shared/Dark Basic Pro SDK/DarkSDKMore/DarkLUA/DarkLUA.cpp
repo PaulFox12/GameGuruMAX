@@ -14392,7 +14392,8 @@ namespace GGTerrain
 // thread's picks), "thread frame" (its whole cycle), "texture load" (a texture read and made), "object add" (an object put
 // into the Wicked scene), "gpu create" (a GPU buffer or texture made, any caller), "gpu map" (a map, unmap or buffer
 // update), "present" (the frame presented), "profiler queries" (the GPU timestamp queries the profiler issued a frame, as the
-// value), "profiler lock" (waits for the lock the profiler's ranges share). A third value is the longest single call in those 20 frames. Nothing for an unknown name
+// value), "profiler lock" (waits for the lock the profiler's ranges share), "profiler hold" (how long each holder kept it).
+// A third value is the longest single call in those 20 frames. Nothing for an unknown name
 int GetEngineProbe(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
@@ -14404,7 +14405,7 @@ int GetEngineProbe(lua_State* L)
 	lua_pushnumber(L, fLongest);
 	return 3;
 }
-// GetEngineProbeDetail(name): for "gpu create", "gpu map" or "present", the slowest call over 50 ms in the last 20 frames:
+// GetEngineProbeDetail(name): for "gpu create", "gpu map", "present" or "profiler hold", the slowest over 50 ms in the last 20 frames:
 // what it was, how long, the thread (main, extra or worker) and its callers by name; "" if none
 int GetEngineProbeDetail(lua_State* L)
 {

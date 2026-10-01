@@ -8385,7 +8385,7 @@ void WickedCall_UpdateWaterFog(float fMinDist, float fMaxDist, float fMinAmount)
 
 static const char* g_pWickedCallProbeNames[WICKEDCALL_PROBE_COUNT] = { "pick", "pick layers", "pick wicked", "pick lookup", "decal create", "decal fade",
 	"thread pick", "thread frame", "texture load", "object add", "gpu create", "gpu map", "present",
-	"profiler queries", "profiler lock" };
+	"profiler queries", "profiler lock", "profiler hold" };
 static double g_dWickedCallProbeFrame[WICKEDCALL_PROBE_COUNT] = {};
 static int g_iWickedCallProbeFrameCalls[WICKEDCALL_PROBE_COUNT] = {};
 static double g_dWickedCallProbeFrameLongest[WICKEDCALL_PROBE_COUNT] = {};
@@ -8405,6 +8405,7 @@ static void WickedCall_ProbeDeviceCall(double dMilliseconds, const WickedDeviceC
 // and the profiler its GPU queries a frame ("profiler queries": the count as the probe's value) and its lock waits
 static void WickedCall_ProbeProfilerQueries(uint32_t queries);
 static void WickedCall_ProbeProfilerLockWait(double dMilliseconds);
+static void WickedCall_ProbeProfilerLockHold(double dMilliseconds);
 static struct WickedCallProbeHook
 {
 	WickedCallProbeHook()
@@ -8412,6 +8413,7 @@ static struct WickedCallProbeHook
 		g_pfnWickedDeviceCall = WickedCall_ProbeDeviceCall;
 		g_pfnWickedProfilerQueries = WickedCall_ProbeProfilerQueries;
 		g_pfnWickedProfilerLockWait = WickedCall_ProbeProfilerLockWait;
+		g_pfnWickedProfilerLockHold = WickedCall_ProbeProfilerLockHold;
 	}
 } g_WickedCallProbeHook;
 
@@ -8461,27 +8463,33 @@ void WickedCall_ProbeAddAnyThread(int iProbe, double dMilliseconds)
 	while (iMicro > iLongest && !g_iWickedCallProbeAnyLongestMicro[iProbe].compare_exchange_weak(iLongest, iMicro)) {}
 }
 
+// a slow call (over 50 ms): what, how long, the thread and who asked for it (twelve frames above the hook that called this)
+static void WickedCall_ProbeRecordSlow(int iProbe, double dMilliseconds, const char* pWhat)
+{
+	WickedCallProbeSlowCall call;
+	call.dMilliseconds = dMilliseconds;
+	call.iFrame = g_iWickedCallProbeFrameNumber.load();
+	call.dwThread = GetCurrentThreadId();
+	strcpy_s(call.pWhat, pWhat);
+	call.iFrames = CaptureStackBackTrace(2, 12, call.pStack, NULL);
+	std::lock_guard<std::mutex> lock(g_WickedCallProbeSlowLock);
+	WickedCallProbeSlowCall& slowest = g_WickedCallProbeSlow[iProbe];
+	if (call.iFrame - slowest.iFrame > 20 || dMilliseconds > slowest.dMilliseconds) slowest = call;
+}
+
 static void WickedCall_ProbeDeviceCall(double dMilliseconds, const WickedDeviceCallInfo& info)
 {
 	int iProbe = info.call == 0 ? WICKEDCALL_PROBE_GPU_CREATE : (info.call == 1 ? WICKEDCALL_PROBE_GPU_MAP : WICKEDCALL_PROBE_PRESENT);
 	WickedCall_ProbeAddAnyThread(iProbe, dMilliseconds);
 	if (dMilliseconds < 50.0) return;
-
-	// a slow one: who asked for it
-	WickedCallProbeSlowCall call;
-	call.dMilliseconds = dMilliseconds;
-	call.iFrame = g_iWickedCallProbeFrameNumber.load();
-	call.dwThread = GetCurrentThreadId();
+	char pWhat[96];
 	if (info.call == 0 && info.width > 0)
-		sprintf_s(call.pWhat, "%s %ux%u format %u", info.op, info.width, info.height, info.format);
+		sprintf_s(pWhat, "%s %ux%u format %u", info.op, info.width, info.height, info.format);
 	else if (info.bytes > 0)
-		sprintf_s(call.pWhat, "%s %llu B", info.op, (unsigned long long)info.bytes);
+		sprintf_s(pWhat, "%s %llu B", info.op, (unsigned long long)info.bytes);
 	else
-		sprintf_s(call.pWhat, "%s", info.op);
-	call.iFrames = CaptureStackBackTrace(2, 12, call.pStack, NULL);
-	std::lock_guard<std::mutex> lock(g_WickedCallProbeSlowLock);
-	WickedCallProbeSlowCall& slowest = g_WickedCallProbeSlow[iProbe];
-	if (call.iFrame - slowest.iFrame > 20 || dMilliseconds > slowest.dMilliseconds) slowest = call;
+		sprintf_s(pWhat, "%s", info.op);
+	WickedCall_ProbeRecordSlow(iProbe, dMilliseconds, pWhat);
 }
 
 static void WickedCall_ProbeProfilerQueries(uint32_t queries)
@@ -8494,11 +8502,17 @@ static void WickedCall_ProbeProfilerLockWait(double dMilliseconds)
 	WickedCall_ProbeAddAnyThread(WICKEDCALL_PROBE_PROFILER_LOCK, dMilliseconds);
 }
 
+static void WickedCall_ProbeProfilerLockHold(double dMilliseconds)
+{
+	WickedCall_ProbeAddAnyThread(WICKEDCALL_PROBE_PROFILER_HOLD, dMilliseconds);
+	if (dMilliseconds >= 50.0) WickedCall_ProbeRecordSlow(WICKEDCALL_PROBE_PROFILER_HOLD, dMilliseconds, "profiler lock held");
+}
+
 const char* WickedCall_ProbeDetail(const char* pName)
 {
 	int iProbe = -1;
 	for (int i = 0; i < WICKEDCALL_PROBE_COUNT; i++) if (_stricmp(pName, g_pWickedCallProbeNames[i]) == 0) iProbe = i;
-	if (iProbe != WICKEDCALL_PROBE_GPU_CREATE && iProbe != WICKEDCALL_PROBE_GPU_MAP && iProbe != WICKEDCALL_PROBE_PRESENT) return "";
+	if (iProbe != WICKEDCALL_PROBE_GPU_CREATE && iProbe != WICKEDCALL_PROBE_GPU_MAP && iProbe != WICKEDCALL_PROBE_PRESENT && iProbe != WICKEDCALL_PROBE_PROFILER_HOLD) return "";
 	std::lock_guard<std::mutex> lock(g_WickedCallProbeSlowLock);
 	WickedCallProbeSlowCall& slowest = g_WickedCallProbeSlow[iProbe];
 	if (g_iWickedCallProbeFrameNumber.load() - slowest.iFrame > 20) return "";
