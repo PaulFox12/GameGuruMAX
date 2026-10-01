@@ -7362,6 +7362,7 @@ void tab_tab_visuals(int iPage, int iMode)
 }
 
 void LuaRenderSettings_ShadowValues(int* pSun, int* pSpot, int* pPoint, int* pSpotMax, int* pPointMax);
+bool LuaRenderSettings_TransparentShadows(bool bVisuals);
 
 void Wicked_Update_Shadows(void *voidvisual)
 {
@@ -7387,10 +7388,12 @@ void Wicked_Update_Shadows(void *voidvisual)
 
 	bool bTransparentChanged = false;
 	static bool bOldTransparent = false;
-	wiRenderer::SetTransparentShadowsEnabled(visuals->bTransparentShadows);
-	if (bOldTransparent != visuals->bTransparentShadows)
+	// a script's choice (SetTransparentShadows) outranks the visuals'
+	bool bTransparentShadows = LuaRenderSettings_TransparentShadows(visuals->bTransparentShadows);
+	wiRenderer::SetTransparentShadowsEnabled(bTransparentShadows);
+	if (bOldTransparent != bTransparentShadows)
 	{
-		bOldTransparent = visuals->bTransparentShadows;
+		bOldTransparent = bTransparentShadows;
 		bTransparentChanged = true;
 	}
 
@@ -7718,6 +7721,10 @@ struct sLuaRenderSettings
 	int iFrameRateCap = -1;
 	float fRenderScale = -1;
 	int iMSAA = -1;
+	float fGamma = -1;
+	float fFSRSharpness = -1;
+	int iRaycastLowestLOD = -1;
+	int iTransparentShadows = -1;
 	int iTerrainDetailLimitBefore = 0;
 	float fTerrainDetailScaleBefore = 1.0f;
 	int iTerrainReadBackReductionBefore = 4;
@@ -7744,6 +7751,9 @@ extern uint32_t g_iWickedShadowCascades;
 extern float g_fWickedShadowSplits[4];
 extern bool g_bShadowJobWaits;
 extern int g_iFrameRateCap;
+extern bool bRaycastLowestLOD;
+extern float g_fGlobalGammaFadeIn;
+extern float g_fGlobalGammaFadeInDest;
 void Wicked_Update_Shadows(void *voidvisual);
 
 // the delayed shadow refresh as Wicked_Update_Visuals sets it: point shadows follow it, refreshed less on a laptop
@@ -7753,6 +7763,23 @@ static void LuaRenderSettings_SetDelayedShadowGlobals(bool bDelayed, bool bLapto
 	g_bDelayedShadowsLaptop = bLaptop;
 	bEnableDelayPointShadow = bDelayed;
 	pointShadowScaler = (bDelayed && bLaptop) ? 0.6f : 1.0f;
+}
+
+// the gamma a script or the level wants: the level start's fade-in heads for it, and outside the fade it is set straight
+static void LuaRenderSettings_SetGammaTarget(float fGamma)
+{
+	bool bFading = g_fGlobalGammaFadeIn < g_fGlobalGammaFadeInDest;
+	g_fGlobalGammaFadeInDest = fGamma;
+	if (!bFading || g_fGlobalGammaFadeIn >= fGamma)
+	{
+		g_fGlobalGammaFadeIn = fGamma;
+		wiRenderer::SetGamma(fGamma);
+	}
+}
+
+bool LuaRenderSettings_TransparentShadows(bool bVisuals)
+{
+	return g_LuaRenderSettings.iTransparentShadows >= 0 ? g_LuaRenderSettings.iTransparentShadows != 0 : bVisuals;
 }
 
 // FSR 1 upscaling from a 3D resolution of 1 / fUpScale of the screen's (1 for none), as the level's FSR setting does it in
@@ -7801,9 +7828,11 @@ void LuaRenderSettings_Apply(void)
 	if (p->iTerrainReadBackReduction >= 0) ggterrain_global_render_params2.readBackTextureReduction = (uint32_t)p->iTerrainReadBackReduction;
 	if (p->iGrassSimpleLighting >= 0) gggrass_global_params.simplePBR = p->iGrassSimpleLighting;
 	if (p->iShadowJobWait >= 0) g_bShadowJobWaits = p->iShadowJobWait != 0;
+	if (p->iRaycastLowestLOD >= 0) bRaycastLowestLOD = p->iRaycastLowestLOD != 0;
+	if (p->fGamma >= 0) LuaRenderSettings_SetGammaTarget(p->fGamma);
 	if (p->iVsync >= 0) gridedit_setvsync(p->iVsync != 0);
 	if (p->iFrameRateCap >= 0) g_iFrameRateCap = p->iFrameRateCap;
-	if (p->iSunShadowResolution >= 0 || p->iSpotShadowResolution >= 0 || p->iPointShadowResolution >= 0 || p->iSpotShadowMax >= 0 || p->iPointShadowMax >= 0)
+	if (p->iSunShadowResolution >= 0 || p->iSpotShadowResolution >= 0 || p->iPointShadowResolution >= 0 || p->iSpotShadowMax >= 0 || p->iPointShadowMax >= 0 || p->iTransparentShadows >= 0)
 	{
 		Wicked_Update_Shadows(&t.visuals);
 	}
@@ -7832,6 +7861,7 @@ void LuaRenderSettings_Apply(void)
 		// FSR needs FXAA (Wicked_Update_Visuals)
 		if (p->fRenderScale < 1.0f && master_renderer) master_renderer->setFXAAEnabled(true);
 	}
+	if (p->fFSRSharpness >= 0) master.masterrenderer.setFSRSharpness(p->fFSRSharpness);
 }
 
 // values below 0 keep the current setting
@@ -8064,6 +8094,48 @@ void LuaRenderSettings_SetMSAA(int iSamples)
 	LuaRenderSettings_Apply();
 }
 
+// the gamma, 0.1 to 10 (0 goes back to the level's); FSR's sharpening, 0 to 2; picks against models' lowest LOD; shadows
+// through transparent surfaces (a change makes the shadow maps again, a hitch). A negative value keeps the current
+void LuaRenderSettings_SetGamma(float fGamma)
+{
+	sLuaRenderSettings* p = &g_LuaRenderSettings;
+	if (fGamma == 0)
+	{
+		if (p->fGamma < 0) return;
+		p->fGamma = -1;
+		LuaRenderSettings_SetGammaTarget(t.visuals.fGamma);
+		return;
+	}
+	if (fGamma > 0) p->fGamma = fGamma < 0.1f ? 0.1f : (fGamma > 10.0f ? 10.0f : fGamma);
+	LuaRenderSettings_Apply();
+}
+
+void LuaRenderSettings_SetFSRSharpness(float fSharpness)
+{
+	if (fSharpness >= 0) g_LuaRenderSettings.fFSRSharpness = fSharpness > 2.0f ? 2.0f : fSharpness;
+	LuaRenderSettings_Apply();
+}
+
+void LuaRenderSettings_SetRaycastLowestLOD(int iOn)
+{
+	if (iOn >= 0) g_LuaRenderSettings.iRaycastLowestLOD = iOn ? 1 : 0;
+	LuaRenderSettings_Apply();
+}
+
+void LuaRenderSettings_SetTransparentShadows(int iOn)
+{
+	if (iOn >= 0) g_LuaRenderSettings.iTransparentShadows = iOn ? 1 : 0;
+	LuaRenderSettings_Apply();
+}
+
+void LuaRenderSettings_GetPicture(float* pGamma, float* pFSRSharpness, int* pRaycastLowestLOD, int* pTransparentShadows)
+{
+	*pGamma = g_fGlobalGammaFadeInDest;
+	*pFSRSharpness = master.masterrenderer.getFSRSharpness();
+	*pRaycastLowestLOD = bRaycastLowestLOD ? 1 : 0;
+	*pTransparentShadows = LuaRenderSettings_TransparentShadows(t.visuals.bTransparentShadows) ? 1 : 0;
+}
+
 // the culling switches in force (SetOcclusionCulling) and the lowest-LOD shadows (SetShadowsLowestLOD)
 void LuaRenderSettings_GetCulling(int* pOcclusion, int* pObjects, int* pAnimations, int* pTerrain, int* pShadows, int* pSpotShadows, int* pShadowsLowestLOD)
 {
@@ -8177,10 +8249,13 @@ static void LuaRenderSettings_RestoreGraphics(const sLuaRenderSettings& old, vis
 	if (old.fTerrainDetailScale >= 0) ggterrain_global_render_params2.detailScale = old.fTerrainDetailScaleBefore;
 	if (old.iTerrainReadBackReduction >= 0) ggterrain_global_render_params2.readBackTextureReduction = (uint32_t)old.iTerrainReadBackReductionBefore;
 	if (old.iGrassSimpleLighting >= 0) gggrass_global_params.simplePBR = old.iGrassSimpleLightingBefore;
-	if (old.iSunShadowResolution >= 0 || old.iSpotShadowResolution >= 0 || old.iPointShadowResolution >= 0 || old.iSpotShadowMax >= 0 || old.iPointShadowMax >= 0)
+	if (old.iSunShadowResolution >= 0 || old.iSpotShadowResolution >= 0 || old.iPointShadowResolution >= 0 || old.iSpotShadowMax >= 0 || old.iPointShadowMax >= 0 || old.iTransparentShadows >= 0)
 	{
 		Wicked_Update_Shadows(visuals);
 	}
+	if (old.fGamma >= 0) LuaRenderSettings_SetGammaTarget(visuals->fGamma);
+	if (old.fFSRSharpness >= 0) master.masterrenderer.setFSRSharpness(visuals->fFSRSharpness);
+	if (old.iRaycastLowestLOD >= 0) bRaycastLowestLOD = visuals->bRaycastLowestLOD;
 	if (old.iFXAA >= 0 && master_renderer) master_renderer->setFXAAEnabled(visuals->bFXAAEnabled);
 	if (old.iReflections >= 0 && master_renderer) master_renderer->setReflectionsEnabled(visuals->bReflectionsEnabled);
 	if (old.iVsync >= 0) gridedit_setvsync(visuals->bLevelVSyncEnabled && g.gvsync != 0);
@@ -8205,8 +8280,9 @@ static void LuaRenderSettings_RestoreGraphics(const sLuaRenderSettings& old, vis
 // forget a script's graphics values (SetFXAA, SetReflections, SetProbesLowestLOD, SetReflectionsLowestLOD,
 // SetAnimations30Fps, SetMaxApparentSize, SetShadowResolution, SetShadowLights, SetShadowCascades, SetTerrainDetail,
 // SetGrassSimpleLighting, SetVsync, SetFrameRateCap, SetRenderScale, SetMSAA, SetSSR, SetAO, SetLODMultiplier, SetShadowRange,
-// SetTreeDistance, SetTreeTransition, SetGrassDistance, SetOcclusionCulling, SetShadowsLowestLOD) and put back the level's
-// and the graphics quality's, so a quality change moves them again (ResetGraphicsSettings); the other levers stay as set
+// SetTreeDistance, SetTreeTransition, SetGrassDistance, SetOcclusionCulling, SetShadowsLowestLOD, SetGamma, SetFSRSharpness,
+// SetRaycastLowestLOD, SetTransparentShadows) and put back the level's and the graphics quality's, so a quality change
+// moves them again (ResetGraphicsSettings); the other levers stay as set
 void LuaRenderSettings_ResetGraphics(void)
 {
 	sLuaRenderSettings old = g_LuaRenderSettings;
@@ -8239,6 +8315,10 @@ void LuaRenderSettings_ResetGraphics(void)
 	p->iTerrainCulling = -1;
 	p->iShadowCulling = -1;
 	p->iShadowsLowestLOD = -1;
+	p->fGamma = -1;
+	p->fFSRSharpness = -1;
+	p->iRaycastLowestLOD = -1;
+	p->iTransparentShadows = -1;
 	p->iSSR = -1;
 	p->iAO = -1;
 	p->fAOPower = -1;
@@ -53585,8 +53665,13 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 
 		tab_tab_Column_text("Gamma", fTabColumnWidth);
 		ImGui::PushItemWidth(-10);
-		if (ImGui::SliderFloat("##fGamma:", &t.visuals.fGamma, 0.1, 10.0))
+		bool bScriptGamma = g_LuaRenderSettings.fGamma >= 0;
+		float fShowGamma = bScriptGamma ? g_fGlobalGammaFadeInDest : t.visuals.fGamma;
+		if (ImGui::SliderFloat("##fGamma:", &fShowGamma, 0.1, 10.0))
 		{
+			g_LuaRenderSettings.fGamma = -1;
+			t.visuals.fGamma = fShowGamma;
+			if (bScriptGamma) g_fGlobalGammaFadeIn = g_fGlobalGammaFadeInDest = fShowGamma;
 			t.gamevisuals.fGamma = t.visuals.fGamma;
 			wiRenderer::SetGamma(t.visuals.fGamma);
 			g.projectmodified = 1;
@@ -53975,6 +54060,7 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			ImGui::PushItemWidth(-10);
 			if (ImGui::Checkbox("Raycast Use Fastest LOD##Animationsculling", &bRaycastLowestLOD))
 			{
+				g_LuaRenderSettings.iRaycastLowestLOD = -1;
 				t.gamevisuals.bRaycastLowestLOD = t.visuals.bRaycastLowestLOD = bRaycastLowestLOD;
 				g.projectmodified = 1;
 			}
@@ -54081,8 +54167,11 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		{
 			ImGui::Text("FSR Sharpness");
 			ImGui::PushItemWidth(-10);
-			if (ImGui::SliderFloat("##fFSRSharpness", &t.visuals.fFSRSharpness, 0.0f, 2.0f, "%.2f", 1.0f))
+			float fShowSharpness = g_LuaRenderSettings.fFSRSharpness >= 0 ? master.masterrenderer.getFSRSharpness() : t.visuals.fFSRSharpness;
+			if (ImGui::SliderFloat("##fFSRSharpness", &fShowSharpness, 0.0f, 2.0f, "%.2f", 1.0f))
 			{
+				g_LuaRenderSettings.fFSRSharpness = -1;
+				t.visuals.fFSRSharpness = fShowSharpness;
 				if (t.visuals.fFSRSharpness < 0)
 					t.visuals.fFSRSharpness = 0;
 				t.gamevisuals.fFSRSharpness = t.visuals.fFSRSharpness;
@@ -54715,8 +54804,11 @@ bool Shadows_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Choose max shadow casters for point lights.");
 		ImGui::PopItemWidth();
 
-		if (ImGui::Checkbox("Transparent shadows", &t.visuals.bTransparentShadows))
+		bool bShowTransparentShadows = LuaRenderSettings_TransparentShadows(t.visuals.bTransparentShadows);
+		if (ImGui::Checkbox("Transparent shadows", &bShowTransparentShadows))
 		{
+			g_LuaRenderSettings.iTransparentShadows = -1;
+			t.visuals.bTransparentShadows = bShowTransparentShadows;
 			t.gamevisuals.bTransparentShadows = t.visuals.bTransparentShadows;
 			bForceRefreshLightCount = true;
 			bVisualUpdated = true;

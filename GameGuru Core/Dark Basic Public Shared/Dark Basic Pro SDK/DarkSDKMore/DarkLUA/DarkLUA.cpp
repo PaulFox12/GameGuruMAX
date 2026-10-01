@@ -13905,6 +13905,11 @@ extern void LuaRenderSettings_SetRenderScale(float fScale);
 extern float LuaRenderSettings_GetRenderScale(void);
 extern void LuaRenderSettings_SetMSAA(int iSamples);
 extern int LuaRenderSettings_GetMSAA(void);
+extern void LuaRenderSettings_SetGamma(float fGamma);
+extern void LuaRenderSettings_SetFSRSharpness(float fSharpness);
+extern void LuaRenderSettings_SetRaycastLowestLOD(int iOn);
+extern void LuaRenderSettings_SetTransparentShadows(int iOn);
+extern void LuaRenderSettings_GetPicture(float* pGamma, float* pFSRSharpness, int* pRaycastLowestLOD, int* pTransparentShadows);
 extern void LuaRenderSettings_GetCulling(int* pOcclusion, int* pObjects, int* pAnimations, int* pTerrain, int* pShadows, int* pSpotShadows, int* pShadowsLowestLOD);
 extern void LuaRenderSettings_GetLevers(int* pSSR, int* pAO, float* pAOPower, float* pLODMultiplier, float* pShadowRange);
 extern void LuaRenderSettings_GetValues(int* pFXAA, int* pReflections, int* pProbesLowestLOD, int* pReflectionsLowestLOD, int* pAnimations30Fps, float* pMaxApparentSize);
@@ -14099,6 +14104,35 @@ int SetMSAA(lua_State* L)
 	LuaRenderSettings_SetMSAA((int)lua_tonumber(L, 1));
 	return 0;
 }
+// SetGamma(g): the gamma, 0.1 to 10, which the level start's fade-in heads for; 0 goes back to the level's
+int SetGamma(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetGamma(lua_tonumber(L, 1));
+	return 0;
+}
+// SetFSRSharpness(s): the sharpening of the FSR upscale (the level's FSR setting or SetRenderScale), 0 to 2
+int SetFSRSharpness(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetFSRSharpness(lua_tonumber(L, 1));
+	return 0;
+}
+// SetRaycastLowestLOD(on): rays and picks test models with LOD levels against their lowest LOD, which is cheaper and less exact
+int SetRaycastLowestLOD(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetRaycastLowestLOD((int)lua_tonumber(L, 1));
+	return 0;
+}
+// SetTransparentShadows(on): shadows cast through transparent surfaces, tinted by them; a change makes the shadow maps
+// again (a hitch)
+int SetTransparentShadows(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetTransparentShadows((int)lua_tonumber(L, 1));
+	return 0;
+}
 // GetRenderScale(): the fraction of the screen's resolution the 3D is drawn at (the level's FSR setting's when no script set it)
 int GetRenderScale(lua_State* L)
 {
@@ -14161,6 +14195,13 @@ int GetGraphicsSettings(lua_State* L)
 	lua_pushinteger(L, iShadows); lua_setfield(L, -2, "shadowCulling");
 	lua_pushinteger(L, iSpotShadows); lua_setfield(L, -2, "spotShadowCulling");
 	lua_pushinteger(L, iShadowsLowestLOD); lua_setfield(L, -2, "shadowsLowestLOD");
+	float fGamma, fFSRSharpness;
+	int iRaycastLowestLOD, iTransparentShadows;
+	LuaRenderSettings_GetPicture(&fGamma, &fFSRSharpness, &iRaycastLowestLOD, &iTransparentShadows);
+	lua_pushnumber(L, fGamma); lua_setfield(L, -2, "gamma");
+	lua_pushnumber(L, fFSRSharpness); lua_setfield(L, -2, "fsrSharpness");
+	lua_pushinteger(L, iRaycastLowestLOD); lua_setfield(L, -2, "raycastLowestLOD");
+	lua_pushinteger(L, iTransparentShadows); lua_setfield(L, -2, "transparentShadows");
 	int iSSR, iAO;
 	float fAOPower, fLODMultiplier, fShadowRange;
 	LuaRenderSettings_GetLevers(&iSSR, &iAO, &fAOPower, &fLODMultiplier, &fShadowRange);
@@ -17428,6 +17469,10 @@ void addFunctions()
 	lua_register(lua, "SetRenderScale", SetRenderScale);
 	lua_register(lua, "GetRenderScale", GetRenderScale);
 	lua_register(lua, "SetMSAA", SetMSAA);
+	lua_register(lua, "SetGamma", SetGamma);
+	lua_register(lua, "SetFSRSharpness", SetFSRSharpness);
+	lua_register(lua, "SetRaycastLowestLOD", SetRaycastLowestLOD);
+	lua_register(lua, "SetTransparentShadows", SetTransparentShadows);
 	lua_register(lua, "SetShadowJobWait", SetShadowJobWait);
 	lua_register(lua, "ResetDelayedShadows", ResetDelayedShadows);
 	lua_register(lua, "GetDelayedShadows", GetDelayedShadows);
