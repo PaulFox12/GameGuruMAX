@@ -517,6 +517,8 @@ static void game_createwholemapnavmesh(bool bStandalone)
 	bake.waterY = t.terrain.waterliney_f;
 	bake.pfnHeight = game_navmeshterrainheight;
 	bake.terrainFingerprint = GGTerrain_GetHeightFingerprint();
+	bake.terrainGlobal = GGTerrain_GetHeightFingerprintGlobal();
+	bake.pfnTerrainInputs = GGTerrain_GetHeightFingerprintRect;
 
 	// the static entities as the old navmesh takes them, first only their hash
 	int iBuildAllLevelMesh = g.meshgeneralwork;
@@ -544,7 +546,9 @@ static void game_createwholemapnavmesh(bool bStandalone)
 				if (tree.scale < (float)g_iNavMeshTreeMinTrunk) continue;
 				const float fTree[4] = { tree.x, tree.y, tree.z, tree.scale };
 				trees.insert(trees.end(), fTree, fTree + 4);
-				objectsHash += game_navmeshmix(fTree, sizeof(fTree)) ^ 0x9e3779b97f4a7c15ULL;
+				// not its height, which follows the terrain (hashed apart) and moves with the terrain mesh's detail (GGTrees_UpdateInstances)
+				const float fTreeKey[3] = { tree.x, tree.z, tree.scale };
+				objectsHash += game_navmeshmix(fTreeKey, sizeof(fTreeKey)) ^ 0x9e3779b97f4a7c15ULL;
 			}
 			delete[] pOutPoints;
 		}

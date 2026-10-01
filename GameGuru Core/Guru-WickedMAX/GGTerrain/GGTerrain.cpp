@@ -10491,35 +10491,82 @@ int GGTerrain_GetHeight( float x, float z, float* outHeight, int accurateButSlow
 	}
 }
 
-uint64_t GGTerrain_GetHeightFingerprint()
+static void GGTerrain_FingerprintMix( uint64_t& h, const void* pData, size_t bytes )
+{
+	const uint64_t* p = (const uint64_t*)pData;
+	const size_t n = bytes / 8;
+	for ( size_t i = 0; i < n; i++ ) { h ^= p[i]; h *= 0x100000001b3ULL; }
+	const unsigned char* pTail = (const unsigned char*)pData + n * 8;
+	for ( size_t i = 0; i < (bytes & 7); i++ ) { h ^= pTail[i]; h *= 0x100000001b3ULL; }
+}
+
+// the edit maps on a block of texels (rows as CalculateHeightWithHeightmap indexes them): the sculpt heights and types,
+// and each texel's flat area as the height it gives, so flat areas given other ids change nothing
+static void GGTerrain_FingerprintEdits( uint64_t& h, uint32_t col0, uint32_t col1, uint32_t row0, uint32_t row1 )
+{
+	float flat[ GGTERRAIN_HEIGHTMAP_EDIT_SIZE ];
+	const uint32_t cols = col1 - col0 + 1;
+	for ( uint32_t row = row0; row <= row1; row++ )
+	{
+		const size_t i = (size_t)row * GGTERRAIN_HEIGHTMAP_EDIT_SIZE + col0;
+		if ( pHeightMapEdit ) GGTerrain_FingerprintMix( h, &pHeightMapEdit[ i ], cols * sizeof(float) );
+		if ( pHeightMapEditType ) GGTerrain_FingerprintMix( h, &pHeightMapEditType[ i ], cols * sizeof(uint8_t) );
+		if ( pHeightMapFlatAreas )
+		{
+			for ( uint32_t c = 0; c < cols; c++ )
+			{
+				uint32_t id = pHeightMapFlatAreas[ i + c ];
+				flat[ c ] = (id == 0 || id >= ggterrain_flat_areas_array_size) ? -1e30f : ggterrain_flat_areas[ id ].y;
+			}
+			GGTerrain_FingerprintMix( h, flat, cols * sizeof(float) );
+		}
+	}
+}
+
+uint64_t GGTerrain_GetHeightFingerprintGlobal()
 {
 	uint64_t h = 0xcbf29ce484222325ULL;
-	auto mix = [&h]( const void* pData, size_t bytes )
-	{
-		const uint64_t* p = (const uint64_t*)pData;
-		const size_t n = bytes / 8;
-		for ( size_t i = 0; i < n; i++ ) { h ^= p[i]; h *= 0x100000001b3ULL; }
-		const unsigned char* pTail = (const unsigned char*)pData + n * 8;
-		for ( size_t i = 0; i < (bytes & 7); i++ ) { h ^= pTail[i]; h *= 0x100000001b3ULL; }
-	};
 
-	// the settings, copied with their (zeroed) padding; the heightmap's pointer and the force flag change no height
+	// the settings, copied with their (zeroed) padding; the heightmap's pointer, the force flag and the terrain mesh's
+	// settings (lod levels, segments and their size, which the graphics quality changes) change no height
 	GGTerrainParams params;
 	memcpy( &params, &ggterrain_local_params, sizeof(params) );
 	params.pHeightmapMain = 0;
 	params.bForceUpdate = false;
-	mix( &params, sizeof(params) );
-	if ( ggterrain_local_params.pHeightmapMain ) mix( ggterrain_local_params.pHeightmapMain, ggterrain_local_params.heightmap_width * ggterrain_local_params.heightmap_height * sizeof(uint16_t) );
-	mix( &ggterrain_local_render_params2.editable_size, sizeof(float) );
+	params.lod_levels = 0;
+	params.segments_per_chunk = 0;
+	params.segment_size = 0;
+	GGTerrain_FingerprintMix( h, &params, sizeof(params) );
+	if ( ggterrain_local_params.pHeightmapMain ) GGTerrain_FingerprintMix( h, ggterrain_local_params.pHeightmapMain, ggterrain_local_params.heightmap_width * ggterrain_local_params.heightmap_height * sizeof(uint16_t) );
+	GGTerrain_FingerprintMix( h, &ggterrain_local_render_params2.editable_size, sizeof(float) );
+	return h ? h : 1;
+}
 
-	const size_t texels = GGTERRAIN_HEIGHTMAP_EDIT_SIZE * GGTERRAIN_HEIGHTMAP_EDIT_SIZE;
-	if ( pHeightMapEdit ) mix( pHeightMapEdit, texels * sizeof(float) );
-	if ( pHeightMapEditType ) mix( pHeightMapEditType, texels * sizeof(uint8_t) );
-	if ( pHeightMapFlatAreas ) mix( pHeightMapFlatAreas, texels * sizeof(uint16_t) );
-	for ( uint32_t i = 0; i < ggterrain_flat_areas_array_size; i++ )
+uint64_t GGTerrain_GetHeightFingerprintRect( float minX, float minZ, float maxX, float maxZ )
+{
+	// the texels the height anywhere on the rect reads (the two by two round each point), one more each side for rounding
+	const float editableSize = ggterrain_local_render_params2.editable_size;
+	if ( editableSize <= 0 ) return 1;
+	auto texel = [editableSize]( float v )
 	{
-		if ( ggterrain_flat_areas[ i ].IsValid() ) mix( &ggterrain_flat_areas[ i ], sizeof(GGTerrainFlatArea) );
-	}
+		float f = (v / editableSize * 0.5f + 0.5f) * GGTERRAIN_HEIGHTMAP_EDIT_SIZE;
+		if ( f < -2 ) f = -2;
+		if ( f > GGTERRAIN_HEIGHTMAP_EDIT_SIZE + 2 ) f = GGTERRAIN_HEIGHTMAP_EDIT_SIZE + 2;
+		return (int)floorf( f );
+	};
+	auto clampTexel = []( int i ) { return i < 0 ? 0 : (i > GGTERRAIN_HEIGHTMAP_EDIT_SIZE-1 ? GGTERRAIN_HEIGHTMAP_EDIT_SIZE-1 : i); };
+	const int x0 = clampTexel( texel( minX ) - 1 ), x1 = clampTexel( texel( maxX ) + 2 );
+	const int z0 = clampTexel( texel( minZ ) - 1 ), z1 = clampTexel( texel( maxZ ) + 2 );
+
+	uint64_t h = 0xcbf29ce484222325ULL;
+	GGTerrain_FingerprintEdits( h, x0, x1, GGTERRAIN_HEIGHTMAP_EDIT_SIZE-1 - z1, GGTERRAIN_HEIGHTMAP_EDIT_SIZE-1 - z0 );
+	return h ? h : 1;
+}
+
+uint64_t GGTerrain_GetHeightFingerprint()
+{
+	uint64_t h = GGTerrain_GetHeightFingerprintGlobal();
+	GGTerrain_FingerprintEdits( h, 0, GGTERRAIN_HEIGHTMAP_EDIT_SIZE-1, 0, GGTERRAIN_HEIGHTMAP_EDIT_SIZE-1 );
 	return h ? h : 1;
 }
 

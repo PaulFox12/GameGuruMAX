@@ -37,7 +37,9 @@ struct GGNavMeshBake
 	const float* pTrees = 0; // tree trunks: x, y, z and the trunk's diameter each
 	uint32_t numTrees = 0;
 	uint64_t buildKey = 0; // the settings and the area (Sample_TileMesh::wholeMapKey): a change builds every tile
-	uint64_t terrainFingerprint = 0; // the terrain's height inputs: while they match the tiles', their terrain is not sampled to check them
+	uint64_t terrainFingerprint = 0; // the terrain's height inputs over the whole area: while they and the objects match, nothing is checked
+	uint64_t terrainGlobal = 0; // of those, the ones that apply everywhere (the settings, the imported heightmap)
+	uint64_t (*pfnTerrainInputs)( float minX, float minZ, float maxX, float maxZ ) = 0; // the rest on a rect (sculpting, flat areas), called from the build threads
 };
 
 // GG: the whole map bake's settings (setup.ini navmesh*); any change builds every tile
@@ -56,6 +58,9 @@ struct GGNavMeshBakeStats
 {
 	int tilesX = 0, tilesZ = 0;
 	int rebuilt = 0; // tiles built again, their inputs changed or new
+	int rebuiltTerrain = 0; // of those, the ones whose terrain changed (the rest changed only in their objects)
+	int terrainExamples = 0, objectsExamples = 0; // the first few of each, their centres
+	float terrainExampleX[3] = {}, terrainExampleZ[3] = {}, objectsExampleX[3] = {}, objectsExampleZ[3] = {};
 	int underwater = 0; // of those, wholly under water with nothing on them, so left empty
 	int failed = 0; // tiles Detour refused
 	int withData = 0; // tiles in the navmesh after the bake
@@ -206,6 +211,8 @@ public:
 	bool bakeWholeMap( const GGNavMeshBake* pBake, uint64_t objectsHash, GGNavMeshBakeStats* pStats );
 	bool hasWholeMap( uint64_t buildKey ) const { return m_navMesh && m_tilesBuildKey == buildKey && m_tilesBuildKey != 0; }
 	bool isWholeMapCurrent( uint64_t buildKey, uint64_t terrainFingerprint, uint64_t objectsHash ) const { return hasWholeMap( buildKey ) && m_tilesTerrainFingerprint == terrainFingerprint && m_tilesObjectsHash == objectsHash; }
+	uint64_t getWholeMapTerrainFingerprint() const { return m_tilesTerrainFingerprint; }
+	uint64_t getWholeMapObjectsHash() const { return m_tilesObjectsHash; }
 	uint64_t saveWholeMap( const char* pPath ); // the file's size, 0 if it could not be written
 	int loadWholeMap( const char* pPath, uint64_t buildKey ); // tiles loaded, -1 for no file or one made with other settings or another area
 	bool isBaking() const { return m_pBake != 0; }

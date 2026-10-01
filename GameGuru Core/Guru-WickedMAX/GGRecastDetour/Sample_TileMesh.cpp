@@ -105,6 +105,7 @@ struct TileWork
 	uint32_t y = 0;
 	bool bChanged = false; // GG whole map bake: its inputs changed, so pOutData is its new data (0 for none)
 	bool bUnderwater = false;
+	bool bTerrainChanged = false;
 	uint64_t hash = 0;
 	uint64_t terrainHash = 0;
 };
@@ -1023,7 +1024,7 @@ float Sample_TileMesh::bakeBorder() const
 // the settings and the area the tiles depend on: any change and no tile can be kept
 uint64_t Sample_TileMesh::wholeMapKey( const GGNavMeshBake* pBake )
 {
-	const float values[] = { 2.0f /* format */, m_cellSize, m_cellHeight, m_agentHeight, m_agentRadius, m_agentMaxClimb, m_agentMaxSlope,
+	const float values[] = { 3.0f /* format: 3, the terrain hashed by its inputs */, m_cellSize, m_cellHeight, m_agentHeight, m_agentRadius, m_agentMaxClimb, m_agentMaxSlope,
 		m_openCellSize, (float)m_bvTreeMinPolys,
 		m_regionMinSize, m_regionMergeSize, m_edgeMaxLen, m_edgeMaxError, m_vertsPerPoly, m_detailSampleDist, m_detailSampleMaxError,
 		(float)m_partitionType, m_tileSize, pBake->sampleSpacing, pBake->bmin[0], pBake->bmin[2], pBake->bmax[0], pBake->bmax[2],
@@ -1104,7 +1105,9 @@ uint64_t Sample_TileMesh::hashTileObjects( int index, const float* bmin, const f
 		for ( uint32_t k = m_treeTileStart[ index ]; k < m_treeTileStart[ index + 1 ]; k++ )
 		{
 			const float* pTree = &m_pBake->pTrees[ m_treeTileIndex[ k ] * 4 ];
-			sum += GGNavHashFinish( GGNavHashWords( GGNAV_HASH_SEED ^ 0x9e3779b97f4a7c15ULL, pTree, 4 ) );
+			// not its height, which follows the terrain (hashed apart) and moves with the terrain mesh's detail
+			const float treeKey[3] = { pTree[0], pTree[2], pTree[3] };
+			sum += GGNavHashFinish( GGNavHashWords( GGNAV_HASH_SEED ^ 0x9e3779b97f4a7c15ULL, treeKey, 3 ) );
 			*pMinY = rcMin( *pMinY, pTree[1] - 100.0f );
 			*pMaxY = rcMax( *pMaxY, pTree[1] + 100.0f );
 			trees++;
@@ -1208,12 +1211,17 @@ void Sample_TileMesh::bakeTile( TileMeshData* tempData, TileWork* pWork, const f
 	const uint64_t objectsHash = hashTileObjects( index, rmin, rmax, &minY, &maxY, &statics, &trees );
 	const int objects = statics + trees;
 
-	// the terrain's hash as stored while its inputs are those the tiles were built from, else from fresh samples
+	// the terrain's hash from its height inputs on the sample grid (those that apply everywhere, and the sculpting and flat
+	// areas there), so the terrain is sampled only for a tile to be built; sampling every tile to check it took some 24 s
+	// on an 8 km level. Without the inputs, from the samples
 	const bool bKnown = m_tilesBuildKey == m_pBake->buildKey && index < (int)m_tileHash.size();
 	uint64_t terrainHash;
-	if ( bKnown && m_tilesTerrainFingerprint == m_pBake->terrainFingerprint )
+	if ( m_pBake->pfnTerrainInputs )
 	{
-		terrainHash = m_tileTerrainHash[ index ];
+		const float s = m_pBake->sampleSpacing;
+		const uint64_t terrainParts[2] = { m_pBake->terrainGlobal,
+			m_pBake->pfnTerrainInputs( floorf( rmin[0] / s ) * s, floorf( rmin[2] / s ) * s, ceilf( rmax[0] / s ) * s, ceilf( rmax[2] / s ) * s ) };
+		terrainHash = GGNavHashFinish( GGNavHashWords( GGNAV_HASH_SEED, terrainParts, 4 ) );
 	}
 	else
 	{
@@ -1228,6 +1236,7 @@ void Sample_TileMesh::bakeTile( TileMeshData* tempData, TileWork* pWork, const f
 	if ( bKnown && m_tileHash[ index ] == hash ) return; // unchanged: the navmesh keeps the tile it has
 
 	pWork->bChanged = true;
+	pWork->bTerrainChanged = !bKnown || m_tileTerrainHash[ index ] != terrainHash;
 	if ( !tempData->m_hasSamples ) sampleTerrain( tempData, rmin, rmax );
 	if ( objects == 0 && tempData->m_terrainMaxY < m_pBake->waterY )
 	{
@@ -1366,6 +1375,22 @@ bool Sample_TileMesh::bakeWholeMap( const GGNavMeshBake* pBake, uint64_t objects
 		if ( !work.bChanged ) continue;
 		pStats->rebuilt++;
 		if ( work.bUnderwater ) pStats->underwater++;
+		const float centreX = pBake->bmin[0] + (work.x + 0.5f) * tcs;
+		const float centreZ = pBake->bmin[2] + (work.y + 0.5f) * tcs;
+		if ( work.bTerrainChanged )
+		{
+			pStats->rebuiltTerrain++;
+			if ( pStats->terrainExamples < 3 )
+			{
+				pStats->terrainExampleX[ pStats->terrainExamples ] = centreX;
+				pStats->terrainExampleZ[ pStats->terrainExamples++ ] = centreZ;
+			}
+		}
+		else if ( pStats->objectsExamples < 3 )
+		{
+			pStats->objectsExampleX[ pStats->objectsExamples ] = centreX;
+			pStats->objectsExampleZ[ pStats->objectsExamples++ ] = centreZ;
+		}
 		dtTileRef ref = m_navMesh->getTileRefAt( work.x, work.y, 0 );
 		if ( ref ) m_navMesh->removeTile( ref, 0, 0 );
 		if ( work.pOutData )

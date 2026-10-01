@@ -162,6 +162,12 @@ bool GGRecastDetour::prepareWholeMap( GGNavMeshBake* pBake, uint64_t objectsHash
 		tool->init( sample );
 		return true;
 	}
+	if ( pTiles->hasWholeMap( pBake->buildKey ) )
+	{
+		const bool bTerrain = pTiles->getWholeMapTerrainFingerprint() != pBake->terrainFingerprint;
+		const bool bObjects = pTiles->getWholeMapObjectsHash() != objectsHash;
+		strcat_s( pReport, reportSize, bTerrain ? (bObjects ? "terrain and objects differ; " : "terrain differs; ") : "objects differ; " );
+	}
 	return false;
 }
 
@@ -204,10 +210,19 @@ int GGRecastDetour::bakeWholeMap( GGNavMeshBake* pBake, float* pStaticVerts, uin
 		if ( bytes ) sprintf_s( pSave, 640, "; saved %s, %llu bytes, in %.0f ms", pSaveFile, (unsigned long long)bytes, GGRecastDetour_Milliseconds( start ) );
 		else sprintf_s( pSave, 640, "; could not save %s", pSaveFile );
 	}
-	sprintf_s( pReport, reportSize, "Navmesh (whole map): %d x %d tiles, %d built%s (%d under water, %d refused) in %.0f ms; now %d tiles (%d at the open cell size), %llu bytes (%llu links, %llu BV trees): %u polys, %u verts, %u detail verts, %u detail tris%s",
-		stats.tilesX, stats.tilesZ, stats.rebuilt, stats.fresh ? " (all)" : "", stats.underwater, stats.failed, stats.milliseconds,
+	// where the tiles built again changed, the first few of each kind
+	char pWhere[256] = "";
+	if ( !stats.fresh && stats.rebuilt > 0 )
+	{
+		strcpy_s( pWhere, 256, "; terrain changed at" );
+		for ( int i = 0; i < stats.terrainExamples; i++ ) sprintf_s( pWhere + strlen( pWhere ), 256 - strlen( pWhere ), " (%.0f,%.0f)", stats.terrainExampleX[i], stats.terrainExampleZ[i] );
+		strcat_s( pWhere, 256, ", objects only at" );
+		for ( int i = 0; i < stats.objectsExamples; i++ ) sprintf_s( pWhere + strlen( pWhere ), 256 - strlen( pWhere ), " (%.0f,%.0f)", stats.objectsExampleX[i], stats.objectsExampleZ[i] );
+	}
+	sprintf_s( pReport, reportSize, "Navmesh (whole map): %d x %d tiles, %d built%s (%d for terrain, %d under water, %d refused) in %.0f ms; now %d tiles (%d at the open cell size), %llu bytes (%llu links, %llu BV trees): %u polys, %u verts, %u detail verts, %u detail tris%s%s",
+		stats.tilesX, stats.tilesZ, stats.rebuilt, stats.fresh ? " (all)" : "", stats.rebuiltTerrain, stats.underwater, stats.failed, stats.milliseconds,
 		stats.withData, stats.openTiles, (unsigned long long)stats.bytes, (unsigned long long)stats.linkBytes, (unsigned long long)stats.bvBytes,
-		stats.polys, stats.verts, stats.detailVerts, stats.detailTris, pSave );
+		stats.polys, stats.verts, stats.detailVerts, stats.detailTris, pWhere, pSave );
 	return 1;
 }
 
