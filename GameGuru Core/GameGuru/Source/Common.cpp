@@ -3130,6 +3130,30 @@ void FPSC_LoadSETUPINI (bool bUseMySystemFolder)
 					// DOCDOC: navmeshlimitflags = 1 keeps the whole map navmesh inside the box the NAVMESH LIMIT flags mark; 0 (the default) covers the whole editable area whatever flags the level has.
 					extern int g_iNavMeshLimitFlags;
 					t.tryfield_s = "navmeshlimitflags"; if (t.field_s == t.tryfield_s) g_iNavMeshLimitFlags = t.value1;
+
+					// DOCDOC: navmeshopencellsize = The whole map navmesh's cell size, in units, on tiles with no static objects (10 by default; 5, the fine size, everywhere is about twice the size). It must divide 800.
+					extern int g_iNavMeshOpenCellSize;
+					t.tryfield_s = "navmeshopencellsize"; if (t.field_s == t.tryfield_s) g_iNavMeshOpenCellSize = t.value1;
+
+					// DOCDOC: navmeshbvtreepolys = Whole map navmesh tiles with more polygons than this get a bounding volume tree (128 by default); smaller ones are searched polygon by polygon, with the same results.
+					extern int g_iNavMeshBvTreePolys;
+					t.tryfield_s = "navmeshbvtreepolys"; if (t.field_s == t.tryfield_s) g_iNavMeshBvTreePolys = t.value1;
+
+					// DOCDOC: navmeshedgeerror = How far whole map navmesh polygon edges may stray from the walkable outline, in tenths of a cell (13 by default); more is a smaller navmesh.
+					extern int g_iNavMeshEdgeError;
+					t.tryfield_s = "navmeshedgeerror"; if (t.field_s == t.tryfield_s) g_iNavMeshEdgeError = t.value1;
+
+					// DOCDOC: navmeshdetaildist = The whole map navmesh's height detail sample spacing, in cells of 5 units (6 by default); more is a smaller navmesh with rougher heights.
+					extern int g_iNavMeshDetailDist;
+					t.tryfield_s = "navmeshdetaildist"; if (t.field_s == t.tryfield_s) g_iNavMeshDetailDist = t.value1;
+
+					// DOCDOC: navmeshdetailerror = How far the whole map navmesh's height detail may stray from the surface, in cell heights of 5 units (1 by default).
+					extern int g_iNavMeshDetailError;
+					t.tryfield_s = "navmeshdetailerror"; if (t.field_s == t.tryfield_s) g_iNavMeshDetailError = t.value1;
+
+					// DOCDOC: navmeshtreemintrunk = Trees whose trunk is thinner than this (a diameter, in units) are left out of the whole map navmesh (0, every tree, by default).
+					extern int g_iNavMeshTreeMinTrunk;
+					t.tryfield_s = "navmeshtreemintrunk"; if (t.field_s == t.tryfield_s) g_iNavMeshTreeMinTrunk = t.value1;
 				}
 			}
 		}

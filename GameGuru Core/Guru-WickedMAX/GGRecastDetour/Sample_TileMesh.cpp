@@ -997,10 +997,31 @@ void Sample_TileMesh::buildAllTiles()
 
 // GG: the whole map bake ------------------------------------------------------------------------------------------------
 
+void Sample_TileMesh::setBakeSettings( const GGNavMeshSettings& settings )
+{
+	m_vertsPerPoly = (float)rcClamp( settings.vertsPerPoly, 3, 6 );
+	m_edgeMaxError = settings.edgeMaxError;
+	m_detailSampleDist = settings.detailSampleDist;
+	m_detailSampleMaxError = settings.detailSampleMaxError;
+	m_bvTreeMinPolys = settings.bvTreeMinPolys;
+	// a coarser open cell size only if it tiles the same width
+	const float tileWidth = m_tileSize * m_cellSize;
+	const float cells = tileWidth / rcMax( settings.openCellSize, 0.001f );
+	m_openCellSize = (settings.openCellSize > m_cellSize && fabsf( cells - floorf( cells + 0.5f ) ) < 0.001f) ? settings.openCellSize : m_cellSize;
+}
+
+float Sample_TileMesh::bakeBorder() const
+{
+	const float fine = (ceilf( m_agentRadius / m_cellSize ) + 3) * m_cellSize;
+	const float open = (ceilf( m_agentRadius / m_openCellSize ) + 3) * m_openCellSize;
+	return rcMax( fine, open );
+}
+
 // the settings and the area the tiles depend on: any change and no tile can be kept
 uint64_t Sample_TileMesh::wholeMapKey( const GGNavMeshBake* pBake )
 {
-	const float values[] = { 1.0f /* format */, m_cellSize, m_cellHeight, m_agentHeight, m_agentRadius, m_agentMaxClimb, m_agentMaxSlope,
+	const float values[] = { 2.0f /* format */, m_cellSize, m_cellHeight, m_agentHeight, m_agentRadius, m_agentMaxClimb, m_agentMaxSlope,
+		m_openCellSize, (float)m_bvTreeMinPolys,
 		m_regionMinSize, m_regionMergeSize, m_edgeMaxLen, m_edgeMaxError, m_vertsPerPoly, m_detailSampleDist, m_detailSampleMaxError,
 		(float)m_partitionType, m_tileSize, pBake->sampleSpacing, pBake->bmin[0], pBake->bmin[2], pBake->bmax[0], pBake->bmax[2],
 		pBake->waterY, m_filterLowHangingObstacles ? 1.0f : 0.0f, m_filterLedgeSpans ? 1.0f : 0.0f, m_filterWalkableLowHeightSpans ? 1.0f : 0.0f };
@@ -1040,10 +1061,11 @@ void Sample_TileMesh::sampleTerrain( TileMeshData* tempData, const float* bmin, 
 
 // the static object triangles and the trees on the rect, combined in any order (an object added elsewhere changes no
 // other tile's hash), with their height range
-uint64_t Sample_TileMesh::hashTileObjects( int index, const float* bmin, const float* bmax, float* pMinY, float* pMaxY, int* pCount )
+uint64_t Sample_TileMesh::hashTileObjects( int index, const float* bmin, const float* bmax, float* pMinY, float* pMaxY, int* pStatics, int* pTrees )
 {
 	uint64_t sum = 0;
 	int count = 0;
+	int trees = 0;
 	if ( m_geom && m_geom->getMesh() && m_geom->getChunkyMesh() )
 	{
 		const float* verts = m_geom->getMesh()->getVerts();
@@ -1082,10 +1104,11 @@ uint64_t Sample_TileMesh::hashTileObjects( int index, const float* bmin, const f
 			sum += GGNavHashFinish( GGNavHashWords( GGNAV_HASH_SEED ^ 0x9e3779b97f4a7c15ULL, pTree, 4 ) );
 			*pMinY = rcMin( *pMinY, pTree[1] - 100.0f );
 			*pMaxY = rcMax( *pMaxY, pTree[1] + 100.0f );
-			count++;
+			trees++;
 		}
 	}
-	*pCount = count;
+	*pStatics = count;
+	*pTrees = trees;
 	return sum;
 }
 
@@ -1173,13 +1196,14 @@ void Sample_TileMesh::rasteriseBakeInputs( TileMeshData* tempData, int index, co
 void Sample_TileMesh::bakeTile( TileMeshData* tempData, TileWork* pWork, const float* tileMin, const float* tileMax )
 {
 	const int index = pWork->y * m_tilesX + pWork->x;
-	const float border = (ceilf( m_agentRadius / m_cellSize ) + 3) * m_cellSize; // buildTileMesh's cfg.borderSize
+	const float border = bakeBorder(); // buildTileMesh's cfg.borderSize at either cell size
 	const float rmin[3] = { tileMin[0] - border, 0, tileMin[2] - border };
 	const float rmax[3] = { tileMax[0] + border, 0, tileMax[2] + border };
 
 	float minY = FLT_MAX, maxY = -FLT_MAX;
-	int objects = 0;
-	const uint64_t objectsHash = hashTileObjects( index, rmin, rmax, &minY, &maxY, &objects );
+	int statics = 0, trees = 0;
+	const uint64_t objectsHash = hashTileObjects( index, rmin, rmax, &minY, &maxY, &statics, &trees );
+	const int objects = statics + trees;
 
 	// the terrain's hash as stored while its inputs are those the tiles were built from, else from fresh samples
 	const bool bKnown = m_tilesBuildKey == m_pBake->buildKey && index < (int)m_tileHash.size();
@@ -1212,7 +1236,9 @@ void Sample_TileMesh::bakeTile( TileMeshData* tempData, TileWork* pWork, const f
 	if ( minY > maxY ) return; // nothing at all here
 	const float tmin[3] = { tileMin[0], minY, tileMin[2] };
 	const float tmax[3] = { tileMax[0], maxY, tileMax[2] };
+	tempData->m_cellSize = (statics == 0) ? m_openCellSize : m_cellSize; // the fine cells only where static objects (doorways) need them
 	pWork->pOutData = buildTileMesh( tempData, pWork->x, pWork->y, tmin, tmax, pWork->dataSize );
+	tempData->m_cellSize = 0;
 }
 
 bool Sample_TileMesh::bakeWholeMap( const GGNavMeshBake* pBake, uint64_t objectsHash, GGNavMeshBakeStats* pStats )
@@ -1263,7 +1289,7 @@ bool Sample_TileMesh::bakeWholeMap( const GGNavMeshBake* pBake, uint64_t objects
 	if ( dtStatusFailed( m_navQuery->init( m_navMesh, 4096 ) ) ) return false;
 
 	// the trees bucketed by the tiles (with their borders) they overlap
-	const float border = (ceilf( m_agentRadius / m_cellSize ) + 3) * m_cellSize;
+	const float border = bakeBorder();
 	m_treeTileStart.assign( tw * th + 1, 0 );
 	m_treeTileIndex.clear();
 	for ( int pass = 0; pass < 2; pass++ )
@@ -1368,6 +1394,9 @@ bool Sample_TileMesh::bakeWholeMap( const GGNavMeshBake* pBake, uint64_t objects
 		pStats->verts += pTile->header->vertCount;
 		pStats->detailVerts += pTile->header->detailVertCount;
 		pStats->detailTris += pTile->header->detailTriCount;
+		pStats->linkBytes += (uint64_t)pTile->header->maxLinkCount * sizeof(dtLink);
+		pStats->bvBytes += (uint64_t)pTile->header->bvNodeCount * sizeof(dtBVNode);
+		if ( pTile->header->bvQuantFactor < 0.999f / m_cellSize ) pStats->openTiles++;
 	}
 	QueryPerformanceCounter( &end );
 	pStats->milliseconds = (double)(end.QuadPart - start.QuadPart) * 1000.0 / (double)freq.QuadPart;
@@ -1416,7 +1445,12 @@ uint64_t Sample_TileMesh::saveWholeMap( const char* pPath )
 		if ( !pTile || !pTile->header || !pTile->dataSize ) continue;
 		const int32_t rec[3] = { pTile->header->x, pTile->header->y, pTile->dataSize };
 		memcpy( p, rec, 12 ); p += 12;
-		memcpy( p, pTile->data, pTile->dataSize ); p += pTile->dataSize;
+		memcpy( p, pTile->data, pTile->dataSize );
+		// the polygon links are rebuilt when the tile is added (dtNavMesh::addTile), so they go as zeros, which compress away
+		const int linksOffset = dtAlign4( sizeof(dtMeshHeader) ) + dtAlign4( sizeof(float) * 3 * pTile->header->vertCount ) + dtAlign4( sizeof(dtPoly) * pTile->header->polyCount );
+		const int linksSize = dtAlign4( sizeof(dtLink) * pTile->header->maxLinkCount );
+		if ( linksOffset + linksSize <= pTile->dataSize ) memset( p + linksOffset, 0, linksSize );
+		p += pTile->dataSize;
 	}
 
 	mz_ulong compressedSize = mz_compressBound( (mz_ulong)rawSize );
@@ -1539,25 +1573,30 @@ unsigned char* Sample_TileMesh::buildTileMesh(TileMeshData* tempData, const int 
 	const rcChunkyTriMesh* chunkyMesh = bHasStatics ? m_geom->getChunkyMesh() : 0;
 
 	rcConfig& cfg = tempData->m_cfg;
-		
+
+	// GG: a whole map tile with no static objects can be built at a coarser cell size (m_openCellSize); the tile keeps its
+	// size in the world, and the region areas and height detail keep theirs
+	const float cs = (tempData->m_cellSize > 0) ? tempData->m_cellSize : m_cellSize;
+	const float scale = m_cellSize / cs;
+
 	// Init build configuration from GUI
 	memset(&cfg, 0, sizeof(cfg));
-	cfg.cs = m_cellSize;
+	cfg.cs = cs;
 	cfg.ch = m_cellHeight;
 	cfg.walkableSlopeAngle = m_agentMaxSlope;
 	cfg.walkableHeight = (int)ceilf(m_agentHeight / cfg.ch);
 	cfg.walkableClimb = (int)floorf(m_agentMaxClimb / cfg.ch);
 	cfg.walkableRadius = (int)ceilf(m_agentRadius / cfg.cs);
-	cfg.maxEdgeLen = (int)(m_edgeMaxLen / m_cellSize);
+	cfg.maxEdgeLen = (int)(m_edgeMaxLen / cs);
 	cfg.maxSimplificationError = m_edgeMaxError;
-	cfg.minRegionArea = (int)rcSqr(m_regionMinSize);		// Note: area = size*size
-	cfg.mergeRegionArea = (int)rcSqr(m_regionMergeSize);	// Note: area = size*size
+	cfg.minRegionArea = (int)rcSqr(m_regionMinSize * scale);		// Note: area = size*size
+	cfg.mergeRegionArea = (int)rcSqr(m_regionMergeSize * scale);	// Note: area = size*size
 	cfg.maxVertsPerPoly = (int)m_vertsPerPoly;
-	cfg.tileSize = (int)m_tileSize;
+	cfg.tileSize = (int)(m_tileSize * scale + 0.5f);
 	cfg.borderSize = cfg.walkableRadius + 3; // Reserve enough padding.
 	cfg.width = cfg.tileSize + cfg.borderSize*2;
 	cfg.height = cfg.tileSize + cfg.borderSize*2;
-	cfg.detailSampleDist = m_detailSampleDist < 0.9f ? 0 : m_cellSize * m_detailSampleDist;
+	cfg.detailSampleDist = m_detailSampleDist < 0.9f ? 0 : m_cellSize * m_detailSampleDist; // GG: in world units, whatever the tile's cell size
 	cfg.detailSampleMaxError = m_cellHeight * m_detailSampleMaxError;
 	
 	// Expand the heighfield bounding box by border size to find the extents of geometry we need to build this tile.
@@ -1883,7 +1922,9 @@ unsigned char* Sample_TileMesh::buildTileMesh(TileMeshData* tempData, const int 
 		rcVcopy(params.bmax, pmesh->bmax);
 		params.cs = cfg.cs;
 		params.ch = cfg.ch;
-		params.buildBvTree = true;
+		// GG: a whole map tile with few polygons is searched polygon by polygon instead (the same results), as its tree would
+		// be a fifth of the navmesh
+		params.buildBvTree = !m_pBake || pmesh->npolys > m_bvTreeMinPolys;
 		
 		if (!dtCreateNavMeshData(&params, &navData, &navDataSize))
 		{

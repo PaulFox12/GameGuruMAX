@@ -120,7 +120,7 @@ static double GGRecastDetour_Milliseconds( const LARGE_INTEGER& start )
 	return (double)(now.QuadPart - start.QuadPart) * 1000.0 / (double)freq.QuadPart;
 }
 
-bool GGRecastDetour::prepareWholeMap( GGNavMeshBake* pBake, uint64_t objectsHash, int vertsPerPoly, const char* pLevelId, const char* pLoadFile, const char* pLoadFile2,
+bool GGRecastDetour::prepareWholeMap( GGNavMeshBake* pBake, uint64_t objectsHash, const GGNavMeshSettings& settings, const char* pLevelId, const char* pLoadFile, const char* pLoadFile2,
 	char* pReport, int reportSize )
 {
 	// another level's saved navmesh replaces the one held; without one the held navmesh is brought up to date, which
@@ -135,7 +135,7 @@ bool GGRecastDetour::prepareWholeMap( GGNavMeshBake* pBake, uint64_t objectsHash
 		sample->setContext( &ctx );
 	}
 	Sample_TileMesh* pTiles = (Sample_TileMesh*)sample;
-	pTiles->setVertsPerPoly( vertsPerPoly );
+	pTiles->setBakeSettings( settings );
 	pBake->buildKey = pTiles->wholeMapKey( pBake );
 
 	// the saved navmesh, while none is held for these settings
@@ -204,9 +204,10 @@ int GGRecastDetour::bakeWholeMap( GGNavMeshBake* pBake, float* pStaticVerts, uin
 		if ( bytes ) sprintf_s( pSave, 640, "; saved %s, %llu bytes, in %.0f ms", pSaveFile, (unsigned long long)bytes, GGRecastDetour_Milliseconds( start ) );
 		else sprintf_s( pSave, 640, "; could not save %s", pSaveFile );
 	}
-	sprintf_s( pReport, reportSize, "Navmesh (whole map): %d x %d tiles, %d built%s (%d under water, %d refused) in %.0f ms; now %d tiles, %llu bytes: %u polys, %u verts, %u detail verts, %u detail tris%s",
+	sprintf_s( pReport, reportSize, "Navmesh (whole map): %d x %d tiles, %d built%s (%d under water, %d refused) in %.0f ms; now %d tiles (%d at the open cell size), %llu bytes (%llu links, %llu BV trees): %u polys, %u verts, %u detail verts, %u detail tris%s",
 		stats.tilesX, stats.tilesZ, stats.rebuilt, stats.fresh ? " (all)" : "", stats.underwater, stats.failed, stats.milliseconds,
-		stats.withData, (unsigned long long)stats.bytes, stats.polys, stats.verts, stats.detailVerts, stats.detailTris, pSave );
+		stats.withData, stats.openTiles, (unsigned long long)stats.bytes, (unsigned long long)stats.linkBytes, (unsigned long long)stats.bvBytes,
+		stats.polys, stats.verts, stats.detailVerts, stats.detailTris, pSave );
 	return 1;
 }
 

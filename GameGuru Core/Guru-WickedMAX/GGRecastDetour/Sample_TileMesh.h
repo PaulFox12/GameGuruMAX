@@ -40,6 +40,17 @@ struct GGNavMeshBake
 	uint64_t terrainFingerprint = 0; // the terrain's height inputs: while they match the tiles', their terrain is not sampled to check them
 };
 
+// GG: the whole map bake's settings (setup.ini navmesh*); any change builds every tile
+struct GGNavMeshSettings
+{
+	int vertsPerPoly = 6;
+	float openCellSize = 10.0f; // the cell size of a tile with no static objects on it, coarser for a smaller navmesh; the cell size (5) for none
+	int bvTreeMinPolys = 128; // a tile with more polygons gets a bounding volume tree; a smaller one is searched polygon by polygon, with the same results
+	float edgeMaxError = 1.3f; // how far a polygon edge may stray from the walkable area's outline, in cells
+	float detailSampleDist = 6.0f; // the height detail's sample spacing, in cells of the cell size
+	float detailSampleMaxError = 1.0f; // how far the height detail may stray from the surface, in cell heights
+};
+
 // GG: what a whole map bake did
 struct GGNavMeshBakeStats
 {
@@ -50,6 +61,8 @@ struct GGNavMeshBakeStats
 	int withData = 0; // tiles in the navmesh after the bake
 	uint64_t bytes = 0; // their data
 	uint32_t polys = 0, verts = 0, detailVerts = 0, detailTris = 0;
+	uint64_t linkBytes = 0, bvBytes = 0; // of bytes, the polygon links (rebuilt when a tile loads, so not saved) and the bounding volume trees
+	int openTiles = 0; // tiles at the open cell size
 	bool fresh = false; // no navmesh for these settings to start from, so every tile was built
 	double milliseconds = 0;
 };
@@ -71,6 +84,7 @@ struct TileMeshData
 	float m_samplesMinX = 0, m_samplesMinZ = 0;
 	float m_terrainMinY = 0, m_terrainMaxY = 0;
 	bool m_hasSamples = false;
+	float m_cellSize = 0; // the cell size this tile is built at, 0 for the sample's
 	std::vector<float> m_bakeTris;
 	std::vector<unsigned char> m_bakeAreas;
 
@@ -152,11 +166,14 @@ protected:
 	uint64_t m_tilesTerrainFingerprint = 0;
 	uint64_t m_tilesObjectsHash = 0;
 	int m_tilesX = 0, m_tilesZ = 0;
+	float m_openCellSize = 0; // GGNavMeshSettings
+	int m_bvTreeMinPolys = 0;
 	std::vector<uint32_t> m_treeTileStart; // the trees overlapping each tile and its border, as indices into the bake's
 	std::vector<uint32_t> m_treeTileIndex;
 
 	void sampleTerrain( TileMeshData* tempData, const float* bmin, const float* bmax );
-	uint64_t hashTileObjects( int index, const float* bmin, const float* bmax, float* pMinY, float* pMaxY, int* pCount );
+	uint64_t hashTileObjects( int index, const float* bmin, const float* bmax, float* pMinY, float* pMaxY, int* pStatics, int* pTrees );
+	float bakeBorder() const; // the widest tile border either cell size needs
 	void rasteriseBakeInputs( TileMeshData* tempData, int index, const rcConfig& cfg );
 		
 public:
@@ -194,7 +211,7 @@ public:
 	bool isBaking() const { return m_pBake != 0; }
 	void bakeTile( TileMeshData* tempData, struct TileWork* pWork, const float* tileMin, const float* tileMax );
 	void setBakeGeom( class InputGeom* geom ) { m_geom = geom; } // the static objects, keeping the navmesh (handleMeshChanged drops it)
-	void setVertsPerPoly( int n ) { m_vertsPerPoly = (float)n; }
+	void setBakeSettings( const GGNavMeshSettings& settings );
 
 private:
 	// Explicitly disabled copy constructor and copy assignment operator.

@@ -453,6 +453,12 @@ static uint64_t game_addnavmeshstatics(int iBuildAllLevelObj, int iBuildAllLevel
 int g_iNavMeshWholeMap = 1; // setup.ini navmeshwholemap: 0 builds the old navmesh (the area round the entities, from a terrain scan, at every game start)
 int g_iNavMeshVertsPerPoly = 6; // setup.ini navmeshvertsperpoly (3 to 6): a triangle per polygon took a whole six vertex polygon each
 int g_iNavMeshLimitFlags = 0; // setup.ini navmeshlimitflags: 1 keeps the whole map navmesh inside the NAVMESH LIMIT flags' box (they were the way round the old tile cap)
+int g_iNavMeshOpenCellSize = 10; // setup.ini navmeshopencellsize: the cell size of tiles with no static objects (5 for the fine one everywhere)
+int g_iNavMeshBvTreePolys = 128; // setup.ini navmeshbvtreepolys: tiles with more polygons get a bounding volume tree
+int g_iNavMeshEdgeError = 13; // setup.ini navmeshedgeerror: how far polygon edges may stray from the outline, in tenths of a cell
+int g_iNavMeshDetailDist = 6; // setup.ini navmeshdetaildist: the height detail's sample spacing, in cells
+int g_iNavMeshDetailError = 1; // setup.ini navmeshdetailerror: how far the height detail may stray, in cell heights
+int g_iNavMeshTreeMinTrunk = 0; // setup.ini navmeshtreemintrunk: trees with a thinner trunk (a diameter, in units) are left out
 
 // the terrain's height for the navmesh's tiles, from the build threads: the accurate path, which reads no terrain chunks;
 // where a flat area's height is not known yet (NaN), the height without flat areas
@@ -535,6 +541,7 @@ static void game_createwholemapnavmesh(bool bStandalone)
 			{
 				const GGTrees::GGTreePoint& tree = pOutPoints[n];
 				if (tree.x < bake.bmin[0] - 100 || tree.x > bake.bmax[0] + 100 || tree.z < bake.bmin[2] - 100 || tree.z > bake.bmax[2] + 100) continue;
+				if (tree.scale < (float)g_iNavMeshTreeMinTrunk) continue;
 				const float fTree[4] = { tree.x, tree.y, tree.z, tree.scale };
 				trees.insert(trees.end(), fTree, fTree + 4);
 				objectsHash += game_navmeshmix(fTree, sizeof(fTree)) ^ 0x9e3779b97f4a7c15ULL;
@@ -567,9 +574,16 @@ static void game_createwholemapnavmesh(bool bStandalone)
 	// the navmesh held or saved, if it was built from these inputs
 	char pReport[2048];
 	char pNavLog[1024];
+	GGNavMeshSettings settings;
+	settings.vertsPerPoly = g_iNavMeshVertsPerPoly;
+	settings.openCellSize = (float)g_iNavMeshOpenCellSize;
+	settings.bvTreeMinPolys = g_iNavMeshBvTreePolys;
+	settings.edgeMaxError = g_iNavMeshEdgeError / 10.0f;
+	settings.detailSampleDist = (float)g_iNavMeshDetailDist;
+	settings.detailSampleMaxError = (float)g_iNavMeshDetailError;
 	bool bCurrent = false;
-	if (bStandalone) bCurrent = g_RecastDetour.prepareWholeMap(&bake, objectsHash, g_iNavMeshVertsPerPoly, g.projectfilename_s.Get(), pCacheNav, pLevelNav, pReport, 2048);
-	else bCurrent = g_RecastDetour.prepareWholeMap(&bake, objectsHash, g_iNavMeshVertsPerPoly, g.projectfilename_s.Get(), pLevelNav, 0, pReport, 2048);
+	if (bStandalone) bCurrent = g_RecastDetour.prepareWholeMap(&bake, objectsHash, settings, g.projectfilename_s.Get(), pCacheNav, pLevelNav, pReport, 2048);
+	else bCurrent = g_RecastDetour.prepareWholeMap(&bake, objectsHash, settings, g.projectfilename_s.Get(), pLevelNav, 0, pReport, 2048);
 	sprintf_s(pNavLog, 1024, "Navmesh (whole map): x %.0f to %.0f, z %.0f to %.0f%s, %u trees, water %.0f; %s%s",
 		bake.bmin[0], bake.bmax[0], bake.bmin[2], bake.bmax[2], bUsingNavMeshLimitCustomArea ? " (NAVMESH LIMIT flags)" : "",
 		bake.numTrees, bake.waterY, pReport, bCurrent ? "inputs unchanged, nothing built" : "inputs changed");
