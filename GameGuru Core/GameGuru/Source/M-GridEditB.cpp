@@ -8064,6 +8064,18 @@ void LuaRenderSettings_SetMSAA(int iSamples)
 	LuaRenderSettings_Apply();
 }
 
+// the culling switches in force (SetOcclusionCulling) and the lowest-LOD shadows (SetShadowsLowestLOD)
+void LuaRenderSettings_GetCulling(int* pOcclusion, int* pObjects, int* pAnimations, int* pTerrain, int* pShadows, int* pSpotShadows, int* pShadowsLowestLOD)
+{
+	*pOcclusion = wiRenderer::GetOcclusionCullingEnabled() ? 1 : 0;
+	*pObjects = bEnableObjectCulling ? 1 : 0;
+	*pAnimations = bEnableAnimationCulling ? 1 : 0;
+	*pTerrain = bEnableTerrainChunkCulling ? 1 : 0;
+	*pShadows = bEnablePointShadowCulling ? 1 : 0;
+	*pSpotShadows = bEnableSpotShadowCulling ? 1 : 0;
+	*pShadowsLowestLOD = bShadowsLowestLOD ? 1 : 0;
+}
+
 int LuaRenderSettings_GetMSAA(void)
 {
 	return master_renderer ? (int)master_renderer->getMSAASampleCount() : 1;
@@ -8141,7 +8153,16 @@ void LuaRenderSettings_GetTerrainDetail(int* pLimit, float* pScale, int* pReadBa
 // the terrain and grass to what they were before the script set them
 static void LuaRenderSettings_RestoreGraphics(const sLuaRenderSettings& old, visualstype* visuals)
 {
-	if (old.iSpotShadowCulling >= 0) bEnableSpotShadowCulling = visuals->bEnableSpotShadowCulling;
+	if (old.iObjectCulling >= 0) bEnableObjectCulling = visuals->bEnableObjectCulling;
+	if (old.iAnimationCulling >= 0) bEnableAnimationCulling = visuals->bEnableAnimationCulling;
+	if (old.iTerrainCulling >= 0) bEnableTerrainChunkCulling = visuals->bEnableTerrainChunkCulling;
+	if (old.iShadowCulling >= 0 || old.iSpotShadowCulling >= 0)
+	{
+		bEnablePointShadowCulling = visuals->bEnablePointShadowCulling;
+		bEnableSpotShadowCulling = visuals->bEnableSpotShadowCulling;
+	}
+	if (old.iOcclusion >= 0) wiRenderer::SetOcclusionCullingEnabled(visuals->bOcclusionCulling);
+	if (old.iShadowsLowestLOD >= 0) bShadowsLowestLOD = visuals->bShadowsLowestLOD;
 	if (old.iProbesLowestLOD >= 0) bProbesLowestLOD = visuals->bProbesLowestLOD;
 	if (old.iReflectionsLowestLOD >= 0) bReflectionsLowestLOD = visuals->bReflectionsLowestLOD;
 	if (old.iAnimations30Fps >= 0) bEnable30FpsAnimations = visuals->bEnable30FpsAnimations;
@@ -8184,8 +8205,8 @@ static void LuaRenderSettings_RestoreGraphics(const sLuaRenderSettings& old, vis
 // forget a script's graphics values (SetFXAA, SetReflections, SetProbesLowestLOD, SetReflectionsLowestLOD,
 // SetAnimations30Fps, SetMaxApparentSize, SetShadowResolution, SetShadowLights, SetShadowCascades, SetTerrainDetail,
 // SetGrassSimpleLighting, SetVsync, SetFrameRateCap, SetRenderScale, SetMSAA, SetSSR, SetAO, SetLODMultiplier, SetShadowRange,
-// SetTreeDistance, SetTreeTransition, SetGrassDistance, SetOcclusionCulling's spot shadows) and put back the level's and
-// the graphics quality's, so a quality change moves them again (ResetGraphicsSettings); the other levers stay as set
+// SetTreeDistance, SetTreeTransition, SetGrassDistance, SetOcclusionCulling, SetShadowsLowestLOD) and put back the level's
+// and the graphics quality's, so a quality change moves them again (ResetGraphicsSettings); the other levers stay as set
 void LuaRenderSettings_ResetGraphics(void)
 {
 	sLuaRenderSettings old = g_LuaRenderSettings;
@@ -8212,6 +8233,12 @@ void LuaRenderSettings_ResetGraphics(void)
 	p->iFrameRateCap = -1;
 	p->fRenderScale = -1;
 	p->iMSAA = -1;
+	p->iOcclusion = -1;
+	p->iObjectCulling = -1;
+	p->iAnimationCulling = -1;
+	p->iTerrainCulling = -1;
+	p->iShadowCulling = -1;
+	p->iShadowsLowestLOD = -1;
 	p->iSSR = -1;
 	p->iAO = -1;
 	p->fAOPower = -1;
@@ -8247,16 +8274,6 @@ void LuaRenderSettings_Clear(void)
 	sLuaRenderSettings old = g_LuaRenderSettings;
 	g_LuaRenderSettings = sLuaRenderSettings();
 	visualstype* visuals = &t.visuals;
-	if (old.iObjectCulling >= 0) bEnableObjectCulling = visuals->bEnableObjectCulling;
-	if (old.iAnimationCulling >= 0) bEnableAnimationCulling = visuals->bEnableAnimationCulling;
-	if (old.iTerrainCulling >= 0) bEnableTerrainChunkCulling = visuals->bEnableTerrainChunkCulling;
-	if (old.iShadowCulling >= 0 || old.iSpotShadowCulling >= 0)
-	{
-		bEnablePointShadowCulling = visuals->bEnablePointShadowCulling;
-		bEnableSpotShadowCulling = visuals->bEnableSpotShadowCulling;
-	}
-	if (old.iOcclusion >= 0) wiRenderer::SetOcclusionCullingEnabled(visuals->bOcclusionCulling);
-	if (old.iShadowsLowestLOD >= 0) bShadowsLowestLOD = visuals->bShadowsLowestLOD;
 	if (old.iDelayedShadows >= 0 || old.iDelayedShadowsLaptop >= 0) LuaRenderSettings_SetDelayedShadowGlobals(visuals->g_bDelayedShadows, visuals->g_bDelayedShadowsLaptop);
 	LuaRenderSettings_RestoreGraphics(old, visuals);
 	if (old.iShadowJobWait >= 0) g_bShadowJobWaits = false;
