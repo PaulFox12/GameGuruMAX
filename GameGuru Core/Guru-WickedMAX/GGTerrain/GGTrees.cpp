@@ -2768,6 +2768,26 @@ void GGTrees_Delete_Trees(float pickX,float pickZ, float radius)
 
 }
 
+// GG: a type's instance buffer is kept from frame to frame and refilled, and made again only when it must grow; making a new
+// one for every type every frame fed the driver a stream of buffer creations
+static void GGTrees_FillInstanceBuffer( GPUBuffer* pBuffer, const InstanceTreeGPU* pInstances, uint32_t count, CommandList cmd )
+{
+	uint32_t size = sizeof(InstanceTreeGPU) * count;
+	if ( !pBuffer->IsValid() || pBuffer->GetDesc().ByteWidth < size )
+	{
+		uint32_t capacity = 256;
+		while ( capacity < count ) capacity *= 2;
+
+		GPUBufferDesc bufferDesc = {};
+		bufferDesc.ByteWidth = sizeof(InstanceTreeGPU) * capacity;
+		bufferDesc.BindFlags = BIND_VERTEX_BUFFER;
+		bufferDesc.CPUAccessFlags = 0;
+		bufferDesc.MiscFlags = 0;
+		wiRenderer::GetDevice()->CreateBuffer( &bufferDesc, nullptr, pBuffer );
+	}
+	wiRenderer::GetDevice()->UpdateBuffer( pBuffer, pInstances, cmd, size );
+}
+
 void GGTrees_UpdateFrustumCulling( wiScene::CameraComponent* camera )
 {
 	if (!ggtrees_initialised) return;
@@ -2856,18 +2876,15 @@ void GGTrees_UpdateFrustumCulling( wiScene::CameraComponent* camera )
 		}
 	}
 
+	// GG: filled on a command list begun here, so the update lands after any draws already recorded this frame (the VR path
+	// culls again between its eyes) and before the draws to come
+	CommandList cmd = INVALID_COMMANDLIST;
 	for( uint32_t i = 0; i < numTreeTypes; i++ )
 	{
 		if ( numTreeInstancesHigh[ i ] > 0 )
 		{
-			GPUBufferDesc bufferDesc = {};
-			SubresourceData data = {};
-			data.pSysMem = treeInstancesHigh[ i ];
-			bufferDesc.ByteWidth = sizeof(InstanceTreeGPU) * numTreeInstancesHigh[ i ];
-			bufferDesc.BindFlags = BIND_VERTEX_BUFFER;
-			bufferDesc.CPUAccessFlags = 0;
-			bufferDesc.MiscFlags = 0;
-			wiRenderer::GetDevice()->CreateBuffer( &bufferDesc, &data, &bufferInstancesHigh[i] );
+			if ( cmd == INVALID_COMMANDLIST ) cmd = wiRenderer::GetDevice()->BeginCommandList( QUEUE_GRAPHICS, "Trees" );
+			GGTrees_FillInstanceBuffer( &bufferInstancesHigh[i], treeInstancesHigh[i], numTreeInstancesHigh[i], cmd );
 		}
 	}
 }
@@ -3157,14 +3174,7 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 	{
 		if (numTreeInstancesHighShadow[i] > 0)
 		{
-			GPUBufferDesc bufferDesc = {};
-			SubresourceData data = {};
-			data.pSysMem = treeInstancesHighShadow[i];
-			bufferDesc.ByteWidth = sizeof(InstanceTreeGPU) * numTreeInstancesHighShadow[i];
-			bufferDesc.BindFlags = BIND_VERTEX_BUFFER;
-			bufferDesc.CPUAccessFlags = 0;
-			bufferDesc.MiscFlags = 0;
-			wiRenderer::GetDevice()->CreateBuffer(&bufferDesc, &data, &bufferInstancesHighShadow[i]);
+			GGTrees_FillInstanceBuffer(&bufferInstancesHighShadow[i], treeInstancesHighShadow[i], numTreeInstancesHighShadow[i], cmd);
 		}
 	}
 
@@ -4057,14 +4067,7 @@ extern "C" void GGTrees_Draw_EnvProbe( const SPHERE* culler, const Frustum* frus
 	{
 		if ( numTreeInstancesHighEnvProbe[ i ] == 0 ) continue;
 		
-		GPUBufferDesc bufferDesc = {};
-		SubresourceData data = {};
-		data.pSysMem = treeInstancesHighEnvProbe[ i ];
-		bufferDesc.ByteWidth = sizeof(InstanceTreeGPU) * numTreeInstancesHighEnvProbe[ i ];
-		bufferDesc.BindFlags = BIND_VERTEX_BUFFER;
-		bufferDesc.CPUAccessFlags = 0;
-		bufferDesc.MiscFlags = 0;
-		wiRenderer::GetDevice()->CreateBuffer( &bufferDesc, &data, &bufferInstancesHighEnvProbe[i] );
+		GGTrees_FillInstanceBuffer( &bufferInstancesHighEnvProbe[i], treeInstancesHighEnvProbe[i], numTreeInstancesHighEnvProbe[i], cmd );
 		
 		device->BindPipelineState( &psoTreesHighEnvProbe, cmd );
 		device->BindResource( PS, &texTreeHigh, 52, cmd );
