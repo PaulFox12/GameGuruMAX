@@ -226,6 +226,9 @@
     <ClInclude Include="..\GameGuru\Include\M-Waypoint.h">
       <Filter>GameGuruEngine\GameGuruSourceCode</Filter>
     </ClInclude>
+    <ClInclude Include="..\GameGuru\Include\M-Splines.h">
+      <Filter>GameGuruEngine\GameGuruSourceCode</Filter>
+    </ClInclude>
     <ClInclude Include="..\GameGuru\Include\M-Weapon.h">
       <Filter>GameGuruEngine\GameGuruSourceCode</Filter>
     </ClInclude>
@@ -744,6 +747,9 @@
       <Filter>GameGuruEngine\GameGuruSourceCode</Filter>
     </ClCompile>
     <ClCompile Include="..\GameGuru\Source\M-Waypoint.cpp">
+      <Filter>GameGuruEngine\GameGuruSourceCode</Filter>
+    </ClCompile>
+    <ClCompile Include="..\GameGuru\Source\M-Splines.cpp">
       <Filter>GameGuruEngine\GameGuruSourceCode</Filter>
     </ClCompile>
     <ClCompile Include="..\GameGuru\Source\M-Weapon.cpp">

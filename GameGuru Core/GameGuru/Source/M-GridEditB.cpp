@@ -31220,6 +31220,32 @@ ImVec2 Convert3DTo2D(float x, float y, float z)
 		return(ImVec2(-999999,-999999));
 }
 
+// GG: a 3D line's ends in screen space as Convert3DTo2D gives them, the line clipped to the camera's near side first;
+// false when all of it is behind the camera
+bool Convert3DLineTo2D(float x1, float y1, float z1, float x2, float y2, float z2, ImVec2* pA, ImVec2* pB)
+{
+	wiCanvas canvas = master.masterrenderer;
+	canvas.dpi = 96.0f;
+	float screenW = canvas.GetLogicalWidth();
+	float screenH = canvas.GetLogicalHeight();
+	wiScene::CameraComponent &camera = wiScene::GetCamera();
+	XMMATRIX VP = camera.GetView() * camera.GetProjection();
+	XMVECTOR a = XMVector4Transform(XMVectorSet(x1, y1, z1, 1.0f), VP);
+	XMVECTOR b = XMVector4Transform(XMVectorSet(x2, y2, z2, 1.0f), VP);
+	const float nearW = camera.zNearP > 0.0f ? camera.zNearP : 0.1f;
+	float wa = XMVectorGetW(a), wb = XMVectorGetW(b);
+	if (wa < nearW && wb < nearW) return false;
+	if (wa < nearW) a = XMVectorLerp(a, b, (nearW - wa) / (wb - wa));
+	else if (wb < nearW) b = XMVectorLerp(b, a, (nearW - wb) / (wa - wb));
+	wa = XMVectorGetW(a);
+	wb = XMVectorGetW(b);
+	pA->x = (XMVectorGetX(a) / wa * 0.5f + 0.5f) * screenW;
+	pA->y = (0.5f - XMVectorGetY(a) / wa * 0.5f) * screenH;
+	pB->x = (XMVectorGetX(b) / wb * 0.5f + 0.5f) * screenW;
+	pB->y = (0.5f - XMVectorGetY(b) / wb * 0.5f) * screenH;
+	return true;
+}
+
 void GetRubberbandLowHighValues(void)
 {
 	//PE: Find clipping rect.

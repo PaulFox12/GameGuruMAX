@@ -2644,6 +2644,9 @@ void imgui_terrain_loop_v3(void)
 				}
 			}
 
+			// GG: splines for roads and rivers (M-Splines.cpp)
+			spline_imgui_panel( w );
+
 			if (!pref.bHideTutorials)
 			{
 				if (ImGui::StyleCollapsingHeader("Tutorial", ImGuiTreeNodeFlags_DefaultOpen))

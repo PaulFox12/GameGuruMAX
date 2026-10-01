@@ -563,6 +563,7 @@
     <ClInclude Include="..\GameGuru\Include\M-UndoSys.h" />
     <ClInclude Include="..\GameGuru\Include\M-Visuals.h" />
     <ClInclude Include="..\GameGuru\Include\M-Waypoint.h" />
+    <ClInclude Include="..\GameGuru\Include\M-Splines.h" />
     <ClInclude Include="..\GameGuru\Include\M-Weapon.h" />
     <ClInclude Include="..\GameGuru\Include\M-WelcomeSystem.h" />
     <ClInclude Include="..\GameGuru\Include\M-Widget.h" />
@@ -742,6 +743,7 @@
     <ClCompile Include="..\GameGuru\Source\M-UndoSys.cpp" />
     <ClCompile Include="..\GameGuru\Source\M-Visuals.cpp" />
     <ClCompile Include="..\GameGuru\Source\M-Waypoint.cpp" />
+    <ClCompile Include="..\GameGuru\Source\M-Splines.cpp" />
     <ClCompile Include="..\GameGuru\Source\M-Weapon.cpp" />
     <ClCompile Include="..\GameGuru\Source\M-WelcomeSystem.cpp" />
     <ClCompile Include="..\GameGuru\Source\M-Widget.cpp" />

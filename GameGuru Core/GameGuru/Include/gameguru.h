@@ -56,6 +56,7 @@
 #include "M-Titles.h"
 #include "M-Visuals.h"
 #include "M-Waypoint.h"
+#include "M-Splines.h"
 #include "M-Weapon.h"
 #include "M-widget.h"
 #include "M-UndoSys.h"

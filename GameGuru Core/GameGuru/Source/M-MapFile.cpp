@@ -302,6 +302,7 @@ void mapfile_saveproject_fpm ( void )
 	AddFileToBlock (  1, "map.ele" );
 	AddFileToBlock (  1, "map.ent" );
 	AddFileToBlock (  1, "map.way" );
+	if ( FileExist("map.spl") == 1 ) AddFileToBlock ( 1, "map.spl" );
 	// darkai obstacle data (container zero)
 	AddFileToBlock (  1, "map.obs" );
 	// terrain files
@@ -944,6 +945,7 @@ void mapfile_loadproject_fpm ( void )
 		// Delete key testmap file (if any)
 		if ( FileExist("header.dat") == 1 ) DeleteAFile ( "header.dat" );
 		if ( FileExist("playerconfig.dat") == 1 ) DeleteAFile ( "playerconfig.dat" );
+		if ( FileExist("map.spl") == 1 ) DeleteAFile ( "map.spl" );
 		if ( FileExist("watermask.dds") == 1 ) DeleteAFile ( "watermask.dds" );
 		if ( FileExist("watermask.png") == 1 ) DeleteAFile ( "watermask.png" );
 		if ( FileExist("vegmask.png") == 1) DeleteAFile( "vegmask.png"); //PE: If we switch from a new fpm to a old only with .dds, old need to be removed.

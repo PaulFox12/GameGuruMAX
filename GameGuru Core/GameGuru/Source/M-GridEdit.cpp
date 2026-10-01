@@ -24342,6 +24342,7 @@ void gridedit_save_test_map ( void )
 	//  Save waypoints
 	timestampactivity(0,"SAVETESTMAP: Save waypoints");
 	waypoint_savedata ( );
+	spline_savedata ( );
 
 	if (bKeepWindowsResponding)
 		EmptyMessages();
@@ -24726,6 +24727,7 @@ void gridedit_new_map(void)
 	//  Delete all assets of map work
 	timestampactivity(0,"NEWMAP: _waypoint_deleteall");
 	waypoint_deleteall ( );
+	spline_deleteall ( );
 	mapfile_newmap ( );
 	// Cleanup any visual logic connection objects.
 	void deleterelationobjects();
@@ -25067,6 +25069,7 @@ void gridedit_load_map ( void )
 		//  Load waypoints
 		popup_text_change(t.strarr_s[612].Get());
 		waypoint_loaddata ( );
+		spline_loaddata ( );
 
 		if (bKeepWindowsResponding)
 			EmptyMessages();
