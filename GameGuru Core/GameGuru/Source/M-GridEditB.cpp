@@ -8011,6 +8011,73 @@ void LuaRenderSettings_GetTerrainDetail(int* pLimit, float* pScale, int* pReadBa
 	*pGrassSimpleLighting = gggrass_global_params.simplePBR;
 }
 
+// the graphics values a script had set (old) put back to those of the visuals (the level's and the graphics quality's), and
+// the terrain and grass to what they were before the script set them
+static void LuaRenderSettings_RestoreGraphics(const sLuaRenderSettings& old, visualstype* visuals)
+{
+	if (old.iSpotShadowCulling >= 0) bEnableSpotShadowCulling = visuals->bEnableSpotShadowCulling;
+	if (old.iProbesLowestLOD >= 0) bProbesLowestLOD = visuals->bProbesLowestLOD;
+	if (old.iReflectionsLowestLOD >= 0) bReflectionsLowestLOD = visuals->bReflectionsLowestLOD;
+	if (old.iAnimations30Fps >= 0) bEnable30FpsAnimations = visuals->bEnable30FpsAnimations;
+	if (old.fMaxApparentSize >= 0) maxApparentSize = visuals->ApparentSize;
+	if (old.iShadowCascades >= 0 || old.fShadowSplits[0] >= 0)
+	{
+		g_iWickedShadowCascades = 5;
+		const float fSplits[4] = { 380.0f, 950.0f, 7500.0f, 30000.0f };
+		for (int i = 0; i < 4; i++) g_fWickedShadowSplits[i] = fSplits[i];
+	}
+	if (old.iTerrainDetailLimit >= 0) ggterrain_global_render_params2.detailLimit = (uint32_t)old.iTerrainDetailLimitBefore;
+	if (old.fTerrainDetailScale >= 0) ggterrain_global_render_params2.detailScale = old.fTerrainDetailScaleBefore;
+	if (old.iTerrainReadBackReduction >= 0) ggterrain_global_render_params2.readBackTextureReduction = (uint32_t)old.iTerrainReadBackReductionBefore;
+	if (old.iGrassSimpleLighting >= 0) gggrass_global_params.simplePBR = old.iGrassSimpleLightingBefore;
+	if (old.iSunShadowResolution >= 0 || old.iSpotShadowResolution >= 0 || old.iPointShadowResolution >= 0 || old.iSpotShadowMax >= 0 || old.iPointShadowMax >= 0)
+	{
+		Wicked_Update_Shadows(visuals);
+	}
+	if (old.iFXAA >= 0 && master_renderer) master_renderer->setFXAAEnabled(visuals->bFXAAEnabled);
+	if (old.iReflections >= 0 && master_renderer) master_renderer->setReflectionsEnabled(visuals->bReflectionsEnabled);
+}
+
+// forget a script's graphics values (SetFXAA, SetReflections, SetProbesLowestLOD, SetReflectionsLowestLOD,
+// SetAnimations30Fps, SetMaxApparentSize, SetShadowResolution, SetShadowLights, SetShadowCascades, SetTerrainDetail,
+// SetGrassSimpleLighting, SetOcclusionCulling's spot shadows) and put back the level's and the graphics quality's, so a
+// quality change moves them again (ResetGraphicsSettings); the other levers stay as set
+void LuaRenderSettings_ResetGraphics(void)
+{
+	sLuaRenderSettings old = g_LuaRenderSettings;
+	sLuaRenderSettings* p = &g_LuaRenderSettings;
+	p->iSpotShadowCulling = -1;
+	p->iFXAA = -1;
+	p->iReflections = -1;
+	p->iProbesLowestLOD = -1;
+	p->iReflectionsLowestLOD = -1;
+	p->iAnimations30Fps = -1;
+	p->fMaxApparentSize = -1;
+	p->iSunShadowResolution = -1;
+	p->iSpotShadowResolution = -1;
+	p->iPointShadowResolution = -1;
+	p->iSpotShadowMax = -1;
+	p->iPointShadowMax = -1;
+	p->iShadowCascades = -1;
+	for (int i = 0; i < 4; i++) p->fShadowSplits[i] = -1;
+	p->iTerrainDetailLimit = -1;
+	p->fTerrainDetailScale = -1;
+	p->iTerrainReadBackReduction = -1;
+	p->iGrassSimpleLighting = -1;
+	LuaRenderSettings_RestoreGraphics(old, &t.visuals);
+	LuaRenderSettings_Apply();
+}
+
+// after the graphics quality has set the terrain and grass from the level's own, those are what a script's values give back
+void LuaRenderSettings_TakeQualityValues(void)
+{
+	sLuaRenderSettings* p = &g_LuaRenderSettings;
+	if (p->iTerrainDetailLimit >= 0) p->iTerrainDetailLimitBefore = (int)ggterrain_global_render_params2.detailLimit;
+	if (p->fTerrainDetailScale >= 0) p->fTerrainDetailScaleBefore = ggterrain_global_render_params2.detailScale;
+	if (p->iTerrainReadBackReduction >= 0) p->iTerrainReadBackReductionBefore = (int)ggterrain_global_render_params2.readBackTextureReduction;
+	if (p->iGrassSimpleLighting >= 0) p->iGrassSimpleLightingBefore = gggrass_global_params.simplePBR;
+}
+
 // forget the Lua values and put back those of t.visuals (the level's, or the editor's when a test game ends)
 void LuaRenderSettings_Clear(void)
 {
@@ -8030,27 +8097,8 @@ void LuaRenderSettings_Clear(void)
 	if (old.iShadowsLowestLOD >= 0) bShadowsLowestLOD = visuals->bShadowsLowestLOD;
 	if (old.iDelayedShadows >= 0 || old.iDelayedShadowsLaptop >= 0) LuaRenderSettings_SetDelayedShadowGlobals(visuals->g_bDelayedShadows, visuals->g_bDelayedShadowsLaptop);
 	if (old.fShadowRange >= 0) WickedCall_SetShadowRange(visuals->fShadowFarPlane);
-	if (old.iProbesLowestLOD >= 0) bProbesLowestLOD = visuals->bProbesLowestLOD;
-	if (old.iReflectionsLowestLOD >= 0) bReflectionsLowestLOD = visuals->bReflectionsLowestLOD;
-	if (old.iAnimations30Fps >= 0) bEnable30FpsAnimations = visuals->bEnable30FpsAnimations;
-	if (old.fMaxApparentSize >= 0) maxApparentSize = visuals->ApparentSize;
-	if (old.iShadowCascades >= 0 || old.fShadowSplits[0] >= 0)
-	{
-		g_iWickedShadowCascades = 5;
-		const float fSplits[4] = { 380.0f, 950.0f, 7500.0f, 30000.0f };
-		for (int i = 0; i < 4; i++) g_fWickedShadowSplits[i] = fSplits[i];
-	}
-	if (old.iTerrainDetailLimit >= 0) ggterrain_global_render_params2.detailLimit = (uint32_t)old.iTerrainDetailLimitBefore;
-	if (old.fTerrainDetailScale >= 0) ggterrain_global_render_params2.detailScale = old.fTerrainDetailScaleBefore;
-	if (old.iTerrainReadBackReduction >= 0) ggterrain_global_render_params2.readBackTextureReduction = (uint32_t)old.iTerrainReadBackReductionBefore;
-	if (old.iGrassSimpleLighting >= 0) gggrass_global_params.simplePBR = old.iGrassSimpleLightingBefore;
-	if (old.iSunShadowResolution >= 0 || old.iSpotShadowResolution >= 0 || old.iPointShadowResolution >= 0 || old.iSpotShadowMax >= 0 || old.iPointShadowMax >= 0)
-	{
-		Wicked_Update_Shadows(visuals);
-	}
+	LuaRenderSettings_RestoreGraphics(old, visuals);
 	if (old.iSSR >= 0 && master_renderer) master_renderer->setSSREnabled(visuals->bSSREnabled);
-	if (old.iFXAA >= 0 && master_renderer) master_renderer->setFXAAEnabled(visuals->bFXAAEnabled);
-	if (old.iReflections >= 0 && master_renderer) master_renderer->setReflectionsEnabled(visuals->bReflectionsEnabled);
 	if ((old.iAO >= 0 || old.fAOPower >= 0) && master_renderer)
 	{
 		// as the last visuals push left it

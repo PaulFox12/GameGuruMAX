@@ -1930,6 +1930,8 @@ void SetGlobalGraphicsSettingsEx( int level, bool bTerrainMesh )
 		quality_applyvisuals( level );
 		Wicked_Update_Visuals( &t.visuals );
 		// performance levers a game script set still win
+		extern void LuaRenderSettings_TakeQualityValues(void);
+		LuaRenderSettings_TakeQualityValues();
 		extern void LuaRenderSettings_Apply(void);
 		LuaRenderSettings_Apply();
 		return;

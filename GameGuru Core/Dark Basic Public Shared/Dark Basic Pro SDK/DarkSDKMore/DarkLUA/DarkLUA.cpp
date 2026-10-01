@@ -13861,6 +13861,7 @@ extern void LuaRenderSettings_SetShadowLights(int iSpotMax, int iPointMax);
 extern void LuaRenderSettings_SetShadowCascades(int iCascades, const float* pSplits);
 extern void LuaRenderSettings_SetTerrainDetail(int iLimit, float fScale, int iReadBack);
 extern void LuaRenderSettings_SetGrassSimpleLighting(int iOn);
+extern void LuaRenderSettings_ResetGraphics(void);
 extern void LuaRenderSettings_GetValues(int* pFXAA, int* pReflections, int* pProbesLowestLOD, int* pReflectionsLowestLOD, int* pAnimations30Fps, float* pMaxApparentSize);
 extern void LuaRenderSettings_GetShadows(int* pSun, int* pSpot, int* pPoint, int* pSpotMax, int* pPointMax, int* pCascades, float* pSplits);
 extern void LuaRenderSettings_GetTerrainDetail(int* pLimit, float* pScale, int* pReadBack, int* pGrassSimpleLighting);
@@ -14010,6 +14011,13 @@ int SetGrassSimpleLighting(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
 	LuaRenderSettings_SetGrassSimpleLighting((int)lua_tonumber(L, 1));
+	return 0;
+}
+// ResetGraphicsSettings(): forget every value the graphics setters above set and go back to the level's and the graphics
+// quality's, so a quality change moves them again (a menu's Default)
+int ResetGraphicsSettings(lua_State* L)
+{
+	LuaRenderSettings_ResetGraphics();
 	return 0;
 }
 // GetGraphicsSettings(): the values in force as a table: fxaa, reflections, probesLowestLOD, reflectionsLowestLOD,
@@ -17294,6 +17302,7 @@ void addFunctions()
 	lua_register(lua, "SetTerrainDetail", SetTerrainDetail);
 	lua_register(lua, "SetGrassSimpleLighting", SetGrassSimpleLighting);
 	lua_register(lua, "GetGraphicsSettings", GetGraphicsSettings);
+	lua_register(lua, "ResetGraphicsSettings", ResetGraphicsSettings);
 	lua_register(lua, "ResetDelayedShadows", ResetDelayedShadows);
 	lua_register(lua, "GetDelayedShadows", GetDelayedShadows);
 	lua_register(lua, "SetShadowRange", SetShadowRange);
