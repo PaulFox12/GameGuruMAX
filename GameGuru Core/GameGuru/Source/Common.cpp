@@ -6172,6 +6172,8 @@ void LineEx ( int x1, int y1, int x2, int y2 )
 	PasteSprite ( 123, x1, y1 );
 }
 
+namespace wiJobSystem { void SetAffinityMode(int mode); }
+
 void GetSetupIniEarly( void )
 {
 	//PE: Standalone option to make sure no mem is used by terrain system.
@@ -6227,6 +6229,14 @@ void GetSetupIniEarly( void )
 						extern int g_iEnablePIXMarkers;
 						g_iEnablePIXMarkers = 1;
 					}
+				}
+				// DOCDOC: jobaffinity = How the engine's worker threads are tied to cores: 0 each pinned to its own core (the
+				// default), 1 that core as a preference only, 2 not tied. Read before the job system starts
+				if (pestrcasestr(t, "jobaffinity"))
+				{
+					if (pestrcasestr(t, "1")) wiJobSystem::SetAffinityMode(1);
+					else if (pestrcasestr(t, "2")) wiJobSystem::SetAffinityMode(2);
+					else wiJobSystem::SetAffinityMode(0);
 				}
 			}
 			fclose(file);
