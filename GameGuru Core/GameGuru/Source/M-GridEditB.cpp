@@ -53327,8 +53327,12 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		if (g.gvsync != 0)
 		{
 			ImGui::PushItemWidth(-10);
-			if (ImGui::Checkbox("VSync##setVSyncEnabled", &t.visuals.bLevelVSyncEnabled))
+			// a value a script holds (LuaRenderSettings) shows here, and an edit here hands that setting back to the level
+			bool bVSync = g_LuaRenderSettings.iVsync >= 0 ? master.bVsyncEnabled : t.visuals.bLevelVSyncEnabled;
+			if (ImGui::Checkbox("VSync##setVSyncEnabled", &bVSync))
 			{
+				g_LuaRenderSettings.iVsync = -1;
+				t.visuals.bLevelVSyncEnabled = bVSync;
 				t.gamevisuals.bLevelVSyncEnabled = t.visuals.bLevelVSyncEnabled;
 				gridedit_setvsync(t.visuals.bLevelVSyncEnabled);
 				g.projectmodified = 1;
@@ -53376,7 +53380,10 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		}
 
 		ImGui::PushItemWidth(-10);
-		if (ImGui::Checkbox("SSR##setSSREnabled", &t.visuals.bSSREnabled)) {
+		bool bSSR = (g_LuaRenderSettings.iSSR >= 0 && master_renderer) ? master_renderer->getSSREnabled() : t.visuals.bSSREnabled;
+		if (ImGui::Checkbox("SSR##setSSREnabled", &bSSR)) {
+			g_LuaRenderSettings.iSSR = -1;
+			t.visuals.bSSREnabled = bSSR;
 			t.gamevisuals.bSSREnabled = t.visuals.bSSREnabled;
 			if (master_renderer)
 				master_renderer->setSSREnabled(t.visuals.bSSREnabled);
@@ -53387,7 +53394,10 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::PopItemWidth();
 
 		ImGui::PushItemWidth(-10);
-		if (ImGui::Checkbox("Reflections##setReflectionsEnabled", &t.visuals.bReflectionsEnabled)) {
+		bool bReflections = (g_LuaRenderSettings.iReflections >= 0 && master_renderer) ? master_renderer->getReflectionsEnabled() : t.visuals.bReflectionsEnabled;
+		if (ImGui::Checkbox("Reflections##setReflectionsEnabled", &bReflections)) {
+			g_LuaRenderSettings.iReflections = -1;
+			t.visuals.bReflectionsEnabled = bReflections;
 			t.gamevisuals.bReflectionsEnabled = t.visuals.bReflectionsEnabled;
 			if (master_renderer)
 				master_renderer->setReflectionsEnabled(t.visuals.bReflectionsEnabled);
@@ -53398,7 +53408,12 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::PopItemWidth();
 
 		ImGui::PushItemWidth(-10);
-		if (ImGui::Checkbox("FXAA##setFXAAEnabled", &t.visuals.bFXAAEnabled)) {
+		// a script's render scale below 1 keeps FXAA on (LuaRenderSettings_Apply)
+		bool bScriptFXAA = g_LuaRenderSettings.iFXAA >= 0 || (g_LuaRenderSettings.fRenderScale >= 0 && g_LuaRenderSettings.fRenderScale < 1.0f);
+		bool bFXAA = (bScriptFXAA && master_renderer) ? master_renderer->getFXAAEnabled() : t.visuals.bFXAAEnabled;
+		if (ImGui::Checkbox("FXAA##setFXAAEnabled", &bFXAA)) {
+			g_LuaRenderSettings.iFXAA = -1;
+			t.visuals.bFXAAEnabled = bFXAA;
 			t.gamevisuals.bFXAAEnabled = t.visuals.bFXAAEnabled;
 			if (master_renderer)
 				master_renderer->setFXAAEnabled(t.visuals.bFXAAEnabled);
@@ -53580,8 +53595,11 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		const char* ao_options[] = { "Disabled", "Enabled" };
 		tab_tab_Column_text("SSAO", fTabColumnWidth);
 		ImGui::PushItemWidth(-10);
-		if (ImGui::Combo("##setAmbientOcclusion", &t.visuals.iMSAO, ao_options, IM_ARRAYSIZE(ao_options)))
+		int iShowAO = g_LuaRenderSettings.iAO >= 0 ? (master.masterrenderer.getAO() != RenderPath3D::AO_DISABLED ? 1 : 0) : t.visuals.iMSAO;
+		if (ImGui::Combo("##setAmbientOcclusion", &iShowAO, ao_options, IM_ARRAYSIZE(ao_options)))
 		{
+			g_LuaRenderSettings.iAO = -1;
+			t.visuals.iMSAO = iShowAO;
 			t.gamevisuals.iMSAO = master.iAOSetting = t.visuals.iMSAO;
 			//master.masterrenderer.setAO( (RenderPath3D::AO) master.iAOSetting );
 			if (master.iAOSetting > 0) master.masterrenderer.setAO(RenderPath3D::AO_MSAO);
@@ -53590,12 +53608,15 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ambient Occlusion makes objects in corners or holes receive less ambient light");
 		ImGui::PopItemWidth();
 
-		if (t.visuals.iMSAO > 0)
+		if (iShowAO > 0)
 		{
 			tab_tab_Column_text("AO Power", fTabColumnWidth);
 			ImGui::PushItemWidth(-10);
-			if (ImGui::SliderFloat("##setAmbientOcclusionPower", &t.visuals.fMSAOPower, -5.0f, 5.0f, "%.2f", 2.0f))
+			float fShowAOPower = g_LuaRenderSettings.fAOPower >= 0 ? master.masterrenderer.getAOPower() : t.visuals.fMSAOPower;
+			if (ImGui::SliderFloat("##setAmbientOcclusionPower", &fShowAOPower, -5.0f, 5.0f, "%.2f", 2.0f))
 			{
+				g_LuaRenderSettings.fAOPower = -1;
+				t.visuals.fMSAOPower = fShowAOPower;
 				t.gamevisuals.fMSAOPower = master.fAOPower = t.visuals.fMSAOPower;
 				master.masterrenderer.setAOPower(master.fAOPower);
 			}
@@ -53658,6 +53679,7 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::PushItemWidth(-10);
 		if (ImGui::Checkbox("Lower Animation & LUA Speed##Animationsculling", &bEnable30FpsAnimations))
 		{
+			g_LuaRenderSettings.iAnimations30Fps = -1;
 			t.gamevisuals.bEnable30FpsAnimations = t.visuals.bEnable30FpsAnimations = bEnable30FpsAnimations;
 			g.projectmodified = 1;
 
@@ -53671,6 +53693,7 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::PushItemWidth(-10);
 		if (ImGui::Checkbox("Delayed Shadows##Animationsculling", &g_bDelayedShadows))
 		{
+			g_LuaRenderSettings.iDelayedShadows = -1;
 			t.gamevisuals.g_bDelayedShadows = t.visuals.g_bDelayedShadows = g_bDelayedShadows;
 			g.projectmodified = 1;
 			if (g_bDelayedShadows && g_bDelayedShadowsLaptop)
@@ -53695,6 +53718,7 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			ImGui::SameLine();
 			if (ImGui::Checkbox("Laptop##Animationsculling", &g_bDelayedShadowsLaptop))
 			{
+				g_LuaRenderSettings.iDelayedShadowsLaptop = -1;
 				t.gamevisuals.g_bDelayedShadowsLaptop = t.visuals.g_bDelayedShadowsLaptop = g_bDelayedShadowsLaptop;
 				g.projectmodified = 1;
 				if (g_bDelayedShadows && g_bDelayedShadowsLaptop)
@@ -53719,8 +53743,11 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 
 		extern bool bEnableObjectCulling;
 		ImGui::PushItemWidth(-10);
-		if (ImGui::Checkbox("Occlusion Culling##bOcclusionCulling", &t.visuals.bOcclusionCulling))
+		bool bOcclusion = g_LuaRenderSettings.iOcclusion >= 0 ? wiRenderer::GetOcclusionCullingEnabled() : t.visuals.bOcclusionCulling;
+		if (ImGui::Checkbox("Occlusion Culling##bOcclusionCulling", &bOcclusion))
 		{
+			g_LuaRenderSettings.iOcclusion = -1;
+			t.visuals.bOcclusionCulling = bOcclusion;
 			t.gamevisuals.bOcclusionCulling = t.visuals.bOcclusionCulling;
 			g.projectmodified = 1;
 			if (t.visuals.bOcclusionCulling)
@@ -53729,7 +53756,7 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 				t.gamevisuals.bEnableObjectCulling = t.visuals.bEnableObjectCulling = bEnableObjectCulling;
 			}
 		}
-		if (wiRenderer::GetOcclusionCullingEnabled() != t.visuals.bOcclusionCulling)
+		if (g_LuaRenderSettings.iOcclusion < 0 && wiRenderer::GetOcclusionCullingEnabled() != t.visuals.bOcclusionCulling)
 		{
 			wiRenderer::SetOcclusionCullingEnabled(t.visuals.bOcclusionCulling);
 		}
@@ -53742,7 +53769,7 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			ImGui::Checkbox("Debug", &bOCDebug);
 			ImGui::Checkbox("Debug Bounding Box", &bBoxDebug);
 		}
-		if (t.visuals.bOcclusionCulling)
+		if (bOcclusion)
 		{
 			extern uint32_t iCulledPointShadows;
 			extern uint32_t iCulledSpotShadows;
@@ -53754,6 +53781,7 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 
 			if (ImGui::Checkbox("Terrain Chunk Culling", &bEnableTerrainChunkCulling))
 			{
+				g_LuaRenderSettings.iTerrainCulling = -1;
 				t.gamevisuals.bEnableTerrainChunkCulling = t.visuals.bEnableTerrainChunkCulling = bEnableTerrainChunkCulling;
 				g.projectmodified = 1;
 				if (bEnableTerrainChunkCulling && !t.visuals.bOcclusionCulling)
@@ -53763,6 +53791,9 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			}
 			if (ImGui::Checkbox("Point Shadow Culling", &bEnablePointShadowCulling))
 			{
+				// the script's switch covers spot shadows too, which keep its value
+				if (g_LuaRenderSettings.iShadowCulling >= 0 && g_LuaRenderSettings.iSpotShadowCulling < 0) g_LuaRenderSettings.iSpotShadowCulling = g_LuaRenderSettings.iShadowCulling;
+				g_LuaRenderSettings.iShadowCulling = -1;
 				t.gamevisuals.bEnablePointShadowCulling = t.visuals.bEnablePointShadowCulling = bEnablePointShadowCulling;
 				g.projectmodified = 1;
 				if (bEnablePointShadowCulling && !t.visuals.bOcclusionCulling)
@@ -53773,6 +53804,8 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 
 			if (ImGui::Checkbox("Spot Shadow Culling", &bEnableSpotShadowCulling))
 			{
+				// while the script's switch still holds point shadows, the spot value has to be kept over it
+				g_LuaRenderSettings.iSpotShadowCulling = g_LuaRenderSettings.iShadowCulling >= 0 ? (bEnableSpotShadowCulling ? 1 : 0) : -1;
 				t.gamevisuals.bEnableSpotShadowCulling = t.visuals.bEnableSpotShadowCulling = bEnableSpotShadowCulling;
 				g.projectmodified = 1;
 				if (bEnableSpotShadowCulling && !t.visuals.bOcclusionCulling)
@@ -53783,6 +53816,7 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 
 			if (ImGui::Checkbox("Object Culling", &bEnableObjectCulling))
 			{
+				g_LuaRenderSettings.iObjectCulling = -1;
 				t.gamevisuals.bEnableObjectCulling = t.visuals.bEnableObjectCulling = bEnableObjectCulling;
 				g.projectmodified = 1;
 				if (bEnableObjectCulling && !t.visuals.bOcclusionCulling)
@@ -53793,6 +53827,7 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 
 			if (ImGui::Checkbox("Animation Culling", &bEnableAnimationCulling))
 			{
+				g_LuaRenderSettings.iAnimationCulling = -1;
 				t.gamevisuals.bEnableAnimationCulling = t.visuals.bEnableAnimationCulling = bEnableAnimationCulling;
 				g.projectmodified = 1;
 				if (bEnableAnimationCulling && !t.visuals.bOcclusionCulling)
@@ -53837,10 +53872,11 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 
 		extern float maxApparentSize;
 		ImGui::PushItemWidth(-10);
-		float fASize = t.visuals.ApparentSize * 10000.0f;
+		float fASize = (g_LuaRenderSettings.fMaxApparentSize >= 0 ? maxApparentSize : t.visuals.ApparentSize) * 10000.0f;
 		tab_tab_Column_text("Apparent Size", fTabColumnWidth);
 		if (ImGui::SliderFloat("##maxApparentSize", &fASize, 0.02f, 2.0f, "%.2f", 1.0f))
 		{
+			g_LuaRenderSettings.fMaxApparentSize = -1;
 			maxApparentSize = fASize / 10000.0f;
 			t.gamevisuals.ApparentSize = t.visuals.ApparentSize = maxApparentSize;
 		}
@@ -53854,6 +53890,7 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::PushItemWidth(-10);
 		if (ImGui::SliderFloat("##fLODMultiplier", &fLODMultiplier, 0.0f, 15.0f, "%.2f", 1.0f))
 		{
+			g_LuaRenderSettings.fLODMultiplier = -1;
 			if (fLODMultiplier < 0)
 				fLODMultiplier = 0;
 			t.gamevisuals.fLODMultiplier = t.visuals.fLODMultiplier = fLODMultiplier;
@@ -53871,6 +53908,7 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			ImGui::PushItemWidth(-10);
 			if (ImGui::Checkbox("Shadows Use Fastest LOD##Animationsculling", &bShadowsLowestLOD))
 			{
+				g_LuaRenderSettings.iShadowsLowestLOD = -1;
 				t.gamevisuals.bShadowsLowestLOD = t.visuals.bShadowsLowestLOD = bShadowsLowestLOD;
 				g.projectmodified = 1;
 
@@ -53882,6 +53920,7 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			ImGui::PushItemWidth(-10);
 			if (ImGui::Checkbox("Probes Use Fastest LOD##Animationsculling", &bProbesLowestLOD))
 			{
+				g_LuaRenderSettings.iProbesLowestLOD = -1;
 				t.gamevisuals.bProbesLowestLOD = t.visuals.bProbesLowestLOD = bProbesLowestLOD;
 				g.projectmodified = 1;
 
@@ -53914,6 +53953,7 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			ImGui::PushItemWidth(-10);
 			if (ImGui::Checkbox("Reflections Use Fastest LOD##Animationsculling", &bReflectionsLowestLOD))
 			{
+				g_LuaRenderSettings.iReflectionsLowestLOD = -1;
 				t.gamevisuals.bReflectionsLowestLOD = t.visuals.bReflectionsLowestLOD = bReflectionsLowestLOD;
 				g.projectmodified = 1;
 			}
@@ -53922,12 +53962,17 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		}
 
 		// FSR Mode (FidelityFX Super Resolution)
-		const char* fsr_items_align[] = { "None", "Ultra Quality","Quality", "Balanced", "Performance" };
-		int fsr_current_type_selection = t.visuals.iFSRMode;
+		// a script's render scale (SetRenderScale) shows as a sixth entry, and picking a mode takes over from it
+		char pScriptRenderScale[64];
+		sprintf(pScriptRenderScale, "Script (%d%%)", (int)(g_LuaRenderSettings.fRenderScale * 100.0f + 0.5f));
+		const char* fsr_items_align[] = { "None", "Ultra Quality","Quality", "Balanced", "Performance", pScriptRenderScale };
+		int fsr_item_count = g_LuaRenderSettings.fRenderScale >= 0 ? 6 : 5;
+		int fsr_current_type_selection = g_LuaRenderSettings.fRenderScale >= 0 ? 5 : t.visuals.iFSRMode;
 		tab_tab_Column_text("FSR", fTabColumnWidth);
 		ImGui::PushItemWidth(-10);
-		if (ImGui::Combo("##setiFSRMode", &fsr_current_type_selection, fsr_items_align, IM_ARRAYSIZE(fsr_items_align)))
+		if (ImGui::Combo("##setiFSRMode", &fsr_current_type_selection, fsr_items_align, fsr_item_count) && fsr_current_type_selection < 5)
 		{
+			g_LuaRenderSettings.fRenderScale = -1;
 			t.visuals.iFSRMode = fsr_current_type_selection;
 			t.gamevisuals.iFSRMode = t.visuals.iFSRMode;
 			if (t.visuals.iFSRMode == 1)
@@ -54473,18 +54518,28 @@ bool Shadows_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		//PE: Change from 1024 to 4096, adds around 2 gb additional gpu mem ?.
 		//PE: See comment about point light below.
 		const char* shadow_spot_items_align[] = { "Off", "128", "256", "512", "1024", "2048" }; //, "4096" };
+		// a script's shadow sizes and counts (SetShadowResolution, SetShadowLights) show here, and an edit hands that one back
+		int iSunInForce, iSpotInForce, iPointInForce, iSpotMaxInForce, iPointMaxInForce, iCascadesInForce;
+		float fSplitsInForce[4];
+		LuaRenderSettings_GetShadows(&iSunInForce, &iSpotInForce, &iPointInForce, &iSpotMaxInForce, &iPointMaxInForce, &iCascadesInForce, fSplitsInForce);
+		int iShowSun = g_LuaRenderSettings.iSunShadowResolution >= 0 ? iSunInForce : t.visuals.iShadowSpotCascadeResolution;
+		int iShowSpot = g_LuaRenderSettings.iSpotShadowResolution >= 0 ? iSpotInForce : t.visuals.iShadowSpotResolution;
+		int iShowPoint = g_LuaRenderSettings.iPointShadowResolution >= 0 ? iPointInForce : t.visuals.iShadowPointResolution;
+		int iShowSpotMax = g_LuaRenderSettings.iSpotShadowMax >= 0 ? iSpotMaxInForce : t.visuals.iShadowSpotMax;
+		int iShowPointMax = g_LuaRenderSettings.iPointShadowMax >= 0 ? iPointMaxInForce : t.visuals.iShadowPointMax;
 		int shadow_cascade_current_type_selection = 0;
-		if (t.visuals.iShadowSpotCascadeResolution == 0) shadow_cascade_current_type_selection = 0;
-		else if (t.visuals.iShadowSpotCascadeResolution == 128) shadow_cascade_current_type_selection = 1;
-		else if (t.visuals.iShadowSpotCascadeResolution == 256) shadow_cascade_current_type_selection = 2;
-		else if (t.visuals.iShadowSpotCascadeResolution == 512) shadow_cascade_current_type_selection = 3;
-		else if (t.visuals.iShadowSpotCascadeResolution == 1024) shadow_cascade_current_type_selection = 4;
-		else if (t.visuals.iShadowSpotCascadeResolution == 2048) shadow_cascade_current_type_selection = 5;
+		if (iShowSun == 0) shadow_cascade_current_type_selection = 0;
+		else if (iShowSun == 128) shadow_cascade_current_type_selection = 1;
+		else if (iShowSun == 256) shadow_cascade_current_type_selection = 2;
+		else if (iShowSun == 512) shadow_cascade_current_type_selection = 3;
+		else if (iShowSun == 1024) shadow_cascade_current_type_selection = 4;
+		else if (iShowSun == 2048) shadow_cascade_current_type_selection = 5;
 		else shadow_cascade_current_type_selection = 5; //6;
 		tab_tab_Column_text("Sun ", fTabColumnWidth);
 		ImGui::PushItemWidth(-10);
 		if (ImGui::Combo("##setshadow_spotresolution", &shadow_cascade_current_type_selection, shadow_spot_items_align, IM_ARRAYSIZE(shadow_spot_items_align)))
 		{
+			g_LuaRenderSettings.iSunShadowResolution = -1;
 			if (shadow_cascade_current_type_selection == 0) t.visuals.iShadowSpotCascadeResolution = 0;
 			else if (shadow_cascade_current_type_selection == 1) t.visuals.iShadowSpotCascadeResolution = 128;
 			else if (shadow_cascade_current_type_selection == 2) t.visuals.iShadowSpotCascadeResolution = 256;
@@ -54502,17 +54557,18 @@ bool Shadows_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		//SPOT
 		//const char* shadow_spot_items_align[] = { "Off", "128", "256", "512", "1024", "2048" }; //, "4096" };
 		int shadow_spot_current_type_selection = 0;
-		if (t.visuals.iShadowSpotResolution == 0) shadow_spot_current_type_selection = 0;
-		else if (t.visuals.iShadowSpotResolution == 128) shadow_spot_current_type_selection = 1;
-		else if (t.visuals.iShadowSpotResolution == 256) shadow_spot_current_type_selection = 2;
-		else if (t.visuals.iShadowSpotResolution == 512) shadow_spot_current_type_selection = 3;
-		else if (t.visuals.iShadowSpotResolution == 1024) shadow_spot_current_type_selection = 4;
-		else if (t.visuals.iShadowSpotResolution == 2048) shadow_spot_current_type_selection = 5;
+		if (iShowSpot == 0) shadow_spot_current_type_selection = 0;
+		else if (iShowSpot == 128) shadow_spot_current_type_selection = 1;
+		else if (iShowSpot == 256) shadow_spot_current_type_selection = 2;
+		else if (iShowSpot == 512) shadow_spot_current_type_selection = 3;
+		else if (iShowSpot == 1024) shadow_spot_current_type_selection = 4;
+		else if (iShowSpot == 2048) shadow_spot_current_type_selection = 5;
 		else shadow_spot_current_type_selection = 5; //6;
 		tab_tab_Column_text("Spot Lights ", fTabColumnWidth);
 		ImGui::PushItemWidth(-10);
 		if (ImGui::Combo("##setshadow_spotspotresolution", &shadow_spot_current_type_selection, shadow_spot_items_align, IM_ARRAYSIZE(shadow_spot_items_align)))
 		{
+			g_LuaRenderSettings.iSpotShadowResolution = -1;
 			if (shadow_spot_current_type_selection == 0) t.visuals.iShadowSpotResolution = 0;
 			else if (shadow_spot_current_type_selection == 1) t.visuals.iShadowSpotResolution = 128;
 			else if (shadow_spot_current_type_selection == 2) t.visuals.iShadowSpotResolution = 256;
@@ -54540,17 +54596,18 @@ bool Shadows_Settings(float fTabColumnWidth, bool bVisualUpdated)
 
 		const char* shadow_point_items_align[] = { "Off" , "128", "256", "512", "1024", "2048" }; //, "4096" };
 		int shadow_point_current_type_selection = 0;
-		if (t.visuals.iShadowPointResolution == 0) shadow_point_current_type_selection = 0;
-		else if (t.visuals.iShadowPointResolution == 128) shadow_point_current_type_selection = 1;
-		else if (t.visuals.iShadowPointResolution == 256) shadow_point_current_type_selection = 2;
-		else if (t.visuals.iShadowPointResolution == 512) shadow_point_current_type_selection = 3;
-		else if (t.visuals.iShadowPointResolution == 1024) shadow_point_current_type_selection = 4;
-		else if (t.visuals.iShadowPointResolution == 2048) shadow_point_current_type_selection = 5;
+		if (iShowPoint == 0) shadow_point_current_type_selection = 0;
+		else if (iShowPoint == 128) shadow_point_current_type_selection = 1;
+		else if (iShowPoint == 256) shadow_point_current_type_selection = 2;
+		else if (iShowPoint == 512) shadow_point_current_type_selection = 3;
+		else if (iShowPoint == 1024) shadow_point_current_type_selection = 4;
+		else if (iShowPoint == 2048) shadow_point_current_type_selection = 5;
 		else shadow_point_current_type_selection = 5; //6;
 		tab_tab_Column_text("Point Lights ", fTabColumnWidth);
 		ImGui::PushItemWidth(-10);
 		if (ImGui::Combo("##setshadow_pointresolution", &shadow_point_current_type_selection, shadow_point_items_align, IM_ARRAYSIZE(shadow_point_items_align)))
 		{
+			g_LuaRenderSettings.iPointShadowResolution = -1;
 			if (shadow_point_current_type_selection == 0) t.visuals.iShadowPointResolution = 0;
 			else if (shadow_point_current_type_selection == 1) t.visuals.iShadowPointResolution = 128;
 			else if (shadow_point_current_type_selection == 2) t.visuals.iShadowPointResolution = 256;
@@ -54569,15 +54626,16 @@ bool Shadows_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::TextCenter("Shadow Quantity");
 		const char* shadow_spot_max_align[] = { "0", "4", "8", "12", "16" };
 		int shadow_cascade_max_current_type_selection = 0;
-		if (t.visuals.iShadowSpotMax == 0) shadow_cascade_max_current_type_selection = 0;
-		else if (t.visuals.iShadowSpotMax == 4) shadow_cascade_max_current_type_selection = 1;
-		else if (t.visuals.iShadowSpotMax == 8) shadow_cascade_max_current_type_selection = 2;
-		else if (t.visuals.iShadowSpotMax == 12) shadow_cascade_max_current_type_selection = 3;
-		else if (t.visuals.iShadowSpotMax == 16) shadow_cascade_max_current_type_selection = 4;
+		if (iShowSpotMax == 0) shadow_cascade_max_current_type_selection = 0;
+		else if (iShowSpotMax == 4) shadow_cascade_max_current_type_selection = 1;
+		else if (iShowSpotMax == 8) shadow_cascade_max_current_type_selection = 2;
+		else if (iShowSpotMax == 12) shadow_cascade_max_current_type_selection = 3;
+		else if (iShowSpotMax == 16) shadow_cascade_max_current_type_selection = 4;
 		tab_tab_Column_text("Spot Lights ", fTabColumnWidth);
 		ImGui::PushItemWidth(-10);
 		if (ImGui::Combo("##setshadow_iShadowSpotMax", &shadow_cascade_max_current_type_selection, shadow_spot_max_align, IM_ARRAYSIZE(shadow_spot_max_align)))
 		{
+			g_LuaRenderSettings.iSpotShadowMax = -1;
 			if (shadow_cascade_max_current_type_selection == 0) t.visuals.iShadowSpotMax = 0;
 			else if (shadow_cascade_max_current_type_selection == 1) t.visuals.iShadowSpotMax = 4;
 			else if (shadow_cascade_max_current_type_selection == 2) t.visuals.iShadowSpotMax = 8;
@@ -54591,16 +54649,17 @@ bool Shadows_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::PopItemWidth();
 
 		int shadow_cascade_point_current_type_selection = 0;
-		if (t.visuals.iShadowPointMax == 0) shadow_cascade_point_current_type_selection = 0;
-		else if (t.visuals.iShadowPointMax == 4) shadow_cascade_point_current_type_selection = 1;
-		else if (t.visuals.iShadowPointMax == 8) shadow_cascade_point_current_type_selection = 2;
-		else if (t.visuals.iShadowPointMax == 12) shadow_cascade_point_current_type_selection = 3;
-		else if (t.visuals.iShadowPointMax == 16) shadow_cascade_point_current_type_selection = 4;
+		if (iShowPointMax == 0) shadow_cascade_point_current_type_selection = 0;
+		else if (iShowPointMax == 4) shadow_cascade_point_current_type_selection = 1;
+		else if (iShowPointMax == 8) shadow_cascade_point_current_type_selection = 2;
+		else if (iShowPointMax == 12) shadow_cascade_point_current_type_selection = 3;
+		else if (iShowPointMax == 16) shadow_cascade_point_current_type_selection = 4;
 		tab_tab_Column_text("Point Lights ", fTabColumnWidth);
 
 		ImGui::PushItemWidth(-10);
 		if (ImGui::Combo("##setshadow_iShadowPointMax", &shadow_cascade_point_current_type_selection, shadow_spot_max_align, IM_ARRAYSIZE(shadow_spot_max_align)))
 		{
+			g_LuaRenderSettings.iPointShadowMax = -1;
 			if (shadow_cascade_point_current_type_selection == 0) t.visuals.iShadowPointMax = 0;
 			else if (shadow_cascade_point_current_type_selection == 1) t.visuals.iShadowPointMax = 4;
 			else if (shadow_cascade_point_current_type_selection == 2) t.visuals.iShadowPointMax = 8;
