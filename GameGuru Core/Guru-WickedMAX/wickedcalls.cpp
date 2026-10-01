@@ -8560,6 +8560,8 @@ static void WickedCall_ProbeFrameStep(const char* pName, const char* pParents, d
 			else
 				iLen += sprintf_s(frame.pDetail + iLen, sizeof(frame.pDetail) - iLen, "%s %s %.0f ms", i ? ";" : "", step.pName, step.dMilliseconds);
 		}
+		// a frame that began inside ranges names them: a range never ended stops the outside time being measured
+		if (pParents && pParents[0] && iLen > 0) sprintf_s(frame.pDetail + iLen, sizeof(frame.pDetail) - iLen, " [began inside %s]", pParents);
 		frame.bFormatted = true;
 		std::lock_guard<std::mutex> lock(g_WickedCallProbeSlowLock);
 		if (frame.iFrame - g_WickedCallProbeSlowFrame.iFrame > 20 || frame.dMilliseconds > g_WickedCallProbeSlowFrame.dMilliseconds) g_WickedCallProbeSlowFrame = frame;
