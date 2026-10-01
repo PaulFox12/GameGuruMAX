@@ -13903,6 +13903,8 @@ extern void LuaRenderSettings_SetFrameRateCap(int iFramesPerSecond);
 extern void LuaRenderSettings_GetDisplay(int* pVsync, int* pFrameRateCap);
 extern void LuaRenderSettings_SetRenderScale(float fScale);
 extern float LuaRenderSettings_GetRenderScale(void);
+extern void LuaRenderSettings_SetMSAA(int iSamples);
+extern int LuaRenderSettings_GetMSAA(void);
 extern void LuaRenderSettings_GetLevers(int* pSSR, int* pAO, float* pAOPower, float* pLODMultiplier, float* pShadowRange);
 extern void LuaRenderSettings_GetValues(int* pFXAA, int* pReflections, int* pProbesLowestLOD, int* pReflectionsLowestLOD, int* pAnimations30Fps, float* pMaxApparentSize);
 extern void LuaRenderSettings_GetShadows(int* pSun, int* pSpot, int* pPoint, int* pSpotMax, int* pPointMax, int* pCascades, float* pSplits);
@@ -14087,6 +14089,15 @@ int SetRenderScale(lua_State* L)
 	LuaRenderSettings_SetRenderScale(lua_tonumber(L, 1));
 	return 0;
 }
+// SetMSAA(samples): multisample anti-aliasing, 1 (off), 2, 4 or 8 samples, with or without FXAA; under a render scale it
+// samples the smaller 3D before the upscale. The render targets are made again at the next update (a hitch), so set it on
+// a choice, not every frame. 0 goes back to the level's
+int SetMSAA(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetMSAA((int)lua_tonumber(L, 1));
+	return 0;
+}
 // GetRenderScale(): the fraction of the screen's resolution the 3D is drawn at (the level's FSR setting's when no script set it)
 int GetRenderScale(lua_State* L)
 {
@@ -14139,6 +14150,7 @@ int GetGraphicsSettings(lua_State* L)
 	lua_pushinteger(L, iVsync); lua_setfield(L, -2, "vsync");
 	lua_pushinteger(L, iFrameRateCap); lua_setfield(L, -2, "frameRateCap");
 	lua_pushnumber(L, LuaRenderSettings_GetRenderScale()); lua_setfield(L, -2, "renderScale");
+	lua_pushinteger(L, LuaRenderSettings_GetMSAA()); lua_setfield(L, -2, "msaa");
 	int iSSR, iAO;
 	float fAOPower, fLODMultiplier, fShadowRange;
 	LuaRenderSettings_GetLevers(&iSSR, &iAO, &fAOPower, &fLODMultiplier, &fShadowRange);
@@ -17405,6 +17417,7 @@ void addFunctions()
 	lua_register(lua, "SetFrameRateCap", SetFrameRateCap);
 	lua_register(lua, "SetRenderScale", SetRenderScale);
 	lua_register(lua, "GetRenderScale", GetRenderScale);
+	lua_register(lua, "SetMSAA", SetMSAA);
 	lua_register(lua, "SetShadowJobWait", SetShadowJobWait);
 	lua_register(lua, "ResetDelayedShadows", ResetDelayedShadows);
 	lua_register(lua, "GetDelayedShadows", GetDelayedShadows);

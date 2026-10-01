@@ -7717,6 +7717,7 @@ struct sLuaRenderSettings
 	int iVsync = -1;
 	int iFrameRateCap = -1;
 	float fRenderScale = -1;
+	int iMSAA = -1;
 	int iTerrainDetailLimitBefore = 0;
 	float fTerrainDetailScaleBefore = 1.0f;
 	int iTerrainReadBackReductionBefore = 4;
@@ -7823,6 +7824,7 @@ void LuaRenderSettings_Apply(void)
 		if (p->iFXAA >= 0) master_renderer->setFXAAEnabled(p->iFXAA != 0);
 		if (p->iReflections >= 0) master_renderer->setReflectionsEnabled(p->iReflections != 0);
 		if (p->fAOPower >= 0) master_renderer->setAOPower(p->fAOPower);
+		if (p->iMSAA >= 0 && master_renderer->getMSAASampleCount() != (uint32_t)p->iMSAA) master_renderer->setMSAASampleCount(p->iMSAA);
 	}
 	if (p->fRenderScale >= 0)
 	{
@@ -8047,6 +8049,26 @@ void LuaRenderSettings_SetRenderScale(float fScale)
 	LuaRenderSettings_Apply();
 }
 
+// MSAA samples, 1, 2, 4 or 8 (the render targets are made again at the next update, a hitch); 0 goes back to the level's
+void LuaRenderSettings_SetMSAA(int iSamples)
+{
+	sLuaRenderSettings* p = &g_LuaRenderSettings;
+	if (iSamples == 0)
+	{
+		if (p->iMSAA < 0) return;
+		p->iMSAA = -1;
+		if (master_renderer && master_renderer->getMSAASampleCount() != (uint32_t)t.visuals.iMSAASampleCount) master_renderer->setMSAASampleCount(t.visuals.iMSAASampleCount);
+		return;
+	}
+	if (iSamples > 0) p->iMSAA = iSamples >= 8 ? 8 : (iSamples >= 4 ? 4 : (iSamples >= 2 ? 2 : 1));
+	LuaRenderSettings_Apply();
+}
+
+int LuaRenderSettings_GetMSAA(void)
+{
+	return master_renderer ? (int)master_renderer->getMSAASampleCount() : 1;
+}
+
 float LuaRenderSettings_GetRenderScale(void)
 {
 	float fUpScale = master.masterrenderer.GetFSRScale();
@@ -8147,6 +8169,7 @@ static void LuaRenderSettings_RestoreGraphics(const sLuaRenderSettings& old, vis
 		LuaRenderSettings_SetFSRScale(LuaRenderSettings_LevelFSRScale(visuals));
 		if (master_renderer) master_renderer->setFXAAEnabled(visuals->bFXAAEnabled);
 	}
+	if (old.iMSAA >= 0 && master_renderer && master_renderer->getMSAASampleCount() != (uint32_t)visuals->iMSAASampleCount) master_renderer->setMSAASampleCount(visuals->iMSAASampleCount);
 	if (old.fLODMultiplier >= 0) fLODMultiplier = visuals->fLODMultiplier;
 	if (old.fShadowRange >= 0) WickedCall_SetShadowRange(visuals->fShadowFarPlane);
 	if (old.iSSR >= 0 && master_renderer) master_renderer->setSSREnabled(visuals->bSSREnabled);
@@ -8160,7 +8183,7 @@ static void LuaRenderSettings_RestoreGraphics(const sLuaRenderSettings& old, vis
 
 // forget a script's graphics values (SetFXAA, SetReflections, SetProbesLowestLOD, SetReflectionsLowestLOD,
 // SetAnimations30Fps, SetMaxApparentSize, SetShadowResolution, SetShadowLights, SetShadowCascades, SetTerrainDetail,
-// SetGrassSimpleLighting, SetVsync, SetFrameRateCap, SetRenderScale, SetSSR, SetAO, SetLODMultiplier, SetShadowRange,
+// SetGrassSimpleLighting, SetVsync, SetFrameRateCap, SetRenderScale, SetMSAA, SetSSR, SetAO, SetLODMultiplier, SetShadowRange,
 // SetTreeDistance, SetTreeTransition, SetGrassDistance, SetOcclusionCulling's spot shadows) and put back the level's and
 // the graphics quality's, so a quality change moves them again (ResetGraphicsSettings); the other levers stay as set
 void LuaRenderSettings_ResetGraphics(void)
@@ -8188,6 +8211,7 @@ void LuaRenderSettings_ResetGraphics(void)
 	p->iVsync = -1;
 	p->iFrameRateCap = -1;
 	p->fRenderScale = -1;
+	p->iMSAA = -1;
 	p->iSSR = -1;
 	p->iAO = -1;
 	p->fAOPower = -1;
@@ -8602,7 +8626,7 @@ void Wicked_Update_Visuals(void *voidvisual)
 		// post effects a game script set keep their values through this push
 		LuaPostEffects_Apply();
 
-		if (old_iMSAASampleCount != visuals->iMSAASampleCount) {
+		if (old_iMSAASampleCount != visuals->iMSAASampleCount && g_LuaRenderSettings.iMSAA < 0) {
 			//PE: Will also resize buffers , so only when needed.
 			old_iMSAASampleCount = visuals->iMSAASampleCount;
 			master_renderer->setMSAASampleCount(visuals->iMSAASampleCount);
@@ -53566,14 +53590,16 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 
 		const char* msaa_items_align[] = { "1 (disabled)", "2", "4", "8" };
 		int msaa_current_type_selection = 0;
-		if (t.visuals.iMSAASampleCount == 1) msaa_current_type_selection = 0;
-		else if (t.visuals.iMSAASampleCount == 2) msaa_current_type_selection = 1;
-		else if (t.visuals.iMSAASampleCount == 4) msaa_current_type_selection = 2;
+		int iShowMSAA = (g_LuaRenderSettings.iMSAA >= 0 && master_renderer) ? (int)master_renderer->getMSAASampleCount() : t.visuals.iMSAASampleCount;
+		if (iShowMSAA == 1) msaa_current_type_selection = 0;
+		else if (iShowMSAA == 2) msaa_current_type_selection = 1;
+		else if (iShowMSAA == 4) msaa_current_type_selection = 2;
 		else msaa_current_type_selection = 3;
 		tab_tab_Column_text("MSAA", fTabColumnWidth);
 		ImGui::PushItemWidth(-10);
 		if (ImGui::Combo("##setMSAASampleCount", &msaa_current_type_selection, msaa_items_align, IM_ARRAYSIZE(msaa_items_align)))
 		{
+			g_LuaRenderSettings.iMSAA = -1;
 			if (msaa_current_type_selection == 0) t.visuals.iMSAASampleCount = 1;
 			else if (msaa_current_type_selection == 1) t.visuals.iMSAASampleCount = 2;
 			else if (msaa_current_type_selection == 2) t.visuals.iMSAASampleCount = 4;
