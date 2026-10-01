@@ -53,6 +53,10 @@ void lua_init ( void )
 
 	//  Each time game is paused, add up so we can 'freeze' the LUA Timer value
 	t.aisystem.cumilativepauses=0;
+	extern int g_iGameWorldPauses;
+	extern bool g_bGamePaused;
+	g_iGameWorldPauses = 0;
+	g_bGamePaused = false;
 
 	// 100316 - ensure GameLoopInit is called at start of each game session
 	t.playercontrol.gameloopinitflag = 10;
@@ -415,8 +419,18 @@ void lua_loop_begin ( void )
 	LuaSetInt(pUserDefinedGlobal, t.player[t.plrid].lives);
 
 	LuaSetInt (  "g_PlayerGunZoomed", t.gunzoommode );
-	LuaSetInt (  "g_Time", Timer()-t.aisystem.cumilativepauses );
-	LuaSetFloat (  "g_TimeElapsed", g.timeelapsed_f );
+	// SetGamePaused holds g_Time where the pause began and g_TimeElapsed at zero (Timer() and GetElapsedTime() run on)
+	extern bool g_bGamePaused;
+	if ( g_bGamePaused == true )
+	{
+		LuaSetInt (  "g_Time", t.tremembertimer-t.aisystem.cumilativepauses );
+		LuaSetFloat (  "g_TimeElapsed", 0.0f );
+	}
+	else
+	{
+		LuaSetInt (  "g_Time", Timer()-t.aisystem.cumilativepauses );
+		LuaSetFloat (  "g_TimeElapsed", g.timeelapsed_f );
+	}
 	LuaSetInt (  "g_PlayerThirdPerson", t.playercontrol.thirdperson.enabled );
 	LuaSetInt (  "g_PlayerController", g.gxbox );
 	int iPlayerFOVPerc = (((t.visuals.CameraFOV_f * t.visuals.CameraASPECT_f) - 20.0) / 180.0) * 114.0f;// 100.0;

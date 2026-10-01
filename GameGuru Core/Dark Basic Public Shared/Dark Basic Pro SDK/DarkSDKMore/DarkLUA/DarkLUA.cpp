@@ -5960,7 +5960,11 @@ int GetSpeech(lua_State *L)
 int GetTimeElapsed ( lua_State *L )
 {
 	lua = L;
-	lua_pushnumber ( L, g.timeelapsed_f );
+	extern bool g_bGamePaused;
+	if ( g_bGamePaused == true )
+		lua_pushnumber ( L, 0.0f );
+	else
+		lua_pushnumber ( L, g.timeelapsed_f );
 	return 1;
 }
 
@@ -6079,6 +6083,26 @@ int GetElapsedTime ( lua_State *L )
 {
 	lua = L;
 	lua_pushnumber ( L, t.ElapsedTime_f );
+	return 1;
+}
+// SetGamePaused(on): 1 pauses the game world for a menu as the in-game menu does (physics, the player, entities and their
+// animation, AI, weapons, projectiles, particles and the game's sounds) while every script, the HUD, sprites, music and
+// rendering carry on, and new sounds play; g_Time holds still and g_TimeElapsed and GetTimeElapsed() read 0 (Timer() and
+// GetElapsedTime() are the real clock). 0 resumes. A level that ends resumes it
+int SetGamePaused ( lua_State *L )
+{
+	lua = L;
+	if ( LUA_GETTOP(L) < 1 ) return 0;
+	extern void game_setgamepaused ( bool bPause );
+	game_setgamepaused ( lua_tonumber(L, 1) != 0 );
+	return 0;
+}
+// GetGamePaused(): 1 while SetGamePaused holds the world
+int GetGamePaused ( lua_State *L )
+{
+	lua = L;
+	extern bool g_bGamePaused;
+	lua_pushnumber ( L, g_bGamePaused == true ? 1 : 0 );
 	return 1;
 }
 // GetVideoMemoryUsed(): the video memory the game uses on its graphics card and the budget Windows gives it there, both
@@ -16357,6 +16381,8 @@ void addFunctions()
 	lua_register(lua, "GetCharacterControllerDucking" , GetCharacterControllerDucking );
 	lua_register(lua, "WrapValue" , WrapValue );
 	lua_register(lua, "GetElapsedTime" , GetElapsedTime );
+	lua_register(lua, "SetGamePaused" , SetGamePaused );
+	lua_register(lua, "GetGamePaused" , GetGamePaused );
 	lua_register(lua, "GetVideoMemoryUsed" , GetVideoMemoryUsed );
 	lua_register(lua, "GetDrawCalls" , GetDrawCalls );
 	lua_register(lua, "SetRenderTiming" , SetRenderTiming );

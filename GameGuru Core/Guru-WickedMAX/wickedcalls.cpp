@@ -8808,6 +8808,35 @@ void WickedCall_PerformEmitterAction(int iAction, uint32_t emitter_root)
 	}
 }
 
+// SetGamePaused: hold every running emitter still (its particles are still drawn), then release only those it held
+void WickedCall_PauseEmitters(bool bPause)
+{
+	static std::vector<Entity> heldEmitters;
+	Scene& scene = wiScene::GetScene();
+	if (bPause)
+	{
+		heldEmitters.clear();
+		for (size_t i = 0; i < scene.emitters.GetCount(); i++)
+		{
+			wiEmittedParticle& ec = scene.emitters[i];
+			if (!ec.IsPaused())
+			{
+				ec.SetPaused(true);
+				heldEmitters.push_back(scene.emitters.GetEntity(i));
+			}
+		}
+	}
+	else
+	{
+		for (size_t i = 0; i < heldEmitters.size(); i++)
+		{
+			wiEmittedParticle* ec = scene.emitters.GetComponent(heldEmitters[i]);
+			if (ec) ec->SetPaused(false);
+		}
+		heldEmitters.clear();
+	}
+}
+
 bool WickedCall_ParticleEffectPositionRotation(uint32_t root, float fX, float fY, float fZ, float fXa, float fYa, float fZa)
 {
 	Scene& scene = wiScene::GetScene();

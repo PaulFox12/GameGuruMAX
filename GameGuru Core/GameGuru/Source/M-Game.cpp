@@ -2324,14 +2324,57 @@ void game_masterroot_gameloop_afterexitgamemenu(void)
 	LuaSetInt("g_MouseWheel", 0); //PE: Reset g_MouseWheel
 }
 
-void game_masterroot_gameloop_afterescapepressed(void)
+// the world (sounds, physics, animation, the player's gun and g_Time) is paused by the in-game menu and by SetGamePaused,
+// and resumes only when neither holds it, so the two can overlap
+int g_iGameWorldPauses = 0;
+bool g_bGamePaused = false;
+
+void game_pauseworld ( void )
 {
+	++g_iGameWorldPauses;
+	if ( g_iGameWorldPauses > 1 ) return;
+	t.tremembertimer=Timer();
+	game_main_snapshotsound ( );
+	physics_pausephysics ( );
+	entity_pauseanimations ( );
+	extern void gun_SetObjectSpeed(int, float);
+	if ( t.currentgunobj > 0 ) { if ( ObjectExist(t.currentgunobj)==1 ) { gun_SetObjectSpeed (  t.currentgunobj,0) ; } }
+	if ( t.playercontrol.jetobjtouse>0 )
+	{
+		if ( ObjectExist(t.playercontrol.jetobjtouse) == 1  )  SetObjectSpeed (  t.playercontrol.jetobjtouse,0 );
+	}
+}
+
+void game_resumeworld ( void )
+{
+	if ( g_iGameWorldPauses == 0 ) return;
+	--g_iGameWorldPauses;
+	if ( g_iGameWorldPauses > 0 ) return;
 	extern void gun_SetObjectSpeed(int, float);
 	if ( t.currentgunobj>0 ) { if ( ObjectExist(t.currentgunobj) == 1 ) { gun_SetObjectSpeed (  t.currentgunobj,t.currentgunanimspeed_f); } }
 	physics_resumephysics ( );
 	entity_resumeanimations ( );
 	t.aisystem.cumilativepauses+=Timer()-t.tremembertimer;
 	game_main_snapshotsoundresume ( );
+}
+
+// SetGamePaused: pause the world as the in-game menu does, and its logic too (game_main_loop skips physics, the player,
+// entities, AI, weapons and particles), while LUA, the HUD, music and rendering carry on
+void game_setgamepaused ( bool bPause )
+{
+	if ( bPause == g_bGamePaused ) return;
+	g_bGamePaused = bPause;
+	extern void WickedCall_PauseEmitters(bool bPause);
+	WickedCall_PauseEmitters(bPause);
+	if ( bPause == true )
+		game_pauseworld ( );
+	else
+		game_resumeworld ( );
+}
+
+void game_masterroot_gameloop_afterescapepressed(void)
+{
+	game_resumeworld ( );
 	t.strwork = ""; t.strwork = t.strwork + "resuming game loop with flag "+Str(t.game.gameloop);
 	timestampactivity(0, t.strwork.Get() );
 	// Wipe out mouse deltas
@@ -2442,17 +2485,8 @@ bool game_masterroot_gameloop_loopcode(int iUseVRTest)
 		// can perform some extra debug snapshots when enter in-game menu - useful!
 		if (g.gproducelogfiles == 2) GGTerrain::GGTerrain_DebugOutputFlattenedAreas();
 
-		t.tremembertimer=Timer();
-		game_main_snapshotsound ( );
+		game_pauseworld ( );
 		while ( EscapeKey() != 0 ) {}
-		physics_pausephysics ( );
-		entity_pauseanimations ( );
-		extern void gun_SetObjectSpeed(int, float);
-		if ( t.currentgunobj > 0 ) { if ( ObjectExist(t.currentgunobj)==1 ) { gun_SetObjectSpeed (  t.currentgunobj,0) ; } }
-		if ( t.playercontrol.jetobjtouse>0 ) 
-		{
-			if ( ObjectExist(t.playercontrol.jetobjtouse) == 1  )  SetObjectSpeed (  t.playercontrol.jetobjtouse,0 );
-		}
 		if ( t.game.gameisexe == 0 ) // no menu in multiplayer test mode && t.game.runasmultiplayer == 0 ) 
 		{
 			if ( t.game.runasmultiplayer == 1 )
@@ -2578,7 +2612,7 @@ bool game_masterroot_gameloop_loopcode(int iUseVRTest)
 
 	//  Immunity when respawn
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"handle player immunity");
-	if (  t.huddamage.immunity>0 ) 
+	if (  t.huddamage.immunity>0 && g_bGamePaused == false )
 	{
 		t.huddamage.immunity=t.huddamage.immunity-(10*g.timeelapsed_f);
 		if (  t.huddamage.immunity<0  )  t.huddamage.immunity = 0;
@@ -2611,6 +2645,9 @@ void game_masterroot_gameloop_afterloopcode(int iUseVRTest)
 	// must stop extra thread right away
 	extern void GuruLoopStopExtraThread(void);
 	GuruLoopStopExtraThread();
+
+	// a level left while SetGamePaused holds the world resumes it, so the editor and the next level start unpaused
+	game_setgamepaused ( false );
 
 	// first save current level stats before reset LUA
 	// must now preserve state of level when leave it
@@ -4367,8 +4404,9 @@ void game_main_loop ( void )
 #endif
 
 	// this trigger informs the in-game extra thread to begin for one frame (extra stuff done at end (when GPU/Wicked doing its thing)
+	// SetGamePaused has no AI for it to serve
 	extern bool g_bInGameCPUFrameComplete;
-	g_bInGameCPUFrameComplete = true;
+	if ( g_bGamePaused == false ) g_bInGameCPUFrameComplete = true;
 
 	// the engine probes' totals (GetEngineProbe) are per game frame
 	extern void WickedCall_ProbeFrame(void);
@@ -4390,7 +4428,7 @@ void game_main_loop ( void )
 	//  Character sound update
 	//  110315 - 019 - If spawning in, no sound for the player
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling character_sound_update");
-	if (  t.game.runasmultiplayer  ==  0 || g.mp.noplayermovement  ==  0 ) 
+	if ( (t.game.runasmultiplayer  ==  0 || g.mp.noplayermovement  ==  0) && g_bGamePaused == false )
 	{
 		character_sound_update ( );
 	}
@@ -4510,7 +4548,7 @@ void game_main_loop ( void )
 		//  update all projectiles
 		if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling weapon_projectile_loop");
 		auto rangeProjectiles = wiProfiler::BeginRangeCPU("Update - Logic - Projectiles");
-		weapon_projectile_loop ( );
+		if ( g_bGamePaused == false ) weapon_projectile_loop ( );
 		wiProfiler::EndRange(rangeProjectiles);
 
 		//  Prompt
@@ -4564,7 +4602,7 @@ void game_main_loop ( void )
 		wiProfiler::EndRange(rangeCamera);
 
 		//  loop physics
-		if (  t.hardwareinfoglobals.nophysics == 0 )
+		if (  t.hardwareinfoglobals.nophysics == 0 && g_bGamePaused == false )
 		{
 			// Handle physics
 			if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling physics_loop");
@@ -4632,14 +4670,17 @@ void game_main_loop ( void )
 				// Entity Logic
 				auto range2 = wiProfiler::BeginRangeCPU("Update - Logic - Objects");
 				t.game.perf.ai1 += PerformanceTimer()-g.gameperftimestamp ; g.gameperftimestamp=PerformanceTimer();
-				entity_loop ( );
-				entity_loopanim ( );
+				if ( g_bGamePaused == false )
+				{
+					entity_loop ( );
+					entity_loopanim ( );
+				}
 				t.game.perf.ai2 += PerformanceTimer()-g.gameperftimestamp ; g.gameperftimestamp=PerformanceTimer();
 				wiProfiler::EndRange(range2);
 
 				// Update all AI and Characters and VWeaps
 				auto range3 = wiProfiler::BeginRangeCPU("Update - Logic - AI");
-				if ( t.aisystem.processlogic == 1 )
+				if ( t.aisystem.processlogic == 1 && g_bGamePaused == false )
 				{
 					if ( t.visuals.debugvisualsmode<100 ) 
 					{
@@ -4653,7 +4694,7 @@ void game_main_loop ( void )
 
 				// handle any AI stuff related to recastretour
 				auto rangeNavmesh = wiProfiler::BeginRangeCPU("Update - Logic - Navmesh");
-				game_updatenavmeshsystem();
+				if ( g_bGamePaused == false ) game_updatenavmeshsystem();
 				wiProfiler::EndRange(rangeNavmesh);
 			}
 			t.game.perf.ai += PerformanceTimer()-t.ttempoverallaiperftimerstamp;
@@ -4689,7 +4730,7 @@ void game_main_loop ( void )
 		}
 
 		//  Gun control
-		if ( t.hardwareinfoglobals.noguns == 0 ) 
+		if ( t.hardwareinfoglobals.noguns == 0 && g_bGamePaused == false )
 		{
 			if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling gun_manager");
 			auto rangeWeapons = wiProfiler::BeginRangeCPU("Update - Logic - Weapons");
@@ -4702,8 +4743,11 @@ void game_main_loop ( void )
 
 	//  update all particles and emitters
 	auto rangeParticles = wiProfiler::BeginRangeCPU("Update - Logic - Particles");
-	update_env_particles();
-	ravey_particles_update();
+	if ( g_bGamePaused == false )
+	{
+		update_env_particles();
+		ravey_particles_update();
+	}
 
 	if (t.visuals.bPPSnow && t.visuals.bpp_disable_indoor)
 	{
@@ -4731,12 +4775,12 @@ void game_main_loop ( void )
 
 	//  Decal control
 	auto rangeDecals = wiProfiler::BeginRangeCPU("Update - Logic - Decals");
-	decalelement_control();
+	if ( g_bGamePaused == false ) decalelement_control();
 	wiProfiler::EndRange(rangeDecals);
 
 	// bullethole manegement
 	auto rangeBulletHoles = wiProfiler::BeginRangeCPU("Update - Logic - Bullet Holes");
-	bulletholes_update();
+	if ( g_bGamePaused == false ) bulletholes_update();
 	wiProfiler::EndRange(rangeBulletHoles);
 
 	// projected decals (AddProjectedDecal): age, fade and remove them, and clear the grass under them; a gap over a quarter
@@ -4747,6 +4791,7 @@ void game_main_loop ( void )
 		DWORD dwNow = timeGetTime();
 		float fSeconds = dwProjectedDecalsLastTime > 0 ? (dwNow - dwProjectedDecalsLastTime) / 1000.0f : 0.0f;
 		if (fSeconds > 0.25f) fSeconds = 0.25f;
+		if (g_bGamePaused == true) fSeconds = 0.0f;
 		dwProjectedDecalsLastTime = dwNow;
 		extern void WickedCall_UpdateProjectedDecals(float fSeconds);
 		WickedCall_UpdateProjectedDecals(fSeconds);
@@ -4873,7 +4918,7 @@ void game_main_loop ( void )
 
 	//  explosions and fire
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling draw_particles");
-	draw_particles();
+	if ( g_bGamePaused == false ) draw_particles();
 
 	//  handle fade out for level progression
 	if (  t.game.levelendingcycle > 0 ) 
@@ -4891,7 +4936,7 @@ void game_main_loop ( void )
 	t.game.perf.postprocessing += PerformanceTimer()-g.gameperftimestamp ; g.gameperftimestamp=PerformanceTimer();
 
 	// Check for player guns switched off
-	if ( g.noPlayerGuns )
+	if ( g.noPlayerGuns && g_bGamePaused == false )
 	{
 		if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling physics_no_gun_zoom");
 		physics_no_gun_zoom ( );
