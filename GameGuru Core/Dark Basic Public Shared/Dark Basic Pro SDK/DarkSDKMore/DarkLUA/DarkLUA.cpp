@@ -14447,14 +14447,18 @@ int GetEngineProbe(lua_State* L)
 	lua_pushnumber(L, fLongest);
 	return 3;
 }
-// GetEngineProbeDetail(name): for "gpu create", "gpu map", "present", "gpu shader" or "profiler hold", the slowest over 50 ms in
-// the last 20 frames: what it was, how long, the thread (main, extra or worker) and its callers by name; for "frame phase" the
-// slowest step over 50 ms, "<step> N ms, in <parents>" (parents innermost first); "" if none
+// GetEngineProbeDetail(name [, ms]): for "gpu create", "gpu map", "present", "gpu shader" or "profiler hold", the slowest in
+// the last 20 frames that took ms or more (50 by default, at least 10): what it was, how long, the thread (main, extra or
+// worker) and its callers by name. For "frame phase", without ms: the slowest step over 50 ms, "<step> N ms, in <parents>"
+// (parents innermost first); with ms: the slowest frame of ms or more and its three longest steps, "frame N ms: <step> A ms,
+// in <parents>; <step> B ms; ...". "" if none
 int GetEngineProbeDetail(lua_State* L)
 {
-	if (LUA_GETTOP(L) < 1) return 0;
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
 	const char* pName = lua_tostring(L, 1);
-	lua_pushstring(L, pName ? WickedCall_ProbeDetail(pName) : "");
+	float fMinMs = (n >= 2) ? (float)lua_tonumber(L, 2) : -1.0f;
+	lua_pushstring(L, pName ? WickedCall_ProbeDetail(pName, fMinMs) : "");
 	return 1;
 }
 int GetTextureSource(lua_State* L)

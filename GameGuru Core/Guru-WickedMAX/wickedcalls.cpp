@@ -8420,7 +8420,9 @@ static struct WickedCallProbeHook
 	}
 } g_WickedCallProbeHook;
 
-// the slowest device call over 50 ms of each probe, with its callers, kept for 20 frames (WickedCall_ProbeDetail)
+// the slowest device call of each probe from 10 ms up, with its callers, kept for 20 frames (WickedCall_ProbeDetail, which
+// reports it at 50 ms or the threshold asked for)
+#define WICKEDCALL_PROBE_DETAIL_FLOOR 10.0
 struct WickedCallProbeSlowCall
 {
 	double dMilliseconds = 0;
@@ -8487,7 +8489,7 @@ static void WickedCall_ProbeDeviceCall(double dMilliseconds, const WickedDeviceC
 	else if (info.call == 1) iProbe = WICKEDCALL_PROBE_GPU_MAP;
 	else if (info.call == 3) iProbe = WICKEDCALL_PROBE_GPU_SHADER;
 	WickedCall_ProbeAddAnyThread(iProbe, dMilliseconds);
-	if (dMilliseconds < 50.0) return;
+	if (dMilliseconds < WICKEDCALL_PROBE_DETAIL_FLOOR) return;
 	char pWhat[96];
 	if (info.call == 0 && info.width > 0)
 		sprintf_s(pWhat, "%s %ux%u format %u", info.op, info.width, info.height, info.format);
@@ -8511,14 +8513,65 @@ static void WickedCall_ProbeProfilerLockWait(double dMilliseconds)
 static void WickedCall_ProbeProfilerLockHold(double dMilliseconds)
 {
 	WickedCall_ProbeAddAnyThread(WICKEDCALL_PROBE_PROFILER_HOLD, dMilliseconds);
-	if (dMilliseconds >= 50.0) WickedCall_ProbeRecordSlow(WICKEDCALL_PROBE_PROFILER_HOLD, dMilliseconds, "profiler lock held");
+	if (dMilliseconds >= WICKEDCALL_PROBE_DETAIL_FLOOR) WickedCall_ProbeRecordSlow(WICKEDCALL_PROBE_PROFILER_HOLD, dMilliseconds, "profiler lock held");
 }
 
 // each step's own time, without the steps inside it, so a stall is named by the innermost step it was in; a step over 50 ms
 // is kept with its parents as the detail (no callers: the step's name says where it is)
+// each frame's three longest steps and its total, the slowest frame from 10 ms up kept for 20 frames with them ("frame
+// phase" asked with a threshold); "outside ranges" comes once a frame, at the next frame's start, so it closes the frame
+struct WickedCallFrameStep
+{
+	char pName[64] = "";
+	char pParents[160] = "";
+	double dMilliseconds = 0;
+};
+static WickedCallFrameStep g_WickedCallFrameTop[3];
+static double g_dWickedCallFrameTotal = 0;
+static WickedCallProbeSlowCall g_WickedCallProbeSlowFrame;
+
+static void WickedCall_ProbeFrameStep(const char* pName, const char* pParents, double dMilliseconds)
+{
+	g_dWickedCallFrameTotal += dMilliseconds;
+	for (int i = 0; i < 3; i++)
+	{
+		if (dMilliseconds <= g_WickedCallFrameTop[i].dMilliseconds) continue;
+		for (int j = 2; j > i; j--) g_WickedCallFrameTop[j] = g_WickedCallFrameTop[j - 1];
+		strcpy_s(g_WickedCallFrameTop[i].pName, pName);
+		strcpy_s(g_WickedCallFrameTop[i].pParents, pParents ? pParents : "");
+		g_WickedCallFrameTop[i].dMilliseconds = dMilliseconds;
+		break;
+	}
+	if (strcmp(pName, "outside ranges") != 0) return;
+
+	if (g_dWickedCallFrameTotal >= WICKEDCALL_PROBE_DETAIL_FLOOR)
+	{
+		WickedCallProbeSlowCall frame;
+		frame.dMilliseconds = g_dWickedCallFrameTotal;
+		frame.iFrame = g_iWickedCallProbeFrameNumber.load();
+		frame.dwThread = GetCurrentThreadId();
+		int iLen = sprintf_s(frame.pDetail, "frame %.0f ms:", g_dWickedCallFrameTotal);
+		for (int i = 0; i < 3 && iLen > 0; i++)
+		{
+			const WickedCallFrameStep& step = g_WickedCallFrameTop[i];
+			if (step.dMilliseconds <= 0) break;
+			if (step.pParents[0])
+				iLen += sprintf_s(frame.pDetail + iLen, sizeof(frame.pDetail) - iLen, "%s %s %.0f ms, in %s", i ? ";" : "", step.pName, step.dMilliseconds, step.pParents);
+			else
+				iLen += sprintf_s(frame.pDetail + iLen, sizeof(frame.pDetail) - iLen, "%s %s %.0f ms", i ? ";" : "", step.pName, step.dMilliseconds);
+		}
+		frame.bFormatted = true;
+		std::lock_guard<std::mutex> lock(g_WickedCallProbeSlowLock);
+		if (frame.iFrame - g_WickedCallProbeSlowFrame.iFrame > 20 || frame.dMilliseconds > g_WickedCallProbeSlowFrame.dMilliseconds) g_WickedCallProbeSlowFrame = frame;
+	}
+	for (int i = 0; i < 3; i++) g_WickedCallFrameTop[i] = WickedCallFrameStep();
+	g_dWickedCallFrameTotal = 0;
+}
+
 static void WickedCall_ProbeFramePhase(const char* pName, const char* pParents, double dMilliseconds)
 {
 	WickedCall_ProbeAdd(WICKEDCALL_PROBE_FRAME_PHASE, dMilliseconds);
+	WickedCall_ProbeFrameStep(pName, pParents, dMilliseconds);
 	if (dMilliseconds < 50.0) return;
 	WickedCallProbeSlowCall call;
 	call.dMilliseconds = dMilliseconds;
@@ -8534,15 +8587,17 @@ static void WickedCall_ProbeFramePhase(const char* pName, const char* pParents, 
 	if (call.iFrame - slowest.iFrame > 20 || dMilliseconds > slowest.dMilliseconds) slowest = call;
 }
 
-const char* WickedCall_ProbeDetail(const char* pName)
+const char* WickedCall_ProbeDetail(const char* pName, float fMinMs)
 {
 	int iProbe = -1;
 	for (int i = 0; i < WICKEDCALL_PROBE_COUNT; i++) if (_stricmp(pName, g_pWickedCallProbeNames[i]) == 0) iProbe = i;
 	if (iProbe != WICKEDCALL_PROBE_GPU_CREATE && iProbe != WICKEDCALL_PROBE_GPU_MAP && iProbe != WICKEDCALL_PROBE_PRESENT && iProbe != WICKEDCALL_PROBE_PROFILER_HOLD
 		&& iProbe != WICKEDCALL_PROBE_GPU_SHADER && iProbe != WICKEDCALL_PROBE_FRAME_PHASE) return "";
+	double dMinMs = (fMinMs < 0) ? 50.0 : ((fMinMs < WICKEDCALL_PROBE_DETAIL_FLOOR) ? WICKEDCALL_PROBE_DETAIL_FLOOR : fMinMs);
 	std::lock_guard<std::mutex> lock(g_WickedCallProbeSlowLock);
-	WickedCallProbeSlowCall& slowest = g_WickedCallProbeSlow[iProbe];
+	WickedCallProbeSlowCall& slowest = (iProbe == WICKEDCALL_PROBE_FRAME_PHASE && fMinMs >= 0) ? g_WickedCallProbeSlowFrame : g_WickedCallProbeSlow[iProbe];
 	if (g_iWickedCallProbeFrameNumber.load() - slowest.iFrame > 20) return "";
+	if (slowest.dMilliseconds < dMinMs) return "";
 	if (!slowest.bFormatted)
 	{
 		// the callers' names from the exe's pdb (DbgHelp, on this thread only)

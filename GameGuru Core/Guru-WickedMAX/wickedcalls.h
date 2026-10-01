@@ -320,7 +320,9 @@ bool WickedCall_ProbeGet(const char* pName, float* pMilliseconds, float* pCalls,
 // the slowest call over 50 ms of a device probe ("gpu create", "gpu map", "present", "gpu shader") or hold of the profiler's
 // lock ("profiler hold") in the last 20 frames: what, how long, the thread and the callers; for "frame phase" the slowest
 // step, "<step> N ms, in <parents>"; empty if none (main thread)
-const char* WickedCall_ProbeDetail(const char* pName);
+// fMinMs: the least it reports (at least 10); below 0, 50 and, for "frame phase", the slowest step rather than the slowest
+// frame with its three longest steps
+const char* WickedCall_ProbeDetail(const char* pName, float fMinMs = -1.0f);
 extern DWORD g_dwWickedCallProbeExtraThread;
 struct WickedCallProbeScope
 {
