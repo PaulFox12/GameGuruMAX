@@ -6156,8 +6156,9 @@ int SetRenderTiming ( lua_State *L )
 	return 0;
 }
 // GetRenderTime([name]): milliseconds, averaged over the last 20 frames, of a timed range: "GPU Frame" (the default, the GPU's
-// time for a whole frame), "CPU Frame", or another range named in Tab Tab's performance data. -1 while SetRenderTiming is
-// off and for the first frames after it is turned on. The second value is how many frames the time has gone without a new
+// time for a whole frame), "CPU Frame", or another range named in Tab Tab's performance data. While SetRenderTiming is off,
+// the main thread's CPU ranges ("CPU Frame", "Update - Logic - LUA", ...) are still answered, from the frame phase timing
+// (all of the frame's ranges with that name); GPU ranges are -1 then. -1 also for the first frames after it is turned on. The second value is how many frames the time has gone without a new
 // GPU result (0 when fresh), as the GPU's results arrive late when it runs far behind
 int GetRenderTime ( lua_State *L )
 {
@@ -14392,7 +14393,9 @@ namespace GGTerrain
 // thread's picks), "thread frame" (its whole cycle), "texture load" (a texture read and made), "object add" (an object put
 // into the Wicked scene), "gpu create" (a GPU buffer or texture made, any caller), "gpu map" (a map, unmap or buffer
 // update), "present" (the frame presented), "profiler queries" (the GPU timestamp queries the profiler issued a frame, as the
-// value), "profiler lock" (waits for the lock the profiler's ranges share), "profiler hold" (how long each holder kept it).
+// value), "profiler lock" (waits for the lock the profiler's ranges share), "profiler hold" (how long each holder kept it),
+// "gpu shader" (a shader, pipeline state or sampler made), "frame phase" (the main thread's steps whether or not
+// SetRenderTiming is on: each named range's own time, without the ranges inside it, so the longest is the slowest step).
 // A third value is the longest single call in those 20 frames. Nothing for an unknown name
 int GetEngineProbe(lua_State* L)
 {
@@ -14405,8 +14408,9 @@ int GetEngineProbe(lua_State* L)
 	lua_pushnumber(L, fLongest);
 	return 3;
 }
-// GetEngineProbeDetail(name): for "gpu create", "gpu map", "present" or "profiler hold", the slowest over 50 ms in the last 20 frames:
-// what it was, how long, the thread (main, extra or worker) and its callers by name; "" if none
+// GetEngineProbeDetail(name): for "gpu create", "gpu map", "present", "gpu shader" or "profiler hold", the slowest over 50 ms in
+// the last 20 frames: what it was, how long, the thread (main, extra or worker) and its callers by name; for "frame phase" the
+// slowest step over 50 ms, "<step> N ms, in <parents>" (parents innermost first); "" if none
 int GetEngineProbeDetail(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;

@@ -2168,11 +2168,15 @@ void MasterRenderer::Update(float dt)
 					GGTerrain_Update(camera.Eye.x, camera.Eye.y, camera.Eye.z, cmd, bImGuiRenderTargetFocus);
 					if (g_iDisableTerrainSystem == 0)
 					{
+						auto rangeTrees = wiProfiler::BeginRangeCPU("Update - Trees");
 						PIXScopedEvent(PIX_COLOR_DEFAULT, "GGTrees_Update");
 						GGTrees_Update(camera.Eye.x, camera.Eye.y, camera.Eye.z, cmd, bImGuiRenderTargetFocus);
 						GGTrees_UpdateFrustumCulling(&camera);
+						wiProfiler::EndRange(rangeTrees);
+						auto rangeGrass = wiProfiler::BeginRangeCPU("Update - Grass");
 						PIXScopedEvent(PIX_COLOR_DEFAULT, "GGGrass_Update");
 						GGGrass_Update(&camera, cmd, bImGuiRenderTargetFocus);
+						wiProfiler::EndRange(rangeGrass);
 					}
 					wiProfiler::EndRange(range3);
 				}

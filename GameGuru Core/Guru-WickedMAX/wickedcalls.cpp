@@ -8385,7 +8385,7 @@ void WickedCall_UpdateWaterFog(float fMinDist, float fMaxDist, float fMinAmount)
 
 static const char* g_pWickedCallProbeNames[WICKEDCALL_PROBE_COUNT] = { "pick", "pick layers", "pick wicked", "pick lookup", "decal create", "decal fade",
 	"thread pick", "thread frame", "texture load", "object add", "gpu create", "gpu map", "present",
-	"profiler queries", "profiler lock", "profiler hold" };
+	"profiler queries", "profiler lock", "profiler hold", "gpu shader", "frame phase" };
 static double g_dWickedCallProbeFrame[WICKEDCALL_PROBE_COUNT] = {};
 static int g_iWickedCallProbeFrameCalls[WICKEDCALL_PROBE_COUNT] = {};
 static double g_dWickedCallProbeFrameLongest[WICKEDCALL_PROBE_COUNT] = {};
@@ -8399,13 +8399,15 @@ static std::atomic<int64_t> g_iWickedCallProbeAnyMicro[WICKEDCALL_PROBE_COUNT];
 static std::atomic<int32_t> g_iWickedCallProbeAnyCalls[WICKEDCALL_PROBE_COUNT];
 static std::atomic<int64_t> g_iWickedCallProbeAnyLongestMicro[WICKEDCALL_PROBE_COUNT];
 
-// Wicked tells this how long each buffer and texture creation, map, buffer update and present took, on any thread
-// ("gpu create", "gpu map", "present")
+// Wicked tells this how long each buffer and texture creation, map, buffer update, present and shader, pipeline state or
+// sampler creation took, on any thread ("gpu create", "gpu map", "present", "gpu shader")
 static void WickedCall_ProbeDeviceCall(double dMilliseconds, const WickedDeviceCallInfo& info);
 // and the profiler its GPU queries a frame ("profiler queries": the count as the probe's value) and its lock waits
 static void WickedCall_ProbeProfilerQueries(uint32_t queries);
 static void WickedCall_ProbeProfilerLockWait(double dMilliseconds);
 static void WickedCall_ProbeProfilerLockHold(double dMilliseconds);
+// and the main thread's steps, its CPU ranges whether or not profiling is on ("frame phase")
+static void WickedCall_ProbeFramePhase(const char* pName, const char* pParents, double dMilliseconds);
 static struct WickedCallProbeHook
 {
 	WickedCallProbeHook()
@@ -8414,6 +8416,7 @@ static struct WickedCallProbeHook
 		g_pfnWickedProfilerQueries = WickedCall_ProbeProfilerQueries;
 		g_pfnWickedProfilerLockWait = WickedCall_ProbeProfilerLockWait;
 		g_pfnWickedProfilerLockHold = WickedCall_ProbeProfilerLockHold;
+		g_pfnWickedFramePhase = WickedCall_ProbeFramePhase;
 	}
 } g_WickedCallProbeHook;
 
@@ -8479,7 +8482,10 @@ static void WickedCall_ProbeRecordSlow(int iProbe, double dMilliseconds, const c
 
 static void WickedCall_ProbeDeviceCall(double dMilliseconds, const WickedDeviceCallInfo& info)
 {
-	int iProbe = info.call == 0 ? WICKEDCALL_PROBE_GPU_CREATE : (info.call == 1 ? WICKEDCALL_PROBE_GPU_MAP : WICKEDCALL_PROBE_PRESENT);
+	int iProbe = WICKEDCALL_PROBE_PRESENT;
+	if (info.call == 0) iProbe = WICKEDCALL_PROBE_GPU_CREATE;
+	else if (info.call == 1) iProbe = WICKEDCALL_PROBE_GPU_MAP;
+	else if (info.call == 3) iProbe = WICKEDCALL_PROBE_GPU_SHADER;
 	WickedCall_ProbeAddAnyThread(iProbe, dMilliseconds);
 	if (dMilliseconds < 50.0) return;
 	char pWhat[96];
@@ -8508,11 +8514,32 @@ static void WickedCall_ProbeProfilerLockHold(double dMilliseconds)
 	if (dMilliseconds >= 50.0) WickedCall_ProbeRecordSlow(WICKEDCALL_PROBE_PROFILER_HOLD, dMilliseconds, "profiler lock held");
 }
 
+// each step's own time, without the steps inside it, so a stall is named by the innermost step it was in; a step over 50 ms
+// is kept with its parents as the detail (no callers: the step's name says where it is)
+static void WickedCall_ProbeFramePhase(const char* pName, const char* pParents, double dMilliseconds)
+{
+	WickedCall_ProbeAdd(WICKEDCALL_PROBE_FRAME_PHASE, dMilliseconds);
+	if (dMilliseconds < 50.0) return;
+	WickedCallProbeSlowCall call;
+	call.dMilliseconds = dMilliseconds;
+	call.iFrame = g_iWickedCallProbeFrameNumber.load();
+	call.dwThread = GetCurrentThreadId();
+	if (pParents && pParents[0])
+		sprintf_s(call.pDetail, "%s %.0f ms, in %s", pName, dMilliseconds, pParents);
+	else
+		sprintf_s(call.pDetail, "%s %.0f ms", pName, dMilliseconds);
+	call.bFormatted = true;
+	std::lock_guard<std::mutex> lock(g_WickedCallProbeSlowLock);
+	WickedCallProbeSlowCall& slowest = g_WickedCallProbeSlow[WICKEDCALL_PROBE_FRAME_PHASE];
+	if (call.iFrame - slowest.iFrame > 20 || dMilliseconds > slowest.dMilliseconds) slowest = call;
+}
+
 const char* WickedCall_ProbeDetail(const char* pName)
 {
 	int iProbe = -1;
 	for (int i = 0; i < WICKEDCALL_PROBE_COUNT; i++) if (_stricmp(pName, g_pWickedCallProbeNames[i]) == 0) iProbe = i;
-	if (iProbe != WICKEDCALL_PROBE_GPU_CREATE && iProbe != WICKEDCALL_PROBE_GPU_MAP && iProbe != WICKEDCALL_PROBE_PRESENT && iProbe != WICKEDCALL_PROBE_PROFILER_HOLD) return "";
+	if (iProbe != WICKEDCALL_PROBE_GPU_CREATE && iProbe != WICKEDCALL_PROBE_GPU_MAP && iProbe != WICKEDCALL_PROBE_PRESENT && iProbe != WICKEDCALL_PROBE_PROFILER_HOLD
+		&& iProbe != WICKEDCALL_PROBE_GPU_SHADER && iProbe != WICKEDCALL_PROBE_FRAME_PHASE) return "";
 	std::lock_guard<std::mutex> lock(g_WickedCallProbeSlowLock);
 	WickedCallProbeSlowCall& slowest = g_WickedCallProbeSlow[iProbe];
 	if (g_iWickedCallProbeFrameNumber.load() - slowest.iFrame > 20) return "";

@@ -228,8 +228,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	{
 		if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) 
 		{
+			// timed as a step of the frame, as a window message handled here is outside Wicked's frame
+			auto range = wiProfiler::BeginRangeCPU("Windows Messages");
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
+			wiProfiler::EndRange(range);
 		}
 		else 
 		{
