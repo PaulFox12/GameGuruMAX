@@ -14,7 +14,7 @@ struct VertexIn
 
 struct VertexOut
 {
-	float4 position : SV_POSITION;
+	precise float4 position : SV_POSITION; // must match GGTerrainVS exactly, the main pass tests against this depth
 	float2 uv : TEXCOORD0;
 	float2 uvPos : TEXCOORD1;
 	uint lodLevel : TEXCOORD2;
