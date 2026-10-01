@@ -8574,6 +8574,14 @@ static void WickedCall_ProbeFramePhase(const char* pName, const char* pParents, 
 {
 	WickedCall_ProbeAdd(WICKEDCALL_PROBE_FRAME_PHASE, dMilliseconds);
 	WickedCall_ProbeFrameStep(pName, pParents, dMilliseconds);
+	if (dMilliseconds >= 1000.0)
+	{
+		// a step of a second or more goes in the log at once (level loads and test game starts render frames too)
+		char pLog[320];
+		sprintf_s(pLog, "Frame step of %.0f ms: %s%s%s", dMilliseconds, pName, (pParents && pParents[0]) ? ", in " : "", pParents ? pParents : "");
+		void timestampactivity(int i, char* desc_s);
+		timestampactivity(0, pLog);
+	}
 	if (dMilliseconds < 50.0) return;
 	WickedCallProbeSlowCall call;
 	call.dMilliseconds = dMilliseconds;

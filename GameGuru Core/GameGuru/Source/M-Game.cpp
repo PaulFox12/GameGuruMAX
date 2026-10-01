@@ -2244,6 +2244,7 @@ void game_masterroot_gameloop_initcode(int iUseVRTest)
 	{
 		game_createnavmeshfromlevel ( false );
 	}
+	timestampactivity(0, "Nav mesh done");
 
 	// Setup variables for main game loop
 	t.screenprompt_s = "STARTING GAME";
