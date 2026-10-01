@@ -2406,6 +2406,9 @@ void visuals_loop ( void )
 // grass draw distance set from Lua, 0 when the level's own (quality scaled) distance applies
 float g_fGrassDistanceOverride = 0.0f;
 
+// the distance the level or the quality gave under it, which ResetGraphicsSettings puts back
+float g_fGrassDistanceBefore = 0.0f;
+
 // set at each level start so the standalone quality levels scale that level's own values, not the first level's
 bool g_bInitGraphicsSettingsValues = true;
 
@@ -2637,7 +2640,11 @@ void visuals_shaderlevels_update_core (bool bUpdateEngine)
 
 		// a distance set by SetGrassDistance (usually in an init script) survives this refresh, which runs after the init scripts
 		extern float g_fGrassDistanceOverride;
-		if (g_fGrassDistanceOverride > 0) GGGrass::gggrass_global_params.lod_dist = g_fGrassDistanceOverride;
+		if (g_fGrassDistanceOverride > 0)
+		{
+			g_fGrassDistanceBefore = GGGrass::gggrass_global_params.lod_dist;
+			GGGrass::gggrass_global_params.lod_dist = g_fGrassDistanceOverride;
+		}
 
 		extern CCameraManager m_CameraManager;
 		tagCameraData* m_ptr = m_CameraManager.GetData(0);

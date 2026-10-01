@@ -13903,6 +13903,7 @@ extern void LuaRenderSettings_SetFrameRateCap(int iFramesPerSecond);
 extern void LuaRenderSettings_GetDisplay(int* pVsync, int* pFrameRateCap);
 extern void LuaRenderSettings_SetRenderScale(float fScale);
 extern float LuaRenderSettings_GetRenderScale(void);
+extern void LuaRenderSettings_GetLevers(int* pSSR, int* pAO, float* pAOPower, float* pLODMultiplier, float* pShadowRange);
 extern void LuaRenderSettings_GetValues(int* pFXAA, int* pReflections, int* pProbesLowestLOD, int* pReflectionsLowestLOD, int* pAnimations30Fps, float* pMaxApparentSize);
 extern void LuaRenderSettings_GetShadows(int* pSun, int* pSpot, int* pPoint, int* pSpotMax, int* pPointMax, int* pCascades, float* pSplits);
 extern void LuaRenderSettings_GetTerrainDetail(int* pLimit, float* pScale, int* pReadBack, int* pGrassSimpleLighting);
@@ -14138,6 +14139,14 @@ int GetGraphicsSettings(lua_State* L)
 	lua_pushinteger(L, iVsync); lua_setfield(L, -2, "vsync");
 	lua_pushinteger(L, iFrameRateCap); lua_setfield(L, -2, "frameRateCap");
 	lua_pushnumber(L, LuaRenderSettings_GetRenderScale()); lua_setfield(L, -2, "renderScale");
+	int iSSR, iAO;
+	float fAOPower, fLODMultiplier, fShadowRange;
+	LuaRenderSettings_GetLevers(&iSSR, &iAO, &fAOPower, &fLODMultiplier, &fShadowRange);
+	lua_pushinteger(L, iSSR); lua_setfield(L, -2, "ssr");
+	lua_pushinteger(L, iAO); lua_setfield(L, -2, "ao");
+	lua_pushnumber(L, fAOPower); lua_setfield(L, -2, "aoPower");
+	lua_pushnumber(L, fLODMultiplier); lua_setfield(L, -2, "lodMultiplier");
+	lua_pushnumber(L, fShadowRange); lua_setfield(L, -2, "shadowRange");
 	return 1;
 }
 
@@ -14265,6 +14274,8 @@ int SetGrassDistance(lua_State* L)
 	if (fDistance < 750.0f) fDistance = 750.0f;
 	if (fDistance > 7000.0f) fDistance = 7000.0f;
 	extern float g_fGrassDistanceOverride;
+	extern float g_fGrassDistanceBefore;
+	if (g_fGrassDistanceOverride <= 0) g_fGrassDistanceBefore = gggrass_global_params.lod_dist;
 	g_fGrassDistanceOverride = fDistance;
 	gggrass_global_params.lod_dist = fDistance;
 	return 0;

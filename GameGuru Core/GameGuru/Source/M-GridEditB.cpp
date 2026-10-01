@@ -8059,6 +8059,17 @@ void LuaRenderSettings_GetDisplay(int* pVsync, int* pFrameRateCap)
 	*pFrameRateCap = g_iFrameRateCap;
 }
 
+// the values in force of the levers batch 12 added (SetSSR, SetAO, SetLODMultiplier, SetShadowRange)
+void LuaRenderSettings_GetLevers(int* pSSR, int* pAO, float* pAOPower, float* pLODMultiplier, float* pShadowRange)
+{
+	*pSSR = master_renderer ? (master_renderer->getSSREnabled() ? 1 : 0) : 0;
+	*pAO = master_renderer ? (master_renderer->getAO() != RenderPath3D::AO_DISABLED ? 1 : 0) : 0;
+	*pAOPower = master_renderer ? master_renderer->getAOPower() : 0;
+	*pLODMultiplier = fLODMultiplier;
+	extern float fWickedCallShadowFarPlane;
+	*pShadowRange = fWickedCallShadowFarPlane;
+}
+
 void LuaRenderSettings_SetGrassSimpleLighting(int iOn)
 {
 	sLuaRenderSettings* p = &g_LuaRenderSettings;
@@ -8136,12 +8147,22 @@ static void LuaRenderSettings_RestoreGraphics(const sLuaRenderSettings& old, vis
 		LuaRenderSettings_SetFSRScale(LuaRenderSettings_LevelFSRScale(visuals));
 		if (master_renderer) master_renderer->setFXAAEnabled(visuals->bFXAAEnabled);
 	}
+	if (old.fLODMultiplier >= 0) fLODMultiplier = visuals->fLODMultiplier;
+	if (old.fShadowRange >= 0) WickedCall_SetShadowRange(visuals->fShadowFarPlane);
+	if (old.iSSR >= 0 && master_renderer) master_renderer->setSSREnabled(visuals->bSSREnabled);
+	if ((old.iAO >= 0 || old.fAOPower >= 0) && master_renderer)
+	{
+		// as the last visuals push left it
+		master_renderer->setAO(master.iAOSetting > 0 ? RenderPath3D::AO_MSAO : RenderPath3D::AO_DISABLED);
+		if (master.iAOSetting > 0) master_renderer->setAOPower(master.fAOPower);
+	}
 }
 
 // forget a script's graphics values (SetFXAA, SetReflections, SetProbesLowestLOD, SetReflectionsLowestLOD,
 // SetAnimations30Fps, SetMaxApparentSize, SetShadowResolution, SetShadowLights, SetShadowCascades, SetTerrainDetail,
-// SetGrassSimpleLighting, SetVsync, SetFrameRateCap, SetRenderScale, SetOcclusionCulling's spot shadows) and put back the level's and the graphics quality's, so a
-// quality change moves them again (ResetGraphicsSettings); the other levers stay as set
+// SetGrassSimpleLighting, SetVsync, SetFrameRateCap, SetRenderScale, SetSSR, SetAO, SetLODMultiplier, SetShadowRange,
+// SetTreeDistance, SetTreeTransition, SetGrassDistance, SetOcclusionCulling's spot shadows) and put back the level's and
+// the graphics quality's, so a quality change moves them again (ResetGraphicsSettings); the other levers stay as set
 void LuaRenderSettings_ResetGraphics(void)
 {
 	sLuaRenderSettings old = g_LuaRenderSettings;
@@ -8167,7 +8188,22 @@ void LuaRenderSettings_ResetGraphics(void)
 	p->iVsync = -1;
 	p->iFrameRateCap = -1;
 	p->fRenderScale = -1;
+	p->iSSR = -1;
+	p->iAO = -1;
+	p->fAOPower = -1;
+	p->fLODMultiplier = -1;
+	p->fShadowRange = -1;
 	LuaRenderSettings_RestoreGraphics(old, &t.visuals);
+
+	// the tree and grass distances, which their own setters keep through quality changes
+	GGTrees::GGTrees_ClearLuaDistances();
+	extern float g_fGrassDistanceOverride;
+	extern float g_fGrassDistanceBefore;
+	if (g_fGrassDistanceOverride > 0)
+	{
+		gggrass_global_params.lod_dist = g_fGrassDistanceBefore;
+		g_fGrassDistanceOverride = 0;
+	}
 	LuaRenderSettings_Apply();
 }
 
@@ -8196,19 +8232,10 @@ void LuaRenderSettings_Clear(void)
 		bEnableSpotShadowCulling = visuals->bEnableSpotShadowCulling;
 	}
 	if (old.iOcclusion >= 0) wiRenderer::SetOcclusionCullingEnabled(visuals->bOcclusionCulling);
-	if (old.fLODMultiplier >= 0) fLODMultiplier = visuals->fLODMultiplier;
 	if (old.iShadowsLowestLOD >= 0) bShadowsLowestLOD = visuals->bShadowsLowestLOD;
 	if (old.iDelayedShadows >= 0 || old.iDelayedShadowsLaptop >= 0) LuaRenderSettings_SetDelayedShadowGlobals(visuals->g_bDelayedShadows, visuals->g_bDelayedShadowsLaptop);
-	if (old.fShadowRange >= 0) WickedCall_SetShadowRange(visuals->fShadowFarPlane);
 	LuaRenderSettings_RestoreGraphics(old, visuals);
 	if (old.iShadowJobWait >= 0) g_bShadowJobWaits = false;
-	if (old.iSSR >= 0 && master_renderer) master_renderer->setSSREnabled(visuals->bSSREnabled);
-	if ((old.iAO >= 0 || old.fAOPower >= 0) && master_renderer)
-	{
-		// as the last visuals push left it
-		master_renderer->setAO(master.iAOSetting > 0 ? RenderPath3D::AO_MSAO : RenderPath3D::AO_DISABLED);
-		if (master.iAOSetting > 0) master_renderer->setAOPower(master.fAOPower);
-	}
 }
 
 // clouds, tree wind, the tree backlight, wind, water colour, water fog and the LUT set from Lua are kept in

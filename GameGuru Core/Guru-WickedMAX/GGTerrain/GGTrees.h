@@ -100,6 +100,7 @@ namespace GGTrees
 	void GGTrees_SetLuaShadowCascades( int billboardCascades, int fullDetailCascades );
 	void GGTrees_ApplyLuaOverrides();
 	void GGTrees_ClearLuaOverrides();
+	void GGTrees_ClearLuaDistances(); // a script's tree distances and transitions forgotten, the quality's or the level's back
 	void GGTrees_Delete_Trees(float pickX, float pickZ, float radius);
 
 	void GGTrees_Init();

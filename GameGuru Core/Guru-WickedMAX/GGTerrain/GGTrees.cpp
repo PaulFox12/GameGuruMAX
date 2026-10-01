@@ -2308,13 +2308,19 @@ void GGTrees_ResetDistances()
 // GG: the tree distances the level was made with (set at level load and when a test game starts); the qualities scale them
 GGTreesParams ggtrees_level_lod_params;
 
+// GG: the quality last applied to them, -1 while the level's own stand
+static int ggtrees_performance_mode = -1;
+
 void GGTrees_KeepLevelDistances()
 {
 	ggtrees_level_lod_params = ggtrees_global_params;
+	ggtrees_performance_mode = -1;
 }
 
 void GGTrees_SetPerformanceMode( uint32_t mode )
 {
+	ggtrees_performance_mode = (int) mode;
+
 	// GG: High is the level's own tree distances and the other qualities scale them, as the grass distance does; they used
 	// to replace them with fixed values (Low 1000, Medium 2000, High 3000, Ultra 4000) and left the transitions alone
 	float scale = 1.0f;
@@ -2347,6 +2353,28 @@ void GGTrees_SetPerformanceMode( uint32_t mode )
 
 	// a game that set its own tree distances keeps them through a quality change
 	GGTrees_ApplyLuaOverrides();
+}
+
+// GG: forget a script's tree distances and transitions (ResetGraphicsSettings), so the quality's come back, or the level's own
+void GGTrees_ClearLuaDistances()
+{
+	ggtrees_lua_overrides.lod_dist = 0;
+	ggtrees_lua_overrides.lod_dist_shadow = 0;
+	ggtrees_lua_overrides.lod_transition = 0;
+	ggtrees_lua_overrides.lod_transition_shadow = 0;
+	if ( ggtrees_performance_mode >= 0 )
+	{
+		GGTrees_SetPerformanceMode( (uint32_t) ggtrees_performance_mode );
+	}
+	else
+	{
+		const GGTreesParams& level = ggtrees_level_lod_params;
+		ggtrees_global_params.lod_dist = level.lod_dist;
+		ggtrees_global_params.lod_dist_shadow = level.lod_dist_shadow;
+		ggtrees_global_params.lod_transition = level.lod_transition;
+		ggtrees_global_params.lod_transition_shadow = level.lod_transition_shadow;
+		GGTrees_ApplyLuaOverrides();
+	}
 }
 
 void GGTrees_SetTreePosition( uint32_t treeID, float x, float z ) 
