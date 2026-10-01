@@ -27,6 +27,11 @@
 #include "GGTerrain.h"
 using namespace GGTerrain;
 
+#include <thread>
+#include <atomic>
+#include <functional>
+#include <chrono>
+
 #include "gameguru.h"
 
 #ifdef OPTICK_ENABLE
@@ -36,6 +41,7 @@ using namespace GGTerrain;
 using namespace wiGraphics;
 
 extern bool bImGuiGotFocus;
+extern void timestampactivity( int i, char* desc_s );
 extern wiECS::Entity g_entitySunLight;
 
 extern uint8_t* g_pTerrainSnapshot;
@@ -403,6 +409,11 @@ UnorderedArray<uint32_t> pInvisibleTrees;
 // 1 when the tree's height is known. Trees outside the terrain LOD set get their height from the slower terrain
 // function once, and keep it until the terrain under them changes, see GGTrees_InvalidateHeights()
 uint8_t pTreeHeightValid[ numTotalTrees ] = { 0 };
+// GG: every tree's ground height and slope (normal y) from the terrain function, kept while pTreeHeightValid, and the
+// terrain's height inputs under each chunk when its trees found them (GGTrees_UpdateInstances)
+float pTreeGround[ numTotalTrees ] = { 0 };
+float pTreeNormalY[ numTotalTrees ] = { 0 };
+uint64_t pTreeChunkTerrain[ numTreeChunks ] = { 0 };
 
 // a drawn tree's trunk as rays test it (GGTrees_RayCastTrunks): a vertical cylinder from the tree's base to its top, as
 // thick as the physics' tree cylinder (the species' thickness times the tree's scale, across)
@@ -1292,7 +1303,37 @@ static float GGTrees_SlopeSink( InstanceTree* pInstance, float ny )
 	return fmaxf( sink, scale * reach - 16 ); // 16: the 10 every tree is set below, and the 6 the grass hides
 }
 
+// GG: task( i ) for every i below count, on all but one of the cores when there are at least minParallel
+static void GGTrees_ParallelFor( uint32_t count, uint32_t minParallel, const std::function<void(uint32_t)>& task )
+{
+	uint32_t numThreads = std::thread::hardware_concurrency();
+	if ( numThreads > 2 ) numThreads--;
+	if ( count < minParallel || numThreads < 2 )
+	{
+		for ( uint32_t i = 0; i < count; i++ ) task( i );
+		return;
+	}
+	std::atomic<uint32_t> next( 0 );
+	std::vector<std::thread> threads;
+	for ( uint32_t t = 0; t < numThreads; t++ )
+	{
+		threads.emplace_back( [&]()
+		{
+			for ( uint32_t base = next.fetch_add( 64 ); base < count; base = next.fetch_add( 64 ) )
+			{
+				const uint32_t end = (base + 64 < count) ? base + 64 : count;
+				for ( uint32_t i = base; i < end; i++ ) task( i );
+			}
+		} );
+	}
+	for ( std::thread& thread : threads ) thread.join();
+}
+
 // only call this when tree heights need to be updated, e.g. when the terrain has changed
+// GG: every tree's height and slope come from the terrain function and are kept until the terrain under the tree changes
+// (accurate is no longer used). Before, every tree in the terrain LOD set took the height and slope of the LOD chunk
+// covering it at the last terrain regeneration, mostly a coarse one, and kept them as the camera came near and the drawn
+// mesh refined, so trees stood in the air over sharp banks and at the feet of slopes
 int GGTrees_UpdateInstances( int accurate )
 {
 	if (!ggtrees_initialised) return 0;
@@ -1306,20 +1347,70 @@ int GGTrees_UpdateInstances( int accurate )
 		GGTrees_SortIntoChunks();
 	}
 
+	// a chunk whose terrain changed (its height inputs, with the normal's samples round its edge) finds its trees' heights
+	// again, whichever way the terrain was changed
+	const uint64_t terrainGlobal = GGTerrain_GetHeightFingerprintGlobal();
+	GGTrees_ParallelFor( numTreeChunks, 64, [terrainGlobal]( uint32_t i )
+	{
+		const float size = treeArea / treeSplit;
+		const float minX = (i % treeSplit) * size - treeArea / 2, minZ = (i / treeSplit) * size - treeArea / 2;
+		const uint64_t terrain = (terrainGlobal * 0x100000001b3ULL) ^ GGTerrain_GetHeightFingerprintRect( minX - 50, minZ - 50, minX + size + 50, minZ + size + 50 );
+		if ( terrain == pTreeChunkTerrain[ i ] ) return;
+		pTreeChunkTerrain[ i ] = terrain;
+		TreeChunk* pChunk = &pTreeChunks[ i ];
+		for ( uint32_t j = 0; j < pChunk->pInstances.NumItems(); j++ ) pTreeHeightValid[ pChunk->pInstances[ j ] - pAllTrees ] = 0;
+	} );
+
+	// the trees that need it find their height and slope from the terrain function, on the cores (about 7.6 us a height,
+	// five a tree). Also how far each would have been set by the terrain LOD, as before, for the log
+	std::vector<uint32_t> find;
+	for ( uint32_t j = 0; j < numTotalTrees; j++ )
+	{
+		if ( pTreeHeightValid[ j ] ) continue;
+		if ( !GGTrees_GetChunk( pAllTrees[ j ].x, pAllTrees[ j ].z ) ) continue;
+		find.push_back( j );
+	}
+	std::vector<float> lodMoved( find.size(), -1.0f );
+	const auto start = std::chrono::high_resolution_clock::now();
+	GGTrees_ParallelFor( (uint32_t)find.size(), 2048, [&find, &lodMoved]( uint32_t k )
+	{
+		const uint32_t j = find[ k ];
+		InstanceTree* pInstance = &pAllTrees[ j ];
+		float height, ny;
+		if ( !GGTrees_GetTerrainHeight( pInstance->x, pInstance->z, &height, &ny ) ) return;
+		pTreeGround[ j ] = height;
+		pTreeNormalY[ j ] = ny;
+		pTreeHeightValid[ j ] = 1;
+
+		float lodHeight, nx, lodNy, nz;
+		if ( GGTerrain_GetNormal( pInstance->x, pInstance->z, &nx, &lodNy, &nz ) && GGTerrain_GetHeight( pInstance->x, pInstance->z, &lodHeight, 0 ) )
+		{
+			lodMoved[ k ] = fabsf( (lodHeight - GGTrees_SlopeSink( pInstance, lodNy )) - (height - GGTrees_SlopeSink( pInstance, ny )) );
+		}
+	} );
+	const double milliseconds = std::chrono::duration<double, std::milli>( std::chrono::high_resolution_clock::now() - start ).count();
+	if ( find.size() >= 1000 )
+	{
+		uint32_t moved = 0, largest = 0;
+		for ( uint32_t k = 0; k < (uint32_t)find.size(); k++ )
+		{
+			if ( lodMoved[ k ] > 20.0f ) moved++;
+			if ( lodMoved[ k ] > lodMoved[ largest ] ) largest = k;
+		}
+		char pLog[ 512 ];
+		const InstanceTree& tree = pAllTrees[ find.empty() ? 0 : find[ largest ] ];
+		sprintf_s( pLog, 512, "Trees: %u heights from the terrain function in %.0f ms; %u of them more than 20 units from where the terrain LOD would have set them, the most %.0f at (%.0f, %.0f)",
+			(uint32_t)find.size(), milliseconds, moved, lodMoved.empty() ? 0.0f : lodMoved[ largest ], tree.x, tree.z );
+		::timestampactivity( 0, pLog );
+	}
+
+	// every tree with a known height set on it for its type and scale, and hidden under the water or on a steep slope
 	for( uint32_t j = 0; j < numTotalTrees; j++ )
 	{
+		if ( !pTreeHeightValid[ j ] ) continue;
 		InstanceTree* pInstance = &pAllTrees[ j ];
-
-		float height, nx, ny, nz;
-		if ( !GGTerrain_GetNormal( pInstance->x, pInstance->z, &nx, &ny, &nz )
-		  || !GGTerrain_GetHeight( pInstance->x, pInstance->z, &height, accurate ) )
-		{
-			// outside the terrain LOD set, use the terrain function once for trees on the level
-			if ( pTreeHeightValid[ j ] ) continue;
-			if ( !GGTrees_GetChunk( pInstance->x, pInstance->z ) ) continue;
-			if ( !GGTrees_GetTerrainHeight( pInstance->x, pInstance->z, &height, &ny ) ) continue;
-		}
-		pTreeHeightValid[ j ] = 1;
+		const float height = pTreeGround[ j ];
+		const float ny = pTreeNormalY[ j ];
 
 		float adjustment = GGTrees_SlopeSink( pInstance, ny );
 		pInstance->y = height - 10 - adjustment;
@@ -2518,8 +2609,13 @@ void GGTrees_SetTreePosition( uint32_t treeID, float x, float z )
 
 	float height = 0;
 	float ny = 0;
-	GGTerrain_GetHeight( pInstance->x, pInstance->z, &height, 1 );
-	GGTerrain_GetNormal( pInstance->x, pInstance->z, 0, &ny, 0 );
+	// GG: the height and slope from the terrain function, kept as GGTrees_UpdateInstances keeps them
+	if ( GGTrees_GetTerrainHeight( pInstance->x, pInstance->z, &height, &ny ) )
+	{
+		pTreeGround[ treeID ] = height;
+		pTreeNormalY[ treeID ] = ny;
+		pTreeHeightValid[ treeID ] = 1;
+	}
 	if ( (height > g.gdefaultwaterheight + ggtrees_global_params.water_dist && ny > 0.7) || pInstance->IsUserMoved() )
 	{
 		float adjustment = GGTrees_SlopeSink( pInstance, ny );

@@ -3536,7 +3536,15 @@ public:
 				settingsUpdated = true;
 
 				ResetChunks();
-				GGTrees_InvalidateHeights( -1e20f, -1e20f, 1e20f, 1e20f );
+				// GG: the trees find their heights again only when a setting that shapes the terrain changed, not only the
+				// mesh's (lod levels, segments and their size, which the graphics quality changes)
+				GGTerrainParams oldShape, newShape;
+				oldShape.Copy( &ggterrain_local_params );
+				newShape.Copy( &ggterrain_global_params );
+				oldShape.lod_levels = newShape.lod_levels = 0;
+				oldShape.segments_per_chunk = newShape.segments_per_chunk = 0;
+				oldShape.segment_size = newShape.segment_size = 0;
+				if ( !oldShape.IsEqual( &newShape ) ) GGTrees_InvalidateHeights( -1e20f, -1e20f, 1e20f, 1e20f );
 
 				if ( ggterrain_local_params.pHeightmapMain != ggterrain_global_params.pHeightmapMain && ggterrain_local_params.pHeightmapMain ) delete [] ggterrain_local_params.pHeightmapMain;
 				ggterrain_local_params.Copy( &ggterrain_global_params );
