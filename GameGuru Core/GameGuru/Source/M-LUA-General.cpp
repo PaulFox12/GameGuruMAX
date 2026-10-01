@@ -1539,7 +1539,8 @@ void lua_savegame ( void )
 }
 void lua_quitgame ( void )
 {
-	//  EXIT TO WINDOWS
+	//  EXIT TO WINDOWS (from a level too, which ends it; a test level goes back to the editor)
+	t.game.gameloop=0;
 	t.game.levelloop=0;
 	t.game.masterloop=0;
 	t.game.titleloop=0;
@@ -1550,6 +1551,9 @@ void lua_leavegame ( void )
 	t.game.titleloop=0;
 	strcpy ( t.game.pSwitchToPage, "" );
 	mp_quitGame ( );
+
+	// a test level has no title pages to go back to, so it goes back to the editor
+	if ( t.game.gameisexe == 0 ) t.game.masterloop=0;
 
 	// ensure IMGUI does not attempt to render to wicked during resource shifting
 	extern int iBlockRenderingForFrames;

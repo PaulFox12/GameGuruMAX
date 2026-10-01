@@ -2329,6 +2329,9 @@ void game_masterroot_gameloop_afterexitgamemenu(void)
 int g_iGameWorldPauses = 0;
 bool g_bGamePaused = false;
 
+// SetEscapeMenu: false leaves Escape to the scripts' own menu (back to true at each level start)
+bool g_bEscapeMenu = true;
+
 void game_pauseworld ( void )
 {
 	++g_iGameWorldPauses;
@@ -2475,9 +2478,19 @@ bool game_masterroot_gameloop_loopcode(int iUseVRTest)
 		if (GGVR_RightController_Button1() == 1) bControllerEscape == true;
 	}
 
-	//  trigger options page or exit test level
+	//  trigger options page or exit test level (SetEscapeMenu(0) leaves Escape and the START button to the scripts, though
+	//  shift and Escape still leave a test level)
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"escape button check");
-	if ( EscapeKey() == 1 || bControllerEscape == true ) 
+	bool bEscapePressed = false;
+	if ( g_bEscapeMenu == true )
+	{
+		if ( EscapeKey() == 1 || bControllerEscape == true ) bEscapePressed = true;
+	}
+	else
+	{
+		if ( t.game.gameisexe == 0 && (KeyState(42) == 1 || KeyState(54) == 1) && EscapeKey() == 1 ) bEscapePressed = true;
+	}
+	if ( bEscapePressed == true )
 	{
 		// at the point we enter the in-game menu, stop VR mode if required
 		if (t.game.gameisexe == 1 && g.vrglobals.GGVREnabled == 2) g_iActivelyUsingVRNow = 0;

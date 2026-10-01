@@ -6097,6 +6097,17 @@ int SetGamePaused ( lua_State *L )
 	game_setgamepaused ( lua_tonumber(L, 1) != 0 );
 	return 0;
 }
+// SetEscapeMenu(on): 0 leaves Escape (and a controller's START) to the scripts, for a menu of their own: it no longer
+// opens the in-game menu, nor leaves a test level, though shift and Escape still do that. 1 is the usual; back to 1 at
+// each level start
+int SetEscapeMenu ( lua_State *L )
+{
+	lua = L;
+	if ( LUA_GETTOP(L) < 1 ) return 0;
+	extern bool g_bEscapeMenu;
+	g_bEscapeMenu = lua_tonumber(L, 1) != 0;
+	return 0;
+}
 // GetGamePaused(): 1 while SetGamePaused holds the world
 int GetGamePaused ( lua_State *L )
 {
@@ -16383,6 +16394,7 @@ void addFunctions()
 	lua_register(lua, "GetElapsedTime" , GetElapsedTime );
 	lua_register(lua, "SetGamePaused" , SetGamePaused );
 	lua_register(lua, "GetGamePaused" , GetGamePaused );
+	lua_register(lua, "SetEscapeMenu" , SetEscapeMenu );
 	lua_register(lua, "GetVideoMemoryUsed" , GetVideoMemoryUsed );
 	lua_register(lua, "GetDrawCalls" , GetDrawCalls );
 	lua_register(lua, "SetRenderTiming" , SetRenderTiming );

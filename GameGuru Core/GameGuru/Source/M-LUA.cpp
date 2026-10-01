@@ -57,6 +57,8 @@ void lua_init ( void )
 	extern bool g_bGamePaused;
 	g_iGameWorldPauses = 0;
 	g_bGamePaused = false;
+	extern bool g_bEscapeMenu;
+	g_bEscapeMenu = true;
 
 	// 100316 - ensure GameLoopInit is called at start of each game session
 	t.playercontrol.gameloopinitflag = 10;
