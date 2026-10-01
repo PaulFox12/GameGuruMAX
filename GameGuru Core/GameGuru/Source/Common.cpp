@@ -6230,8 +6230,8 @@ void GetSetupIniEarly( void )
 						g_iEnablePIXMarkers = 1;
 					}
 				}
-				// DOCDOC: jobaffinity = How the engine's worker threads are tied to cores: 0 each pinned to its own core (the
-				// default), 1 that core as a preference only, 2 not tied. Read before the job system starts
+				// DOCDOC: jobaffinity = How the engine's worker threads are tied to cores: 0 each pinned to its own core, 1 that
+				// core as a preference only (the default), 2 not tied. Read before the job system starts
 				if (pestrcasestr(t, "jobaffinity"))
 				{
 					if (pestrcasestr(t, "1")) wiJobSystem::SetAffinityMode(1);
