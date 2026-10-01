@@ -304,20 +304,30 @@ void WickedCall_SetRenderTargetMouseFocus(bool focus);
 
 void WickedCall_UpdateWaterHeight(float height);
 void WickedCall_UpdateWaterColor(float red, float green, float blue);
-// per-frame totals for calls made many times a frame, where a profiler range keeps only the first call (GetEngineProbe);
-// main thread only. WickedCall_ProbeFrame closes a frame; a probe of -1 is not counted
+// per-frame totals for calls made many times a frame, where a profiler range keeps only the first call (GetEngineProbe).
+// WickedCall_ProbeAdd is for the main thread, WickedCall_ProbeAddAnyThread for any (the extra logic thread, loaders).
+// WickedCall_ProbeFrame closes a frame; a probe of -1 is not counted
 enum eWickedCallProbe { WICKEDCALL_PROBE_PICK, WICKEDCALL_PROBE_PICK_LAYERS, WICKEDCALL_PROBE_PICK_WICKED, WICKEDCALL_PROBE_PICK_LOOKUP,
-	WICKEDCALL_PROBE_DECAL_CREATE, WICKEDCALL_PROBE_DECAL_FADE, WICKEDCALL_PROBE_COUNT };
+	WICKEDCALL_PROBE_DECAL_CREATE, WICKEDCALL_PROBE_DECAL_FADE, WICKEDCALL_PROBE_THREAD_PICK, WICKEDCALL_PROBE_THREAD_FRAME,
+	WICKEDCALL_PROBE_TEXTURE_LOAD, WICKEDCALL_PROBE_OBJECT_ADD, WICKEDCALL_PROBE_GPU_CREATE, WICKEDCALL_PROBE_COUNT };
 double WickedCall_ProbeNow(void);
 void WickedCall_ProbeAdd(int iProbe, double dMilliseconds);
+void WickedCall_ProbeAddAnyThread(int iProbe, double dMilliseconds);
 void WickedCall_ProbeFrame(void);
-bool WickedCall_ProbeGet(const char* pName, float* pMilliseconds, float* pCalls);
+bool WickedCall_ProbeGet(const char* pName, float* pMilliseconds, float* pCalls, float* pLongest = NULL);
 struct WickedCallProbeScope
 {
 	int iProbe;
 	double dStart;
 	WickedCallProbeScope(int iProbeIndex) : iProbe(iProbeIndex), dStart(WickedCall_ProbeNow()) {}
 	~WickedCallProbeScope() { WickedCall_ProbeAdd(iProbe, WickedCall_ProbeNow() - dStart); }
+};
+struct WickedCallProbeScopeAnyThread
+{
+	int iProbe;
+	double dStart;
+	WickedCallProbeScopeAnyThread(int iProbeIndex) : iProbe(iProbeIndex), dStart(WickedCall_ProbeNow()) {}
+	~WickedCallProbeScopeAnyThread() { WickedCall_ProbeAddAnyThread(iProbe, WickedCall_ProbeNow() - dStart); }
 };
 void WickedCall_UpdateTreeWind(float wind);
 void WickedCall_UpdateTreeWindSpeed(float speed);

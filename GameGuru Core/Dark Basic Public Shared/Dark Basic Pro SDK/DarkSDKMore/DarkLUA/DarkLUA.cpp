@@ -14386,16 +14386,19 @@ namespace GGTerrain
 // milliseconds and calls a frame, averaged over the last 20 frames, main thread only. name "pick" (a full-accuracy pick:
 // IntersectRay, entity rays, bullets), "pick layers" (its render layer changes), "pick wicked" (Wicked's pick),
 // "pick lookup" (finding the object hit), "decal create" (decalelement_create: impacts, splashes, rain rings),
-// "decal fade" (a decal's alpha change). Nothing for an unknown name
+// "decal fade" (a decal's alpha change); and timed on any thread, for the frame stalls: "thread pick" (the extra logic
+// thread's picks), "thread frame" (its whole cycle), "texture load" (a texture read and made), "object add" (an object put
+// into the Wicked scene), "gpu create" (a GPU buffer or texture made, any caller). A third value is the longest single call in those 20 frames. Nothing for an unknown name
 int GetEngineProbe(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
 	const char* pName = lua_tostring(L, 1);
-	float fMilliseconds, fCalls;
-	if (!pName || !WickedCall_ProbeGet(pName, &fMilliseconds, &fCalls)) return 0;
+	float fMilliseconds, fCalls, fLongest;
+	if (!pName || !WickedCall_ProbeGet(pName, &fMilliseconds, &fCalls, &fLongest)) return 0;
 	lua_pushnumber(L, fMilliseconds);
 	lua_pushnumber(L, fCalls);
-	return 2;
+	lua_pushnumber(L, fLongest);
+	return 3;
 }
 int GetTextureSource(lua_State* L)
 {

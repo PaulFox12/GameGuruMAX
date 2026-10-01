@@ -5,6 +5,7 @@
 // Includes
 #include "stdafx.h"
 #include "wickedcalls.h"
+#include <atomic>
 #include <vector>
 #include <unordered_map>
 
@@ -441,12 +442,14 @@ std::shared_ptr<wiResource> WickedCall_LoadImage(std::string pFilenameToLoadIN, 
 
 			// handle encrypted image files when loading
 			std::vector<uint8_t> data;
+			double dLoadStart = WickedCall_ProbeNow();
 			if (wiHelper::FileRead(VirtualFilename, data))
 			{
 				uint32_t flag = 1 << 2; //IMPORT_CONVERT_TO_DDS
 				image = wiResourceManager::Load(pFilenameToLoad, flag, data.data(), data.size());
 				data.clear();
 			}
+			WickedCall_ProbeAddAnyThread(WICKEDCALL_PROBE_TEXTURE_LOAD, WickedCall_ProbeNow() - dLoadStart);
 			if (image != NULL)
 			{
 				// add image list item
@@ -1324,6 +1327,8 @@ void WickedCall_RefreshObjectAnimations(sObject* pObject, void* pstateptr)
 
 void WickedCall_AddObject ( sObject* pObject )
 {
+	WickedCallProbeScopeAnyThread probe(WICKEDCALL_PROBE_OBJECT_ADD);
+
 	// delibeately not create the wicked object, speeds up everything in wicked engine
 	// until the object actually needed (only used for decals/explosions/particles which require 1000's of objects)
 	if (g_bWickedCreateOnlyWhenUsed == true)
@@ -6349,7 +6354,9 @@ bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz,
 			if (pIgnore[o]->ppFrameList[iF] && pIgnore[o]->ppFrameList[iF]->wickedobjindex > 0) exclude.push_back(pIgnore[o]->ppFrameList[iF]->wickedobjindex);
 		}
 	}
+	double dPickStart = WickedCall_ProbeNow();
 	wiScene::PickResult hit = wiScene::Pick(pickRay, checkType, GGRENDERLAYERS_NORMAL, wiScene::GetScene(), exclude.data(), (uint32_t)exclude.size());
+	WickedCall_ProbeAddAnyThread(WICKEDCALL_PROBE_THREAD_PICK, WickedCall_ProbeNow() - dPickStart);
 	if (hit.entity > 0)
 	{
 		float fDX = hit.position.x - originx;
@@ -8373,12 +8380,25 @@ void WickedCall_UpdateWaterFog(float fMinDist, float fMaxDist, float fMinAmount)
 	}
 }
 
-static const char* g_pWickedCallProbeNames[WICKEDCALL_PROBE_COUNT] = { "pick", "pick layers", "pick wicked", "pick lookup", "decal create", "decal fade" };
+static const char* g_pWickedCallProbeNames[WICKEDCALL_PROBE_COUNT] = { "pick", "pick layers", "pick wicked", "pick lookup", "decal create", "decal fade",
+	"thread pick", "thread frame", "texture load", "object add", "gpu create" };
 static double g_dWickedCallProbeFrame[WICKEDCALL_PROBE_COUNT] = {};
 static int g_iWickedCallProbeFrameCalls[WICKEDCALL_PROBE_COUNT] = {};
+static double g_dWickedCallProbeFrameLongest[WICKEDCALL_PROBE_COUNT] = {};
 static float g_fWickedCallProbeMilliseconds[WICKEDCALL_PROBE_COUNT][20] = {};
 static float g_fWickedCallProbeCalls[WICKEDCALL_PROBE_COUNT][20] = {};
+static float g_fWickedCallProbeLongest[WICKEDCALL_PROBE_COUNT][20] = {};
 static int g_iWickedCallProbeSlot = 0;
+
+// the probes timed on other threads, in microseconds, added in at the next WickedCall_ProbeFrame
+static std::atomic<int64_t> g_iWickedCallProbeAnyMicro[WICKEDCALL_PROBE_COUNT];
+static std::atomic<int32_t> g_iWickedCallProbeAnyCalls[WICKEDCALL_PROBE_COUNT];
+static std::atomic<int64_t> g_iWickedCallProbeAnyLongestMicro[WICKEDCALL_PROBE_COUNT];
+
+// Wicked tells this how long each buffer and texture creation took, on any thread (GetEngineProbe("gpu create"))
+extern void (*g_pfnWickedResourceCreated)(double dMilliseconds);
+static void WickedCall_ProbeResourceCreated(double dMilliseconds);
+static struct WickedCallProbeHook { WickedCallProbeHook() { g_pfnWickedResourceCreated = WickedCall_ProbeResourceCreated; } } g_WickedCallProbeHook;
 
 // milliseconds on the performance counter
 double WickedCall_ProbeNow(void)
@@ -8395,6 +8415,22 @@ void WickedCall_ProbeAdd(int iProbe, double dMilliseconds)
 	if (iProbe < 0 || iProbe >= WICKEDCALL_PROBE_COUNT) return;
 	g_dWickedCallProbeFrame[iProbe] += dMilliseconds;
 	g_iWickedCallProbeFrameCalls[iProbe]++;
+	if (dMilliseconds > g_dWickedCallProbeFrameLongest[iProbe]) g_dWickedCallProbeFrameLongest[iProbe] = dMilliseconds;
+}
+
+void WickedCall_ProbeAddAnyThread(int iProbe, double dMilliseconds)
+{
+	if (iProbe < 0 || iProbe >= WICKEDCALL_PROBE_COUNT) return;
+	int64_t iMicro = (int64_t)(dMilliseconds * 1000.0);
+	g_iWickedCallProbeAnyMicro[iProbe] += iMicro;
+	g_iWickedCallProbeAnyCalls[iProbe]++;
+	int64_t iLongest = g_iWickedCallProbeAnyLongestMicro[iProbe].load();
+	while (iMicro > iLongest && !g_iWickedCallProbeAnyLongestMicro[iProbe].compare_exchange_weak(iLongest, iMicro)) {}
+}
+
+static void WickedCall_ProbeResourceCreated(double dMilliseconds)
+{
+	WickedCall_ProbeAddAnyThread(WICKEDCALL_PROBE_GPU_CREATE, dMilliseconds);
 }
 
 // once a frame: the frame's totals join the last 20 frames'
@@ -8402,28 +8438,34 @@ void WickedCall_ProbeFrame(void)
 {
 	for (int i = 0; i < WICKEDCALL_PROBE_COUNT; i++)
 	{
-		g_fWickedCallProbeMilliseconds[i][g_iWickedCallProbeSlot] = (float)g_dWickedCallProbeFrame[i];
-		g_fWickedCallProbeCalls[i][g_iWickedCallProbeSlot] = (float)g_iWickedCallProbeFrameCalls[i];
+		double dAnyLongest = g_iWickedCallProbeAnyLongestMicro[i].exchange(0) / 1000.0;
+		g_fWickedCallProbeMilliseconds[i][g_iWickedCallProbeSlot] = (float)(g_dWickedCallProbeFrame[i] + g_iWickedCallProbeAnyMicro[i].exchange(0) / 1000.0);
+		g_fWickedCallProbeCalls[i][g_iWickedCallProbeSlot] = (float)(g_iWickedCallProbeFrameCalls[i] + g_iWickedCallProbeAnyCalls[i].exchange(0));
+		g_fWickedCallProbeLongest[i][g_iWickedCallProbeSlot] = (float)(dAnyLongest > g_dWickedCallProbeFrameLongest[i] ? dAnyLongest : g_dWickedCallProbeFrameLongest[i]);
 		g_dWickedCallProbeFrame[i] = 0;
 		g_iWickedCallProbeFrameCalls[i] = 0;
+		g_dWickedCallProbeFrameLongest[i] = 0;
 	}
 	g_iWickedCallProbeSlot = (g_iWickedCallProbeSlot + 1) % 20;
 }
 
-// a probe's milliseconds and calls a frame, averaged over the last 20 frames; false for an unknown name
-bool WickedCall_ProbeGet(const char* pName, float* pMilliseconds, float* pCalls)
+// a probe's milliseconds and calls a frame, averaged over the last 20 frames, and the longest single call among them;
+// false for an unknown name
+bool WickedCall_ProbeGet(const char* pName, float* pMilliseconds, float* pCalls, float* pLongest)
 {
 	for (int i = 0; i < WICKEDCALL_PROBE_COUNT; i++)
 	{
 		if (_stricmp(pName, g_pWickedCallProbeNames[i]) != 0) continue;
-		float fMilliseconds = 0, fCalls = 0;
+		float fMilliseconds = 0, fCalls = 0, fLongest = 0;
 		for (int s = 0; s < 20; s++)
 		{
 			fMilliseconds += g_fWickedCallProbeMilliseconds[i][s];
 			fCalls += g_fWickedCallProbeCalls[i][s];
+			if (g_fWickedCallProbeLongest[i][s] > fLongest) fLongest = g_fWickedCallProbeLongest[i][s];
 		}
 		*pMilliseconds = fMilliseconds / 20.0f;
 		*pCalls = fCalls / 20.0f;
+		if (pLongest) *pLongest = fLongest;
 		return true;
 	}
 	return false;

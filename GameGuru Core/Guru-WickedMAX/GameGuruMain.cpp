@@ -79,6 +79,7 @@ public:
 			{
 				// now on own thread, not a major performance drain - no need to monitor these!
 				//auto range2 = wiProfiler::BeginRangeCPU("Extra - Logic - Intersects");
+				WickedCallProbeScopeAnyThread probe(WICKEDCALL_PROBE_THREAD_FRAME);
 				ProcessIntersectDatabaseExtraThreadItemList();
 				//wiProfiler::EndRange(range2);
 				//auto range3 = wiProfiler::BeginRangeCPU("Extra - Logic - Visibility");
