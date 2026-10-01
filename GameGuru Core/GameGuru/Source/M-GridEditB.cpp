@@ -7716,6 +7716,7 @@ struct sLuaRenderSettings
 	int iShadowJobWait = -1;
 	int iVsync = -1;
 	int iFrameRateCap = -1;
+	float fRenderScale = -1;
 	int iTerrainDetailLimitBefore = 0;
 	float fTerrainDetailScaleBefore = 1.0f;
 	int iTerrainReadBackReductionBefore = 4;
@@ -7751,6 +7752,33 @@ static void LuaRenderSettings_SetDelayedShadowGlobals(bool bDelayed, bool bLapto
 	g_bDelayedShadowsLaptop = bLaptop;
 	bEnableDelayPointShadow = bDelayed;
 	pointShadowScaler = (bDelayed && bLaptop) ? 0.6f : 1.0f;
+}
+
+// FSR 1 upscaling from a 3D resolution of 1 / fUpScale of the screen's (1 for none), as the level's FSR setting does it in
+// Wicked_Update_Visuals (the render targets are made again, a hitch)
+static void LuaRenderSettings_SetFSRScale(float fUpScale)
+{
+	extern bool m_bUsingVR;
+	if (m_bUsingVR) return;
+	if (master.masterrenderer.GetFSRScale() == fUpScale) return;
+	master.masterrenderer.Set3DResolution(master.masterrenderer.GetPhysicalWidth(), master.masterrenderer.GetPhysicalHeight(), false);
+	master.masterrenderer.SetFSRScale(fUpScale);
+	master.masterrenderer.setFSREnabled(fUpScale != 1.0f);
+	master.masterrenderer.ResizeBuffers();
+	if (fUpScale != 1.0f) master.masterrenderer.setFSRSharpness(t.visuals.fFSRSharpness);
+}
+
+// the upscale of the level's FSR setting (None, Ultra Quality, Quality, Balanced, Performance)
+static float LuaRenderSettings_LevelFSRScale(visualstype* visuals)
+{
+	switch (visuals->iFSRMode)
+	{
+		case 1: return 1.3f;
+		case 2: return 1.5f;
+		case 3: return 1.7f;
+		case 4: return 2.0f;
+	}
+	return 1.0f;
 }
 
 void LuaRenderSettings_Apply(void)
@@ -7795,6 +7823,12 @@ void LuaRenderSettings_Apply(void)
 		if (p->iFXAA >= 0) master_renderer->setFXAAEnabled(p->iFXAA != 0);
 		if (p->iReflections >= 0) master_renderer->setReflectionsEnabled(p->iReflections != 0);
 		if (p->fAOPower >= 0) master_renderer->setAOPower(p->fAOPower);
+	}
+	if (p->fRenderScale >= 0)
+	{
+		LuaRenderSettings_SetFSRScale(1.0f / p->fRenderScale);
+		// FSR needs FXAA (Wicked_Update_Visuals)
+		if (p->fRenderScale < 1.0f && master_renderer) master_renderer->setFXAAEnabled(true);
 	}
 }
 
@@ -7995,6 +8029,30 @@ void LuaRenderSettings_SetFrameRateCap(int iFramesPerSecond)
 	LuaRenderSettings_Apply();
 }
 
+// the 3D drawn at this fraction of the screen's resolution, 0.5 to 1, and upscaled with FSR 1, the 2D drawn at the screen's
+// (FXAA stays on below 1, which FSR needs); 0 goes back to the level's FSR setting
+void LuaRenderSettings_SetRenderScale(float fScale)
+{
+	sLuaRenderSettings* p = &g_LuaRenderSettings;
+	if (fScale == 0)
+	{
+		if (p->fRenderScale < 0) return;
+		p->fRenderScale = -1;
+		LuaRenderSettings_SetFSRScale(LuaRenderSettings_LevelFSRScale(&t.visuals));
+		if (master_renderer) master_renderer->setFXAAEnabled(t.visuals.bFXAAEnabled);
+		LuaRenderSettings_Apply();
+		return;
+	}
+	if (fScale > 0) p->fRenderScale = fScale < 0.5f ? 0.5f : (fScale > 1.0f ? 1.0f : fScale);
+	LuaRenderSettings_Apply();
+}
+
+float LuaRenderSettings_GetRenderScale(void)
+{
+	float fUpScale = master.masterrenderer.GetFSRScale();
+	return fUpScale > 0 ? 1.0f / fUpScale : 1.0f;
+}
+
 void LuaRenderSettings_GetDisplay(int* pVsync, int* pFrameRateCap)
 {
 	*pVsync = master.bVsyncEnabled ? 1 : 0;
@@ -8073,11 +8131,16 @@ static void LuaRenderSettings_RestoreGraphics(const sLuaRenderSettings& old, vis
 	if (old.iReflections >= 0 && master_renderer) master_renderer->setReflectionsEnabled(visuals->bReflectionsEnabled);
 	if (old.iVsync >= 0) gridedit_setvsync(visuals->bLevelVSyncEnabled && g.gvsync != 0);
 	if (old.iFrameRateCap >= 0) g_iFrameRateCap = 0;
+	if (old.fRenderScale >= 0)
+	{
+		LuaRenderSettings_SetFSRScale(LuaRenderSettings_LevelFSRScale(visuals));
+		if (master_renderer) master_renderer->setFXAAEnabled(visuals->bFXAAEnabled);
+	}
 }
 
 // forget a script's graphics values (SetFXAA, SetReflections, SetProbesLowestLOD, SetReflectionsLowestLOD,
 // SetAnimations30Fps, SetMaxApparentSize, SetShadowResolution, SetShadowLights, SetShadowCascades, SetTerrainDetail,
-// SetGrassSimpleLighting, SetVsync, SetFrameRateCap, SetOcclusionCulling's spot shadows) and put back the level's and the graphics quality's, so a
+// SetGrassSimpleLighting, SetVsync, SetFrameRateCap, SetRenderScale, SetOcclusionCulling's spot shadows) and put back the level's and the graphics quality's, so a
 // quality change moves them again (ResetGraphicsSettings); the other levers stay as set
 void LuaRenderSettings_ResetGraphics(void)
 {
@@ -8103,6 +8166,7 @@ void LuaRenderSettings_ResetGraphics(void)
 	p->iGrassSimpleLighting = -1;
 	p->iVsync = -1;
 	p->iFrameRateCap = -1;
+	p->fRenderScale = -1;
 	LuaRenderSettings_RestoreGraphics(old, &t.visuals);
 	LuaRenderSettings_Apply();
 }
@@ -8519,7 +8583,8 @@ void Wicked_Update_Visuals(void *voidvisual)
 		
 		//PE: FSR can't work with VR as it use the openXR resolution, for VR another way is needed.
 		extern bool	m_bUsingVR;
-		if (!m_bUsingVR)
+		// a script's render scale (SetRenderScale) stands in for the level's FSR setting
+		if (!m_bUsingVR && g_LuaRenderSettings.fRenderScale < 0)
 		{
 			if (old_iFSRMode != visuals->iFSRMode) {
 				old_iFSRMode = visuals->iFSRMode;

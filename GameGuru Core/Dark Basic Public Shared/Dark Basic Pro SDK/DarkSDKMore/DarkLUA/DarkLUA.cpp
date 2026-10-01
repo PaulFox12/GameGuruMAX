@@ -13901,6 +13901,8 @@ extern void LuaRenderSettings_SetShadowJobWait(int iOn);
 extern void LuaRenderSettings_SetVsync(int iOn);
 extern void LuaRenderSettings_SetFrameRateCap(int iFramesPerSecond);
 extern void LuaRenderSettings_GetDisplay(int* pVsync, int* pFrameRateCap);
+extern void LuaRenderSettings_SetRenderScale(float fScale);
+extern float LuaRenderSettings_GetRenderScale(void);
 extern void LuaRenderSettings_GetValues(int* pFXAA, int* pReflections, int* pProbesLowestLOD, int* pReflectionsLowestLOD, int* pAnimations30Fps, float* pMaxApparentSize);
 extern void LuaRenderSettings_GetShadows(int* pSun, int* pSpot, int* pPoint, int* pSpotMax, int* pPointMax, int* pCascades, float* pSplits);
 extern void LuaRenderSettings_GetTerrainDetail(int* pLimit, float* pScale, int* pReadBack, int* pGrassSimpleLighting);
@@ -14075,6 +14077,21 @@ int SetFrameRateCap(lua_State* L)
 	LuaRenderSettings_SetFrameRateCap((int)lua_tonumber(L, 1));
 	return 0;
 }
+// SetRenderScale(f): the 3D drawn at f of the screen's resolution, 0.5 to 1, and upscaled with FSR 1, the HUD and sprites
+// at the screen's; FXAA stays on below 1. It stands in for the level's FSR setting; 0 goes back to it. The render targets
+// are made again (a hitch), so set it when the player lets go of a slider, not every step
+int SetRenderScale(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetRenderScale(lua_tonumber(L, 1));
+	return 0;
+}
+// GetRenderScale(): the fraction of the screen's resolution the 3D is drawn at (the level's FSR setting's when no script set it)
+int GetRenderScale(lua_State* L)
+{
+	lua_pushnumber(L, LuaRenderSettings_GetRenderScale());
+	return 1;
+}
 // ResetGraphicsSettings(): forget every value the graphics setters above set and go back to the level's and the graphics
 // quality's, so a quality change moves them again (a menu's Default)
 int ResetGraphicsSettings(lua_State* L)
@@ -14120,6 +14137,7 @@ int GetGraphicsSettings(lua_State* L)
 	lua_pushinteger(L, iGrassSimple); lua_setfield(L, -2, "grassSimpleLighting");
 	lua_pushinteger(L, iVsync); lua_setfield(L, -2, "vsync");
 	lua_pushinteger(L, iFrameRateCap); lua_setfield(L, -2, "frameRateCap");
+	lua_pushnumber(L, LuaRenderSettings_GetRenderScale()); lua_setfield(L, -2, "renderScale");
 	return 1;
 }
 
@@ -17374,6 +17392,8 @@ void addFunctions()
 	lua_register(lua, "ResetGraphicsSettings", ResetGraphicsSettings);
 	lua_register(lua, "SetVsync", SetVsync);
 	lua_register(lua, "SetFrameRateCap", SetFrameRateCap);
+	lua_register(lua, "SetRenderScale", SetRenderScale);
+	lua_register(lua, "GetRenderScale", GetRenderScale);
 	lua_register(lua, "SetShadowJobWait", SetShadowJobWait);
 	lua_register(lua, "ResetDelayedShadows", ResetDelayedShadows);
 	lua_register(lua, "GetDelayedShadows", GetDelayedShadows);
