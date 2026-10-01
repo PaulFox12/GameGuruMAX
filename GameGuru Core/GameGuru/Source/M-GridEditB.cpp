@@ -7714,6 +7714,8 @@ struct sLuaRenderSettings
 	int iTerrainReadBackReduction = -1;
 	int iGrassSimpleLighting = -1;
 	int iShadowJobWait = -1;
+	int iVsync = -1;
+	int iFrameRateCap = -1;
 	int iTerrainDetailLimitBefore = 0;
 	float fTerrainDetailScaleBefore = 1.0f;
 	int iTerrainReadBackReductionBefore = 4;
@@ -7739,6 +7741,7 @@ extern float maxApparentSize;
 extern uint32_t g_iWickedShadowCascades;
 extern float g_fWickedShadowSplits[4];
 extern bool g_bShadowJobWaits;
+extern int g_iFrameRateCap;
 void Wicked_Update_Shadows(void *voidvisual);
 
 // the delayed shadow refresh as Wicked_Update_Visuals sets it: point shadows follow it, refreshed less on a laptop
@@ -7769,6 +7772,8 @@ void LuaRenderSettings_Apply(void)
 	if (p->iTerrainReadBackReduction >= 0) ggterrain_global_render_params2.readBackTextureReduction = (uint32_t)p->iTerrainReadBackReduction;
 	if (p->iGrassSimpleLighting >= 0) gggrass_global_params.simplePBR = p->iGrassSimpleLighting;
 	if (p->iShadowJobWait >= 0) g_bShadowJobWaits = p->iShadowJobWait != 0;
+	if (p->iVsync >= 0) gridedit_setvsync(p->iVsync != 0);
+	if (p->iFrameRateCap >= 0) g_iFrameRateCap = p->iFrameRateCap;
 	if (p->iSunShadowResolution >= 0 || p->iSpotShadowResolution >= 0 || p->iPointShadowResolution >= 0 || p->iSpotShadowMax >= 0 || p->iPointShadowMax >= 0)
 	{
 		Wicked_Update_Shadows(&t.visuals);
@@ -7976,6 +7981,26 @@ void LuaRenderSettings_SetShadowJobWait(int iOn)
 	LuaRenderSettings_Apply();
 }
 
+// vsync on or off, outranking the level's and SETUP.INI's (the swap chain is made again, a blip), and the most frames a
+// second, 10 to 1000 (0 for none)
+void LuaRenderSettings_SetVsync(int iOn)
+{
+	if (iOn >= 0) g_LuaRenderSettings.iVsync = iOn ? 1 : 0;
+	LuaRenderSettings_Apply();
+}
+
+void LuaRenderSettings_SetFrameRateCap(int iFramesPerSecond)
+{
+	if (iFramesPerSecond >= 0) g_LuaRenderSettings.iFrameRateCap = iFramesPerSecond == 0 ? 0 : (iFramesPerSecond < 10 ? 10 : (iFramesPerSecond > 1000 ? 1000 : iFramesPerSecond));
+	LuaRenderSettings_Apply();
+}
+
+void LuaRenderSettings_GetDisplay(int* pVsync, int* pFrameRateCap)
+{
+	*pVsync = master.bVsyncEnabled ? 1 : 0;
+	*pFrameRateCap = g_iFrameRateCap;
+}
+
 void LuaRenderSettings_SetGrassSimpleLighting(int iOn)
 {
 	sLuaRenderSettings* p = &g_LuaRenderSettings;
@@ -8046,11 +8071,13 @@ static void LuaRenderSettings_RestoreGraphics(const sLuaRenderSettings& old, vis
 	}
 	if (old.iFXAA >= 0 && master_renderer) master_renderer->setFXAAEnabled(visuals->bFXAAEnabled);
 	if (old.iReflections >= 0 && master_renderer) master_renderer->setReflectionsEnabled(visuals->bReflectionsEnabled);
+	if (old.iVsync >= 0) gridedit_setvsync(visuals->bLevelVSyncEnabled && g.gvsync != 0);
+	if (old.iFrameRateCap >= 0) g_iFrameRateCap = 0;
 }
 
 // forget a script's graphics values (SetFXAA, SetReflections, SetProbesLowestLOD, SetReflectionsLowestLOD,
 // SetAnimations30Fps, SetMaxApparentSize, SetShadowResolution, SetShadowLights, SetShadowCascades, SetTerrainDetail,
-// SetGrassSimpleLighting, SetOcclusionCulling's spot shadows) and put back the level's and the graphics quality's, so a
+// SetGrassSimpleLighting, SetVsync, SetFrameRateCap, SetOcclusionCulling's spot shadows) and put back the level's and the graphics quality's, so a
 // quality change moves them again (ResetGraphicsSettings); the other levers stay as set
 void LuaRenderSettings_ResetGraphics(void)
 {
@@ -8074,6 +8101,8 @@ void LuaRenderSettings_ResetGraphics(void)
 	p->fTerrainDetailScale = -1;
 	p->iTerrainReadBackReduction = -1;
 	p->iGrassSimpleLighting = -1;
+	p->iVsync = -1;
+	p->iFrameRateCap = -1;
 	LuaRenderSettings_RestoreGraphics(old, &t.visuals);
 	LuaRenderSettings_Apply();
 }
@@ -8377,6 +8406,8 @@ void Wicked_Update_Visuals(void *voidvisual)
 			// VSYNC override to switch OFF the VSYNC (each level can control on/off of the VSYNC in MAX)
 			master.bVsyncEnabled = false;
 		}
+		// a script's choice (SetVsync, the player's in a menu) outranks both
+		if (g_LuaRenderSettings.iVsync >= 0) master.bVsyncEnabled = g_LuaRenderSettings.iVsync != 0;
 		gridedit_setvsync(master.bVsyncEnabled);
 
 		master_renderer->setBloomEnabled(visuals->bBloomEnabled);

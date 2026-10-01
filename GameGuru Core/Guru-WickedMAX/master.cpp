@@ -1414,6 +1414,9 @@ bool Master::ForceRender(void* rt)
 	return true;
 }
 
+// SetFrameRateCap: the most frames a second, 0 for none
+int g_iFrameRateCap = 0;
+
 void Master::RunCustom()
 {
 	// profiling
@@ -1864,6 +1867,36 @@ void Master::RunCustom()
 			CheckExistingFilesModified(false);
 			g_iCheckExistingFilesModifiedDelayed = 0;
 		}
+	}
+
+	// SetFrameRateCap: wait out the rest of the frame's time, sleeping while more than a millisecond is left
+	static LARGE_INTEGER frameCapLast = { 0 };
+	if (g_iFrameRateCap > 0)
+	{
+		LARGE_INTEGER frequency, now;
+		QueryPerformanceFrequency(&frequency);
+		QueryPerformanceCounter(&now);
+		LONGLONG frameTicks = frequency.QuadPart / g_iFrameRateCap;
+		if (frameCapLast.QuadPart > 0)
+		{
+			LONGLONG target = frameCapLast.QuadPart + frameTicks;
+			while (now.QuadPart < target)
+			{
+				LONGLONG remainingMS = ((target - now.QuadPart) * 1000) / frequency.QuadPart;
+				if (remainingMS > 1) Sleep((DWORD)(remainingMS - 1));
+				QueryPerformanceCounter(&now);
+			}
+			// the next frame is timed from this one's slot, unless this one ran a whole frame over
+			frameCapLast.QuadPart = (now.QuadPart - target > frameTicks) ? now.QuadPart : target;
+		}
+		else
+		{
+			frameCapLast = now;
+		}
+	}
+	else
+	{
+		frameCapLast.QuadPart = 0;
 	}
 }
 

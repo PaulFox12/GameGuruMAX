@@ -13898,6 +13898,9 @@ extern void LuaRenderSettings_SetTerrainDetail(int iLimit, float fScale, int iRe
 extern void LuaRenderSettings_SetGrassSimpleLighting(int iOn);
 extern void LuaRenderSettings_ResetGraphics(void);
 extern void LuaRenderSettings_SetShadowJobWait(int iOn);
+extern void LuaRenderSettings_SetVsync(int iOn);
+extern void LuaRenderSettings_SetFrameRateCap(int iFramesPerSecond);
+extern void LuaRenderSettings_GetDisplay(int* pVsync, int* pFrameRateCap);
 extern void LuaRenderSettings_GetValues(int* pFXAA, int* pReflections, int* pProbesLowestLOD, int* pReflectionsLowestLOD, int* pAnimations30Fps, float* pMaxApparentSize);
 extern void LuaRenderSettings_GetShadows(int* pSun, int* pSpot, int* pPoint, int* pSpotMax, int* pPointMax, int* pCascades, float* pSplits);
 extern void LuaRenderSettings_GetTerrainDetail(int* pLimit, float* pScale, int* pReadBack, int* pGrassSimpleLighting);
@@ -14058,6 +14061,20 @@ int SetShadowJobWait(lua_State* L)
 	LuaRenderSettings_SetShadowJobWait((int)lua_tonumber(L, 1));
 	return 0;
 }
+// SetVsync(on): vsync on (1) or off (0), outranking the level's and SETUP.INI's; the swap chain is made again (a blip)
+int SetVsync(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetVsync((int)lua_tonumber(L, 1));
+	return 0;
+}
+// SetFrameRateCap(fps): the most frames a second, 10 to 1000; 0 for no cap
+int SetFrameRateCap(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetFrameRateCap((int)lua_tonumber(L, 1));
+	return 0;
+}
 // ResetGraphicsSettings(): forget every value the graphics setters above set and go back to the level's and the graphics
 // quality's, so a quality change moves them again (a menu's Default)
 int ResetGraphicsSettings(lua_State* L)
@@ -14079,6 +14096,8 @@ int GetGraphicsSettings(lua_State* L)
 	int iLimit, iReadBack, iGrassSimple;
 	float fScale;
 	LuaRenderSettings_GetTerrainDetail(&iLimit, &fScale, &iReadBack, &iGrassSimple);
+	int iVsync, iFrameRateCap;
+	LuaRenderSettings_GetDisplay(&iVsync, &iFrameRateCap);
 	lua_newtable(L);
 	lua_pushinteger(L, iFXAA); lua_setfield(L, -2, "fxaa");
 	lua_pushinteger(L, iReflections); lua_setfield(L, -2, "reflections");
@@ -14099,6 +14118,8 @@ int GetGraphicsSettings(lua_State* L)
 	lua_pushnumber(L, fScale); lua_setfield(L, -2, "terrainDetailScale");
 	lua_pushinteger(L, iReadBack); lua_setfield(L, -2, "terrainReadBack");
 	lua_pushinteger(L, iGrassSimple); lua_setfield(L, -2, "grassSimpleLighting");
+	lua_pushinteger(L, iVsync); lua_setfield(L, -2, "vsync");
+	lua_pushinteger(L, iFrameRateCap); lua_setfield(L, -2, "frameRateCap");
 	return 1;
 }
 
@@ -17351,6 +17372,8 @@ void addFunctions()
 	lua_register(lua, "SetGrassSimpleLighting", SetGrassSimpleLighting);
 	lua_register(lua, "GetGraphicsSettings", GetGraphicsSettings);
 	lua_register(lua, "ResetGraphicsSettings", ResetGraphicsSettings);
+	lua_register(lua, "SetVsync", SetVsync);
+	lua_register(lua, "SetFrameRateCap", SetFrameRateCap);
 	lua_register(lua, "SetShadowJobWait", SetShadowJobWait);
 	lua_register(lua, "ResetDelayedShadows", ResetDelayedShadows);
 	lua_register(lua, "GetDelayedShadows", GetDelayedShadows);
