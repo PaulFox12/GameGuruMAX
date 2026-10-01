@@ -1,4 +1,4 @@
-
+#pragma once
 const VertexTreeHigh g_TreeVerticesScotspine2BranchesLOD2[ 11868 ] = 
 {
     { 148.2299f, 213.8961f, -39.0258f, 0xA3CDDE, 0.4952f, 0.4101f },

@@ -1,4 +1,4 @@
-
+#pragma once
 const VertexTreeHigh g_TreeVerticesSnowFirTrunkLOD2[ 706 ] = 
 {
     { -5.7464f, 109.5349f, 4.7952f, 0xC68015, 0.3999f, -1.3262f },

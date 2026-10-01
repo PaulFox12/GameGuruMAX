@@ -23,7 +23,8 @@ float4 main( PixelIn IN ) : SV_TARGET
 
 	if ( TreeDither( IN.position.xy ) < IN.lodFade ) discard;
 
-	float alpha = texBranchesHigh.Sample( samplerTrilinearWrap, float3(IN.uv, treeType) ).a;
+	// GG: cascades 2 and on take the alpha one mip coarser, as each of their texels covers many leaves
+	float alpha = texBranchesHigh.SampleBias( samplerTrilinearWrap, float3(IN.uv, treeType), tree_shadowFar ? 1.0 : 0.0 ).a;
 	if ( alpha < 0.3 ) discard;
 
 	return float4( 1, 1, 1, 1 );

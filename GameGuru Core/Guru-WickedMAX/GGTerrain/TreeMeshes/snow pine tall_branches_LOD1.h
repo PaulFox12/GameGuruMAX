@@ -1,4 +1,4 @@
-
+#pragma once
 const VertexTreeHigh g_TreeVerticesSnowPineTallBranchesLOD1[ 4068 ] = 
 {
     { 36.2126f, 258.1219f, -76.8201f, 0x54E4C0, 0.0028f, 0.1192f },

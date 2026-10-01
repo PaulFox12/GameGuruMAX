@@ -122,6 +122,12 @@ struct GGTree
 #include "TreeMeshes/TreeMeshesLOD0.h"
 #define g_GGTrees g_GGTreesLOD0
 
+// GG: the LOD1 and LOD2 tables too, for the full detail tree shadows of further cascades (LOD0 already uses LOD1 or LOD2 meshes
+// for some heavy trees, so those mesh headers are #pragma once)
+#include "TreeMeshes/TreeMeshesLOD1.h"
+#include "TreeMeshes/TreeMeshesLOD2.h"
+const GGTree* const g_GGTreesShadowLOD[ 2 ] = { g_GGTreesLOD1, g_GGTreesLOD2 };
+
 float treeMaxHeight = 1; // calculated at run time
 
 // tree instances
@@ -669,6 +675,7 @@ TreeChunk pTreeChunks[ numTreeChunks ];
 TreeCB treeConstantData = {};
 GPUBuffer treeConstantBuffer;
 GPUBuffer treeConstantBufferNoShadowCut; // GG: for cascades without full detail tree shadows
+GPUBuffer treeConstantBufferFarShadow; // GG: for full detail tree shadows in cascades 2 and on (tree_shadowFar)
 
 // low detail
 GPUBuffer bufferTreeVertices;
@@ -700,6 +707,12 @@ GPUBuffer bufferTreeHighIndices[ numTreeTypes ];
 
 GPUBuffer bufferBranchesHighVertices[ numTreeTypes ];
 GPUBuffer bufferBranchesHighIndices[ numTreeTypes ];
+
+// GG: the LOD1 and LOD2 meshes for shadows, made only where they have fewer indices than the mesh above
+GPUBuffer bufferTreeHighVerticesLOD[ 2 ][ numTreeTypes ];
+GPUBuffer bufferTreeHighIndicesLOD[ 2 ][ numTreeTypes ];
+GPUBuffer bufferBranchesHighVerticesLOD[ 2 ][ numTreeTypes ];
+GPUBuffer bufferBranchesHighIndicesLOD[ 2 ][ numTreeTypes ];
 
 Shader shaderTreesHighVS;
 Shader shaderTreesHighPS;
@@ -1590,6 +1603,7 @@ void GGTrees_Init()
 	bd.MiscFlags = 0;
 	wiRenderer::GetDevice()->CreateBuffer( &bd, nullptr, &treeConstantBuffer );
 	wiRenderer::GetDevice()->CreateBuffer( &bd, nullptr, &treeConstantBufferNoShadowCut );
+	wiRenderer::GetDevice()->CreateBuffer( &bd, nullptr, &treeConstantBufferFarShadow );
 
 	// vertex buffer
 	GPUBufferDesc bufferDesc = {};
@@ -1647,6 +1661,39 @@ void GGTrees_Init()
 		data.pSysMem = g_GGTrees[ i ].branches->pIndices;
 		bufferDesc.ByteWidth = g_GGTrees[ i ].branches->numIndices * sizeof(uint16_t);
 		wiRenderer::GetDevice()->CreateBuffer( &bufferDesc, &data, &bufferBranchesHighIndices[i] );
+	}
+
+	// GG: the lighter shadow meshes, where a type's LOD1 or LOD2 mesh has fewer indices than its full detail mesh
+	for( uint32_t lod = 0; lod < 2; lod++ )
+	{
+		for( uint32_t i = 0; i < numTreeTypes; i++ )
+		{
+			const TreeMeshHigh* pTrunk = g_GGTreesShadowLOD[ lod ][ i ].trunk;
+			if ( pTrunk && pTrunk->numIndices < g_GGTrees[ i ].trunk->numIndices )
+			{
+				data.pSysMem = pTrunk->pVertices;
+				bufferDesc.ByteWidth = pTrunk->numVertices * sizeof(VertexTreeHigh);
+				bufferDesc.BindFlags = BIND_VERTEX_BUFFER;
+				wiRenderer::GetDevice()->CreateBuffer( &bufferDesc, &data, &bufferTreeHighVerticesLOD[lod][i] );
+				data.pSysMem = pTrunk->pIndices;
+				bufferDesc.ByteWidth = pTrunk->numIndices * sizeof(uint16_t);
+				bufferDesc.BindFlags = BIND_INDEX_BUFFER;
+				wiRenderer::GetDevice()->CreateBuffer( &bufferDesc, &data, &bufferTreeHighIndicesLOD[lod][i] );
+			}
+
+			const TreeMeshHigh* pBranches = g_GGTreesShadowLOD[ lod ][ i ].branches;
+			if ( pBranches && g_GGTrees[ i ].branches && pBranches->numIndices < g_GGTrees[ i ].branches->numIndices )
+			{
+				data.pSysMem = pBranches->pVertices;
+				bufferDesc.ByteWidth = pBranches->numVertices * sizeof(VertexTreeHigh);
+				bufferDesc.BindFlags = BIND_VERTEX_BUFFER;
+				wiRenderer::GetDevice()->CreateBuffer( &bufferDesc, &data, &bufferBranchesHighVerticesLOD[lod][i] );
+				data.pSysMem = pBranches->pIndices;
+				bufferDesc.ByteWidth = pBranches->numIndices * sizeof(uint16_t);
+				bufferDesc.BindFlags = BIND_INDEX_BUFFER;
+				wiRenderer::GetDevice()->CreateBuffer( &bufferDesc, &data, &bufferBranchesHighIndicesLOD[lod][i] );
+			}
+		}
 	}
 
 	undosys_terrain_settreecount(numTotalTrees, sizeof(InstanceTree), numTreeChunks, sizeof(TreeChunk));
@@ -2255,6 +2302,8 @@ struct GGTreesLuaOverrides
 	float lod_transition_shadow = 0;
 	int tree_shadow_range = -1;
 	int tree_shadow_range_high = -1;
+	int shadow_mesh_lod_cascade1 = -1;
+	int shadow_mesh_lod_further = -1;
 };
 GGTreesLuaOverrides ggtrees_lua_overrides;
 
@@ -2287,6 +2336,18 @@ void GGTrees_SetLuaShadowCascades( int billboardCascades, int fullDetailCascades
 	if ( billboardCascades >= 0 ) ggtrees_lua_overrides.tree_shadow_range = billboardCascades;
 	if ( fullDetailCascades >= 0 ) ggtrees_lua_overrides.tree_shadow_range_high = fullDetailCascades;
 	GGTrees_ApplyLuaOverrides();
+}
+
+void GGTrees_SetLuaShadowMeshLOD( int cascade1, int further )
+{
+	if ( cascade1 >= 0 ) ggtrees_lua_overrides.shadow_mesh_lod_cascade1 = (cascade1 > 2) ? 2 : cascade1;
+	if ( further >= 0 ) ggtrees_lua_overrides.shadow_mesh_lod_further = (further > 2) ? 2 : further;
+}
+
+int GGTrees_GetShadowMeshLOD( int further )
+{
+	if ( further ) return (ggtrees_lua_overrides.shadow_mesh_lod_further >= 0) ? ggtrees_lua_overrides.shadow_mesh_lod_further : 2;
+	return (ggtrees_lua_overrides.shadow_mesh_lod_cascade1 >= 0) ? ggtrees_lua_overrides.shadow_mesh_lod_cascade1 : 0;
 }
 
 void GGTrees_ClearLuaOverrides()
@@ -3241,6 +3302,11 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 	treeConstantDataNoShadowCut.tree_lodTransitionShadow = 0;
 	wiRenderer::GetDevice()->UpdateBuffer(&treeConstantBufferNoShadowCut, &treeConstantDataNoShadowCut, cmd, sizeof(TreeCB));
 
+	// GG: full detail tree shadows in cascades 2 and on take the leaf alpha one mip coarser
+	TreeCB treeConstantDataFarShadow = treeConstantData;
+	treeConstantDataFarShadow.tree_shadowFar = 1;
+	wiRenderer::GetDevice()->UpdateBuffer(&treeConstantBufferFarShadow, &treeConstantDataFarShadow, cmd, sizeof(TreeCB));
+
 	wiProfiler::EndRange(range);
 }
 
@@ -3883,34 +3949,63 @@ extern "C" void GGTrees_Draw_ShadowMap( const Frustum* frustum, int cascade, Com
 	// high detail
 	if ( cascade < ggtrees_global_params.tree_shadow_range_high )
 	{
+		// GG: cascade 1 and cascades 2 and on can cast from a type's lighter LOD1 or LOD2 mesh (SetTreeShadowMeshLOD; by
+		// default the full mesh in cascade 1 and LOD2 further out), and cascades 2 and on take the leaf alpha one mip coarser
+		int lod = 0;
+		if ( cascade == 1 ) lod = GGTrees_GetShadowMeshLOD( 0 );
+		else if ( cascade >= 2 ) lod = GGTrees_GetShadowMeshLOD( 1 );
+		if ( cascade >= 2 )
+		{
+			device->BindConstantBuffer( VS, &treeConstantBufferFarShadow, bindSlot, cmd );
+			device->BindConstantBuffer( PS, &treeConstantBufferFarShadow, bindSlot, cmd );
+		}
+
 		device->BindPipelineState( &psoTreesHighShadow, cmd );
 		device->BindResource( PS, &texTreeHigh, 52, cmd );
-		
+
 		for( uint32_t i = 0; i < numTreeTypes; i++ )
 		{
 			if ( numTreeInstancesHighShadow[ i ] > 0 )
 			{
-				const GPUBuffer* vbs2[] = { &bufferTreeHighVertices[i], &bufferInstancesHighShadow[i] };
+				const GPUBuffer* pVertices = &bufferTreeHighVertices[i];
+				const GPUBuffer* pIndices = &bufferTreeHighIndices[i];
+				uint32_t numIndices = g_GGTrees[ i ].trunk->numIndices;
+				if ( lod > 0 && bufferTreeHighIndicesLOD[ lod-1 ][ i ].IsValid() )
+				{
+					pVertices = &bufferTreeHighVerticesLOD[ lod-1 ][ i ];
+					pIndices = &bufferTreeHighIndicesLOD[ lod-1 ][ i ];
+					numIndices = g_GGTreesShadowLOD[ lod-1 ][ i ].trunk->numIndices;
+				}
+				const GPUBuffer* vbs2[] = { pVertices, &bufferInstancesHighShadow[i] };
 				const uint32_t strides2[] = { sizeof(VertexTreeHigh), sizeof(InstanceTreeGPU) };
 				device->BindVertexBuffers( vbs2, 0, 2, strides2, 0, cmd );
-				device->BindIndexBuffer( &bufferTreeHighIndices[i], INDEXFORMAT_16BIT, 0, cmd );
-				GGTrees_DrawShadowRuns( i, g_GGTrees[ i ].trunk->numIndices, frustum, cmd );
+				device->BindIndexBuffer( pIndices, INDEXFORMAT_16BIT, 0, cmd );
+				GGTrees_DrawShadowRuns( i, numIndices, frustum, cmd );
 			}
 		}
 
 		device->BindPipelineState( &psoBranchesHighShadow, cmd );
 		device->BindResource( PS, &texBranchesHigh, 54, cmd );
-		
+
 		for( uint32_t i = 0; i < numTreeTypes; i++ )
 		{
 			if ( !g_GGTrees[ i ].branches ) continue; // some trees don't have branches
 			if ( numTreeInstancesHighShadow[ i ] > 0 )
 			{
-				const GPUBuffer* vbs2[] = { &bufferBranchesHighVertices[i], &bufferInstancesHighShadow[i] };
+				const GPUBuffer* pVertices = &bufferBranchesHighVertices[i];
+				const GPUBuffer* pIndices = &bufferBranchesHighIndices[i];
+				uint32_t numIndices = g_GGTrees[ i ].branches->numIndices;
+				if ( lod > 0 && bufferBranchesHighIndicesLOD[ lod-1 ][ i ].IsValid() )
+				{
+					pVertices = &bufferBranchesHighVerticesLOD[ lod-1 ][ i ];
+					pIndices = &bufferBranchesHighIndicesLOD[ lod-1 ][ i ];
+					numIndices = g_GGTreesShadowLOD[ lod-1 ][ i ].branches->numIndices;
+				}
+				const GPUBuffer* vbs2[] = { pVertices, &bufferInstancesHighShadow[i] };
 				const uint32_t strides2[] = { sizeof(VertexTreeHigh), sizeof(InstanceTreeGPU) };
 				device->BindVertexBuffers( vbs2, 0, 2, strides2, 0, cmd );
-				device->BindIndexBuffer( &bufferBranchesHighIndices[i], INDEXFORMAT_16BIT, 0, cmd );
-				GGTrees_DrawShadowRuns( i, g_GGTrees[ i ].branches->numIndices, frustum, cmd );
+				device->BindIndexBuffer( pIndices, INDEXFORMAT_16BIT, 0, cmd );
+				GGTrees_DrawShadowRuns( i, numIndices, frustum, cmd );
 			}
 		}
 	}

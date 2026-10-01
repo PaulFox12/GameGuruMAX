@@ -40,7 +40,7 @@ cbuffer TreeCB : register( b2 )
 	TreeType tree_type[ numTreeTypes ];
 	
 	float3   tree_playerPos;
-	uint     tree_padding0;
+	uint     tree_shadowFar; // GG: 1 for full detail tree shadows in cascades 2 and on
 
 	float    tree_lodDist;
 	float    tree_lodDistShadow;

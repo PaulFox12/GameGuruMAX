@@ -1,4 +1,4 @@
-
+#pragma once
 const VertexTreeHigh g_TreeVerticesScotspine2TrunkLOD2[ 2013 ] = 
 {
     { 4.0000f, 147.0978f, 12.6782f, 0xF881AA, 1.7874f, -7.1178f },

@@ -1,4 +1,4 @@
-
+#pragma once
 const VertexTreeHigh g_TreeVerticesJungletree6bBranchesLOD1[ 3786 ] = 
 {
     { -98.7541f, 275.5647f, -5.3467f, 0x950499, 0.9193f, 0.0054f },

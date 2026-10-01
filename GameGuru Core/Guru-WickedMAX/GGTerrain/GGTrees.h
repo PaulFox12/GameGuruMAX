@@ -98,6 +98,10 @@ namespace GGTrees
 	void GGTrees_SetLuaDistances( float lodDist, float lodDistShadow );
 	void GGTrees_SetLuaTransitions( float lodTransition, float lodTransitionShadow );
 	void GGTrees_SetLuaShadowCascades( int billboardCascades, int fullDetailCascades );
+	// which mesh casts the full detail tree shadows of cascade 1 and of cascades 2 and on: 0 the full mesh, 1 LOD1, 2 LOD2
+	// (a lighter mesh only where it has fewer triangles); by default 0 and 2
+	void GGTrees_SetLuaShadowMeshLOD( int cascade1, int further );
+	int GGTrees_GetShadowMeshLOD( int further );
 	void GGTrees_ApplyLuaOverrides();
 	void GGTrees_ClearLuaOverrides();
 	void GGTrees_ClearLuaDistances(); // a script's tree distances and transitions forgotten, the quality's or the level's back

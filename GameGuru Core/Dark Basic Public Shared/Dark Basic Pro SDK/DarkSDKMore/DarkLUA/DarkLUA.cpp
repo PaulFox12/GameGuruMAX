@@ -14542,6 +14542,25 @@ int SetTreeShadowCascades(lua_State* L)
 	GGTrees::GGTrees_SetLuaShadowCascades(iBillboard, iFullDetail);
 	return 0;
 }
+// SetTreeShadowMeshLOD(cascade1 [, further]) - the mesh that casts the full detail tree shadows of sun shadow cascade 1 and of
+// cascades 2 and on: 0 the full mesh, 1 LOD1, 2 LOD2 (lighter, used only where it has fewer triangles); a negative or omitted
+// value keeps the current one. By default 0 and 2; cleared at the next level
+int SetTreeShadowMeshLOD(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	int iCascade1 = lua_tonumber(L, 1);
+	int iFurther = (n >= 2) ? lua_tonumber(L, 2) : -1;
+	GGTrees::GGTrees_SetLuaShadowMeshLOD(iCascade1, iFurther);
+	return 0;
+}
+// GetTreeShadowMeshLOD() - the two values SetTreeShadowMeshLOD sets, as in force
+int GetTreeShadowMeshLOD(lua_State* L)
+{
+	lua_pushnumber(L, GGTrees::GGTrees_GetShadowMeshLOD(0));
+	lua_pushnumber(L, GGTrees::GGTrees_GetShadowMeshLOD(1));
+	return 2;
+}
 int GetTreeShadowCascades(lua_State* L)
 {
 	lua_pushnumber(L, GGTrees::ggtrees_global_params.tree_shadow_range);
@@ -17525,6 +17544,8 @@ void addFunctions()
 	lua_register(lua, "SetTreeTransition", SetTreeTransition);
 	lua_register(lua, "GetTreeTransition", GetTreeTransition);
 	lua_register(lua, "SetTreeShadowCascades", SetTreeShadowCascades);
+	lua_register(lua, "SetTreeShadowMeshLOD", SetTreeShadowMeshLOD);
+	lua_register(lua, "GetTreeShadowMeshLOD", GetTreeShadowMeshLOD);
 	lua_register(lua, "GetTreeShadowCascades", GetTreeShadowCascades);
 	lua_register(lua, "RayTrees", RayTrees);
 	lua_register(lua, "GetTreesNear", GetTreesNear);
