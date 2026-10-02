@@ -205,6 +205,7 @@ int WickedCall_BeginRegionRays(float fX, float fY, float fZ, float fRadius);
 void WickedCall_EndRegionRays(void);
 bool WickedCall_RegionRay(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, const int* pIgnore, int iIgnoreCount, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit);
 void WickedCall_SetObjectForceLOD(sObject* pObject, int iLOD);
+void WickedCall_GetObjectLOD(sObject* pObject, int* pLOD, int* pLevels);
 void WickedCall_SetObjectShaderParam(sObject* pObject, int iParam, float fValue);
 void WickedCall_SetObjectTextureScroll(sObject* pObject, float fU, float fV);
 void WickedCall_UpdateLuaTextureScroll(float fSeconds);

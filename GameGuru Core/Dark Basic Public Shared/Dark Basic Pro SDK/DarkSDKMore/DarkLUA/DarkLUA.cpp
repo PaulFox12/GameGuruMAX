@@ -8821,6 +8821,26 @@ int SetEntityLOD(lua_State *L)
 	if (iObj > 0 && ObjectExist(iObj) == 1) WickedCall_SetObjectForceLOD(GetObjectData(iObj), iLOD);
 	return 0;
 }
+// GetEntityLOD(e): lod, levels: the LOD the entity draws at now, 0 (full detail) to 3, and how many LOD levels its model
+// has past full detail (0 without a _lod.dbo, and then lod is always 0); the renderer picks it each frame by distance
+// (SetLODMultiplier) unless SetEntityLOD forced one
+int GetEntityLOD(lua_State *L)
+{
+	int iLOD = 0, iLevels = 0;
+	int n = LUA_GETTOP(L);
+	if (n >= 1)
+	{
+		int e = lua_tointeger(L, 1);
+		if (LuaEntityIDValid(L, e, 1))
+		{
+			int iObj = t.entityelement[e].obj;
+			if (iObj > 0 && ObjectExist(iObj) == 1) WickedCall_GetObjectLOD(GetObjectData(iObj), &iLOD, &iLevels);
+		}
+	}
+	lua_pushinteger(L, iLOD);
+	lua_pushinteger(L, iLevels);
+	return 2;
+}
 // SetEntityShaderParam(e, n, value): a custom shader's parameter n, 1 to 7, as the .fpe's shader parameters set them;
 // only materials with a custom shader have them. The model's materials are shared, so every entity using the model
 // changes. Back to the model's own at the next level or when a test game ends
@@ -16779,6 +16799,7 @@ void addFunctions()
 	lua_register(lua, "GetProjectedDecalCount", GetProjectedDecalCount);
 	lua_register(lua, "SetEntityReceivesDecals", SetEntityReceivesDecals);
 	lua_register(lua, "SetEntityLOD", SetEntityLOD);
+	lua_register(lua, "GetEntityLOD", GetEntityLOD);
 	lua_register(lua, "SetEntityShaderParam", SetEntityShaderParam);
 	lua_register(lua, "SetEntityTextureScroll", SetEntityTextureScroll);
 	lua_register(lua, "TriggerWaterSplash", TriggerWaterSplash);

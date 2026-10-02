@@ -7081,6 +7081,27 @@ void WickedCall_SetObjectForceLOD(sObject* pObject, int iLOD)
 	}
 }
 
+// the LOD the object draws at now, 0 (full detail) to 3, and how many LOD levels its model has past full detail (0 without
+// a _lod.dbo): from the first of its parts that has any
+void WickedCall_GetObjectLOD(sObject* pObject, int* pLOD, int* pLevels)
+{
+	*pLOD = 0;
+	*pLevels = 0;
+	if (!pObject || !pObject->ppFrameList) return;
+	for (int i = 0; i < pObject->iFrameCount; i++)
+	{
+		sFrame* pFrame = pObject->ppFrameList[i];
+		if (!pFrame || pFrame->wickedobjindex == 0) continue;
+		wiScene::ObjectComponent* object = wiScene::GetScene().objects.GetComponent(pFrame->wickedobjindex);
+		if (!object) continue;
+		wiScene::MeshComponent* mesh = wiScene::GetScene().meshes.GetComponent(object->meshID);
+		if (!mesh || mesh->lodlevels == 0) continue;
+		*pLOD = (int)object->activelod;
+		*pLevels = (int)mesh->lodlevels;
+		return;
+	}
+}
+
 // what SetEntityShaderParam and SetEntityTextureScroll changed, by material, with the material's values before the first
 // change, which WickedCall_RestoreLuaMaterialChanges puts back at the level's end
 struct sLuaMaterialChange
