@@ -4501,6 +4501,13 @@ void spline_performundoredo( void* pEventData )
 		}
 		for ( size_t si = 0; si < g_Splines.size(); si++ ) if ( !used[ si ] ) ordered.push_back( std::move( g_Splines[ si ] ) );
 		g_Splines.swap( ordered );
+		// a baked spline whose place in the list changed is baked again (the order decides which road a junction pins)
+		for ( int si = 0; si < (int)g_Splines.size(); si++ )
+		{
+			const sSpline& moved = g_Splines[ si ];
+			auto it = index.find( moved.id );
+			if ( it != index.end() && it->second != si && (!moved.baked.empty() || !moved.bakedTrees.empty()) ) g_SplineForceBake.insert( moved.id );
+		}
 	}
 	// the bake as it stood: taken away if it wasn't baked, baked again if it was baked as it is (or is made again), left as
 	// it is if its bake was already behind it
@@ -4515,6 +4522,7 @@ void spline_performundoredo( void* pEventData )
 		{
 			if ( bBaked ) spline_unbake( si );
 			s.bakedSignature = 0;
+			g_SplineForceBake.erase( s.id );
 		}
 		else if ( state.def.bakeState == 1 || !bBaked )
 		{
@@ -4626,6 +4634,30 @@ void spline_imgui_panel( float w )
 				}
 			}
 			ImGui::EndChild();
+
+			// the list's order is the bake's: at a junction the later road is pinned to the earlier one's surface and stops
+			// its lines at its edge, so moving a road up makes it the main road; the two swapped are baked again (with the
+			// splines joined to them)
+			const char* pOrderTip = "Roads earlier in the list win at a junction: a later road is pinned to the earlier one's surface there and stops its lines at its edge.\nMove the main road above the roads that join or cross it.";
+			int swapWith = -1;
+			if ( ImGui::StyleButton( "Move Up##splinemoveup", ImVec2( w * 0.45f, 0 ) ) && g_iSplineSelected > 0 ) swapWith = g_iSplineSelected - 1;
+			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", pOrderTip );
+			ImGui::SameLine();
+			if ( ImGui::StyleButton( "Move Down##splinemovedown", ImVec2( w * 0.45f, 0 ) ) && g_iSplineSelected >= 0 && g_iSplineSelected + 1 < (int)g_Splines.size() ) swapWith = g_iSplineSelected + 1;
+			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", pOrderTip );
+			if ( swapWith >= 0 )
+			{
+				std::swap( g_Splines[ g_iSplineSelected ], g_Splines[ swapWith ] );
+				for ( int si : { g_iSplineSelected, swapWith } )
+				{
+					const sSpline& moved = g_Splines[ si ];
+					if ( !moved.baked.empty() || !moved.bakedTrees.empty() ) g_SplineForceBake.insert( moved.id );
+				}
+				g_iSplineSelected = swapWith;
+				g_iSplineNodeSelected = -1;
+				g_iSplineSegSelected = -1;
+				spline_modified();
+			}
 		}
 
 		if ( g_iSplineSelected >= 0 )
