@@ -9192,6 +9192,18 @@ int GetWaterHeight(lua_State *L)
 	lua_pushnumber(L, t.terrain.waterliney_f);
 	return 1;
 }
+// GG: GetWaterHeightAt(x, z): the water surface's height at a point, a river's (the editor's Roads and Rivers splines) where
+// one flows over it, else the level's water line; and 1 for a river, 0 for the sea
+int GetWaterHeightAt(lua_State *L)
+{
+	lua = L;
+	if (LUA_GETTOP(L) < 2) return 0;
+	int iIsRiver = 0;
+	float fHeight = spline_waterheightat(lua_tonumber(L, 1), lua_tonumber(L, 2), &iIsRiver);
+	lua_pushnumber(L, fHeight);
+	lua_pushinteger(L, iIsRiver);
+	return 2;
+}
 int GetWaterWaveIntensity(lua_State *L)
 {
 	lua = L;
@@ -17382,6 +17394,7 @@ void addFunctions()
 	lua_register(lua, "SetRippleWaterSpeed", SetRippleWaterSpeed);
 	//getter
 	lua_register(lua, "GetWaterHeight", GetWaterHeight);
+	lua_register(lua, "GetWaterHeightAt", GetWaterHeightAt);
 	lua_register(lua, "GetWaterWaveIntensity", GetWaterWaveIntensity);
 	lua_register(lua, "GetWaterShaderColorRed", GetWaterShaderColorRed);
 	lua_register(lua, "GetWaterShaderColorGreen", GetWaterShaderColorGreen);

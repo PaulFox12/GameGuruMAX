@@ -2681,6 +2681,7 @@ SetWaterFlowDirection(x,y,speed) small tip: -1 =east/north; 1=west/south - speed
 SetWaterDistortionWaves(value) -- sets water setting attributes
 SetRippleWaterSpeed(value) -- sets water setting attributes
 GetWaterHeight() -- gets water setting attributes
+GetWaterHeightAt : height, isRiver = GetWaterHeightAt ( x, z ) -- the water surface's height at a point: a river's (the editor's Roads and Rivers splines) where one flows over it, else the level's water line; isRiver 1 for a river, 0 for the sea
 GetWaterWaveIntensity() -- gets water setting attributes
 GetWaterShaderColorRed() -- gets water setting attributes
 GetWaterShaderColorGreen() -- gets water setting attributes
