@@ -1933,6 +1933,7 @@ void entity_loaddata ( void )
 		t.entityprofile[t.entid].usespotlighting=0;
 		t.entityprofile[t.entid].lodmodifier=0;
 		t.entityprofile[t.entid].isocluder=1; // can be adjusted (if notanoccluder set to 1)
+		t.entityprofile[t.entid].navmeshbake = 0;
 		t.entityprofile[t.entid].isocludee=1;
 		t.entityprofile[t.entid].lootpercentage=100;
 		t.entityprofile[t.entid].specular=0;
@@ -2353,6 +2354,9 @@ void entity_loaddata ( void )
 					if (  matched  )  t.entityprofile[t.entid].forceobstaclesliceheight = t.value1;
 					cmpStrConst( t_field_s, "forceobstaclesliceminsize" );
 					if (  matched  )  t.entityprofile[t.entid].forceobstaclesliceminsize = t.value1;
+
+					cmpStrConst( t_field_s, "navmeshbake" );
+					if ( matched ) t.entityprofile[t.entid].navmeshbake = t.value1;
 
 					cmpStrConst( t_field_s, "notanoccluder" );
 					if (  matched  )  

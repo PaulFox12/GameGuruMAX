@@ -319,7 +319,9 @@ static uint64_t game_addnavmeshstatics(int iBuildAllLevelObj, int iBuildAllLevel
 	uint64_t uHash = 0;
 	for (int e = 1; e <= g.entityelementlist; e++)
 	{
-		if (t.entityelement[e].staticflag == 1)
+		// a static entity, or a dynamic one whose .fpe asks for it (navmeshbake = 1: a building that can collapse, its walls in
+		// the navmesh as baked, as a static's, and in the change check, so moving or remodelling it bakes its tiles again)
+		if (t.entityelement[e].staticflag == 1 || (t.entityelement[e].bankindex > 0 && t.entityprofile[t.entityelement[e].bankindex].navmeshbake == 1))
 		{
 			int iObj = t.entityelement[e].obj;
 			int iBankindex = t.entityelement[e].bankindex;
@@ -707,6 +709,7 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 		// build the bounding box using both static objects and characters, in case there are no static objects near a character
 		bool bNeedThisToHaveNavMesh = false;
 		if ( t.entityelement[e].staticflag == 1) bNeedThisToHaveNavMesh = true;
+		if ( entid > 0 && t.entityprofile[entid].navmeshbake == 1) bNeedThisToHaveNavMesh = true;
 		if ( t.entityprofile[entid].ischaracter == 1) bNeedThisToHaveNavMesh = true;
 		if ( t.entityprofile[entid].ismarker == 11) bNeedThisToHaveNavMesh = true;
 		if ( bNeedThisToHaveNavMesh == true)

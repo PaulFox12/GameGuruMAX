@@ -5743,6 +5743,7 @@ struct entityprofiletype
 	float forceobstaclesliceheight;
 	float forceobstaclesliceminsize;
 	int notanoccluder;
+	int navmeshbake; // .fpe navmeshbake = 1: a dynamic entity's model baked into the navmesh as a static's (a building that can collapse)
 	int materialindex;
 	int allowbulletholes;
 	int clearvegetation;
@@ -6156,6 +6157,7 @@ struct entityprofiletype
 		 allowbulletholes = -1;
 		 clearvegetation = -1;
 		 notanoccluder = 0;
+		 navmeshbake = 0;
 		 forcesimpleobstacle = 0;
 		 forceobstaclepolysize = 0.0f;
 		 forceobstaclesliceheight = 0.0f;
