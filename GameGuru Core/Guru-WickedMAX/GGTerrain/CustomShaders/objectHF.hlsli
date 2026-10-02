@@ -1501,6 +1501,52 @@ struct OutputPrepass
 	float4 color = 1;
 
 #ifdef WATEROBJECT
+#ifdef RIVERWATER
+
+	// GG: a river's water. It flows down the first texture coordinates' v at this point's speed (the second coordinates'
+	// y, 1 the river's base speed), the normal map sampled twice half a cycle apart and cross-faded, so a fast stretch never
+	// smears it (two-phase flow), each cycle starting somewhere new so the reset doesn't pulse, and a larger, slower pair
+	// under it breaks the repeat. Turbulence (the second coordinates' x) makes it choppier. Foam is the foam texture (the
+	// base colour map) dissolved by a mask, the turbulence and, by customShaderParam6, the shore
+	const float riverTurbulence = saturate(input.uvsets.z);
+	const float riverSpeed = max(0.0, input.uvsets.w);
+	const float flowRate = 0.03 * GetMaterial().customShaderParam2 * riverSpeed; // texture tiles a second
+	const float phaseRate = 0.35; // cycles a second
+	const float phase0 = frac(g_xFrame_Time * phaseRate);
+	const float phase1 = frac(g_xFrame_Time * phaseRate + 0.5);
+	const float weight0 = 1 - abs(2 * phase0 - 1);
+	const float travel = flowRate / phaseRate;
+	const float2 jump0 = frac(floor(g_xFrame_Time * phaseRate) * float2(0.3713, 0.6197));
+	const float2 jump1 = frac(floor(g_xFrame_Time * phaseRate + 0.5) * float2(0.5281, 0.2879) + 0.5);
+	const float2 riverUV = input.uvsets.xy * GetMaterial().customShaderParam1;
+	const float2 uvA = riverUV + jump0 - float2(0, travel * phase0);
+	const float2 uvB = riverUV + jump1 - float2(0, travel * phase1);
+	const float2 uvC = riverUV * 0.37 + jump0.yx - float2(0, travel * 0.6 * 0.37 * phase0);
+	const float2 uvD = riverUV * 0.37 + jump1.yx - float2(0, travel * 0.6 * 0.37 * phase1);
+
+	const float3 riverN = surface.N;
+	float3 nA = riverN, nB = riverN, nC = riverN, nD = riverN;
+	float3 bA = 0, bB = 0, bC = 0, bD = 0;
+	float4 riverSets = input.uvsets;
+	riverSets.xy = uvA; NormalMapping(riverSets, nA, TBN, bA);
+	riverSets.xy = uvB; NormalMapping(riverSets, nB, TBN, bB);
+	riverSets.xy = uvC; NormalMapping(riverSets, nC, TBN, bC);
+	riverSets.xy = uvD; NormalMapping(riverSets, nD, TBN, bD);
+	const float3 nFine = normalize(nA * weight0 + nB * (1 - weight0));
+	const float3 nBroad = normalize(nC * weight0 + nD * (1 - weight0));
+	surface.N = normalize(lerp(nFine, nBroad, 0.35));
+	surface.N = normalize(lerp(riverN, surface.N, min(3.0, (1 + 1.5 * riverTurbulence) * GetMaterial().customShaderParam3)));
+	bumpColor = lerp(bA * weight0 + bB * (1 - weight0), bC * weight0 + bD * (1 - weight0), 0.35) * (1 + 1.5 * riverTurbulence);
+
+	// the foam: the foam texture along the flow at two scales, dissolved where the mask is low
+	float foamTex = lerp(texture_basecolormap.Sample(sampler_objectshader, uvB * 1.7).r, texture_basecolormap.Sample(sampler_objectshader, uvA * 1.7).r, weight0);
+	foamTex = lerp(foamTex, lerp(texture_basecolormap.Sample(sampler_objectshader, uvD * 2.3).r, texture_basecolormap.Sample(sampler_objectshader, uvC * 2.3).r, weight0), 0.4);
+	const float shoreDepth = texture_lineardepth.SampleLevel(sampler_point_clamp, ScreenCoord.xy, 0) * g_xCamera_ZFarP - lineardepth;
+	const float shore = saturate(1 - shoreDepth / 40.0) * saturate(GetMaterial().customShaderParam6);
+	const float foamMask = max(riverTurbulence, shore);
+	float riverFoam = saturate((foamTex - (1 - foamMask)) * 3.0) * saturate(foamMask * 4.0);
+
+#else
 
 	float uvscale = GetMaterial().customShaderParam1;
 	float uvspeed = GetMaterial().customShaderParam2;
@@ -1511,13 +1557,6 @@ struct OutputPrepass
 
 	float distortion = 0.0085f * uvdistorsion; // PE: water distortion reflection default 0.0055f
 	float distortion2 = 0.040f * uvdistorsion; // PE: water distortion waves default 0.030f
-#ifdef RIVERWATER
-	// GG: a river's turbulence (rapids), 0-1 in the second texture coordinates: choppier water and white water
-	const float riverTurbulence = saturate(input.uvsets.z);
-	distortion *= 1 + 2 * riverTurbulence;
-	distortion2 *= 1 + 2 * riverTurbulence;
-	float riverFoam = 0;
-#endif // RIVERWATER
 	float WaterSpeed1 = 0.03f * uvspeed; // PE: Speed 1 lower = faster default 30.0f
 	float WaterSpeed2 = 0.0125f * uvspeed; // PE: Speed 2 lower = faster default 70.0f  
 
@@ -1549,11 +1588,7 @@ struct OutputPrepass
 	float2 timeScaledUV5 = ((input.uvsets.xy+offset)*6)+dudv.rg+sin((g_xFrame_Time*WaterSpeed2*2));
 	float2 timeScaledUV6 = ((input.uvsets.xy+offset)*5)+dudv.rg+cos((g_xFrame_Time*WaterSpeed2*2));
 
-#ifdef RIVERWATER
-	float4 baseColorMap = 1; // the colour is the material's (customShaderParam5 and 7 hold the water fog)
-#else
 	float4 baseColorMap = texture_basecolormap.Sample(sampler_objectshader, (input.uvsets.xy * GetMaterial().customShaderParam7 )+dudv3.rg+offset2);
-#endif // RIVERWATER
 
 	float3 bumpColor2 = 0, bumpColor3 = 0, bumpColor4 = 0, bumpColor5 = 0, bumpColor6 = 0;
 	float3 normal2 = 0, normal3 = 0, normal4 = 0;
@@ -1580,9 +1615,6 @@ struct OutputPrepass
 	float foamThreshold = 4.0 * GetMaterial().customShaderParam6;
 	
 	float foamIntensity = saturate((foamThreshold - depth_difference) / foamThreshold);
-#ifdef RIVERWATER
-	foamIntensity = max(foamIntensity, riverTurbulence);
-#endif // RIVERWATER
 
 	[branch]
     if (foamIntensity > 0.0)
@@ -1601,11 +1633,7 @@ struct OutputPrepass
         float upDotNormal = saturate(dot(bumpColor4*2, float3(0, 1, 0)));
 
         foamIntensity *= lerp(0.0, 1.0, upDotNormal * normalInfluenceStrength);
-#ifdef RIVERWATER
-		riverFoam = saturate(foamIntensity); // whitens the water after its lighting
-#else
         baseColorMap.rgb = lerp(baseColorMap.rgb, foamColor, foamIntensity);
-#endif // RIVERWATER
 	}
 
 	//PE: Looks better but needed ?
@@ -1619,6 +1647,7 @@ struct OutputPrepass
 	baseColorMap.rgb = DEGAMMA(baseColorMap.rgb);
 	color *= baseColorMap;
 
+#endif // RIVERWATER
 #endif
 
 #ifndef GLASSOBJECT

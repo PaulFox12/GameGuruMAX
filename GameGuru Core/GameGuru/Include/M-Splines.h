@@ -14,5 +14,6 @@ void spline_deleteall ( void );
 void spline_updatewater ( bool bForce = false );
 float spline_waterheightat ( float x, float z, int* pIsRiver );
 float spline_riverturbulenceat ( float x, float z );
+void spline_waterflowat ( float x, float z, float* pFlowX, float* pFlowZ );
 float spline_riverwaterlevel ( float x, float z );
 uint64_t spline_riverwaterinputs ( float minX, float minZ, float maxX, float maxZ );

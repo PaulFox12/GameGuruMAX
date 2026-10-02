@@ -360,7 +360,7 @@ void WickedCall_SetShaderParameter(int obj, int parameter, float value);
 
 // GG: a river's water surface (the spline tool): a mesh drawn with the River Water custom shader (the Water Object
 // shader's scrolling normal maps and shore foam, coloured as the ocean is), its water normal map and colour map made in
-// memory. pUVs2, if given, is the second texture coordinates (with River Water, x the turbulence 0-1). The colour (0-1, alpha the opacity) and the
+// memory. pUVs2, if given, is the second texture coordinates (with River Water, x the turbulence 0-1, y the flow speed, 1 the base). The colour (0-1, alpha the opacity) and the
 // shader's parameters: UV scale, flow speed, wave distortion, flow direction (0-1 of a turn, 0 still), texture scroll,
 // foam size and texture scale
 struct WickedCallWaterLook

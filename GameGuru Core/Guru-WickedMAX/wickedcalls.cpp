@@ -9539,6 +9539,90 @@ static std::shared_ptr<wiResource> WickedCall_WaterNormalMap()
 	return resource;
 }
 
+// a tiling foam texture: clusters of bubbles (the nearest of jittered points, at two scales) over tiling noise
+static std::shared_ptr<wiResource> WickedCall_WaterFoamMap()
+{
+	static std::shared_ptr<wiResource> resource;
+	if (resource) return resource;
+	const int N = 256;
+	uint32_t seed = 0x2545f491;
+	auto rnd = [&seed]() { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; return (seed & 0xffff) / 65535.0f; };
+	std::vector<float> value(N * N, 0.0f);
+	for (int cells = 6; cells <= 18; cells *= 3)
+	{
+		std::vector<float> px(cells * cells), py(cells * cells);
+		for (int i = 0; i < cells * cells; i++) { px[i] = rnd(); py[i] = rnd(); }
+		const float weight = cells == 6 ? 0.45f : 0.35f;
+		for (int y = 0; y < N; y++)
+		{
+			for (int x = 0; x < N; x++)
+			{
+				const float fx = (float)x * cells / N, fy = (float)y * cells / N;
+				const int cx = (int)fx, cy = (int)fy;
+				float nearest = 9.0f;
+				for (int oy = -1; oy <= 1; oy++)
+				{
+					for (int ox = -1; ox <= 1; ox++)
+					{
+						const int gx = cx + ox, gy = cy + oy;
+						const int k = ((gy + cells) % cells) * cells + ((gx + cells) % cells);
+						const float dx = gx + px[k] - fx, dy = gy + py[k] - fy;
+						nearest = std::min(nearest, dx * dx + dy * dy);
+					}
+				}
+				value[y * N + x] += weight * std::max(0.0f, 1.0f - sqrtf(nearest) * 1.3f);
+			}
+		}
+	}
+	for (int cells = 8; cells <= 64; cells *= 2)
+	{
+		std::vector<float> lattice(cells * cells);
+		for (float& v : lattice) v = rnd();
+		const float weight = 0.2f * 8.0f / cells;
+		for (int y = 0; y < N; y++)
+		{
+			for (int x = 0; x < N; x++)
+			{
+				const float fx = (float)x * cells / N, fy = (float)y * cells / N;
+				const int x0 = (int)fx, y0 = (int)fy;
+				float tx = fx - x0, ty = fy - y0;
+				tx = tx * tx * (3 - 2 * tx);
+				ty = ty * ty * (3 - 2 * ty);
+				const float a = lattice[(y0 % cells) * cells + (x0 % cells)], b = lattice[(y0 % cells) * cells + ((x0 + 1) % cells)];
+				const float c = lattice[((y0 + 1) % cells) * cells + (x0 % cells)], e = lattice[((y0 + 1) % cells) * cells + ((x0 + 1) % cells)];
+				value[y * N + x] += weight * ((a + (b - a) * tx) + ((c + (e - c) * tx) - (a + (b - a) * tx)) * ty);
+			}
+		}
+	}
+	float lo = 1e9f, hi = -1e9f;
+	for (float v : value) { lo = std::min(lo, v); hi = std::max(hi, v); }
+	std::vector<std::vector<uint8_t>> mips;
+	int size = N;
+	std::vector<float> level = value;
+	while (true)
+	{
+		std::vector<uint8_t> mip(size * size * 4);
+		for (int i = 0; i < size * size; i++)
+		{
+			const uint8_t g = (uint8_t)(std::min(1.0f, std::max(0.0f, (level[i] - lo) / std::max(0.001f, hi - lo))) * 255.0f + 0.5f);
+			mip[i * 4 + 0] = g; mip[i * 4 + 1] = g; mip[i * 4 + 2] = g; mip[i * 4 + 3] = 255;
+		}
+		mips.push_back(mip);
+		if (size == 1) break;
+		const int half = size / 2;
+		std::vector<float> smaller(half * half);
+		for (int y = 0; y < half; y++)
+			for (int x = 0; x < half; x++)
+				smaller[y * half + x] = 0.25f * (level[(y * 2) * size + x * 2] + level[(y * 2) * size + x * 2 + 1] + level[(y * 2 + 1) * size + x * 2] + level[(y * 2 + 1) * size + x * 2 + 1]);
+		level.swap(smaller);
+		size = half;
+	}
+	std::vector<uint8_t> dds;
+	WickedCall_WaterDDS(dds, N, mips);
+	resource = wiResourceManager::Load("gg_river_water_foam.dds", wiResourceManager::EMPTY, dds.data(), dds.size());
+	return resource;
+}
+
 // a white colour map, so the water's colour is the material's
 static std::shared_ptr<wiResource> WickedCall_WaterColourMap()
 {
@@ -9601,8 +9685,11 @@ uint64_t WickedCall_CreateWaterSurface(const float* pPositions, const float* pUV
 	WickedCallWaterSurface surface;
 	surface.material = scene.Entity_CreateMaterial("ggriverwater_material");
 	MaterialComponent& material = *scene.materials.GetComponent(surface.material);
-	material.textures[MaterialComponent::BASECOLORMAP].name = "gg_river_water_colour.dds";
-	material.textures[MaterialComponent::BASECOLORMAP].resource = WickedCall_WaterColourMap();
+	// with River Water the colour map is its foam (the colour is the material's)
+	bool bRiverWater = false;
+	for (const wiRenderer::CustomShader& shader : wiRenderer::GetCustomShaders()) if (shader.name == "River Water" && shader.bActive) bRiverWater = true;
+	material.textures[MaterialComponent::BASECOLORMAP].name = bRiverWater ? "gg_river_water_foam.dds" : "gg_river_water_colour.dds";
+	material.textures[MaterialComponent::BASECOLORMAP].resource = bRiverWater ? WickedCall_WaterFoamMap() : WickedCall_WaterColourMap();
 	material.textures[MaterialComponent::NORMALMAP].name = "gg_river_water_normal.dds";
 	material.textures[MaterialComponent::NORMALMAP].resource = WickedCall_WaterNormalMap();
 	WickedCall_ApplyWaterLook(material, look);
