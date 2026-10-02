@@ -80,7 +80,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 11 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope
+#define SPLINE_FILE_VERSION 12 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -132,7 +132,7 @@ struct sSplineLayer
 	int side = SPLINE_SIDE_BOTH;
 	int facing = SPLINE_FACE_MIRRORED;
 	int enabled = 1;
-	char name[64] = ""; // each placed one named this with _01, _02, ... after it (the game's scripts find lamps by name), else the entity's own name
+	char name[64] = ""; // each placed one named this (else the entity's own name) with __01, __02 ... after it, on from the highest in the level
 	float keepApart = 600.0f; // none placed this close to one another spline (earlier in the list) placed of the same entity
 	int frozen = 0; // its entities stay as they are, no longer placed again
 	int followSlope = 0; // each tilted to the ground under it (decals, flat things), else upright
@@ -1746,6 +1746,57 @@ static int spline_addelement( const char* pEntity, float x, float y, float z, fl
 	return e;
 }
 
+// the highest N of the level's entities named <base>__N (any case), 0 if none
+static int spline_lastnamenumber( const std::string& base, int except )
+{
+	int last = 0;
+	const size_t len = base.size();
+	for ( int e = 1; e <= g.entityelementlist; e++ )
+	{
+		if ( e == except || t.entityelement[ e ].maintype == 0 || t.entityelement[ e ].bankindex <= 0 ) continue;
+		const char* pName = t.entityelement[ e ].eleprof.name_s.Get();
+		if ( !pName || _strnicmp( pName, base.c_str(), len ) != 0 || pName[ len ] != '_' || pName[ len + 1 ] != '_' || !pName[ len + 2 ] ) continue;
+		bool bDigits = true;
+		for ( const char* pDigit = pName + len + 2; *pDigit; pDigit++ ) if ( !isdigit( (unsigned char)*pDigit ) ) { bDigits = false; break; }
+		if ( bDigits ) last = std::max( last, atoi( pName + len + 2 ) );
+	}
+	return last;
+}
+
+// the name an entity is given when placed: its .fpe's desc
+static const char* spline_entitydesc( const char* pEntity )
+{
+	static std::unordered_map<std::string, std::string> descs;
+	auto it = descs.find( pEntity );
+	if ( it != descs.end() ) return it->second.c_str();
+	std::string desc;
+	char pPath[ MAX_PATH ];
+	sprintf_s( pPath, MAX_PATH, "entitybank\\%s", pEntity );
+	GG_GetRealPath( pPath, 0 );
+	FILE* fp = nullptr;
+	if ( pEntity[0] && fopen_s( &fp, pPath, "r" ) == 0 && fp )
+	{
+		char line[ 512 ];
+		while ( fgets( line, 512, fp ) )
+		{
+			char* p = line;
+			while ( *p == ' ' || *p == '\t' ) p++;
+			if ( _strnicmp( p, "desc", 4 ) != 0 ) continue;
+			p += 4;
+			while ( *p == ' ' || *p == '\t' ) p++;
+			if ( *p != '=' ) continue;
+			p++;
+			while ( *p == ' ' || *p == '\t' ) p++;
+			char* pEnd = p + strlen( p );
+			while ( pEnd > p && (pEnd[-1] == '\n' || pEnd[-1] == '\r' || pEnd[-1] == ' ' || pEnd[-1] == '\t') ) *--pEnd = 0;
+			desc = p;
+			break;
+		}
+		fclose( fp );
+	}
+	return (descs[ pEntity ] = desc).c_str();
+}
+
 // takes away the entities the spline's layers placed, those still where they were put (one moved by hand stays)
 static void spline_unplace( sSpline& s )
 {
@@ -1842,7 +1893,8 @@ static void spline_place( int si )
 	{
 		const sSplineLayer& layer = s.layers[ li ];
 		if ( !layer.enabled || layer.frozen || layer.entity[0] == 0 || layer.spacing < 10.0f ) continue;
-		int k = 0, count = 0, named = 0;
+		int k = 0, count = 0, number = 0;
+		std::string baseName;
 		for ( float along = layer.start; along <= length && count < 4000; along += layer.spacing, count++ )
 		{
 			int sides[2] = { 0, 0 }, sideCount = 0;
@@ -1925,11 +1977,18 @@ static void spline_place( int si )
 				t.entityelement[ e ].eleprof.iObjectReserved1 = SPLINE_ENTITY_TAG;
 				t.entityelement[ e ].eleprof.iObjectReserved2 = s.id;
 				t.entityelement[ e ].eleprof.iObjectReserved3 = li;
-				if ( layer.name[0] )
+				// named as the entity (the game's systems find entities by name) or as the layer says, with __NN after it, on
+				// from the highest of that name already in the level
+				if ( baseName.empty() )
 				{
-					char name[ 96 ];
-					sprintf_s( name, 96, "%s_%02d", layer.name, ++named );
-					t.entityelement[ e ].eleprof.name_s = name;
+					baseName = layer.name[0] ? layer.name : t.entityelement[ e ].eleprof.name_s.Get();
+					number = spline_lastnamenumber( baseName, e );
+				}
+				if ( !baseName.empty() )
+				{
+					char suffix[ 16 ];
+					sprintf_s( suffix, 16, "__%02d", ++number );
+					t.entityelement[ e ].eleprof.name_s = (baseName + suffix).c_str();
 				}
 				sSplinePlaced placed;
 				placed.layer = li;
@@ -1972,12 +2031,6 @@ static sSplineLayer spline_newlayer( const sSpline& s )
 		layer.side = SPLINE_SIDE_BOTH;
 		layer.facing = SPLINE_FACE_MIRRORED;
 		layer.keepApart = 600.0f;
-		// named as the game's night lights expect a lamp (the "_streetlight" token)
-		char name[ 64 ];
-		int j = 0;
-		for ( const char* p = s.name; *p && j < 40; p++ ) name[ j++ ] = isalnum( (unsigned char)*p ) ? *p : '_';
-		name[ j ] = 0;
-		sprintf_s( layer.name, 64, "%s_streetlight", name );
 	}
 	else
 	{
@@ -2647,8 +2700,9 @@ static void spline_rowlayers( sSpline& s, float w )
 		}
 		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Choose an entity file (.fpe) in the entity bank" );
 		spline_row( "Name" );
-		ImGui::InputText( "##layername", layer.name, 64 );
-		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Each placed one is named this with _01, _02 ... after it (scripts find entities by name); empty keeps the entity's own name" );
+		const char* pDesc = spline_entitydesc( layer.entity );
+		ImGui::InputTextWithHint( "##layername", pDesc[0] ? pDesc : "the entity's name", layer.name, 64 );
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Each placed one is named the entity's own name (shown greyed), or this if set, with __01, __02 ... after it, numbered on from the highest of that name already in the level" );
 		spline_rowmetres( "Spacing", "##layerspacing", &layer.spacing, 1.0f, 200.0f );
 		spline_rowmetres( "Start", "##layerstart", &layer.start, 0.0f, 200.0f );
 		const char* sides[] = { "Both", "Left", "Right", "Alternate", "Centre" };
@@ -3328,6 +3382,16 @@ void spline_loaddata( void )
 						if ( version >= 11 )
 						{
 							for ( sSplineLayer& layer : s.layers ) if ( !get( &layer.followSlope, sizeof(layer.followSlope) ) ) break;
+						}
+						if ( version < 12 )
+						{
+							// versions 10 and 11 named a road's new layer <road>_streetlight: that layer takes its entity's name now
+							char oldName[ 64 ];
+							int j = 0;
+							for ( const char* p = s.name; *p && j < 40; p++ ) oldName[ j++ ] = isalnum( (unsigned char)*p ) ? *p : '_';
+							oldName[ j ] = 0;
+							strcat_s( oldName, 64, "_streetlight" );
+							for ( sSplineLayer& layer : s.layers ) if ( _stricmp( layer.name, oldName ) == 0 ) layer.name[0] = 0;
 						}
 					}
 					else
