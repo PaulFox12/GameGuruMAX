@@ -60,6 +60,12 @@ namespace GGGrass
 
 	const char* GGGrass_GetTextureFilename( uint32_t matIndex, uint32_t grassIndex );
 	const char* GGGrass_GetTextureShortName( uint32_t matIndex, uint32_t grassIndex );
+	// the grass a tool plants by code (the spline rivers' banks): the selectable types (as the grass brush's), the type a
+	// selectable one is on a terrain material (GGGRASS_NUM_TYPES or more: none there), and a type's texture loaded if it
+	// isn't, as textures load only for the brush's types and those a loaded map holds
+	uint32_t GGGrass_GetNumSelectableTypes();
+	uint32_t GGGrass_GetRealIndex( uint32_t matIndex, uint32_t grassTypeIndex );
+	void GGGrass_UseType( uint32_t realIndex );
 
 	void GGGrass_SetPerformanceMode( uint32_t mode );
 

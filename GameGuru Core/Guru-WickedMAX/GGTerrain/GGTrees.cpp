@@ -1906,6 +1906,41 @@ void GGTrees_GetTreesInRect( float minX, float minZ, float maxX, float maxZ, std
 	}
 }
 
+int GGTrees_AddTree( float x, float z, uint32_t type, uint32_t scale )
+{
+	if ( !ggtrees_initialised || type >= numTreeTypes || pInvisibleTrees.NumItems() == 0 ) return -1;
+	uint32_t index = pInvisibleTrees.PopItem();
+	InstanceTree* pInstance = &pAllTrees[ index ];
+	pInstance->SetVisible( 1 );
+	pInstance->SetInvalid( 0 );
+	pInstance->SetUserMoved( 1 );
+	pInstance->SetType( type );
+	pInstance->SetScale( (unsigned char)(scale > 255 ? 255 : scale) );
+#ifdef ONLYLOADWHENUSED
+	if ( !bTreeTextureForceUploaded[ type ] )
+	{
+		bTreeTextureForceUploaded[ type ] = true;
+		last_paint_tree_bitfield = -1;
+	}
+#endif
+	GGTrees_SetTreePosition( index, x, z );
+	return (int)index;
+}
+
+bool GGTrees_GetTreeSlot( uint32_t id, GGTreeSlot* pOut )
+{
+	if ( !ggtrees_initialised || id >= numTotalTrees ) return false;
+	InstanceTree* pInstance = &pAllTrees[ id ];
+	if ( !pInstance->IsVisible() ) return false;
+	pOut->id = id;
+	pOut->x = pInstance->x;
+	pOut->z = pInstance->z;
+	pInstance->GetTrunkCentre( &pOut->trunkX, &pOut->trunkZ );
+	pOut->diameter = pInstance->GetTreeThickness() * pInstance->GetScaleFloat();
+	pOut->data = pInstance->data;
+	return true;
+}
+
 void GGTrees_HideTree( uint32_t id )
 {
 	if ( id >= numTotalTrees ) return;

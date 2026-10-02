@@ -91,6 +91,11 @@ namespace GGTrees
 	int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, const float* pMotion, float* pOut, int* pType = 0, bool bBareTrunk = false ); // the first trunk a moving box meets: fraction, x, y, z, nx, ny, nz, and its tree type; bBareTrunk tests each trunk only up to its crown
 	int GGTrees_OverlapBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, bool bBareTrunk = false ); // how many trunks a box touches
 	void GGTrees_SetTreePosition( uint32_t treeID, float x, float z );
+	// a tree put in a free slot by code, as the tree brush adds one (a tool's planting: the spline rivers' banks): its type
+	// and scale (0-255, as the brush's); its id, or -1 when no slot is free; its texture loaded if it isn't.
+	// GGTrees_GetTreeSlot reads a slot back (false when hidden), so a tool can tell whether its tree is still there
+	int GGTrees_AddTree( float x, float z, uint32_t type, uint32_t scale );
+	bool GGTrees_GetTreeSlot( uint32_t id, GGTreeSlot* pOut );
 	
 	uint32_t GGTrees_GetDataSize(); // number of floats required in data array
 	void GGTrees_GetEmptyData( float* data ); // data as GGTrees_GetData, with every tree hidden and unplaced

@@ -80,7 +80,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 20 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth; 18: road markings; 19: At Junctions; 20: Solid on Crests
+#define SPLINE_FILE_VERSION 21 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth; 18: road markings; 19: At Junctions; 20: Solid on Crests; 21: bank planting
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -223,6 +223,16 @@ struct sSplineRiver
 	float steepFlow = 1.5f; // how much faster the water runs on a steep slope, 0 the same everywhere
 	int calmEnd = 1; // the rapids fade out before its last node (they always fade before the sea)
 	float wadeDepth = 35.4f; // the navmesh walks its bed where the water is no deeper than this (0.9 m), 0 none of it
+	// planting along its banks, baked with it
+	int plantGrass = 0; // the grass (the grass brush's selectable types, + 1), 0 none
+	float plantGrassFrom = -20.0f; // in a band from this far past the bed's edge (-0.5 m: into the shallows)
+	float plantGrassTo = 120.0f; // to this far (3 m)
+	float plantGrassCover = 0.8f; // how much of the band, in patches
+	uint32_t plantTreeTypesLow = 0, plantTreeTypesHigh = 0; // the tree types, a bit each as the tree brush's; none: no trees
+	int plantTreeScaleLow = 10, plantTreeScaleHigh = 245; // their scale range (0-255, as the tree brush's)
+	float plantTreeSpacing = 591.0f; // about this far apart along each bank (15 m)
+	float plantTreeFrom = 200.0f; // in a band from this far past the bed's edge (5 m)
+	float plantTreeTo = 600.0f; // to this far (15 m)
 };
 
 // a terrain texel a bake wrote: what it held, and what the bake left there
@@ -267,6 +277,7 @@ struct sSpline
 	float waterLowered = 0.0f; // a river: how much of it has its water lowered by a bank lower than the water
 	std::vector<sSplineBakeTexel> baked;
 	std::vector<sSplineBakeTree> bakedTrees;
+	std::vector<sSplineBakeTree> plantedTrees; // the trees its bake planted (a river's banks), hidden again when it is taken out
 	std::vector<sSplineLayer> layers;
 	std::vector<sSplinePlaced> placed;
 	uint64_t placedSignature = 0; // the layers and the bake they were placed for
@@ -727,6 +738,7 @@ static uint64_t spline_signature( const sSpline& s )
 	{
 		mix( &v.raiseBanks, sizeof(v.raiseBanks) );
 		if ( v.raiseBanks ) mix( &v.waterDepth, sizeof(v.waterDepth) );
+		mix( &v.plantGrass, sizeof(sSplineRiver) - offsetof( sSplineRiver, plantGrass ) );
 	}
 	return h ? h : 1;
 }
@@ -770,8 +782,18 @@ static void spline_restore( sSpline& s, float* pBounds )
 		const int iz = (int)((tree.z / GGTerrain::GGTerrain_GetEditableSize() * 0.5f + 0.5f) * SPLINE_MAP_SIZE);
 		spline_texelbounds( ix, iz, pBounds );
 	}
+	// the trees it planted, hidden again where they still stand as planted
+	for ( const sSplineBakeTree& tree : s.plantedTrees )
+	{
+		GGTrees::GGTreeSlot slot;
+		if ( GGTrees::GGTrees_GetTreeSlot( tree.id, &slot ) && slot.x == tree.x && slot.z == tree.z && (slot.data >> 8) == (tree.data >> 8) ) GGTrees::GGTrees_HideTree( tree.id );
+		const int ix = (int)((tree.x / GGTerrain::GGTerrain_GetEditableSize() * 0.5f + 0.5f) * SPLINE_MAP_SIZE);
+		const int iz = (int)((tree.z / GGTerrain::GGTerrain_GetEditableSize() * 0.5f + 0.5f) * SPLINE_MAP_SIZE);
+		spline_texelbounds( ix, iz, pBounds );
+	}
 	s.baked.clear();
 	s.bakedTrees.clear();
+	s.plantedTrees.clear();
 }
 
 struct sRoadSample
@@ -874,7 +896,27 @@ struct sSplineShape
 	int coreMaterial = 0, edgeMaterial = 0;
 	float grassMargin = 0, treeMargin = 0;
 	float crest = 0; // above 0, the edges rise at least this far above the core before falling to lower ground (a river's raised banks)
+	int plantGrass = 0; // a river's bank grass (selectable type + 1) in a band past the core, from plantFrom to plantTo, in patches
+	float plantFrom = 0, plantTo = 0, plantCover = 0;
 };
+
+// 0 to 1, a smooth noise about 1.5 m across, for the patches of a river's bank grass
+static float spline_plantnoise( float x, float z )
+{
+	const float px = x / 60.0f, pz = z / 60.0f;
+	const float cx = floorf( px ), cz = floorf( pz );
+	auto hash = []( float a, float b )
+	{
+		uint32_t h = (uint32_t)(int32_t)a * 0x8DA6B343u ^ (uint32_t)(int32_t)b * 0xD8163841u;
+		h ^= h >> 13; h *= 0x5BD1E995u; h ^= h >> 15;
+		return (h & 0xFFFFFF) / 16777216.0f;
+	};
+	float fx = px - cx, fz = pz - cz;
+	fx = fx * fx * (3 - 2 * fx);
+	fz = fz * fz * (3 - 2 * fz);
+	const float a = hash( cx, cz ), b = hash( cx + 1, cz ), c = hash( cx, cz + 1 ), e = hash( cx + 1, cz + 1 );
+	return a + (b - a) * fx + (c - a) * fz + (a - b - c + e) * fx * fz;
+}
 
 // the footprint on the terrain's texels, and the writes
 static void spline_bakeshape( sSpline& sp, const std::vector<sRoadSample>& c, const sSplineShape& shape, std::unordered_set<uint32_t>& protectedTexels, float* pBounds )
@@ -890,7 +932,7 @@ static void spline_bakeshape( sSpline& sp, const std::vector<sRoadSample>& c, co
 	const float halfW = shape.halfCore;
 
 	// every texel near the centre line (in one texel pieces), its distance and the profile there
-	const float reach = halfW + std::max( std::max( shape.edge, shape.grassMargin ), shape.treeMargin );
+	const float reach = halfW + std::max( std::max( std::max( shape.edge, shape.grassMargin ), shape.treeMargin ), shape.plantGrass ? shape.plantTo : 0.0f );
 	const float spacing = c[ n - 1 ].s / (float)(n - 1);
 	const int step = std::max( 1, (int)(texel / std::max( 1.0f, spacing ) + 0.5f) );
 	std::unordered_map<uint32_t, sRoadFoot> foot;
@@ -998,6 +1040,18 @@ static void spline_bakeshape( sSpline& sp, const std::vector<sRoadSample>& c, co
 			pG[ mIndex ] &= 0x80;
 			b.flags |= SPLINE_TEXEL_GRASS;
 		}
+		// a river's bank grass in its band, in patches, the type's variant for the ground's material as the grass brush picks
+		// it (none where that material has none)
+		if ( pG && shape.plantGrass > 0 && !bPaintProtected && f.dc >= halfW + shape.plantFrom && f.dc <= halfW + shape.plantTo && spline_plantnoise( wx, wz ) < shape.plantCover )
+		{
+			const uint32_t grass = GGGrass::GGGrass_GetRealIndex( (uint32_t)GGTerrain::GGTerrain_GetMaterialIndex( wx, wz ), (uint32_t)(shape.plantGrass - 1) );
+			if ( grass < 46 )
+			{
+				GGGrass::GGGrass_UseType( grass );
+				pG[ mIndex ] = (uint8_t)((pG[ mIndex ] & 0x80) | (grass + 2));
+				b.flags |= SPLINE_TEXEL_GRASS;
+			}
+		}
 		if ( b.flags & (SPLINE_TEXEL_HEIGHT | SPLINE_TEXEL_MATERIAL | SPLINE_TEXEL_GRASS) )
 		{
 			b.heightAfter = pH[ hIndex ];
@@ -1042,6 +1096,68 @@ static void spline_bakeshape( sSpline& sp, const std::vector<sRoadSample>& c, co
 		record.data = tree.data;
 		sp.bakedTrees.push_back( record );
 		spline_texelbounds( ix, iz, pBounds );
+	}
+}
+
+static float spline_random( uint32_t a, uint32_t b, uint32_t c, uint32_t salt );
+
+// a river's trees along its banks (Bank Trees): about Tree Spacing apart along each bank, each at random between Trees From
+// and Trees To past the bed's edge, of its tree types and scale range; none in its water, on an earlier road's
+// carriageway, nor once no tree slot is free. Each is kept, so taking the bake out hides it again
+static void spline_planttrees( sSpline& sp, const std::vector<sRoadSample>& c, const std::unordered_set<uint32_t>& protectedTexels, float* pBounds )
+{
+	const sSplineRiver& v = sp.river;
+	std::vector<uint32_t> types;
+	for ( uint32_t t = 0; t < 64; t++ )
+	{
+		const uint32_t word = t < 32 ? v.plantTreeTypesLow : v.plantTreeTypesHigh;
+		if ( word & (1u << (t & 31)) ) types.push_back( t );
+	}
+	const int n = (int)c.size();
+	const float E = GGTerrain::GGTerrain_GetEditableSize();
+	if ( types.empty() || n < 2 || v.plantTreeSpacing < 40.0f || E <= 0 ) return;
+	const float halfW = v.bedWidth * 0.5f;
+	const float length = c[ n - 1 ].s;
+	const int scaleLow = std::min( v.plantTreeScaleLow, v.plantTreeScaleHigh ), scaleHigh = std::max( v.plantTreeScaleLow, v.plantTreeScaleHigh );
+	auto toTexel = [E]( float x ) { return (x / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE; };
+	for ( int side = -1; side <= 1; side += 2 )
+	{
+		const uint32_t salt = (uint32_t)(side + 1);
+		int k = 0;
+		float along = v.plantTreeSpacing * spline_random( sp.id, 7, 0, salt );
+		for ( int count = 0; along < length && count < 4000; count++ )
+		{
+			while ( k < n - 2 && c[ k + 1 ].s < along ) k++;
+			const float span = c[ k + 1 ].s - c[ k ].s;
+			const float tt = span > 0 ? std::min( 1.0f, (along - c[ k ].s) / span ) : 0.0f;
+			float tx = c[ k + 1 ].x - c[ k ].x, tz = c[ k + 1 ].z - c[ k ].z;
+			const float len = sqrtf( tx * tx + tz * tz );
+			if ( len > 0 ) { tx /= len; tz /= len; }
+			const float out = halfW + v.plantTreeFrom + (v.plantTreeTo - v.plantTreeFrom) * spline_random( sp.id, 8, count, salt );
+			const float x = c[ k ].x + (c[ k + 1 ].x - c[ k ].x) * tt - tz * out * side;
+			const float z = c[ k ].z + (c[ k + 1 ].z - c[ k ].z) * tt + tx * out * side;
+			along += v.plantTreeSpacing * (0.6f + 0.8f * spline_random( sp.id, 9, count, salt ));
+			const int ix = (int)toTexel( x ), iz = (int)toTexel( z );
+			if ( ix < 0 || iz < 0 || ix >= SPLINE_MAP_SIZE || iz >= SPLINE_MAP_SIZE ) continue;
+			if ( protectedTexels.count( (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix ) ) continue;
+			// half a metre above the river's water there
+			const float water = c[ k ].h + (c[ k + 1 ].h - c[ k ].h) * tt + v.waterDepth;
+			float ground = water;
+			if ( !GGTerrain::GGTerrain_GetHeight( x, z, &ground, 1, 1 ) || ground != ground || ground < water + 20.0f ) continue;
+			const uint32_t type = types[ std::min( (size_t)(spline_random( sp.id, 10, count, salt ) * types.size()), types.size() - 1 ) ];
+			const uint32_t scale = (uint32_t)(scaleLow + (scaleHigh - scaleLow) * spline_random( sp.id, 11, count, salt ));
+			const int id = GGTrees::GGTrees_AddTree( x, z, type, scale );
+			if ( id < 0 ) return;
+			GGTrees::GGTreeSlot slot;
+			if ( !GGTrees::GGTrees_GetTreeSlot( (uint32_t)id, &slot ) ) continue;
+			sSplineBakeTree record;
+			record.id = (uint32_t)id;
+			record.x = slot.x;
+			record.z = slot.z;
+			record.data = slot.data;
+			sp.plantedTrees.push_back( record );
+			spline_texelbounds( ix, iz, pBounds );
+		}
 	}
 }
 
@@ -1146,7 +1262,12 @@ static void spline_bakeriver( int si, std::unordered_set<uint32_t>& protectedTex
 	shape.edgeMaterial = v.bankMaterial;
 	shape.grassMargin = v.grassMargin;
 	shape.treeMargin = v.treeMargin;
+	shape.plantGrass = v.plantGrass;
+	shape.plantFrom = v.plantGrassFrom;
+	shape.plantTo = std::max( v.plantGrassFrom, v.plantGrassTo );
+	shape.plantCover = v.plantGrassCover;
 	spline_bakeshape( sp, c, shape, protectedTexels, pBounds );
+	spline_planttrees( sp, c, protectedTexels, pBounds );
 }
 
 // makes the terrain, grass and trees show the changes inside the bounds
@@ -3638,6 +3759,10 @@ static const char* g_pSplineBuiltInPresets =
 	"bedtexture = mat22, kind:stone\n"
 	"banktexture = mat10, kind:dirt\n"
 	"waterdepth = 0.35\n"
+	"bankgrass = Reed\n"
+	"bankgrassfrom = -0.3\n"
+	"bankgrassto = 1.5\n"
+	"bankgrasscover = 0.6\n"
 	"rapids = 1\n"
 	"steepflow = 1.5\n"
 	"bankfoam = 0.2\n"
@@ -3673,6 +3798,10 @@ static const char* g_pSplineBuiltInPresets =
 	"bedtexture = mat22, mat23, kind:stone\n"
 	"banktexture = mat10, kind:dirt\n"
 	"waterdepth = 0.8\n"
+	"bankgrass = Reed\n"
+	"bankgrassfrom = -0.5\n"
+	"bankgrassto = 2.5\n"
+	"bankgrasscover = 0.7\n"
 	"rapids = 1\n"
 	"steepflow = 1.5\n"
 	"bankfoam = 0.25\n"
@@ -3708,6 +3837,10 @@ static const char* g_pSplineBuiltInPresets =
 	"bedtexture = mat10, kind:dirt\n"
 	"banktexture = mat28, kind:dirt\n"
 	"waterdepth = 2.2\n"
+	"bankgrass = Reed\n"
+	"bankgrassfrom = -0.5\n"
+	"bankgrassto = 3\n"
+	"bankgrasscover = 0.6\n"
 	"rapids = 0.8\n"
 	"steepflow = 1.5\n"
 	"bankfoam = 0.3\n"
@@ -3733,6 +3866,10 @@ static const char* g_pSplineBuiltInPresets =
 	"bedtexture = mat10, kind:dirt\n"
 	"banktexture = mat26, kind:sand, kind:dirt\n"
 	"waterdepth = 3.2\n"
+	"bankgrass = Reed\n"
+	"bankgrassfrom = -0.5\n"
+	"bankgrassto = 4\n"
+	"bankgrasscover = 0.5\n"
 	"rapids = 0.5\n"
 	"steepflow = 1.2\n"
 	"bankfoam = 0.3\n"
@@ -3747,6 +3884,10 @@ static const char* g_pSplineBuiltInPresets =
 	"bedtexture = mat10, kind:dirt\n"
 	"banktexture = mat10, kind:dirt\n"
 	"waterdepth = 0.8\n"
+	"bankgrass = Reed\n"
+	"bankgrassfrom = 0\n"
+	"bankgrassto = 1\n"
+	"bankgrasscover = 0.4\n"
 	"rapids = 0\n"
 	"steepflow = 0.5\n"
 	"bankfoam = 0.05\n";
@@ -3943,6 +4084,20 @@ static void spline_parsepresets( const char* pText, bool bUser, std::vector<sSpl
 		else if ( key == "downhill" ) p.river.downhill = i != 0;
 		else if ( key == "waterdepth" ) p.river.waterDepth = f * M;
 		else if ( key == "wadedepth" ) p.river.wadeDepth = f * M;
+		else if ( key == "bankgrass" )
+		{
+			p.river.plantGrass = 0;
+			for ( uint32_t g = 0; g < GGGrass::GGGrass_GetNumSelectableTypes(); g++ )
+			{
+				if ( _stricmp( value.c_str(), GGGrass::GGGrass_GetTextureShortName( 0, g ) ) == 0 ) { p.river.plantGrass = (int)g + 1; break; }
+			}
+		}
+		else if ( key == "bankgrassfrom" ) p.river.plantGrassFrom = f * M;
+		else if ( key == "bankgrassto" ) p.river.plantGrassTo = f * M;
+		else if ( key == "bankgrasscover" ) p.river.plantGrassCover = f;
+		else if ( key == "banktreespacing" ) p.river.plantTreeSpacing = f * M;
+		else if ( key == "banktreesfrom" ) p.river.plantTreeFrom = f * M;
+		else if ( key == "banktreesto" ) p.river.plantTreeTo = f * M;
 		else if ( key == "rapids" ) p.river.rapids = f;
 		else if ( key == "steepflow" ) p.river.steepFlow = f;
 		else if ( key == "bankfoam" ) p.river.foam = f;
@@ -4282,6 +4437,16 @@ static void spline_writepreset( std::string& out, const sSplinePreset& p )
 		number( "downhill", (float)v.downhill );
 		metres( "waterdepth", v.waterDepth );
 		metres( "wadedepth", v.wadeDepth );
+		line( "bankgrass", v.plantGrass > 0 ? GGGrass::GGGrass_GetTextureShortName( 0, (uint32_t)(v.plantGrass - 1) ) : "none" );
+		if ( v.plantGrass > 0 )
+		{
+			metres( "bankgrassfrom", v.plantGrassFrom );
+			metres( "bankgrassto", v.plantGrassTo );
+			number( "bankgrasscover", v.plantGrassCover );
+		}
+		metres( "banktreespacing", v.plantTreeSpacing );
+		metres( "banktreesfrom", v.plantTreeFrom );
+		metres( "banktreesto", v.plantTreeTo );
 		number( "rapids", v.rapids );
 		number( "steepflow", v.steepFlow );
 		number( "bankfoam", v.foam );
@@ -4754,6 +4919,7 @@ static void spline_rowbake( sSpline& s, int* pAutoApply, const char* pWhat, floa
 	}
 	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Take it out of the terrain and keep the spline as a line" );
 	if ( s.baked.empty() ) ImGui::TextWrapped( "%s", *pAutoApply ? "Not baked yet." : "Not baked: press Apply." );
+	else if ( !s.plantedTrees.empty() ) ImGui::Text( "Baked: %d texels, %d trees hidden, %d planted%s", (int)s.baked.size(), (int)s.bakedTrees.size(), (int)s.plantedTrees.size(), spline_signature( s ) != s.bakedSignature ? " (changed)" : "" );
 	else ImGui::Text( "Baked: %d texels, %d trees hidden%s", (int)s.baked.size(), (int)s.bakedTrees.size(), spline_signature( s ) != s.bakedSignature ? " (changed)" : "" );
 }
 
@@ -4977,6 +5143,56 @@ void spline_imgui_panel( float w )
 				spline_row( "Steep Flow Speed" );
 				bChanged |= ImGui::SliderFloat( "##splineriversteepflow", &v.steepFlow, 0.0f, 4.0f, "%.2f" );
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How much faster the water runs where the river is steep; 0 the same everywhere" );
+				// planting along the banks, baked with the river
+				spline_row( "Bank Grass" );
+				if ( ImGui::BeginCombo( "##splineriverbankgrass", v.plantGrass > 0 ? GGGrass::GGGrass_GetTextureShortName( 0, (uint32_t)(v.plantGrass - 1) ) : "None" ) )
+				{
+					if ( ImGui::Selectable( "None##bankgrassnone", v.plantGrass == 0 ) ) { v.plantGrass = 0; bChanged = true; }
+					for ( uint32_t g = 0; g < GGGrass::GGGrass_GetNumSelectableTypes(); g++ )
+					{
+						char label[ 64 ];
+						sprintf_s( label, 64, "%s##bankgrass%u", GGGrass::GGGrass_GetTextureShortName( 0, g ), g );
+						if ( ImGui::Selectable( label, v.plantGrass == (int)g + 1 ) ) { v.plantGrass = (int)g + 1; bChanged = true; }
+					}
+					ImGui::EndCombo();
+				}
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Grass planted along both banks (reeds at the water's edge), as the grass brush paints it; None leaves the banks as they are" );
+				if ( v.plantGrass > 0 )
+				{
+					bChanged |= spline_rowmetres( "Grass From", "##splineriverbankgrassfrom", &v.plantGrassFrom, -10.0f, 20.0f );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Where the band of grass starts, past the edge of the bed (below 0: into the shallows)" );
+					bChanged |= spline_rowmetres( "Grass To", "##splineriverbankgrassto", &v.plantGrassTo, -5.0f, 40.0f );
+					spline_row( "Grass Cover" );
+					bChanged |= ImGui::SliderFloat( "##splineriverbankgrasscover", &v.plantGrassCover, 0.05f, 1.0f, "%.2f" );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How much of the band the grass covers, in patches" );
+				}
+				int treeTypes = 0;
+				for ( uint32_t t = 0; t < 32; t++ ) treeTypes += ((v.plantTreeTypesLow >> t) & 1) + ((v.plantTreeTypesHigh >> t) & 1);
+				spline_row( "Bank Trees" );
+				if ( treeTypes ) ImGui::Text( "%d type%s", treeTypes, treeTypes == 1 ? "" : "s" );
+				else ImGui::TextUnformatted( "None" );
+				ImGui::SetCursorPosX( fRowFieldX );
+				if ( ImGui::StyleButton( "Take the Tree Brush's Types##splineriverbanktrees", ImVec2( 0, 0 ) ) )
+				{
+					const uint64_t brush = GGTrees::ggtrees_global_params.paint_tree_bitfield;
+					v.plantTreeTypesLow = (uint32_t)(brush & 0xFFFFFFFFu);
+					v.plantTreeTypesHigh = (uint32_t)(brush >> 32);
+					v.plantTreeScaleLow = GGTrees::ggtrees_global_params.paint_scale_random_low;
+					v.plantTreeScaleHigh = GGTrees::ggtrees_global_params.paint_scale_random_high;
+					bChanged = true;
+				}
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Trees along both banks of the types (and scales) picked in the tree brush (Trees, Paint) now" );
+				if ( treeTypes )
+				{
+					ImGui::SameLine();
+					if ( ImGui::StyleButton( "No Trees##splineriverbanktreesnone", ImVec2( 0, 0 ) ) ) { v.plantTreeTypesLow = v.plantTreeTypesHigh = 0; bChanged = true; }
+					bChanged |= spline_rowmetres( "Tree Spacing", "##splineriverbanktreespacing", &v.plantTreeSpacing, 2.0f, 60.0f );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "About how far apart the trees are along each bank" );
+					bChanged |= spline_rowmetres( "Trees From", "##splineriverbanktreesfrom", &v.plantTreeFrom, 0.0f, 30.0f );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The trees stand at random between these distances past the edge of the bed (none in the water)" );
+					bChanged |= spline_rowmetres( "Trees To", "##splineriverbanktreesto", &v.plantTreeTo, 0.5f, 60.0f );
+				}
+
 				bool bMainLook = v.mainLook != 0;
 				ImGui::SetCursorPosX( fRowFieldX );
 				if ( ImGui::Checkbox( "Use the Main Water's Look##splinerivermainlook", &bMainLook ) )
@@ -5337,6 +5553,20 @@ void spline_savedata( void )
 		put( &r.markJunctions, sizeof(r.markJunctions) );
 		// version 20: Solid on Crests
 		put( &r.markCrestSight, sizeof(r.markCrestSight) );
+		// version 21: a river's bank planting, and the trees its bake planted
+		const float pf[6] = { v.plantGrassFrom, v.plantGrassTo, v.plantGrassCover, v.plantTreeSpacing, v.plantTreeFrom, v.plantTreeTo };
+		const int32_t pn[5] = { v.plantGrass, (int32_t)v.plantTreeTypesLow, (int32_t)v.plantTreeTypesHigh, v.plantTreeScaleLow, v.plantTreeScaleHigh };
+		put( pf, sizeof(pf) );
+		put( pn, sizeof(pn) );
+		const uint32_t planted = (uint32_t)s.plantedTrees.size();
+		put( &planted, sizeof(planted) );
+		for ( const sSplineBakeTree& tree : s.plantedTrees )
+		{
+			const float xz[2] = { tree.x, tree.z };
+			put( &tree.id, sizeof(tree.id) );
+			put( xz, sizeof(xz) );
+			put( &tree.data, sizeof(tree.data) );
+		}
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -5523,11 +5753,33 @@ void spline_loaddata( void )
 						}
 						if ( version >= 19 ) get( &s.road.markJunctions, sizeof(s.road.markJunctions) );
 						if ( version >= 20 ) get( &s.road.markCrestSight, sizeof(s.road.markCrestSight) );
-						if ( version < 20 && s.preset[0] && s.presetSignature == spline_presetsignature( s, version < 17 ? offsetof( sSplineRiver, wadeDepth ) : sizeof(sSplineRiver), version < 16 ? offsetof( sSplineLayer, layFlat ) : sizeof(sSplineLayer), version < 18 ? offsetof( sSplineRoad, markCentre ) : version < 19 ? offsetof( sSplineRoad, markJunctions ) : offsetof( sSplineRoad, markCrestSight ) ) )
+						float pf[6];
+						int32_t pn[5];
+						if ( version >= 21 && get( pf, sizeof(pf) ) && get( pn, sizeof(pn) ) )
+						{
+							sSplineRiver& v = s.river;
+							v.plantGrassFrom = pf[0]; v.plantGrassTo = pf[1]; v.plantGrassCover = pf[2];
+							v.plantTreeSpacing = pf[3]; v.plantTreeFrom = pf[4]; v.plantTreeTo = pf[5];
+							v.plantGrass = pn[0]; v.plantTreeTypesLow = (uint32_t)pn[1]; v.plantTreeTypesHigh = (uint32_t)pn[2];
+							v.plantTreeScaleLow = pn[3]; v.plantTreeScaleHigh = pn[4];
+							uint32_t planted = 0;
+							if ( get( &planted, sizeof(planted) ) )
+							{
+								for ( uint32_t t = 0; t < planted; t++ )
+								{
+									sSplineBakeTree tree;
+									float xz[2];
+									if ( !get( &tree.id, sizeof(tree.id) ) || !get( xz, sizeof(xz) ) || !get( &tree.data, sizeof(tree.data) ) ) break;
+									tree.x = xz[0]; tree.z = xz[1];
+									s.plantedTrees.push_back( tree );
+								}
+							}
+						}
+						if ( version < 21 && s.preset[0] && s.presetSignature == spline_presetsignature( s, version < 17 ? offsetof( sSplineRiver, wadeDepth ) : offsetof( sSplineRiver, plantGrass ), version < 16 ? offsetof( sSplineLayer, layFlat ) : sizeof(sSplineLayer), version < 18 ? offsetof( sSplineRoad, markCentre ) : version < 19 ? offsetof( sSplineRoad, markJunctions ) : version < 20 ? offsetof( sSplineRoad, markCrestSight ) : sizeof(sSplineRoad) ) )
 						{
 							// still as its preset set it, by the settings that file had: so too by today's (Lay Flat, Wade
-							// Depth, the road's markings, lines at junctions and Solid on Crests added since), so it doesn't
-							// show as edited
+							// Depth, the road's markings, lines at junctions, Solid on Crests and bank planting added since),
+							// so it doesn't show as edited
 							s.presetSignature = spline_presetsignature( s );
 						}
 						if ( version < 12 )

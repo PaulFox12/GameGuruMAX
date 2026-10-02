@@ -265,6 +265,11 @@ uint32_t GGGrass_GetRealIndex( uint32_t matIndex, uint32_t grassTypeIndex )
 	return grassMaterialTypes[ matIndex ][ grassTypeIndex ];
 }
 
+uint32_t GGGrass_GetNumSelectableTypes()
+{
+	return GGGRASS_NUM_SELECTABLE_TYPES;
+}
+
 const char* GGGrass_GetTextureFilename( uint32_t matIndex, uint32_t grassIndex )
 {
 	uint32_t index = GGGrass_GetRealIndex( matIndex, grassIndex );
@@ -792,6 +797,20 @@ void GGGrass_LoadTextures(bool bAll = false,bool bInit = false)
 	}
 }
 #endif
+void GGGrass_UseType( uint32_t realIndex )
+{
+	if ( realIndex >= GGGRASS_NUM_TYPES ) return;
+#ifdef ONLYLOADWHENUSED
+	if ( bGrassTextureUploaded[ realIndex ] ) return;
+	bGrassTextureUploaded[ realIndex ] = true;
+	char grassFilename[ 256 ];
+	strcpy_s( grassFilename, "grassbank/" );
+	strcat_s( grassFilename, grassFiles[ realIndex ].filename );
+	GGGrass_LoadTextureDDSIntoSlice( grassFilename, &texGrass, realIndex );
+	ggterrain_extra_params.iUpdateGrass = 5;
+#endif
+}
+
 void GGGrass_Init_Textures ( LPSTR pRemoteGrassPath )
 {
 	char grassFilename[256];
