@@ -14,6 +14,7 @@ SamplerState sampler1            : register( s1 );
 #include "PBR/lightingHF.hlsli"
 
 #include "GGCommonFunctions.hlsli"
+#include "GGTerrainRockHF.hlsli"
 
 STRUCTUREDBUFFER(EntityTiles, uint, TEXSLOT_RENDERPATH_ENTITYTILES);
 
@@ -220,6 +221,11 @@ float4 main( PixelIn IN ) : SV_TARGET
 	normal = mul( normal, TBN );
 	normal = lerp( IN.normal, normal, terrain_bumpiness );
 	normal = normalize( normal );
+
+	// steep rock over the page's surface
+	float3 posDX = ddx( IN.worldPos );
+	float3 posDY = ddy( IN.worldPos );
+	GGTerrainApplyRock( IN.worldPos, IN.normal, posDX, posDY, sampler1, normal, colorMetalness, normalRoughnessAO );
 
 	// WickedEngine PBR
 	Surface surface;

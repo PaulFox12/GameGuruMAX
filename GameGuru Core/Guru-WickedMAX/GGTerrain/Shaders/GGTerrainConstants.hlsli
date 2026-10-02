@@ -72,9 +72,14 @@ cbuffer TerrainCB : register( b2 )
 	VAR_MAT4X4 terrain_rampWorldMat;
 
 	float    terrain_edgeBreakup; // painted textures meet along an uneven edge, 0 (a straight blend, as before) to 1
+	float    terrain_rockStrength; // steep slopes take a texture laid on from the sides, 0 (none) to 1
+	float    terrain_rockStart; // the slope (1 - normal Y) where it starts
+	float    terrain_rockTransition; // 1.0 / (end - start)
+
+	VAR_UNIT terrain_rockMaterial; // its texture array index
+	float    terrain_rockScale; // 1.0 / its tile size
 	float    terrain_padding3;
 	float    terrain_padding4;
-	float    terrain_padding5;
 };
 
 #endif // GGTERRAIN_CONSTANTS_FULL_DECL

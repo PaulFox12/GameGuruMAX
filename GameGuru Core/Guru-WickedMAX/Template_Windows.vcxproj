@@ -3031,6 +3031,7 @@
     <None Include="GGTerrain\Shaders\GGCommonFunctions.hlsli" />
     <None Include="GGTerrain\Shaders\GGGrassConstants.hlsli" />
     <None Include="GGTerrain\Shaders\GGTerrainConstants.hlsli" />
+    <None Include="GGTerrain\Shaders\GGTerrainRockHF.hlsli" />
     <None Include="GGTerrain\Shaders\GGTreesConstants.hlsli" />
     <None Include="GGTerrain\Shaders\PBR\brdf.hlsli" />
     <None Include="GGTerrain\Shaders\PBR\globals.hlsli" />

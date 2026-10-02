@@ -3618,8 +3618,9 @@ public:
 		if ( !ggterrain_local_render_params3.IsEqual( &ggterrain_global_render_params3 ) )
 		{
 			settingsUpdated = true;
+			// the rock is drawn over the pages, so only the edge breakup makes them again
+			if ( ggterrain_local_render_params3.edgeBreakup != ggterrain_global_render_params3.edgeBreakup ) iFlags |= GGTERRAIN_FLAG_REGENERATE_PAGES;
 			ggterrain_local_render_params3.Copy( &ggterrain_global_render_params3 );
-			iFlags |= GGTERRAIN_FLAG_REGENERATE_PAGES;
 		}
 	}
 	
@@ -5669,6 +5670,11 @@ char* GGTerrain_SaveSettings(int water_height)
 	output += ",\n  \"textureGamma\": ";        output += std::to_string( ggterrain_local_render_params2.textureGamma );
 
 	output += ",\n  \"edgeBreakup\": ";         output += std::to_string( ggterrain_local_render_params3.edgeBreakup );
+	output += ",\n  \"rockStrength\": ";        output += std::to_string( ggterrain_local_render_params3.rockStrength );
+	output += ",\n  \"rockStart\": ";           output += std::to_string( ggterrain_local_render_params3.rockStart );
+	output += ",\n  \"rockEnd\": ";             output += std::to_string( ggterrain_local_render_params3.rockEnd );
+	output += ",\n  \"rockMaterial\": ";        output += std::to_string( ggterrain_local_render_params3.rockMaterial );
+	output += ",\n  \"rockTileSize\": ";        output += std::to_string( ggterrain_local_render_params3.rockTileSize );
 
 
 	//Other settings related to terrain.
@@ -5828,6 +5834,16 @@ int GGTerrain_LoadSettings( const char* settingsJSON, bool bRestoreWater)
 
 	pElement = pObject->GetElement( "edgeBreakup" );
 	if ( pElement ) { ggterrain_global_render_params3.edgeBreakup = ((JSONNumber*)pElement)->m_fValue; }
+	pElement = pObject->GetElement( "rockStrength" );
+	if ( pElement ) { ggterrain_global_render_params3.rockStrength = ((JSONNumber*)pElement)->m_fValue; }
+	pElement = pObject->GetElement( "rockStart" );
+	if ( pElement ) { ggterrain_global_render_params3.rockStart = ((JSONNumber*)pElement)->m_fValue; }
+	pElement = pObject->GetElement( "rockEnd" );
+	if ( pElement ) { ggterrain_global_render_params3.rockEnd = ((JSONNumber*)pElement)->m_fValue; }
+	pElement = pObject->GetElement( "rockMaterial" );
+	if ( pElement ) { ggterrain_global_render_params3.rockMaterial = ((JSONNumber*)pElement)->m_iValue; }
+	pElement = pObject->GetElement( "rockTileSize" );
+	if ( pElement ) { ggterrain_global_render_params3.rockTileSize = ((JSONNumber*)pElement)->m_fValue; }
 
 	//Other settings related to terrain.
 	pElement = pObject->GetElement("water_dist");
@@ -10252,6 +10268,17 @@ void GGTerrain_Update( float playerX, float playerY, float playerZ, wiGraphics::
 
 	terrainConstantData.terrain_readBackReduction = ggterrain_local_render_params2.readBackTextureReduction;
 	terrainConstantData.terrain_edgeBreakup = ggterrain_local_render_params3.edgeBreakup;
+	terrainConstantData.terrain_rockStrength = ggterrain_local_render_params3.rockStrength;
+	terrainConstantData.terrain_rockStart = ggterrain_local_render_params3.rockStart;
+	float rockRange = ggterrain_local_render_params3.rockEnd - ggterrain_local_render_params3.rockStart;
+	if ( rockRange < 0.001f ) rockRange = 0.001f;
+	terrainConstantData.terrain_rockTransition = 1.0f / rockRange;
+	int rockMaterial = ggterrain_local_render_params3.rockMaterial;
+	if ( rockMaterial < 0 ) rockMaterial = ggterrain_local_render_params.slopeMatIndex[ 0 ];
+	terrainConstantData.terrain_rockMaterial = rockMaterial & 0xFF;
+	float rockTileSize = ggterrain_local_render_params3.rockTileSize;
+	if ( rockTileSize < 1.0f ) rockTileSize = 1.0f;
+	terrainConstantData.terrain_rockScale = 1.0f / rockTileSize;
 
 	wiInput::MouseState mouseState = wiInput::GetMouseState();
 	ggterrain_internal_params.mouseLeftState = mouseState.left_button_press;
@@ -11222,6 +11249,13 @@ extern "C" void GGTerrain_Draw_EnvProbe( const SPHERE* culler, const Frustum* fr
 	
 	device->BindResource( PS, &texPageTableArray, 53, cmd );
 	device->BindResource( PS, &texPageTableFinal, 54, cmd );
+
+	// the textures themselves, for the rock on steep slopes (GGTerrainRockHF.hlsli)
+	device->BindResource( PS, &texColorArray, 55, cmd );
+	device->BindResource( PS, &texNormalsArray, 56, cmd );
+#ifdef GGTERRAIN_USE_SURFACE_TEXTURE
+	device->BindResource( PS, &texSurfaceArray, 57, cmd );
+#endif
 	
 #if (GGTERRAIN_TEXTURE_FILTERING == GGTERRAIN_TEXTURE_FILTERING_TRILINEAR)
 	device->BindSampler( PS, &samplerTrilinearWrap, 1, cmd );
@@ -11345,6 +11379,13 @@ extern "C" void GGTerrain_Draw( const Frustum* frustum, int mode, CommandList cm
 	
 	device->BindResource( PS, &texPageTableArray, 53, cmd );
 	device->BindResource( PS, &texPageTableFinal, 54, cmd );
+
+	// the textures themselves, for the rock on steep slopes (GGTerrainRockHF.hlsli)
+	device->BindResource( PS, &texColorArray, 55, cmd );
+	device->BindResource( PS, &texNormalsArray, 56, cmd );
+#ifdef GGTERRAIN_USE_SURFACE_TEXTURE
+	device->BindResource( PS, &texSurfaceArray, 57, cmd );
+#endif
 	
 #if (GGTERRAIN_TEXTURE_FILTERING == GGTERRAIN_TEXTURE_FILTERING_TRILINEAR)
 	device->BindSampler( PS, &samplerTrilinearWrap, 1, cmd );

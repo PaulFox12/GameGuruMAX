@@ -219,6 +219,11 @@ struct GGTerrainRenderParams2
 struct GGTerrainRenderParams3
 {
 	float edgeBreakup = 0; // painted textures meet along an uneven edge, not a straight blend over the material map's cell: 0 (none) to 1
+	float rockStrength = 0; // steep slopes take a texture laid on from the sides (GGTerrainRockHF.hlsli), 0 (none) to 1
+	float rockStart = 0.3f; // the slope (1 - normal Y) where it starts to show
+	float rockEnd = 0.5f; // and where it is full
+	int rockMaterial = -1; // the texture slot, -1 the main slope's (slopeMatIndex[0])
+	float rockTileSize = 128.0f; // the texture repeats this often (units), as the pages do close up
 
 	bool IsEqual( GGTerrainRenderParams3 *other )
 	{

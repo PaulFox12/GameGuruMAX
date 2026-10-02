@@ -1290,6 +1290,9 @@
     <None Include="GGTerrain\Shaders\GGTerrainConstants.hlsli">
       <Filter>GGTerrain\Shaders</Filter>
     </None>
+    <None Include="GGTerrain\Shaders\GGTerrainRockHF.hlsli">
+      <Filter>GGTerrain\Shaders</Filter>
+    </None>
     <None Include="GGTerrain\Shaders\GGTreesConstants.hlsli">
       <Filter>GGTerrain\Shaders</Filter>
     </None>

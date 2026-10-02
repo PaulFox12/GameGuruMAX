@@ -4729,6 +4729,46 @@ void imgui_Customize_Terrain_v3(int mode)
 		ImGui::TextCenter("Painted Edge Breakup");
 		ImGui::SliderFloat("##EdgeBreakup", &ggterrain_global_render_params3.edgeBreakup, 0.0f, 1.0f, "%.2f");
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Painted textures meet along an uneven, narrower edge instead of a straight blend across each paint cell (2 m on an 8 km map), where a diagonal stroke shows as steps; 0 the straight blend");
+
+		GGTerrainRenderParams3& rock = ggterrain_global_render_params3;
+		ImGui::TextCenter("Steep Rock");
+		ImGui::SliderFloat("##RockStrength", &rock.rockStrength, 0.0f, 1.0f, "%.2f");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Steep slopes (cliffs, steep hills) take a texture laid on from the sides, where painting from above stretches it down the slope; 0 none");
+		if (rock.rockStrength > 0)
+		{
+			ImGui::TextCenter("Steep Rock Slope");
+			ImGui::RangeSlider("##RockRange", rock.rockStart, rock.rockEnd, 1.0f);
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Where the rock starts to show and where it is full, by slope as the Slope Layers (0 flat, 1 a vertical face)");
+
+			// the main slope's texture, or one of the palette's (by its texture slot)
+			const bool bPaletteShown = sTerrainTexturesID[0] > 0;
+			cstr current = "The Main Slope's Texture";
+			for (int iL = 0; iL < GGTERRAIN_MAX_SOURCE_TEXTURES; iL++)
+			{
+				if (t.visuals.sTerrainTextures[iL].Len() == 0) continue;
+				int slot = bPaletteShown ? sTerrainSelectionID[iL] : iL;
+				if (slot == rock.rockMaterial) current = t.visuals.sTerrainTexturesName[iL];
+			}
+			ImGui::TextCenter("Steep Rock Texture");
+			if (ImGui::BeginCombo("##RockTexture", current.Get()))
+			{
+				if (ImGui::Selectable("The Main Slope's Texture", rock.rockMaterial < 0)) rock.rockMaterial = -1;
+				for (int iL = 0; iL < GGTERRAIN_MAX_SOURCE_TEXTURES; iL++)
+				{
+					if (t.visuals.sTerrainTextures[iL].Len() == 0) continue;
+					int slot = bPaletteShown ? sTerrainSelectionID[iL] : iL;
+					char name[300];
+					sprintf_s(name, "%s##rocktexture%d", t.visuals.sTerrainTexturesName[iL].Get(), iL);
+					if (ImGui::Selectable(name, slot == rock.rockMaterial)) rock.rockMaterial = slot;
+				}
+				ImGui::EndCombo();
+			}
+
+			ImGui::TextCenter("Steep Rock Tile Size");
+			float tileMetres = GGTerrain_UnitsToMeters(rock.rockTileSize);
+			if (ImGui::SliderFloat("##RockTileSize", &tileMetres, 0.5f, 20.0f, "%.1f m", 2.0f)) rock.rockTileSize = GGTerrain_MetersToUnits(tileMetres);
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How large the rock texture is on the slope (3.3 m matches the painted textures close up)");
+		}
 		ImGui::PopItemWidth();
 		ImGui::Indent(-10);
 		ImGui::Spacing();
