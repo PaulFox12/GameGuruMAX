@@ -596,6 +596,13 @@ void GGRecastDetour::ToggleBlocker(float x, float y, float z, float radius, bool
 						bAnyNavMeshBlockerStateChanged = true;
 					}
 					blocker->bBlocking = enable;
+					// GG: one laid again where it was takes its new angle (a vehicle that turned in place), which matching by
+					// its unturned bounds kept as it was first laid
+					if (enable && blocker->fAngle != fAngle)
+					{
+						blocker->fAngle = fAngle;
+						bAnyNavMeshBlockerStateChanged = true;
+					}
 					break;
 				}
 			}
