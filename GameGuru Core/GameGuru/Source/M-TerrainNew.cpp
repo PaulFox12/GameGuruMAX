@@ -4746,6 +4746,10 @@ void imgui_Customize_Terrain_v3(int mode)
 			ImGui::RangeSlider("##RockRange", rock.rockStart, rock.rockEnd, 1.0f);
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Where the rock starts to show and where it is full, by slope as the Slope Layers (0 flat, 1 a vertical face)");
 
+			ImGui::TextCenter("Steep Rock Edge Breakup");
+			ImGui::SliderFloat("##RockEdgeBreakup", &rock.rockEdgeBreakup, 0.0f, 1.0f, "%.2f");
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The rock runs unevenly into the ground above and below a face, and the ground thins over it, instead of meeting it along the slope's line; 0 the line");
+
 			// the main slope's texture, or one of the palette's (by its texture slot)
 			const bool bPaletteShown = sTerrainTexturesID[0] > 0;
 			cstr current = "The Main Slope's Texture";
@@ -4773,7 +4777,7 @@ void imgui_Customize_Terrain_v3(int mode)
 			ImGui::TextCenter("Steep Rock Tile Size");
 			float tileMetres = GGTerrain_UnitsToMeters(rock.rockTileSize);
 			if (ImGui::SliderFloat("##RockTileSize", &tileMetres, 0.5f, 20.0f, "%.1f m", 2.0f)) rock.rockTileSize = GGTerrain_MetersToUnits(tileMetres);
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How large the rock texture is on the slope (3.3 m matches the painted textures close up)");
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How large the rock texture is on the slope. Cliffs are mostly seen from afar, where the terrain's own textures repeat every 10-60 m; 30 m by default");
 		}
 		ImGui::PopItemWidth();
 		ImGui::Indent(-10);

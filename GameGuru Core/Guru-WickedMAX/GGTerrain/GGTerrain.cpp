@@ -5679,6 +5679,7 @@ char* GGTerrain_SaveSettings(int water_height)
 	output += ",\n  \"rockEnd\": ";             output += std::to_string( ggterrain_local_render_params3.rockEnd );
 	output += ",\n  \"rockMaterial\": ";        output += std::to_string( ggterrain_local_render_params3.rockMaterial );
 	output += ",\n  \"rockTileSize\": ";        output += std::to_string( ggterrain_local_render_params3.rockTileSize );
+	output += ",\n  \"rockEdgeBreakup\": ";     output += std::to_string( ggterrain_local_render_params3.rockEdgeBreakup );
 
 
 	//Other settings related to terrain.
@@ -5852,6 +5853,8 @@ int GGTerrain_LoadSettings( const char* settingsJSON, bool bRestoreWater)
 	if ( pElement ) { ggterrain_global_render_params3.rockMaterial = ((JSONNumber*)pElement)->m_iValue; }
 	pElement = pObject->GetElement( "rockTileSize" );
 	if ( pElement ) { ggterrain_global_render_params3.rockTileSize = ((JSONNumber*)pElement)->m_fValue; }
+	pElement = pObject->GetElement( "rockEdgeBreakup" );
+	if ( pElement ) { ggterrain_global_render_params3.rockEdgeBreakup = ((JSONNumber*)pElement)->m_fValue; }
 
 	//Other settings related to terrain.
 	pElement = pObject->GetElement("water_dist");
@@ -10289,6 +10292,7 @@ void GGTerrain_Update( float playerX, float playerY, float playerZ, wiGraphics::
 	float rockTileSize = ggterrain_local_render_params3.rockTileSize;
 	if ( rockTileSize < 1.0f ) rockTileSize = 1.0f;
 	terrainConstantData.terrain_rockScale = 1.0f / rockTileSize;
+	terrainConstantData.terrain_rockEdgeBreakup = ggterrain_local_render_params3.rockEdgeBreakup;
 
 	wiInput::MouseState mouseState = wiInput::GetMouseState();
 	ggterrain_internal_params.mouseLeftState = mouseState.left_button_press;

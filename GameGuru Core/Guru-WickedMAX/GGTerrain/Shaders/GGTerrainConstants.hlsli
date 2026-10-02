@@ -80,6 +80,11 @@ cbuffer TerrainCB : register( b2 )
 	float    terrain_rockScale; // 1.0 / its tile size
 	float    terrain_edgeSmoothing; // painted textures meet along a smooth line fitted through the cells, 0 (none) to 1
 	float    terrain_edgeSoftness; // with smoothing or breakup, 0 a crisp line, 1 a blend over a few metres
+
+	float    terrain_rockEdgeBreakup; // the rock's edge moved by a noise in world space, and blended wider, 0 to 1
+	float    terrain_padding3;
+	float    terrain_padding4;
+	float    terrain_padding5;
 };
 
 #endif // GGTERRAIN_CONSTANTS_FULL_DECL

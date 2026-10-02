@@ -225,7 +225,8 @@ struct GGTerrainRenderParams3
 	float rockStart = 0.3f; // the slope (1 - normal Y) where it starts to show
 	float rockEnd = 0.5f; // and where it is full
 	int rockMaterial = -1; // the texture slot, -1 the main slope's (slopeMatIndex[0])
-	float rockTileSize = 128.0f; // the texture repeats this often (units), as the pages do close up
+	float rockTileSize = 1181.1f; // the texture repeats this often (units, 30 m: a cliff is mostly seen from afar, where the pages' own tiling is 10-60 m)
+	float rockEdgeBreakup = 0.5f; // the rock's edge moved by a noise in world space, so it runs unevenly into the ground, and blended wider: 0 (a slope line) to 1
 
 	bool IsEqual( GGTerrainRenderParams3 *other )
 	{

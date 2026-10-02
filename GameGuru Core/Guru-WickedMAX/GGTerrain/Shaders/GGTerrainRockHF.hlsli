@@ -9,6 +9,26 @@ Texture2DArray<float2> texRockNormal  : register( t56 );
 Texture2DArray<float4> texRockSurface : register( t57 ); // R: occlusion, G: roughness, B: metalness
 #endif
 
+// value noise, -1 to 1, smooth at a scale of 1
+float RockHash( float2 p )
+{
+	float3 p3 = frac( p.xyx * 0.1031 );
+	p3 += dot( p3, p3.yzx + 33.33 );
+	return frac( (p3.x + p3.y) * p3.z );
+}
+
+float RockNoise( float2 p )
+{
+	float2 cell = floor( p );
+	float2 f = frac( p );
+	f = f * f * (3 - 2 * f);
+	float a = RockHash( cell );
+	float b = RockHash( cell + float2(1, 0) );
+	float c = RockHash( cell + float2(0, 1) );
+	float d = RockHash( cell + float2(1, 1) );
+	return lerp( lerp( a, b, f.x ), lerp( c, d, f.x ), f.y ) * 2 - 1;
+}
+
 struct RockSurface
 {
 	float3 color;
@@ -48,7 +68,18 @@ void AddRockSide( inout RockSurface rock, float weight, float2 uv, float2 uvDX, 
 void GGTerrainApplyRock( float3 worldPos, float3 geometricNormal, float3 posDX, float3 posDY, SamplerState samp, inout float3 normal, inout float4 colorMetalness, inout float4 normalRoughnessAO )
 {
 	float3 N = normalize( geometricNormal );
-	float slope = saturate( (1 - abs( N.y ) - terrain_rockStart) * terrain_rockTransition );
+	float slope = 1 - abs( N.y );
+
+	// the edge broken up: the slope moved by a noise in world space (about 8 m and 3 m across, the height mixed in so it
+	// varies down a face too), so the rock runs unevenly into the ground above and below a face rather than along a line
+	[branch]
+	if ( terrain_rockStrength > 0 && terrain_rockEdgeBreakup > 0 )
+	{
+		float2 np = float2( worldPos.x + worldPos.y * 0.6, worldPos.z - worldPos.y * 0.4 ) / 315.0;
+		float n = RockNoise( np ) * 0.7 + RockNoise( np * 2.7 + 17.3 ) * 0.3;
+		slope += n * 0.2 * terrain_rockEdgeBreakup;
+	}
+	slope = saturate( (slope - terrain_rockStart) * terrain_rockTransition );
 	slope = slope * slope * (3 - 2 * slope);
 
 	[branch]
@@ -72,10 +103,11 @@ void GGTerrainApplyRock( float3 worldPos, float3 geometricNormal, float3 posDX, 
 		float3 rockNormal = normalize( rock.normal );
 		rockNormal = normalize( lerp( N, rockNormal, terrain_bumpiness ) );
 
-		// where it starts, the rock's raised parts (light in its occlusion) show first and its cracks fill last
+		// where it starts, the rock's raised parts (light in its occlusion) show first and its cracks fill last; the edge
+		// breakup widens the blend, so the ground thins over the rock rather than stopping
 		float rockWeight = slope + rock.occlusion * 0.5;
 		float pageWeight = (1 - slope) + 0.25;
-		float top = max( rockWeight, pageWeight ) - 0.2;
+		float top = max( rockWeight, pageWeight ) - (0.2 + 0.3 * terrain_rockEdgeBreakup);
 		rockWeight = max( rockWeight - top, 0 );
 		pageWeight = max( pageWeight - top, 0 );
 		float amount = rockWeight / (rockWeight + pageWeight) * terrain_rockStrength;
