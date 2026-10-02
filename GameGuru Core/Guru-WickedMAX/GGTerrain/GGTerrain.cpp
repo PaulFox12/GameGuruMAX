@@ -3618,8 +3618,10 @@ public:
 		if ( !ggterrain_local_render_params3.IsEqual( &ggterrain_global_render_params3 ) )
 		{
 			settingsUpdated = true;
-			// the rock is drawn over the pages, so only the edge breakup makes them again
-			if ( ggterrain_local_render_params3.edgeBreakup != ggterrain_global_render_params3.edgeBreakup ) iFlags |= GGTERRAIN_FLAG_REGENERATE_PAGES;
+			// the rock is drawn over the pages, so only the painted edges make them again
+			if ( ggterrain_local_render_params3.edgeBreakup != ggterrain_global_render_params3.edgeBreakup
+			  || ggterrain_local_render_params3.edgeSmoothing != ggterrain_global_render_params3.edgeSmoothing
+			  || ggterrain_local_render_params3.edgeSoftness != ggterrain_global_render_params3.edgeSoftness ) iFlags |= GGTERRAIN_FLAG_REGENERATE_PAGES;
 			ggterrain_local_render_params3.Copy( &ggterrain_global_render_params3 );
 		}
 	}
@@ -5670,6 +5672,8 @@ char* GGTerrain_SaveSettings(int water_height)
 	output += ",\n  \"textureGamma\": ";        output += std::to_string( ggterrain_local_render_params2.textureGamma );
 
 	output += ",\n  \"edgeBreakup\": ";         output += std::to_string( ggterrain_local_render_params3.edgeBreakup );
+	output += ",\n  \"edgeSmoothing\": ";       output += std::to_string( ggterrain_local_render_params3.edgeSmoothing );
+	output += ",\n  \"edgeSoftness\": ";        output += std::to_string( ggterrain_local_render_params3.edgeSoftness );
 	output += ",\n  \"rockStrength\": ";        output += std::to_string( ggterrain_local_render_params3.rockStrength );
 	output += ",\n  \"rockStart\": ";           output += std::to_string( ggterrain_local_render_params3.rockStart );
 	output += ",\n  \"rockEnd\": ";             output += std::to_string( ggterrain_local_render_params3.rockEnd );
@@ -5834,6 +5838,10 @@ int GGTerrain_LoadSettings( const char* settingsJSON, bool bRestoreWater)
 
 	pElement = pObject->GetElement( "edgeBreakup" );
 	if ( pElement ) { ggterrain_global_render_params3.edgeBreakup = ((JSONNumber*)pElement)->m_fValue; }
+	pElement = pObject->GetElement( "edgeSmoothing" );
+	if ( pElement ) { ggterrain_global_render_params3.edgeSmoothing = ((JSONNumber*)pElement)->m_fValue; }
+	pElement = pObject->GetElement( "edgeSoftness" );
+	if ( pElement ) { ggterrain_global_render_params3.edgeSoftness = ((JSONNumber*)pElement)->m_fValue; }
 	pElement = pObject->GetElement( "rockStrength" );
 	if ( pElement ) { ggterrain_global_render_params3.rockStrength = ((JSONNumber*)pElement)->m_fValue; }
 	pElement = pObject->GetElement( "rockStart" );
@@ -10268,6 +10276,8 @@ void GGTerrain_Update( float playerX, float playerY, float playerZ, wiGraphics::
 
 	terrainConstantData.terrain_readBackReduction = ggterrain_local_render_params2.readBackTextureReduction;
 	terrainConstantData.terrain_edgeBreakup = ggterrain_local_render_params3.edgeBreakup;
+	terrainConstantData.terrain_edgeSmoothing = ggterrain_local_render_params3.edgeSmoothing;
+	terrainConstantData.terrain_edgeSoftness = ggterrain_local_render_params3.edgeSoftness;
 	terrainConstantData.terrain_rockStrength = ggterrain_local_render_params3.rockStrength;
 	terrainConstantData.terrain_rockStart = ggterrain_local_render_params3.rockStart;
 	float rockRange = ggterrain_local_render_params3.rockEnd - ggterrain_local_render_params3.rockStart;

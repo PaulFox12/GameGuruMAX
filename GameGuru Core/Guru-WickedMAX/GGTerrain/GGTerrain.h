@@ -219,6 +219,8 @@ struct GGTerrainRenderParams2
 struct GGTerrainRenderParams3
 {
 	float edgeBreakup = 0; // painted textures meet along an uneven edge, not a straight blend over the material map's cell: 0 (none) to 1
+	float edgeSmoothing = 0; // painted textures meet along a smooth line fitted through the cells (a diagonal stroke runs straight): 0 (none) to 1
+	float edgeSoftness = 0.5f; // with smoothing or breakup, how wide the blend is: 0 a crisp line, 1 a blend over a few metres
 	float rockStrength = 0; // steep slopes take a texture laid on from the sides (GGTerrainRockHF.hlsli), 0 (none) to 1
 	float rockStart = 0.3f; // the slope (1 - normal Y) where it starts to show
 	float rockEnd = 0.5f; // and where it is full

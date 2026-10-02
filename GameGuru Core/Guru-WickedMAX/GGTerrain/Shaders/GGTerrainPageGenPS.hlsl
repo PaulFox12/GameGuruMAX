@@ -136,6 +136,15 @@ float EdgeNoise( float2 p )
 	return lerp( lerp( a, b, f.x ), lerp( c, d, f.x ), f.y ) * 2 - 1;
 }
 
+// a uniform cubic B-spline's four weights at f (0-1, between the second and third of four samples)
+float4 BSplineWeights( float f )
+{
+	float f2 = f * f;
+	float f3 = f2 * f;
+	float g = 1 - f;
+	return float4( g * g * g, 3 * f3 - 6 * f2 + 4, -3 * f3 + 3 * f2 + 3 * f + 1, f3 ) / 6;
+}
+
 SurfaceValues SampleTexture2( uint index, float2 uv, float4 uvDXY, uint mask[4], float2 interp )
 {
 	uint material = index & 0xFF;
@@ -215,15 +224,18 @@ PixelOut main( PixelIn IN )
 	maskArray[3] = mask.w * 255;
 
 	// user material map
-	// edge breakup: the map read where a smooth noise moves it, by up to a third of its cell, so the edges painted along its
-	// cells don't run straight; faded out on pages whose texels span a cell or more (the distance), which keep the old blend
+	// painted edges (Texture Blending): smoothing fits a smooth line through the cells, so a diagonal stroke runs straight
+	// instead of in steps; softness sets how wide the blend is; breakup reads the map where a smooth noise moves it, by up
+	// to a third of a cell, and moves each material's share by a noise of its own, for an uneven edge. All faded out on
+	// pages whose texels span a cell or more (the distance), which keep the old blend
 	float2 uvMat = IN.uvMat;
 	float2 matCell = IN.uvMat * 4096;
 	float footprint = max( length( ddx( matCell ) ), length( ddy( matCell ) ) );
-	float breakup = 0;
-	if ( terrain_edgeBreakup > 0 )
+	float edgeFade = saturate( 2 - footprint * 2 );
+	float breakup = terrain_edgeBreakup * edgeFade;
+	float smoothing = terrain_edgeSmoothing * edgeFade;
+	if ( breakup > 0 )
 	{
-		breakup = terrain_edgeBreakup * saturate( 2 - footprint * 2 );
 		float2 warp = float2( EdgeNoise( matCell * 0.7 ), EdgeNoise( matCell * 0.7 + 31.7 ) );
 		uvMat += warp * (breakup * 0.35 / 4096);
 	}
@@ -259,9 +271,102 @@ PixelOut main( PixelIn IN )
 	uvdxy.xy = ddx( IN.uv );
 	uvdxy.zw = ddy( IN.uv );
 
-	SurfaceValues finalSurface;
+	// the materials to blend: the four cells round the point (the old blend), or with the edges shaped, the four materials
+	// with the largest shares of the 4 x 4 cells round it
+	bool shaped = smoothing > 0 || breakup > 0;
+	uint blendMat[4];
+	blendMat[0] = matArray[0];
+	blendMat[1] = matArray[1];
+	blendMat[2] = matArray[2];
+	blendMat[3] = matArray[3];
+	float4 blendWeight = float4( 0, 0, 0, 0 );
+	if ( shaped )
+	{
+		// each cell's weight, bilinear (the old blend) eased into a cubic B-spline by the smoothing; a material's share is
+		// the sum over its cells, and with the B-spline its middle runs close to the line painted, not round each cell
+		float2 p = uvMat * 4096 - 0.5;
+		float2 cellBase = floor( p );
+		float2 f = p - cellBase;
+		float4 wx = lerp( float4( 0, 1 - f.x, f.x, 0 ), BSplineWeights( f.x ), smoothing );
+		float4 wy = lerp( float4( 0, 1 - f.y, f.y, 0 ), BSplineWeights( f.y ), smoothing );
+		uint cellMat[16];
+		float cellWeight[16];
+		[unroll]
+		for( uint cy = 0; cy < 4; cy++ )
+		{
+			[unroll]
+			for( uint cx = 0; cx < 4; cx++ )
+			{
+				int2 cellPos = clamp( int2( cellBase ) + int2( cx, cy ) - 1, 0, 4095 );
+				cellMat[ cy * 4 + cx ] = (uint)(texMaterialMap.Load( int3( cellPos, 0 ) ) * 255 + 0.5);
+				cellWeight[ cy * 4 + cx ] = wx[ cx ] * wy[ cy ];
+			}
+		}
 
-	if ( !all(materialMap) )
+		float share[16];
+		[loop]
+		for( uint a = 0; a < 16; a++ )
+		{
+			share[a] = 0;
+			for( uint b = 0; b < 16; b++ ) if ( cellMat[b] == cellMat[a] ) share[a] += cellWeight[b];
+		}
+		float4 pickShare = float4( 0, 0, 0, 0 );
+		[unroll]
+		for( uint k = 0; k < 4; k++ )
+		{
+			blendMat[k] = 0;
+			[loop]
+			for( uint c = 0; c < 16; c++ )
+			{
+				bool taken = false;
+				for( uint q = 0; q < k; q++ ) if ( pickShare[q] > 0 && blendMat[q] == cellMat[c] ) taken = true;
+				if ( !taken && share[c] > pickShare[k] )
+				{
+					pickShare[k] = share[c];
+					blendMat[k] = cellMat[c];
+				}
+			}
+		}
+
+		// moved by the breakup, each material by a noise of its own, and sharpened by the softness (1 the shares as they
+		// are, a blend over a few metres with the smoothing; 0 a crisp line)
+		float sharpness = 1 + 11 * (1 - terrain_edgeSoftness) * edgeFade;
+		[unroll]
+		for( uint m = 0; m < 4; m++ )
+		{
+			float pushed = pickShare[m];
+			if ( pushed > 0 && breakup > 0 )
+			{
+				float2 np = matCell * 1.3 + blendMat[m] * 7.31;
+				float n = EdgeNoise( np ) * 0.7 + EdgeNoise( np * 2.8 + 11.1 ) * 0.3;
+				pushed = saturate( pushed + n * 0.3 * breakup );
+			}
+			blendWeight[m] = pushed > 0 ? pow( pushed, sharpness ) : 0;
+		}
+		float total = dot( blendWeight, float4( 1, 1, 1, 1 ) );
+		if ( total > 0.0001 ) blendWeight /= total;
+		else blendWeight = pickShare / max( dot( pickShare, float4( 1, 1, 1, 1 ) ), 0.0001 );
+
+		// a material with almost nothing left isn't sampled
+		[unroll]
+		for( uint z = 0; z < 4; z++ )
+		{
+			if ( blendWeight[z] < 0.002 )
+			{
+				blendWeight[z] = 0;
+				blendMat[z] = 0;
+			}
+		}
+		blendWeight /= max( dot( blendWeight, float4( 1, 1, 1, 1 ) ), 0.0001 );
+	}
+
+	// the height and slope layers, where a material to blend is none painted
+	bool needBase = false;
+	for( uint nb = 0; nb < 4; nb++ ) if ( blendMat[nb] == 0 && (!shaped || blendWeight[nb] > 0) ) needBase = true;
+
+	SurfaceValues finalSurface = (SurfaceValues) 0;
+
+	if ( needBase )
 	{
 		finalSurface = SampleTexture2( terrain_baseLayerMaterial, IN.uv, uvdxy, maskArray, interp );
 
@@ -298,32 +403,14 @@ PixelOut main( PixelIn IN )
 	SurfaceValues surfaces[4];
 	for( uint i = 0; i < 4; i++ )
 	{
-		if ( matArray[i] == 0 ) surfaces[ i ] = finalSurface;
-		else surfaces[ i ] = SampleTexture2( matArray[i]-1 | 0x100, IN.uv, uvdxy, maskArray, interp );
+		if ( blendMat[i] == 0 ) surfaces[ i ] = finalSurface;
+		else surfaces[ i ] = SampleTexture2( blendMat[i]-1 | 0x100, IN.uv, uvdxy, maskArray, interp );
 	}	
 
 	// blend user painted materials with default height based materials calculated above
-	if ( breakup > 0 )
+	if ( shaped )
 	{
-		// each material's share of the four cells (the corners' bilinear weights, summed where they hold the same material),
-		// moved by a noise of that material's own and sharpened, so where two meet the edge follows the middle of the blend
-		// (diagonal along a diagonal stroke, not a staircase of cells) unevenly, and the blend is narrower
-		float4 weight = float4( (1 - interp2.x) * interp2.y, interp2.x * interp2.y, interp2.x * (1 - interp2.y), (1 - interp2.x) * (1 - interp2.y) );
-		float sharpness = 1 + 5 * breakup;
-		float4 edgeWeight;
-		for( uint c = 0; c < 4; c++ )
-		{
-			float share = 0;
-			for( uint o = 0; o < 4; o++ ) if ( matArray[o] == matArray[c] ) share += weight[o];
-			float2 p = matCell * 1.3 + matArray[c] * 7.31;
-			float n = EdgeNoise( p ) * 0.7 + EdgeNoise( p * 2.8 + 11.1 ) * 0.3;
-			float pushed = saturate( share + n * 0.3 * breakup );
-			edgeWeight[c] = weight[c] / max( share, 0.0001 ) * pow( pushed, sharpness );
-		}
-		float total = dot( edgeWeight, float4( 1, 1, 1, 1 ) );
-		if ( total > 0.0001 ) edgeWeight /= total;
-		else edgeWeight = weight;
-		finalSurface = WeightSurfaces( surfaces, edgeWeight );
+		finalSurface = WeightSurfaces( surfaces, blendWeight );
 	}
 	else
 	{

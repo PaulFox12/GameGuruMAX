@@ -78,8 +78,8 @@ cbuffer TerrainCB : register( b2 )
 
 	VAR_UNIT terrain_rockMaterial; // its texture array index
 	float    terrain_rockScale; // 1.0 / its tile size
-	float    terrain_padding3;
-	float    terrain_padding4;
+	float    terrain_edgeSmoothing; // painted textures meet along a smooth line fitted through the cells, 0 (none) to 1
+	float    terrain_edgeSoftness; // with smoothing or breakup, 0 a crisp line, 1 a blend over a few metres
 };
 
 #endif // GGTERRAIN_CONSTANTS_FULL_DECL

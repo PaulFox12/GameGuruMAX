@@ -4726,9 +4726,15 @@ void imgui_Customize_Terrain_v3(int mode)
 	{
 		ImGui::Indent(10);
 		ImGui::PushItemWidth(-10);
+		ImGui::TextCenter("Painted Edge Smoothing");
+		ImGui::SliderFloat("##EdgeSmoothing", &ggterrain_global_render_params3.edgeSmoothing, 0.0f, 1.0f, "%.2f");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Painted textures meet along a smooth line fitted through the paint cells (2 m on an 8 km map), so a diagonal stroke runs straight instead of in steps; 0 the old blend. A stroke one cell wide comes out a little thinner");
+		ImGui::TextCenter("Painted Edge Softness");
+		ImGui::SliderFloat("##EdgeSoftness", &ggterrain_global_render_params3.edgeSoftness, 0.0f, 1.0f, "%.2f");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("With smoothing or breakup: how wide the blend between painted textures is, 0 a crisp line, 1 a soft blend over a few metres");
 		ImGui::TextCenter("Painted Edge Breakup");
 		ImGui::SliderFloat("##EdgeBreakup", &ggterrain_global_render_params3.edgeBreakup, 0.0f, 1.0f, "%.2f");
-		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Painted textures meet along an uneven, narrower edge instead of a straight blend across each paint cell (2 m on an 8 km map), where a diagonal stroke shows as steps; 0 the straight blend");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Painted textures meet along an uneven, natural edge (a noise of a metre or two); 0 none");
 
 		GGTerrainRenderParams3& rock = ggterrain_global_render_params3;
 		ImGui::TextCenter("Steep Rock");
