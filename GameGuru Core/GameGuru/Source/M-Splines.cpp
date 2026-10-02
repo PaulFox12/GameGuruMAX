@@ -80,7 +80,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 18 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth; 18: road markings
+#define SPLINE_FILE_VERSION 19 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth; 18: road markings; 19: At Junctions
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -127,6 +127,10 @@ struct sRiverTexel
 #define SPLINE_MARK_SOLID 2
 #define SPLINE_MARK_DOUBLE 3
 #define SPLINE_MARK_SOLIDDASHED 4 // solid on the left (seen from the first node), dashed on the right
+// a road's lines where another road's carriageway crosses or joins it (At Junctions)
+#define SPLINE_MARKJUNCTION_CONTINUE 0
+#define SPLINE_MARKJUNCTION_STOP 1
+#define SPLINE_MARKJUNCTION_GUIDE 2 // the centre and edge lines across it as short guide dashes (0.5 m, 0.5 m gaps)
 // a segment's own markings over the road's
 #define SPLINE_SEGMARK_ROAD -1
 #define SPLINE_SEGMARK_NONE 0 // no lines
@@ -188,6 +192,7 @@ struct sSplineRoad
 	float markGap = 354.3f; // and the gap after it (9 m)
 	float markBendRadius = 0.0f; // the centre line solid where the road bends tighter than this, 0 never
 	float markWear = 0.0f; // 0 fresh paint, 1 worn away in patches
+	int markJunctions = 0; // SPLINE_MARKJUNCTION_*: its lines on another road's carriageway (a junction, a crossing)
 };
 
 // a river's settings, in units (the panel shows metres)
@@ -1948,8 +1953,9 @@ struct sSplineAvoid
 
 // whether a point is on one of these carriageways: within half its width of its line, which ends square at its first and
 // last points (another road joined end to end runs on up to the junction, rather than stopping half a width short of a
-// round end) and is round at its bends (so a point outside a bend isn't missed between two pieces)
-static bool spline_oncarriageway( const std::vector<sSplineAvoid>& roads, float x, float z )
+// round end) and is round at its bends (so a point outside a bend isn't missed between two pieces); endTrim ends each
+// road that far short of its ends
+static bool spline_oncarriageway( const std::vector<sSplineAvoid>& roads, float x, float z, float endTrim = 0.0f )
 {
 	for ( const sSplineAvoid& road : roads )
 	{
@@ -1962,7 +1968,8 @@ static bool spline_oncarriageway( const std::vector<sSplineAvoid>& roads, float 
 			const float dx = b.x - a.x, dz = b.z - a.z;
 			const float len2 = dx * dx + dz * dz;
 			float tt = len2 > 0 ? ((x - a.x) * dx + (z - a.z) * dz) / len2 : 0;
-			if ( (k == 1 && tt < 0) || (k == last && tt > 1) ) continue;
+			const float trim = len2 > 0 ? endTrim / sqrtf( len2 ) : 0;
+			if ( (k == 1 && tt < trim) || (k == last && tt > 1 - trim) ) continue;
 			tt = std::min( 1.0f, std::max( 0.0f, tt ) );
 			const float px = a.x + dx * tt - x, pz = a.z + dz * tt - z;
 			if ( px * px + pz * pz < road.halfWidth * road.halfWidth ) return true;
@@ -1990,7 +1997,9 @@ static uint64_t spline_markingshape( const sSpline& s )
 // their bounds. None on an earlier road's carriageway in the list, so a road that joins or crosses an earlier one stops
 // its lines at the earlier one's edge, whose lines run on as a main road's do. The centre line goes solid where the road
 // bends tighter than its Solid on Bends, with dashes three times longer than their gaps before and after (warning lines);
-// a segment's own markings take over the road's
+// a segment's own markings take over the road's. Where another road's carriageway crosses or joins it, its At
+// Junctions: run on, stop, or the centre and edge lines cross as guide dashes; the other road taken as ending half a metre
+// short of its ends, so a road joined at a T breaks the edge line across its mouth and leaves the centre line
 static void spline_markings( int si, std::vector<GGTerrain::GGTerrainMarking>& out, float* pBounds )
 {
 	pBounds[0] = pBounds[1] = 1e30f;
@@ -2095,6 +2104,25 @@ static void spline_markings( int si, std::vector<GGTerrain::GGTerrainMarking>& o
 	}
 	auto onEarlierRoad = [&avoid]( float x, float z ) { return spline_oncarriageway( avoid, x, z ); };
 
+	// every other road's carriageway, for At Junctions
+	std::vector<sSplineAvoid> others;
+	if ( r.markJunctions != SPLINE_MARKJUNCTION_CONTINUE )
+	{
+		float bounds[4];
+		spline_bounds( s, s.road.width, bounds );
+		for ( int sj = 0; sj < (int)g_Splines.size(); sj++ )
+		{
+			const sSpline& o = g_Splines[ sj ];
+			if ( sj == si || o.kind != SPLINE_KIND_ROAD ) continue;
+			sSplineAvoid road;
+			spline_bounds( o, o.road.width * 0.5f + 100.0f, road.bounds );
+			if ( !spline_overlap( bounds, road.bounds ) ) continue;
+			spline_sample( o, 100.0f, road.line );
+			road.halfWidth = o.road.width * 0.5f;
+			others.push_back( road );
+		}
+	}
+
 	// the lines: two for the centre (one, or a pair either side of it), the lanes' each side, the edges; each keeps its own
 	// length along it, so its dashes run on from piece to piece
 	const float white[3] = { 0.72f, 0.72f, 0.68f }, yellow[3] = { 0.75f, 0.48f, 0.04f };
@@ -2147,7 +2175,18 @@ static void spline_markings( int si, std::vector<GGTerrain::GGTerrainMarking>& o
 			const float ax = c[i].x + nx[i] * offset, az = c[i].z + nz[i] * offset;
 			const float bx = c[i+1].x + nx[i+1] * offset, bz = c[i+1].z + nz[i+1] * offset;
 			const float length = sqrtf( (bx - ax) * (bx - ax) + (bz - az) * (bz - az) );
-			if ( bLine && !onEarlierRoad( (ax + bx) * 0.5f, (az + bz) * 0.5f ) )
+			const float mx = (ax + bx) * 0.5f, mz = (az + bz) * 0.5f;
+			if ( bLine && onEarlierRoad( mx, mz ) ) bLine = false;
+			if ( bLine && !others.empty() && spline_oncarriageway( others, mx, mz, 20.0f ) )
+			{
+				if ( r.markJunctions == SPLINE_MARKJUNCTION_STOP || (slot >= 2 && slot < slots - 2) ) bLine = false;
+				else
+				{
+					dash = 19.7f;
+					gap = 19.7f;
+				}
+			}
+			if ( bLine )
 			{
 				GGTerrain::GGTerrainMarking piece;
 				piece.ax = ax; piece.az = az; piece.bx = bx; piece.bz = bz;
@@ -3346,6 +3385,7 @@ static const char* g_pSplineBuiltInPresets =
 	"dash = 2\n"
 	"gap = 6\n"
 	"wear = 0.5\n"
+	"junctions = stop\n"
 	"layer = Patches\n"
 	"entity = find:pothole | find:roadpatch | find:asphaltpatch | Basement Collection\\Decals\\Concrete - Patch 1.fpe\n"
 	"spacing = 55\n"
@@ -3377,6 +3417,7 @@ static const char* g_pSplineBuiltInPresets =
 	"edgelines = 1\n"
 	"edgeinset = 0.2\n"
 	"wear = 0.15\n"
+	"junctions = guide\n"
 	"layer = Streetlights\n"
 	"entity = find:streetlight | find:streetlamp | find:lamppost\n"
 	"spacing = 32\n"
@@ -3412,6 +3453,7 @@ static const char* g_pSplineBuiltInPresets =
 	"dash = 2\n"
 	"gap = 6\n"
 	"wear = 0.25\n"
+	"junctions = stop\n"
 	"layer = Streetlights\n"
 	"entity = find:streetlight | find:streetlamp | find:lamppost\n"
 	"spacing = 25\n"
@@ -3437,6 +3479,7 @@ static const char* g_pSplineBuiltInPresets =
 	"edgelines = 1\n"
 	"edgeinset = 0.2\n"
 	"wear = 0.1\n"
+	"junctions = guide\n"
 	"layer = Streetlights\n"
 	"entity = find:streetlight | find:streetlamp | find:lamppost\n"
 	"spacing = 45\n"
@@ -3757,6 +3800,11 @@ static void spline_parsepresets( const char* pText, bool bUser, std::vector<sSpl
 		else if ( key == "gap" ) p.road.markGap = f * M;
 		else if ( key == "solidonbends" ) p.road.markBendRadius = f * M;
 		else if ( key == "wear" ) p.road.markWear = f;
+		else if ( key == "junctions" )
+		{
+			const std::string v = spline_lower( value );
+			p.road.markJunctions = v == "stop" ? SPLINE_MARKJUNCTION_STOP : v == "guide" ? SPLINE_MARKJUNCTION_GUIDE : SPLINE_MARKJUNCTION_CONTINUE;
+		}
 		else if ( key == "texture" || key == "bedtexture" ) p.textures[0] = value;
 		else if ( key == "edgetexture" || key == "banktexture" ) p.textures[1] = value;
 		else if ( key == "bedwidth" ) p.river.bedWidth = f * M;
@@ -4086,6 +4134,8 @@ static void spline_writepreset( std::string& out, const sSplinePreset& p )
 		metres( "gap", r.markGap );
 		metres( "solidonbends", r.markBendRadius );
 		number( "wear", r.markWear );
+		const char* junctions[] = { "continue", "stop", "guide" };
+		line( "junctions", junctions[ std::min( 2, std::max( 0, r.markJunctions ) ) ] );
 	}
 	else
 	{
@@ -4745,6 +4795,10 @@ void spline_imgui_panel( float w )
 					spline_row( "Wear" );
 					bChanged |= ImGui::SliderFloat( "##splinemarkwear", &r.markWear, 0.0f, 1.0f, "%.2f" );
 					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "0 fresh paint; higher wears the lines away in patches (old country roads)" );
+					const char* junctions[] = { "Continue", "Stop", "Guide Dashes" };
+					spline_row( "At Junctions" );
+					bChanged |= ImGui::Combo( "##splinemarkjunctions", &r.markJunctions, junctions, 3 );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Its lines where another road crosses or joins it: run on, stop, or cross as short guide dashes.\nAt a T junction only the edge line breaks across the side road's mouth; at a crossroads every line does.\nA road lower in the list always stops at the edge of one higher up." );
 				}
 				if ( bChanged ) spline_modified();
 				spline_rowbake( s, &r.autoApply, "Road", w );
@@ -5146,6 +5200,8 @@ void spline_savedata( void )
 		put( mf, sizeof(mf) );
 		put( mi, sizeof(mi) );
 		for ( const sSplineNode& node : s.nodes ) put( &node.segMark, sizeof(node.segMark) );
+		// version 19: lines at junctions
+		put( &r.markJunctions, sizeof(r.markJunctions) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -5330,10 +5386,11 @@ void spline_loaddata( void )
 								for ( sSplineNode& node : s.nodes ) if ( !get( &node.segMark, sizeof(node.segMark) ) ) break;
 							}
 						}
-						if ( version < 18 && s.preset[0] && s.presetSignature == spline_presetsignature( s, version < 17 ? offsetof( sSplineRiver, wadeDepth ) : sizeof(sSplineRiver), version < 16 ? offsetof( sSplineLayer, layFlat ) : sizeof(sSplineLayer), offsetof( sSplineRoad, markCentre ) ) )
+						if ( version >= 19 ) get( &s.road.markJunctions, sizeof(s.road.markJunctions) );
+						if ( version < 19 && s.preset[0] && s.presetSignature == spline_presetsignature( s, version < 17 ? offsetof( sSplineRiver, wadeDepth ) : sizeof(sSplineRiver), version < 16 ? offsetof( sSplineLayer, layFlat ) : sizeof(sSplineLayer), version < 18 ? offsetof( sSplineRoad, markCentre ) : offsetof( sSplineRoad, markJunctions ) ) )
 						{
 							// still as its preset set it, by the settings that file had: so too by today's (Lay Flat, Wade
-							// Depth and the road's markings added since), so it doesn't show as edited
+							// Depth, the road's markings and lines at junctions added since), so it doesn't show as edited
 							s.presetSignature = spline_presetsignature( s );
 						}
 						if ( version < 12 )
