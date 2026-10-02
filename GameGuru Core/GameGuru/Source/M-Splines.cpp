@@ -27,7 +27,8 @@
 // surface there, and a later road's shoulders leave an earlier road's carriageway alone. A River spline is baked the same
 // way as a channel: a flat bed below the averaged ground (never rising downstream when Downhill Only), banks up to the
 // ground, a tributary pinned to an earlier river's bed where they join. A baked river gets a water surface of its own
-// (WickedCall_CreateWaterSurface, the Water Object shader) at its water depth above the bed, flowing along it, its look the
+// (WickedCall_CreateWaterSurface, the Water Object shader) at its water depth above the bed (no higher than its lower bank,
+// reaching to the banks and ending at the sea), flowing from the first node to the last, its look the
 // main water's or its own; spline_waterheightat gives the water height anywhere (Lua GetWaterHeightAt), and the whole map
 // navmesh keeps soldiers out of the river water as out of the sea
 
@@ -171,6 +172,8 @@ struct sSpline
 	uint64_t waterShape = 0, waterLook = 0; // what the surface was built from, and the look it was given
 	std::vector<std::pair<uint32_t, float>> waterTexels; // the terrain texels under its water, and the water's height there
 	uint64_t bakedSignature = 0; // the spline as last baked (spline_signature)
+	int bakeCount = 0; // bakes since the level loaded, so a bake again rebuilds the river's water
+	float waterLowered = 0.0f; // a river: how much of it has its water lowered by a bank lower than the water
 	std::vector<sSplineBakeTexel> baked;
 	std::vector<sSplineBakeTree> bakedTrees;
 };
@@ -1040,6 +1043,7 @@ static void spline_bakegroup( const std::vector<char>& in )
 		if ( s.kind == SPLINE_KIND_ROAD ) spline_bakeroad( s, protectedTexels, bounds );
 		else if ( s.kind == SPLINE_KIND_RIVER ) spline_bakeriver( (int)si, protectedTexels, bounds );
 		s.bakedSignature = spline_signature( s );
+		s.bakeCount++;
 	}
 	spline_refresh( bounds );
 }
@@ -1116,7 +1120,7 @@ static WickedCallWaterLook spline_waterlook( const sSplineRiver& v )
 		look.foam = v.foam;
 		look.uvScale = v.ripples > 0.01f ? 1.0f / v.ripples : 1.0f;
 	}
-	look.direction = 0.25f; // along the river (the surface's v)
+	look.direction = 0.75f; // downstream, the surface's v rising (the shader's pattern moves against its direction)
 	look.scroll = look.speed;
 	return look;
 }
@@ -1139,13 +1143,20 @@ static void spline_rebuildwatermap( void )
 	}
 }
 
-// the river's water surface: a strip along the centre line at its water depth above the baked bed, as wide as the water
-// reaches up the banks, its texture coordinates in world units so the ripples keep their size; and the texels under it
+// the river's water surface, a cross section a texel apart along the river:
+// - its level the water depth above the baked bed, but no higher than the lower bank's crest (so the water never stands
+//   over lower ground beside it), the dip eased along the river
+// - each side reaching to where the terrain rises above the water, and a little further under the bank so its edge is
+//   never seen
+// - where it falls to the sea it meets the sea's surface and ends
+// Its texture coordinates are in world units, so the ripples keep their size; and the texels under it are kept, with the
+// water's height over each
 static void spline_buildwater( sSpline& s )
 {
 	if ( s.waterEntity ) WickedCall_DeleteWaterSurface( s.waterEntity );
 	s.waterEntity = 0;
 	s.waterTexels.clear();
+	s.waterLowered = 0.0f;
 	if ( s.kind != SPLINE_KIND_RIVER || s.baked.empty() ) return;
 	const sSplineRiver& v = s.river;
 	const float E = GGTerrain::GGTerrain_GetEditableSize();
@@ -1155,18 +1166,15 @@ static void spline_buildwater( sSpline& s )
 	std::vector<int> nodeSample;
 	if ( !spline_centreline( s, texel, c, nodeSample ) ) return;
 	const int n = (int)c.size();
+	const float sea = t.terrain.waterliney_f;
 
-	// the water reaches up the banks where the bank's rise (a smoothstep from the bed to the ground) equals its depth
-	const float ratio = v.depth > 0 ? std::min( 1.0f, v.waterDepth / v.depth ) : 1.0f;
-	const float along = 0.5f - sinf( asinf( 1.0f - 2.0f * ratio ) / 3.0f );
-	const float halfWidth = v.bedWidth * 0.5f + v.banks * along + texel * 0.5f;
-
-	// the strip: two vertices a sample, the water level the bed there (the baked ground) plus the depth
-	const float tile = 600.0f;
-	std::vector<float> positions, uvs;
-	std::vector<uint32_t> indices;
-	std::vector<float> level( n );
-	for ( int i = 0; i < n; i++ ) level[i] = c[i].ground + v.waterDepth;
+	// each section's normal (left is -, right +) and the baked terrain out along each side
+	const float step = texel * 0.5f;
+	const float reach = v.bedWidth * 0.5f + v.banks + std::max( v.banks * 0.5f, texel * 2.0f );
+	const int steps = std::max( 3, (int)(reach / step) + 2 );
+	std::vector<float> nxs( n ), nzs( n ), sideH( (size_t)n * 2 * steps );
+	std::vector<float> limit( n ), level( n );
+	int lowered = 0;
 	for ( int i = 0; i < n; i++ )
 	{
 		const sRoadSample& a = c[ std::max( 0, i - 1 ) ];
@@ -1174,21 +1182,102 @@ static void spline_buildwater( sSpline& s )
 		float tx = b.x - a.x, tz = b.z - a.z;
 		const float len = sqrtf( tx * tx + tz * tz );
 		if ( len > 0 ) { tx /= len; tz /= len; }
-		const float nx = -tz, nz = tx;
-		const float left[3] = { c[i].x - nx * halfWidth, level[i], c[i].z - nz * halfWidth };
-		const float right[3] = { c[i].x + nx * halfWidth, level[i], c[i].z + nz * halfWidth };
+		nxs[i] = -tz;
+		nzs[i] = tx;
+		float crest[2] = { -FLT_MAX, -FLT_MAX };
+		for ( int side = 0; side < 2; side++ )
+		{
+			const float sign = side == 0 ? -1.0f : 1.0f;
+			float* h = &sideH[ ((size_t)i * 2 + side) * steps ];
+			for ( int k = 0; k < steps; k++ )
+			{
+				const float px = c[i].x + sign * nxs[i] * k * step, pz = c[i].z + sign * nzs[i] * k * step;
+				float y = 0;
+				if ( !GGTerrain::GGTerrain_GetHeight( px, pz, &y, 1, 1 ) || y != y ) y = spline_groundy( px, pz );
+				h[k] = y;
+				crest[ side ] = std::max( crest[ side ], y );
+			}
+		}
+		const float design = c[i].ground + v.waterDepth;
+		limit[i] = std::min( design, std::min( crest[0], crest[1] ) - 10.0f );
+		if ( limit[i] < design - 5.0f ) lowered++;
+	}
+	s.waterLowered = (float)lowered / (float)n;
+
+	// a dip eased over a few sections either side, never above any section's own limit
+	const int window = 4;
+	std::vector<float> eroded( n );
+	for ( int i = 0; i < n; i++ )
+	{
+		float m = limit[i];
+		for ( int j = std::max( 0, i - window ); j <= std::min( n - 1, i + window ); j++ ) m = std::min( m, limit[j] );
+		eroded[i] = m;
+	}
+	for ( int i = 0; i < n; i++ )
+	{
+		float sum = 0;
+		int count = 0;
+		for ( int j = std::max( 0, i - window ); j <= std::min( n - 1, i + window ); j++ ) { sum += eroded[j]; count++; }
+		level[i] = std::min( sum / count, limit[i] );
+	}
+
+	// where a side's terrain rises to the level, and a little further while it stays above it
+	auto edge = [&]( int i, int side, float L )
+	{
+		const float* h = &sideH[ ((size_t)i * 2 + side) * steps ];
+		int k = 0;
+		while ( k < steps && h[k] < L ) k++;
+		if ( k >= steps ) return (steps - 1) * step;
+		float dist = 0;
+		if ( k > 0 ) dist = ((k - 1) + (L - h[k-1]) / std::max( 0.001f, h[k] - h[k-1] )) * step;
+		const float under = texel * 0.6f;
+		float out = dist + under;
+		for ( int j = k + 1; j < steps && j * step <= dist + under; j++ )
+		{
+			if ( h[j] < L ) { out = std::max( dist, (j - 1) * step ); break; }
+		}
+		return std::min( out, (steps - 1) * step );
+	};
+
+	// the sections with water, those below the sea, and the strip between wet sections not both below the sea
+	std::vector<char> wet( n ), below( n );
+	for ( int i = 0; i < n; i++ )
+	{
+		wet[i] = level[i] > c[i].ground + 15.0f;
+		below[i] = level[i] <= sea + 2.0f;
+	}
+	const float tile = 600.0f;
+	std::vector<float> positions, uvs;
+	std::vector<uint32_t> indices;
+	std::vector<int> vertex( n, -1 );
+	std::vector<float> drawLevel( n ), leftEdge( n ), rightEdge( n );
+	auto addSection = [&]( int i )
+	{
+		if ( vertex[i] >= 0 ) return;
+		drawLevel[i] = below[i] ? sea + 1.0f : level[i];
+		leftEdge[i] = edge( i, 0, drawLevel[i] );
+		rightEdge[i] = edge( i, 1, drawLevel[i] );
+		vertex[i] = (int)(positions.size() / 3);
+		const float left[3] = { c[i].x - nxs[i] * leftEdge[i], drawLevel[i], c[i].z - nzs[i] * leftEdge[i] };
+		const float right[3] = { c[i].x + nxs[i] * rightEdge[i], drawLevel[i], c[i].z + nzs[i] * rightEdge[i] };
 		positions.insert( positions.end(), left, left + 3 );
 		positions.insert( positions.end(), right, right + 3 );
-		const float uvLeft[2] = { -halfWidth / tile, c[i].s / tile }, uvRight[2] = { halfWidth / tile, c[i].s / tile };
+		const float uvLeft[2] = { -leftEdge[i] / tile, c[i].s / tile }, uvRight[2] = { rightEdge[i] / tile, c[i].s / tile };
 		uvs.insert( uvs.end(), uvLeft, uvLeft + 2 );
 		uvs.insert( uvs.end(), uvRight, uvRight + 2 );
-		if ( i > 0 )
-		{
-			const uint32_t a0 = (uint32_t)(i - 1) * 2, b0 = (uint32_t)i * 2;
-			const uint32_t quad[6] = { a0, b0, a0 + 1, a0 + 1, b0, b0 + 1 };
-			indices.insert( indices.end(), quad, quad + 6 );
-		}
+	};
+	std::vector<int> quads;
+	for ( int i = 1; i < n; i++ )
+	{
+		if ( !wet[ i - 1 ] || !wet[i] || (below[ i - 1 ] && below[i]) ) continue;
+		addSection( i - 1 );
+		addSection( i );
+		const uint32_t a0 = (uint32_t)vertex[ i - 1 ], b0 = (uint32_t)vertex[i];
+		const uint32_t quad[6] = { a0, b0, a0 + 1, a0 + 1, b0, b0 + 1 };
+		indices.insert( indices.end(), quad, quad + 6 );
+		quads.push_back( i );
 	}
+	if ( indices.empty() ) return;
 	const WickedCallWaterLook look = spline_waterlook( v );
 	s.waterEntity = WickedCall_CreateWaterSurface( positions.data(), uvs.data(), (uint32_t)(positions.size() / 3), indices.data(), (uint32_t)indices.size(), look );
 	s.waterLook = spline_waterlookhash( look );
@@ -1196,14 +1285,17 @@ static void spline_buildwater( sSpline& s )
 	// the texels under the water, and its height over each
 	std::unordered_map<uint32_t, float> under;
 	auto toTexel = [E]( float x ) { return (x / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE; };
-	for ( int k = 0; k < n - 1; k++ )
+	for ( int i : quads )
 	{
-		const sRoadSample& a = c[ k ];
-		const sRoadSample& b = c[ k + 1 ];
-		const int ix0 = std::max( 0, (int)floorf( toTexel( std::min( a.x, b.x ) - halfWidth ) ) ), ix1 = std::min( SPLINE_MAP_SIZE - 1, (int)ceilf( toTexel( std::max( a.x, b.x ) + halfWidth ) ) );
-		const int iz0 = std::max( 0, (int)floorf( toTexel( std::min( a.z, b.z ) - halfWidth ) ) ), iz1 = std::min( SPLINE_MAP_SIZE - 1, (int)ceilf( toTexel( std::max( a.z, b.z ) + halfWidth ) ) );
+		const int ia = i - 1, ib = i;
+		const sRoadSample& a = c[ ia ];
+		const sRoadSample& b = c[ ib ];
+		const float wide = std::max( std::max( leftEdge[ia], rightEdge[ia] ), std::max( leftEdge[ib], rightEdge[ib] ) );
+		const int ix0 = std::max( 0, (int)floorf( toTexel( std::min( a.x, b.x ) - wide ) ) ), ix1 = std::min( SPLINE_MAP_SIZE - 1, (int)ceilf( toTexel( std::max( a.x, b.x ) + wide ) ) );
+		const int iz0 = std::max( 0, (int)floorf( toTexel( std::min( a.z, b.z ) - wide ) ) ), iz1 = std::min( SPLINE_MAP_SIZE - 1, (int)ceilf( toTexel( std::max( a.z, b.z ) + wide ) ) );
 		const float dx = b.x - a.x, dz = b.z - a.z;
 		const float len2 = dx * dx + dz * dz;
+		const float nx = (nxs[ia] + nxs[ib]) * 0.5f, nz = (nzs[ia] + nzs[ib]) * 0.5f;
 		for ( int iz = iz0; iz <= iz1; iz++ )
 		{
 			const float wz = ((float)iz / SPLINE_MAP_SIZE * 2.0f - 1.0f) * E;
@@ -1211,11 +1303,14 @@ static void spline_buildwater( sSpline& s )
 			{
 				const float wx = ((float)ix / SPLINE_MAP_SIZE * 2.0f - 1.0f) * E;
 				float tt = len2 > 0 ? ((wx - a.x) * dx + (wz - a.z) * dz) / len2 : 0;
+				if ( tt < -0.01f || tt > 1.01f ) continue;
 				tt = std::min( 1.0f, std::max( 0.0f, tt ) );
-				const float px = a.x + dx * tt - wx, pz = a.z + dz * tt - wz;
-				if ( px * px + pz * pz > halfWidth * halfWidth ) continue;
+				const float lateral = (wx - (a.x + dx * tt)) * nx + (wz - (a.z + dz * tt)) * nz;
+				const float leftLimit = leftEdge[ia] + (leftEdge[ib] - leftEdge[ia]) * tt;
+				const float rightLimit = rightEdge[ia] + (rightEdge[ib] - rightEdge[ia]) * tt;
+				if ( lateral < -leftLimit || lateral > rightLimit ) continue;
 				const uint32_t key = (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix;
-				const float h = level[k] + (level[k + 1] - level[k]) * tt;
+				const float h = drawLevel[ia] + (drawLevel[ib] - drawLevel[ia]) * tt;
 				auto it = under.find( key );
 				if ( it == under.end() || h > it->second ) under[ key ] = h;
 			}
@@ -1229,7 +1324,9 @@ static uint64_t spline_watershape( const sSpline& s )
 {
 	if ( s.kind != SPLINE_KIND_RIVER || s.baked.empty() ) return 0;
 	uint64_t h = spline_hashmix( 0xcbf29ce484222325ULL, &s.bakedSignature, sizeof(s.bakedSignature) );
+	h = spline_hashmix( h, &s.bakeCount, sizeof(s.bakeCount) );
 	h = spline_hashmix( h, &s.river.waterDepth, sizeof(s.river.waterDepth) );
+	h = spline_hashmix( h, &t.terrain.waterliney_f, sizeof(t.terrain.waterliney_f) );
 	return h ? h : 1;
 }
 
@@ -2087,6 +2184,8 @@ void spline_imgui_panel( float w )
 				if ( s.wetFraction >= 0.0f && !s.baked.empty() )
 				{
 					ImGui::TextWrapped( "Sea: %.0f%% of the bed is below the level's water line (%.1f m).", s.wetFraction * 100.0f, t.terrain.waterliney_f / SPLINE_UNITS_PER_M );
+					if ( s.waterEntity && s.waterLowered > 0.005f )
+						ImGui::TextWrapped( "The water is lowered along %.0f%% of the river, where a bank is lower than the water: deepen the river or lower Water Depth.", s.waterLowered * 100.0f );
 				}
 			}
 			bool bClosed = s.closed != 0;
