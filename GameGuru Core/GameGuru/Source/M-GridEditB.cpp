@@ -20074,6 +20074,19 @@ void process_entity_library_v2(void)
 													else
 														myfiles->iFlags = 0;
 												}
+												else if (spline_librarypicking())
+												{
+													// GG: picking an entity for a field (the spline tool's placement layers): the entity's file goes back to
+													// it, nothing is put on the cursor
+													std::string sFpeName = path_for_filename.c_str();
+													sFpeName = sFpeName + "\\" + myfiles->m_sName.Get();
+													if (_strnicmp(sFpeName.c_str(), "entitybank\\", 11) == 0) sFpeName = sFpeName.substr(11);
+													sSelectedLibrarySting = sFpeName.c_str();
+													iSelectedLibraryStingReturnID = iLibraryStingReturnToID;
+													bBlockBackBufferUpdating = true;
+													bCheckForClosing = true;
+													bImGuiRenderTargetFocus = true;
+												}
 												else
 												{
 													if (bWaypointDrawmode || bWaypoint_Window) { bWaypointDrawmode = false; bWaypoint_Window = false; }

@@ -58,6 +58,9 @@
 extern bool bImGuiGotFocus;
 extern bool bImGuiRenderTargetFocus;
 extern bool bForceKey2;
+extern bool bExternal_Entities_Window; // the object library
+extern int iDisplayLibraryType, iDisplayLibrarySubType, iLibraryStingReturnToID, iSelectedLibraryStingReturnID;
+extern cstr sSelectedLibrarySting;
 extern ImVec2 renderTargetAreaPos;
 extern ImVec2 renderTargetAreaSize;
 bool Convert3DLineTo2D( float x1, float y1, float z1, float x2, float y2, float z2, ImVec2* pA, ImVec2* pB );
@@ -77,7 +80,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 9 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers
+#define SPLINE_FILE_VERSION 10 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -129,6 +132,9 @@ struct sSplineLayer
 	int side = SPLINE_SIDE_BOTH;
 	int facing = SPLINE_FACE_MIRRORED;
 	int enabled = 1;
+	char name[64] = ""; // each placed one named this with _01, _02, ... after it (the game's scripts find lamps by name), else the entity's own name
+	float keepApart = 600.0f; // none placed this close to one another spline (earlier in the list) placed of the same entity
+	int frozen = 0; // its entities stay as they are, no longer placed again
 };
 
 // an entity a layer placed, where it was put (found again by its tag and place)
@@ -178,6 +184,7 @@ struct sSplineRiver
 	int raiseBanks = 1; // where the ground beside it is lower than the water, a bank is raised to hold it
 	float rapids = 1.0f; // white water where the river's slope changes sharply (and a little on steep runs), 0 none
 	float steepFlow = 1.5f; // how much faster the water runs on a steep slope, 0 the same everywhere
+	int calmEnd = 1; // the rapids fade out before its last node (they always fade before the sea)
 };
 
 // a terrain texel a bake wrote: what it held, and what the bake left there
@@ -253,6 +260,8 @@ static float fSnapT = 0, fSnapX = 0, fSnapY = 0, fSnapZ = 0;
 static bool bConnectMode = false;
 // Apply: this spline is baked now, whether or not it changed
 static int iApplySpline = -1;
+// the object library is open to pick a layer's entity
+static bool g_bLibraryPickEntity = false;
 // drawing: nodes are being added to the selected spline, so a click on another spline's node or curve joins it
 static bool bDrawing = false;
 // the rivers' water over the terrain texels (the highest where rivers meet), for the water height and the navmesh
@@ -1371,6 +1380,18 @@ static void spline_buildwater( sSpline& s )
 		wet[i] = level[i] > c[i].ground + 15.0f;
 		below[i] = level[i] <= sea + 2.0f;
 	}
+	// the rapids fade out over 40 m before the river meets the sea (no rapids run into it), and before its last node with
+	// Calm River End
+	{
+		float nextSea = FLT_MAX;
+		for ( int i = n - 1; i >= 0; i-- )
+		{
+			if ( below[i] ) nextSea = c[i].s;
+			float calm = nextSea < FLT_MAX ? std::min( 1.0f, std::max( 0.0f, (nextSea - c[i].s) / 1575.0f ) ) : 1.0f;
+			if ( v.calmEnd ) calm *= std::min( 1.0f, std::max( 0.0f, (c[ n - 1 ].s - c[i].s) / 1575.0f ) );
+			turbulence[i] *= calm;
+		}
+	}
 	const float tile = 600.0f;
 	std::vector<float> positions, uvs, uvs2;
 	std::vector<uint32_t> indices;
@@ -1462,6 +1483,7 @@ static uint64_t spline_watershape( const sSpline& s )
 	h = spline_hashmix( h, &s.river.waterDepth, sizeof(s.river.waterDepth) );
 	h = spline_hashmix( h, &s.river.rapids, sizeof(s.river.rapids) );
 	h = spline_hashmix( h, &s.river.steepFlow, sizeof(s.river.steepFlow) );
+	h = spline_hashmix( h, &s.river.calmEnd, sizeof(s.river.calmEnd) );
 	const WickedCallWaterLook look = spline_waterlook( s.river );
 	h = spline_hashmix( h, &look.speed, sizeof(look.speed) );
 	h = spline_hashmix( h, &look.uvScale, sizeof(look.uvScale) );
@@ -1609,13 +1631,49 @@ static float spline_random( uint32_t a, uint32_t b, uint32_t c, uint32_t salt )
 	return (h & 0xFFFFFF) / 16777215.0f;
 }
 
-// what the layers depend on: the layers, the spline's kind and its bake
-static uint64_t spline_layersignature( const sSpline& s )
+// the area a spline's nodes cover, widened by a margin
+static void spline_bounds( const sSpline& s, float margin, float* pBounds )
 {
+	pBounds[0] = pBounds[1] = FLT_MAX;
+	pBounds[2] = pBounds[3] = -FLT_MAX;
+	for ( const sSplineNode& node : s.nodes )
+	{
+		pBounds[0] = std::min( pBounds[0], node.x + std::min( 0.0f, std::min( node.inX, node.outX ) ) );
+		pBounds[1] = std::min( pBounds[1], node.z + std::min( 0.0f, std::min( node.inZ, node.outZ ) ) );
+		pBounds[2] = std::max( pBounds[2], node.x + std::max( 0.0f, std::max( node.inX, node.outX ) ) );
+		pBounds[3] = std::max( pBounds[3], node.z + std::max( 0.0f, std::max( node.inZ, node.outZ ) ) );
+	}
+	pBounds[0] -= margin; pBounds[1] -= margin; pBounds[2] += margin; pBounds[3] += margin;
+}
+
+static bool spline_overlap( const float* a, const float* b )
+{
+	return a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
+}
+
+// what the layers depend on: the layers, the spline's kind and its bake, and the splines near it (a road crossing or joining
+// it moves where its entities may go; one earlier in the list also by what it placed, which this one keeps apart from)
+static uint64_t spline_layersignature( int si )
+{
+	const sSpline& s = g_Splines[ si ];
 	uint64_t h = 0xcbf29ce484222325ULL;
 	h = spline_hashmix( h, &s.kind, sizeof(s.kind) );
 	h = spline_hashmix( h, &s.bakedSignature, sizeof(s.bakedSignature) );
 	for ( const sSplineLayer& layer : s.layers ) h = spline_hashmix( h, &layer, sizeof(layer) );
+	if ( s.layers.empty() ) return h ? h : 1;
+	float bounds[4], other[4];
+	spline_bounds( s, 3000.0f, bounds );
+	for ( int sj = 0; sj < (int)g_Splines.size(); sj++ )
+	{
+		if ( sj == si ) continue;
+		const sSpline& o = g_Splines[ sj ];
+		if ( o.kind == SPLINE_KIND_NONE ) continue;
+		spline_bounds( o, 0.0f, other );
+		if ( !spline_overlap( bounds, other ) ) continue;
+		h = spline_hashmix( h, &o.kind, sizeof(o.kind) );
+		h = spline_hashmix( h, &o.bakedSignature, sizeof(o.bakedSignature) );
+		if ( sj < si ) h = spline_hashmix( h, &o.placedSignature, sizeof(o.placedSignature) );
+	}
 	return h ? h : 1;
 }
 
@@ -1670,7 +1728,12 @@ static void spline_unplace( sSpline& s )
 		bool bStill = false;
 		for ( const sSplinePlaced& placed : s.placed )
 		{
-			if ( fabsf( placed.x - t.entityelement[ e ].x ) < 2.0f && fabsf( placed.z - t.entityelement[ e ].z ) < 2.0f && fabsf( placed.y - t.entityelement[ e ].y ) < 2.0f ) { bStill = true; break; }
+			if ( fabsf( placed.x - t.entityelement[ e ].x ) < 2.0f && fabsf( placed.z - t.entityelement[ e ].z ) < 2.0f && fabsf( placed.y - t.entityelement[ e ].y ) < 2.0f )
+			{
+				const bool bFrozen = placed.layer >= 0 && placed.layer < (int)s.layers.size() && s.layers[ placed.layer ].frozen;
+				bStill = !bFrozen;
+				break;
+			}
 		}
 		if ( !bStill ) continue;
 		t.tentitytoselect = e;
@@ -1678,15 +1741,67 @@ static void spline_unplace( sSpline& s )
 		entity_deleteentityfrommap();
 		t.tentitytoselect = 0;
 	}
-	s.placed.clear();
+	// a frozen layer's entities stay, and stay known
+	std::vector<sSplinePlaced> kept;
+	for ( const sSplinePlaced& placed : s.placed )
+	{
+		if ( placed.layer >= 0 && placed.layer < (int)s.layers.size() && s.layers[ placed.layer ].frozen ) kept.push_back( placed );
+	}
+	s.placed.swap( kept );
 	g.projectmodified = 1;
 }
 
-// places the spline's layers along it, taking away what they placed before
-static void spline_place( sSpline& s )
+// a road's carriageway as a line and its half width, for keeping other splines' entities off it
+struct sSplineAvoid
 {
+	std::vector<sSplinePoint> line;
+	float halfWidth = 0;
+	float bounds[4];
+};
+
+// places the spline's layers along it, taking away what they placed before (a frozen layer's stay). None goes on another
+// road's carriageway (a junction, a crossing), a road's in water (a river crossing it), nor within Keep Apart of one an
+// earlier spline in the list placed of the same entity (no clumps where roads meet)
+static void spline_place( int si )
+{
+	sSpline& s = g_Splines[ si ];
 	spline_unplace( s );
 	if ( s.kind != SPLINE_KIND_ROAD && s.kind != SPLINE_KIND_RIVER ) return;
+	std::vector<sSplineAvoid> avoid;
+	{
+		float bounds[4];
+		spline_bounds( s, 3000.0f, bounds );
+		for ( int sj = 0; sj < (int)g_Splines.size(); sj++ )
+		{
+			const sSpline& o = g_Splines[ sj ];
+			if ( sj == si || o.kind != SPLINE_KIND_ROAD || o.baked.empty() ) continue;
+			sSplineAvoid road;
+			spline_bounds( o, o.road.width * 0.5f + 100.0f, road.bounds );
+			if ( !spline_overlap( bounds, road.bounds ) ) continue;
+			spline_sample( o, 100.0f, road.line );
+			road.halfWidth = o.road.width * 0.5f + 60.0f;
+			avoid.push_back( road );
+		}
+	}
+	auto onAnotherRoad = [&avoid]( float x, float z )
+	{
+		for ( const sSplineAvoid& road : avoid )
+		{
+			if ( x < road.bounds[0] || x > road.bounds[2] || z < road.bounds[1] || z > road.bounds[3] ) continue;
+			for ( size_t k = 1; k < road.line.size(); k++ )
+			{
+				const sSplinePoint& a = road.line[ k - 1 ];
+				const sSplinePoint& b = road.line[ k ];
+				const float dx = b.x - a.x, dz = b.z - a.z;
+				const float len2 = dx * dx + dz * dz;
+				float tt = len2 > 0 ? ((x - a.x) * dx + (z - a.z) * dz) / len2 : 0;
+				tt = std::min( 1.0f, std::max( 0.0f, tt ) );
+				const float px = a.x + dx * tt - x, pz = a.z + dz * tt - z;
+				if ( px * px + pz * pz < road.halfWidth * road.halfWidth ) return true;
+			}
+		}
+		return false;
+	};
 	std::vector<sRoadSample> c;
 	std::vector<int> nodeSample;
 	if ( !spline_centreline( s, 50.0f, c, nodeSample ) ) return;
@@ -1696,8 +1811,8 @@ static void spline_place( sSpline& s )
 	for ( int li = 0; li < (int)s.layers.size(); li++ )
 	{
 		const sSplineLayer& layer = s.layers[ li ];
-		if ( !layer.enabled || layer.entity[0] == 0 || layer.spacing < 10.0f ) continue;
-		int k = 0, count = 0;
+		if ( !layer.enabled || layer.frozen || layer.entity[0] == 0 || layer.spacing < 10.0f ) continue;
+		int k = 0, count = 0, named = 0;
 		for ( float along = layer.start; along <= length && count < 4000; along += layer.spacing, count++ )
 		{
 			int sides[2] = { 0, 0 }, sideCount = 0;
@@ -1709,9 +1824,9 @@ static void spline_place( sSpline& s )
 				case SPLINE_SIDE_CENTRE: sides[ sideCount++ ] = 0; break;
 				default: sides[ sideCount++ ] = -1; sides[ sideCount++ ] = 1; break;
 			}
-			for ( int si = 0; si < sideCount; si++ )
+			for ( int iSide = 0; iSide < sideCount; iSide++ )
 			{
-				const int side = sides[ si ];
+				const int side = sides[ iSide ];
 				const uint32_t salt = (uint32_t)(side + 1);
 				float d = along + (spline_random( s.id, li, count, salt * 3 + 0 ) * 2.0f - 1.0f) * layer.jitter;
 				d = std::min( length, std::max( 0.0f, d ) );
@@ -1728,8 +1843,29 @@ static void spline_place( sSpline& s )
 				const float px = c[ k ].x + (c[ k + 1 ].x - c[ k ].x) * tt + nx * lateral;
 				const float pz = c[ k ].z + (c[ k + 1 ].z - c[ k ].z) * tt + nz * lateral;
 				if ( s.kind == SPLINE_KIND_RIVER && layer.minTurbulence > 0.0f && spline_riverturbulenceat( px, pz ) < layer.minTurbulence ) continue;
+				if ( onAnotherRoad( px, pz ) ) continue;
 				float py = 0;
 				if ( !GGTerrain::GGTerrain_GetHeight( px, pz, &py, 1, 1 ) || py != py ) py = spline_groundy( px, pz );
+				if ( s.kind == SPLINE_KIND_ROAD )
+				{
+					int isRiver = 0;
+					if ( spline_waterheightat( px, pz, &isRiver ) > py + 5.0f ) continue; // in water
+				}
+				if ( layer.keepApart > 0.0f )
+				{
+					bool bTooNear = false;
+					const float apart2 = layer.keepApart * layer.keepApart;
+					for ( int sj = 0; sj < si && !bTooNear; sj++ )
+					{
+						const sSpline& o = g_Splines[ sj ];
+						for ( const sSplinePlaced& other : o.placed )
+						{
+							if ( other.layer < 0 || other.layer >= (int)o.layers.size() || _stricmp( o.layers[ other.layer ].entity, layer.entity ) != 0 ) continue;
+							if ( (other.x - px) * (other.x - px) + (other.z - pz) * (other.z - pz) < apart2 ) { bTooNear = true; break; }
+						}
+					}
+					if ( bTooNear ) continue;
+				}
 				py += layer.height;
 				const float heading = GGToDegree( atan2f( tx, tz ) );
 				float yaw = heading;
@@ -1744,6 +1880,12 @@ static void spline_place( sSpline& s )
 				t.entityelement[ e ].eleprof.iObjectReserved1 = SPLINE_ENTITY_TAG;
 				t.entityelement[ e ].eleprof.iObjectReserved2 = s.id;
 				t.entityelement[ e ].eleprof.iObjectReserved3 = li;
+				if ( layer.name[0] )
+				{
+					char name[ 96 ];
+					sprintf_s( name, 96, "%s_%02d", layer.name, ++named );
+					t.entityelement[ e ].eleprof.name_s = name;
+				}
 				sSplinePlaced placed;
 				placed.layer = li;
 				placed.x = t.entityelement[ e ].x;
@@ -1761,13 +1903,15 @@ static void spline_place( sSpline& s )
 static void spline_placechanged( void )
 {
 	if ( iDragNode >= 0 || ImGui::IsAnyItemActive() ) return;
-	for ( sSpline& s : g_Splines )
+	// in list order, so a spline placing again is seen by the later ones near it in the same pass
+	for ( int si = 0; si < (int)g_Splines.size(); si++ )
 	{
-		const uint64_t signature = spline_layersignature( s );
+		sSpline& s = g_Splines[ si ];
+		const uint64_t signature = spline_layersignature( si );
 		if ( signature == s.placedSignature ) continue;
 		if ( s.kind == SPLINE_KIND_RIVER && !s.baked.empty() && s.waterShape != spline_watershape( s ) ) continue;
-		spline_place( s );
-		s.placedSignature = signature;
+		spline_place( si );
+		s.placedSignature = spline_layersignature( si );
 	}
 }
 
@@ -1782,6 +1926,13 @@ static sSplineLayer spline_newlayer( const sSpline& s )
 		layer.offset = 20.0f;
 		layer.side = SPLINE_SIDE_BOTH;
 		layer.facing = SPLINE_FACE_MIRRORED;
+		layer.keepApart = 600.0f;
+		// named as the game's night lights expect a lamp (the "_streetlight" token)
+		char name[ 64 ];
+		int j = 0;
+		for ( const char* p = s.name; *p && j < 40; p++ ) name[ j++ ] = isalnum( (unsigned char)*p ) ? *p : '_';
+		name[ j ] = 0;
+		sprintf_s( layer.name, 64, "%s_streetlight", name );
 	}
 	else
 	{
@@ -1792,6 +1943,7 @@ static sSplineLayer spline_newlayer( const sSpline& s )
 		layer.scaleMin = 70.0f;
 		layer.scaleMax = 140.0f;
 		layer.jitter = 150.0f;
+		layer.keepApart = 0.0f;
 	}
 	return layer;
 }
@@ -2255,6 +2407,12 @@ bool spline_iseditmode( void )
 	return g_bSplineEditMode;
 }
 
+// the object library is picking an entity for a placement layer (while the panel is shown)
+bool spline_librarypicking( void )
+{
+	return g_bLibraryPickEntity && ImGui::GetFrameCount() - g_iSplinePanelFrame <= 2;
+}
+
 static float fRowLabelX = 0, fRowFieldX = 0, fRowRight = 0;
 
 // a row: its label, then the next item from the field column to the right edge
@@ -2393,10 +2551,35 @@ static void spline_rowlayers( sSpline& s, float w )
 		bool bOn = layer.enabled != 0;
 		ImGui::SetCursorPosX( fRowFieldX );
 		if ( ImGui::Checkbox( "On##layeron", &bOn ) ) layer.enabled = bOn ? 1 : 0;
+		bool bFrozen = layer.frozen != 0;
+		ImGui::SameLine();
+		if ( ImGui::Checkbox( "Freeze##layerfrozen", &bFrozen ) ) layer.frozen = bFrozen ? 1 : 0;
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Keep this layer's entities as they are: they are no longer placed again when the road or the layer changes, so you can edit them one by one" );
 		spline_row( "Entity" );
 		ImGui::InputText( "##layerentity", layer.entity, 260 );
+		// the object library, picking: the clicked entity comes back here
+		const ImGuiID pickID = ImGui::GetID( "##layerlibrarypick" );
+		if ( iSelectedLibraryStingReturnID == (int)pickID )
+		{
+			strcpy_s( layer.entity, 260, sSelectedLibrarySting.Get() );
+			iSelectedLibraryStingReturnID = -1;
+			sSelectedLibrarySting = "";
+			g_bLibraryPickEntity = false;
+			spline_modified();
+		}
 		ImGui::SetCursorPosX( fRowFieldX );
-		if ( ImGui::StyleButton( "Choose...##layerchoose", ImVec2( fRowRight - fRowFieldX, 0 ) ) )
+		const float half = (fRowRight - fRowFieldX) * 0.5f - 2.0f;
+		if ( ImGui::StyleButton( "Library...##layerlibrary", ImVec2( half, 0 ) ) )
+		{
+			bExternal_Entities_Window = true;
+			iDisplayLibraryType = 0;
+			iDisplayLibrarySubType = 0;
+			iLibraryStingReturnToID = (int)pickID;
+			g_bLibraryPickEntity = true;
+		}
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Pick the entity in the object library: click one and it comes back here" );
+		ImGui::SameLine();
+		if ( ImGui::StyleButton( "File...##layerchoose", ImVec2( half, 0 ) ) )
 		{
 			char pStart[ MAX_PATH ] = "entitybank\\";
 			GG_GetRealPath( pStart, 0 );
@@ -2412,7 +2595,10 @@ static void spline_rowlayers( sSpline& s, float w )
 				if ( pBank ) strcpy_s( layer.entity, 260, pChosen + (pBank - pLower) + strlen( "entitybank\\" ) );
 			}
 		}
-		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Choose an entity (.fpe) from the entity bank" );
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Choose an entity file (.fpe) in the entity bank" );
+		spline_row( "Name" );
+		ImGui::InputText( "##layername", layer.name, 64 );
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Each placed one is named this with _01, _02 ... after it (scripts find entities by name); empty keeps the entity's own name" );
 		spline_rowmetres( "Spacing", "##layerspacing", &layer.spacing, 1.0f, 200.0f );
 		spline_rowmetres( "Start", "##layerstart", &layer.start, 0.0f, 200.0f );
 		const char* sides[] = { "Both", "Left", "Right", "Alternate", "Centre" };
@@ -2432,6 +2618,8 @@ static void spline_rowlayers( sSpline& s, float w )
 		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Each is scaled at random between the two" );
 		spline_rowmetres( "Jitter", "##layerjitter", &layer.jitter, 0.0f, 20.0f );
 		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Each moved up to this far along and across, at random" );
+		spline_rowmetres( "Keep Apart", "##layerkeepapart", &layer.keepApart, 0.0f, 100.0f );
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "None placed this close to one of the same entity another spline placed (where roads meet or run side by side); 0 to allow any" );
 		if ( s.kind == SPLINE_KIND_RIVER )
 		{
 			spline_row( "Only in Rapids" );
@@ -2445,6 +2633,24 @@ static void spline_rowlayers( sSpline& s, float w )
 	}
 	if ( remove >= 0 )
 	{
+		// its entities go with it (a frozen layer's stay as ordinary entities)
+		std::vector<sSplinePlaced> others;
+		for ( const sSplinePlaced& placed : s.placed ) if ( placed.layer != remove ) others.push_back( placed );
+		if ( !s.layers[ remove ].frozen )
+		{
+			std::vector<sSplinePlaced> mine;
+			for ( const sSplinePlaced& placed : s.placed ) if ( placed.layer == remove ) mine.push_back( placed );
+			std::vector<sSplinePlaced> all = s.placed;
+			s.placed = mine;
+			spline_unplace( s );
+			s.placed = all;
+		}
+		s.placed.clear();
+		for ( sSplinePlaced placed : others )
+		{
+			if ( placed.layer > remove ) placed.layer--;
+			s.placed.push_back( placed );
+		}
 		s.layers.erase( s.layers.begin() + remove );
 		spline_modified();
 	}
@@ -2488,6 +2694,7 @@ void spline_imgui_panel( float w )
 	// edit mode ends when another terrain tool is chosen, or when the panel was not shown
 	const int frame = ImGui::GetFrameCount();
 	if ( frame - g_iSplinePanelFrame > 2 || bForceKey2 ) g_bSplineEditMode = false;
+	if ( frame - g_iSplinePanelFrame > 2 || !bExternal_Entities_Window ) g_bLibraryPickEntity = false;
 	g_iSplinePanelFrame = frame;
 	if ( g_iSplineSelected >= (int)g_Splines.size() ) { g_iSplineSelected = -1; g_iSplineNodeSelected = -1; }
 	if ( g_iSplineSelected >= 0 && g_iSplineNodeSelected >= (int)g_Splines[ g_iSplineSelected ].nodes.size() ) g_iSplineNodeSelected = -1;
@@ -2616,6 +2823,10 @@ void spline_imgui_panel( float w )
 				spline_row( "Bank Foam" );
 				bChanged |= ImGui::SliderFloat( "##splineriverbankfoam", &v.foam, 0.0f, 1.0f, "%.2f" );
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Broken foam where the water meets the banks; 0 none" );
+				bool bCalm = v.calmEnd != 0;
+				ImGui::SetCursorPosX( fRowFieldX );
+				if ( ImGui::Checkbox( "Calm River End##splinerivercalm", &bCalm ) ) { v.calmEnd = bCalm ? 1 : 0; bChanged = true; }
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The rapids fade out over the last 40 m before the river's last node (into a lake); they always fade before the sea" );
 				spline_row( "Steep Flow Speed" );
 				bChanged |= ImGui::SliderFloat( "##splineriversteepflow", &v.steepFlow, 0.0f, 4.0f, "%.2f" );
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How much faster the water runs where the river is steep; 0 the same everywhere" );
@@ -2903,6 +3114,14 @@ void spline_savedata( void )
 			put( pf, sizeof(pf) );
 		}
 		put( &s.placedSignature, sizeof(s.placedSignature) );
+		// version 10: the layers' names, keep apart and freeze; Calm River End
+		for ( const sSplineLayer& layer : s.layers )
+		{
+			put( layer.name, 64 );
+			put( &layer.keepApart, sizeof(layer.keepApart) );
+			put( &layer.frozen, sizeof(layer.frozen) );
+		}
+		put( &v.calmEnd, sizeof(v.calmEnd) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -3042,6 +3261,20 @@ void spline_loaddata( void )
 						}
 					}
 					get( &s.placedSignature, sizeof(s.placedSignature) );
+					if ( version >= 10 )
+					{
+						for ( sSplineLayer& layer : s.layers )
+						{
+							if ( !get( layer.name, 64 ) || !get( &layer.keepApart, sizeof(layer.keepApart) ) || !get( &layer.frozen, sizeof(layer.frozen) ) ) break;
+							layer.name[ 63 ] = 0;
+						}
+						get( &s.river.calmEnd, sizeof(s.river.calmEnd) );
+					}
+					else
+					{
+						// before version 10 a road's layers keep apart as a new one does, a river's not
+						for ( sSplineLayer& layer : s.layers ) layer.keepApart = s.kind == SPLINE_KIND_ROAD ? 600.0f : 0.0f;
+					}
 				}
 			}
 		}
