@@ -3351,14 +3351,24 @@ static int spline_paletteslot( int iL )
 	return sTerrainTexturesID[ 0 ] > 0 ? sTerrainSelectionID[ iL ] : iL;
 }
 
-// the stock texture (terraintextures\matN) a palette entry shows, -1 another
+// the stock texture (terraintextures\matN) a palette entry shows, or the one a custom texture folder's entry says it
+// copies with a "matN" word in its path (15_mat15_Canyon Gravel Path\Color.dds); -1 another
 static int spline_entrymat( int iL )
 {
 	const std::string path = spline_lower( t.visuals.sTerrainTextures[ iL ].Get() );
 	const char* pMat = "terraintextures\\mat";
 	const size_t at = path.find( pMat );
-	if ( at == std::string::npos ) return -1;
-	return atoi( path.c_str() + at + strlen( pMat ) );
+	if ( at != std::string::npos ) return atoi( path.c_str() + at + strlen( pMat ) );
+	for ( size_t k = path.find( "mat" ); k != std::string::npos; k = path.find( "mat", k + 1 ) )
+	{
+		const bool bWordStart = k == 0 || path[ k - 1 ] == '\\' || path[ k - 1 ] == '/' || path[ k - 1 ] == '_' || path[ k - 1 ] == ' ' || path[ k - 1 ] == '-';
+		if ( !bWordStart || k + 3 >= path.size() || !isdigit( (unsigned char)path[ k + 3 ] ) ) continue;
+		size_t e = k + 3;
+		while ( e < path.size() && isdigit( (unsigned char)path[ e ] ) ) e++;
+		if ( e < path.size() && isalpha( (unsigned char)path[ e ] ) ) continue;
+		return atoi( path.c_str() + k + 3 );
+	}
+	return -1;
 }
 
 // a palette entry's material type: a stock texture's from terraintextures\matsounds.txt, a custom one's as set in the
