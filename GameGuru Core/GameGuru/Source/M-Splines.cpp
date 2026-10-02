@@ -80,7 +80,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 19 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth; 18: road markings; 19: At Junctions
+#define SPLINE_FILE_VERSION 20 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth; 18: road markings; 19: At Junctions; 20: Solid on Crests
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -193,6 +193,7 @@ struct sSplineRoad
 	float markBendRadius = 0.0f; // the centre line solid where the road bends tighter than this, 0 never
 	float markWear = 0.0f; // 0 fresh paint, 1 worn away in patches
 	int markJunctions = 0; // SPLINE_MARKJUNCTION_*: its lines on another road's carriageway (a junction, a crossing)
+	float markCrestSight = 0.0f; // the centre line solid where a driver can't see this far ahead over a crest, 0 never
 };
 
 // a river's settings, in units (the panel shows metres)
@@ -2076,6 +2077,27 @@ static void spline_markings( int si, sSplineMarkings& marks )
 			for ( int k = lo; k <= hi && !forced[ i ]; k++ ) if ( bend[ k ] ) forced[ i ] = 1;
 		}
 	}
+	// a crest: from a driver's eye 1.1 m up, the top of an oncoming car (1.1 m) within Solid on Crests hidden behind the
+	// road between, either way along it (the road's own heights, as baked)
+	if ( r.markCrestSight > 0 )
+	{
+		const float eye = 43.3f;
+		for ( int dir = -1; dir <= 1; dir += 2 )
+		{
+			for ( int i = 0; i < n; i++ )
+			{
+				float horizon = -1e30f;
+				for ( int j = i + dir; j >= 0 && j < n && !forced[ i ]; j += dir )
+				{
+					const float ds = fabsf( c[ j ].s - c[ i ].s );
+					if ( ds > r.markCrestSight ) break;
+					if ( ds <= 0 ) continue;
+					if ( (c[ j ].ground - c[ i ].ground) / ds < horizon ) forced[ i ] = 1;
+					horizon = std::max( horizon, (c[ j ].ground - c[ i ].ground - eye) / ds );
+				}
+			}
+		}
+	}
 	for ( int i = 0; i < n; i++ )
 	{
 		const int segMark = s.nodes[ seg[ i ] ].segMark;
@@ -2337,6 +2359,8 @@ void spline_updatemarkings( void )
 		uint64_t h = spline_hashmix( earlier, &shape, sizeof(shape) );
 		h = spline_hashmix( h, &s.road.markCentre, sizeof(sSplineRoad) - offsetof( sSplineRoad, markCentre ) );
 		for ( const sSplineNode& node : s.nodes ) h = spline_hashmix( h, &node.segMark, sizeof(node.segMark) );
+		h = spline_hashmix( h, &s.bakeCount, sizeof(s.bakeCount) );
+		h = spline_hashmix( h, &s.bakedSignature, sizeof(s.bakedSignature) );
 		signatures[ si ] = h ? h : 1;
 		earlier = spline_hashmix( earlier, &shape, sizeof(shape) );
 		earlier = spline_hashmix( earlier, &s.road.markCentre, sizeof(sSplineRoad) - offsetof( sSplineRoad, markCentre ) );
@@ -3518,6 +3542,7 @@ static const char* g_pSplineBuiltInPresets =
 	"dash = 3\n"
 	"gap = 9\n"
 	"solidonbends = 150\n"
+	"solidoncrests = 150\n"
 	"edgelines = 1\n"
 	"edgeinset = 0.2\n"
 	"wear = 0.15\n"
@@ -3903,6 +3928,7 @@ static void spline_parsepresets( const char* pText, bool bUser, std::vector<sSpl
 		else if ( key == "dash" ) p.road.markDash = f * M;
 		else if ( key == "gap" ) p.road.markGap = f * M;
 		else if ( key == "solidonbends" ) p.road.markBendRadius = f * M;
+		else if ( key == "solidoncrests" ) p.road.markCrestSight = f * M;
 		else if ( key == "wear" ) p.road.markWear = f;
 		else if ( key == "junctions" )
 		{
@@ -4237,6 +4263,7 @@ static void spline_writepreset( std::string& out, const sSplinePreset& p )
 		metres( "dash", r.markDash );
 		metres( "gap", r.markGap );
 		metres( "solidonbends", r.markBendRadius );
+		metres( "solidoncrests", r.markCrestSight );
 		number( "wear", r.markWear );
 		const char* junctions[] = { "continue", "stop", "guide" };
 		line( "junctions", junctions[ std::min( 2, std::max( 0, r.markJunctions ) ) ] );
@@ -4896,6 +4923,8 @@ void spline_imgui_panel( float w )
 					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The gap after each dash" );
 					bChanged |= spline_rowmetres( "Solid on Bends", "##splinemarkbends", &r.markBendRadius, 0.0f, 500.0f, "%.0f m" );
 					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "A dashed centre line goes solid where the road bends tighter than this radius (and 15 m either side), with warning dashes before and after; 0 never" );
+					bChanged |= spline_rowmetres( "Solid on Crests", "##splinemarkcrests", &r.markCrestSight, 0.0f, 400.0f, "%.0f m" );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "A dashed centre line goes solid where a driver can't see this far ahead over a crest (an oncoming car, eye and roof 1.1 m up), with warning dashes before and after; 0 never" );
 					spline_row( "Wear" );
 					bChanged |= ImGui::SliderFloat( "##splinemarkwear", &r.markWear, 0.0f, 1.0f, "%.2f" );
 					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "0 fresh paint; higher wears the lines away in patches (old country roads)" );
@@ -5306,6 +5335,8 @@ void spline_savedata( void )
 		for ( const sSplineNode& node : s.nodes ) put( &node.segMark, sizeof(node.segMark) );
 		// version 19: lines at junctions
 		put( &r.markJunctions, sizeof(r.markJunctions) );
+		// version 20: Solid on Crests
+		put( &r.markCrestSight, sizeof(r.markCrestSight) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -5491,10 +5522,12 @@ void spline_loaddata( void )
 							}
 						}
 						if ( version >= 19 ) get( &s.road.markJunctions, sizeof(s.road.markJunctions) );
-						if ( version < 19 && s.preset[0] && s.presetSignature == spline_presetsignature( s, version < 17 ? offsetof( sSplineRiver, wadeDepth ) : sizeof(sSplineRiver), version < 16 ? offsetof( sSplineLayer, layFlat ) : sizeof(sSplineLayer), version < 18 ? offsetof( sSplineRoad, markCentre ) : offsetof( sSplineRoad, markJunctions ) ) )
+						if ( version >= 20 ) get( &s.road.markCrestSight, sizeof(s.road.markCrestSight) );
+						if ( version < 20 && s.preset[0] && s.presetSignature == spline_presetsignature( s, version < 17 ? offsetof( sSplineRiver, wadeDepth ) : sizeof(sSplineRiver), version < 16 ? offsetof( sSplineLayer, layFlat ) : sizeof(sSplineLayer), version < 18 ? offsetof( sSplineRoad, markCentre ) : version < 19 ? offsetof( sSplineRoad, markJunctions ) : offsetof( sSplineRoad, markCrestSight ) ) )
 						{
 							// still as its preset set it, by the settings that file had: so too by today's (Lay Flat, Wade
-							// Depth, the road's markings and lines at junctions added since), so it doesn't show as edited
+							// Depth, the road's markings, lines at junctions and Solid on Crests added since), so it doesn't
+							// show as edited
 							s.presetSignature = spline_presetsignature( s );
 						}
 						if ( version < 12 )
