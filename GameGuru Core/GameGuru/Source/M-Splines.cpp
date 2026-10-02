@@ -77,7 +77,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 8 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam
+#define SPLINE_FILE_VERSION 9 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -103,6 +103,39 @@ struct sRiverTexel
 	float height = 0;
 	float turbulence = 0;
 	float flowX = 0, flowZ = 0; // the current, units a second downstream
+};
+
+// a placement layer: copies of an entity along a road or a river, spacing apart, on its sides or its centre
+#define SPLINE_SIDE_BOTH 0
+#define SPLINE_SIDE_LEFT 1
+#define SPLINE_SIDE_RIGHT 2
+#define SPLINE_SIDE_ALTERNATE 3
+#define SPLINE_SIDE_CENTRE 4
+#define SPLINE_FACE_MIRRORED 0 // each side turned to face the other across it (as the Long Bien bridge's lamps)
+#define SPLINE_FACE_ALONG 1
+#define SPLINE_FACE_RANDOM 2
+#define SPLINE_ENTITY_TAG 0x4E4C5053 // 'SPLN' in eleprof.iObjectReserved1; iObjectReserved2 the spline's id, 3 the layer
+struct sSplineLayer
+{
+	char entity[260] = ""; // the .fpe, relative to the entity bank
+	float spacing = 1213.0f;
+	float start = 0.0f; // the first this far along
+	float offset = 20.0f; // out from the edge (a road's carriageway, a river's bed), or across from the centre
+	float turn = 0.0f; // degrees more
+	float height = 0.0f;
+	float scaleMin = 100.0f, scaleMax = 100.0f; // percent
+	float jitter = 0.0f; // each moved up to this far along and across, at random
+	float minTurbulence = 0.0f; // a river: only where its water is at least this turbulent (rapids), 0 anywhere
+	int side = SPLINE_SIDE_BOTH;
+	int facing = SPLINE_FACE_MIRRORED;
+	int enabled = 1;
+};
+
+// an entity a layer placed, where it was put (found again by its tag and place)
+struct sSplinePlaced
+{
+	int layer = 0;
+	float x = 0, y = 0, z = 0;
 };
 
 // a road's settings, in units (the panel shows metres)
@@ -189,6 +222,9 @@ struct sSpline
 	float waterLowered = 0.0f; // a river: how much of it has its water lowered by a bank lower than the water
 	std::vector<sSplineBakeTexel> baked;
 	std::vector<sSplineBakeTree> bakedTrees;
+	std::vector<sSplineLayer> layers;
+	std::vector<sSplinePlaced> placed;
+	uint64_t placedSignature = 0; // the layers and the bake they were placed for
 };
 
 struct sSplinePoint
@@ -471,9 +507,11 @@ static void spline_deletenode( int si, int ni )
 
 static void spline_unbake( int si );
 static void spline_rebuildwatermap( void );
+static void spline_unplace( sSpline& s );
 
 static void spline_deletespline( int si )
 {
+	spline_unplace( g_Splines[ si ] );
 	spline_unbake( si );
 	if ( g_Splines[ si ].waterEntity ) WickedCall_DeleteWaterSurface( g_Splines[ si ].waterEntity );
 	g_Splines[ si ].waterTexels.clear();
@@ -528,6 +566,8 @@ static void spline_seedhandles( sSpline& s, int fromCurve )
 static void spline_merge( int si, int ni, int sj, int nj, bool bShared )
 {
 	if ( si == sj ) return;
+	spline_unplace( g_Splines[ si ] );
+	spline_unplace( g_Splines[ sj ] );
 	spline_unbake( si );
 	spline_unbake( sj );
 	sSpline& a = g_Splines[ si ];
@@ -1559,6 +1599,204 @@ uint64_t spline_riverwaterinputs( float minX, float minZ, float maxX, float maxZ
 }
 
 //
+// Placement layers
+//
+
+static float spline_random( uint32_t a, uint32_t b, uint32_t c, uint32_t salt )
+{
+	uint32_t h = a * 0x9E3779B1u ^ (b + 0x7F4A7C15u) * 0x85EBCA77u ^ (c + 0x165667B1u) * 0xC2B2AE3Du ^ salt * 0x27D4EB2Fu;
+	h ^= h >> 15; h *= 0x2C1B3C6Du; h ^= h >> 12; h *= 0x297A2D39u; h ^= h >> 15;
+	return (h & 0xFFFFFF) / 16777215.0f;
+}
+
+// what the layers depend on: the layers, the spline's kind and its bake
+static uint64_t spline_layersignature( const sSpline& s )
+{
+	uint64_t h = 0xcbf29ce484222325ULL;
+	h = spline_hashmix( h, &s.kind, sizeof(s.kind) );
+	h = spline_hashmix( h, &s.bakedSignature, sizeof(s.bakedSignature) );
+	for ( const sSplineLayer& layer : s.layers ) h = spline_hashmix( h, &layer, sizeof(layer) );
+	return h ? h : 1;
+}
+
+// the element's entity file is loaded and placed at a place and turn, scale in percent; 0 if it can't be
+static int spline_addelement( const char* pEntity, float x, float y, float z, float yaw, float scale )
+{
+	char pPath[ MAX_PATH ];
+	sprintf_s( pPath, MAX_PATH, "entitybank\\%s", pEntity );
+	GG_GetRealPath( pPath, 0 );
+	if ( pEntity[0] == 0 || FileExist( pPath ) == 0 ) return 0;
+	const int storeGridEntity = t.gridentity;
+	const entityeleproftype storeGridEleprof = t.grideleprof;
+	t.addentityfile_s = pEntity;
+	entity_adduniqueentity( false );
+	const int entid = t.entid;
+	if ( entid <= 0 ) return 0;
+	t.gridentity = entid;
+	entity_fillgrideleproffromprofile();
+	t.gridentitystaticmode = t.entityprofile[ entid ].defaultstatic;
+	if ( t.gridentitystaticmode == 1 ) g.projectmodifiedstatic = 1;
+	t.gridentityposx_f = x; t.gridentityposy_f = y; t.gridentityposz_f = z;
+	t.gridentityrotatex_f = 0; t.gridentityrotatey_f = yaw; t.gridentityrotatez_f = 0;
+	t.gridentityrotatequatmode = 0;
+	t.gridentityrotatequatx_f = 0; t.gridentityrotatequaty_f = 0; t.gridentityrotatequatz_f = 0; t.gridentityrotatequatw_f = 1;
+	t.gridentityscalex_f = scale; t.gridentityscaley_f = scale; t.gridentityscalez_f = scale;
+	t.gridentityoverwritemode = 0;
+	t.gridentitypreferelementindex = 0;
+	t.gridentityhasparent = 0;
+	t.gridentityeditorfixed = 0;
+	extern bool bNextObjectMustBeClone;
+	extern bool bUpdateObjectList;
+	bNextObjectMustBeClone = true;
+	t.e = 0;
+	entity_addentitytomap();
+	bNextObjectMustBeClone = false;
+	bUpdateObjectList = true;
+	const int e = t.e;
+	t.gridentity = storeGridEntity;
+	t.grideleprof = storeGridEleprof;
+	return e;
+}
+
+// takes away the entities the spline's layers placed, those still where they were put (one moved by hand stays)
+static void spline_unplace( sSpline& s )
+{
+	if ( s.placed.empty() ) return;
+	extern bool DeleteEntityFromLists( int e );
+	for ( int e = 1; e <= g.entityelementlist; e++ )
+	{
+		if ( t.entityelement[ e ].maintype == 0 || t.entityelement[ e ].bankindex <= 0 ) continue;
+		if ( t.entityelement[ e ].eleprof.iObjectReserved1 != SPLINE_ENTITY_TAG || t.entityelement[ e ].eleprof.iObjectReserved2 != s.id ) continue;
+		bool bStill = false;
+		for ( const sSplinePlaced& placed : s.placed )
+		{
+			if ( fabsf( placed.x - t.entityelement[ e ].x ) < 2.0f && fabsf( placed.z - t.entityelement[ e ].z ) < 2.0f && fabsf( placed.y - t.entityelement[ e ].y ) < 2.0f ) { bStill = true; break; }
+		}
+		if ( !bStill ) continue;
+		t.tentitytoselect = e;
+		DeleteEntityFromLists( e );
+		entity_deleteentityfrommap();
+		t.tentitytoselect = 0;
+	}
+	s.placed.clear();
+	g.projectmodified = 1;
+}
+
+// places the spline's layers along it, taking away what they placed before
+static void spline_place( sSpline& s )
+{
+	spline_unplace( s );
+	if ( s.kind != SPLINE_KIND_ROAD && s.kind != SPLINE_KIND_RIVER ) return;
+	std::vector<sRoadSample> c;
+	std::vector<int> nodeSample;
+	if ( !spline_centreline( s, 50.0f, c, nodeSample ) ) return;
+	const int n = (int)c.size();
+	const float length = c[ n - 1 ].s;
+	const float edge = s.kind == SPLINE_KIND_ROAD ? s.road.width * 0.5f : s.river.bedWidth * 0.5f;
+	for ( int li = 0; li < (int)s.layers.size(); li++ )
+	{
+		const sSplineLayer& layer = s.layers[ li ];
+		if ( !layer.enabled || layer.entity[0] == 0 || layer.spacing < 10.0f ) continue;
+		int k = 0, count = 0;
+		for ( float along = layer.start; along <= length && count < 4000; along += layer.spacing, count++ )
+		{
+			int sides[2] = { 0, 0 }, sideCount = 0;
+			switch ( layer.side )
+			{
+				case SPLINE_SIDE_LEFT: sides[ sideCount++ ] = -1; break;
+				case SPLINE_SIDE_RIGHT: sides[ sideCount++ ] = 1; break;
+				case SPLINE_SIDE_ALTERNATE: sides[ sideCount++ ] = (count & 1) ? 1 : -1; break;
+				case SPLINE_SIDE_CENTRE: sides[ sideCount++ ] = 0; break;
+				default: sides[ sideCount++ ] = -1; sides[ sideCount++ ] = 1; break;
+			}
+			for ( int si = 0; si < sideCount; si++ )
+			{
+				const int side = sides[ si ];
+				const uint32_t salt = (uint32_t)(side + 1);
+				float d = along + (spline_random( s.id, li, count, salt * 3 + 0 ) * 2.0f - 1.0f) * layer.jitter;
+				d = std::min( length, std::max( 0.0f, d ) );
+				while ( k > 0 && c[ k ].s > d ) k--;
+				while ( k < n - 2 && c[ k + 1 ].s < d ) k++;
+				const float span = c[ k + 1 ].s - c[ k ].s;
+				const float tt = span > 0 ? (d - c[ k ].s) / span : 0.0f;
+				float tx = c[ k + 1 ].x - c[ k ].x, tz = c[ k + 1 ].z - c[ k ].z;
+				const float len = sqrtf( tx * tx + tz * tz );
+				if ( len > 0 ) { tx /= len; tz /= len; }
+				const float nx = -tz, nz = tx; // right of the way downstream
+				float lateral = side == 0 ? layer.offset : side * (edge + layer.offset);
+				lateral += (spline_random( s.id, li, count, salt * 3 + 1 ) * 2.0f - 1.0f) * layer.jitter;
+				const float px = c[ k ].x + (c[ k + 1 ].x - c[ k ].x) * tt + nx * lateral;
+				const float pz = c[ k ].z + (c[ k + 1 ].z - c[ k ].z) * tt + nz * lateral;
+				if ( s.kind == SPLINE_KIND_RIVER && layer.minTurbulence > 0.0f && spline_riverturbulenceat( px, pz ) < layer.minTurbulence ) continue;
+				float py = 0;
+				if ( !GGTerrain::GGTerrain_GetHeight( px, pz, &py, 1, 1 ) || py != py ) py = spline_groundy( px, pz );
+				py += layer.height;
+				const float heading = GGToDegree( atan2f( tx, tz ) );
+				float yaw = heading;
+				if ( layer.facing == SPLINE_FACE_MIRRORED && side < 0 ) yaw = heading + 180.0f;
+				if ( layer.facing == SPLINE_FACE_RANDOM ) yaw = spline_random( s.id, li, count, salt * 3 + 2 ) * 360.0f;
+				yaw += layer.turn;
+				while ( yaw >= 360.0f ) yaw -= 360.0f;
+				while ( yaw < 0.0f ) yaw += 360.0f;
+				const float scale = layer.scaleMin + (layer.scaleMax - layer.scaleMin) * spline_random( s.id, li, count, salt * 3 + 3 );
+				const int e = spline_addelement( layer.entity, px, py, pz, yaw, scale );
+				if ( e <= 0 ) break;
+				t.entityelement[ e ].eleprof.iObjectReserved1 = SPLINE_ENTITY_TAG;
+				t.entityelement[ e ].eleprof.iObjectReserved2 = s.id;
+				t.entityelement[ e ].eleprof.iObjectReserved3 = li;
+				sSplinePlaced placed;
+				placed.layer = li;
+				placed.x = t.entityelement[ e ].x;
+				placed.y = t.entityelement[ e ].y;
+				placed.z = t.entityelement[ e ].z;
+				s.placed.push_back( placed );
+			}
+		}
+	}
+	g.projectmodified = 1;
+}
+
+// places the layers of the splines whose layers or bake changed, once nothing is being dragged or edited, a river's once
+// its water is built (its rapids)
+static void spline_placechanged( void )
+{
+	if ( iDragNode >= 0 || ImGui::IsAnyItemActive() ) return;
+	for ( sSpline& s : g_Splines )
+	{
+		const uint64_t signature = spline_layersignature( s );
+		if ( signature == s.placedSignature ) continue;
+		if ( s.kind == SPLINE_KIND_RIVER && !s.baked.empty() && s.waterShape != spline_watershape( s ) ) continue;
+		spline_place( s );
+		s.placedSignature = signature;
+	}
+}
+
+// a new layer, set for the spline's kind: the Long Bien bridge's streetlights along a road, rocks along a river
+static sSplineLayer spline_newlayer( const sSpline& s )
+{
+	sSplineLayer layer;
+	if ( s.kind == SPLINE_KIND_ROAD )
+	{
+		strcpy_s( layer.entity, 260, "User\\Props\\Streetlights\\rusty_streetlight.fpe" );
+		layer.spacing = 1213.0f;
+		layer.offset = 20.0f;
+		layer.side = SPLINE_SIDE_BOTH;
+		layer.facing = SPLINE_FACE_MIRRORED;
+	}
+	else
+	{
+		layer.spacing = 600.0f;
+		layer.offset = 150.0f;
+		layer.side = SPLINE_SIDE_BOTH;
+		layer.facing = SPLINE_FACE_RANDOM;
+		layer.scaleMin = 70.0f;
+		layer.scaleMax = 140.0f;
+		layer.jitter = 150.0f;
+	}
+	return layer;
+}
+
+//
 // The 3D view
 //
 
@@ -2133,6 +2371,93 @@ static void spline_rowtexture( const char* pLabel, const char* pId, int* pSlot, 
 	ImGui::PopID();
 }
 
+// the placement layers of a road or a river
+static void spline_rowlayers( sSpline& s, float w )
+{
+	ImGui::SetCursorPosX( fRowLabelX );
+	if ( !ImGui::TreeNodeEx( "Placement Layers##splinelayers", ImGuiTreeNodeFlags_DefaultOpen ) ) return;
+	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Entities placed along it at a spacing: streetlights, rocks, posts, anything. Placed again when it changes; one you move by hand stays" );
+	int remove = -1;
+	for ( int li = 0; li < (int)s.layers.size(); li++ )
+	{
+		sSplineLayer& layer = s.layers[ li ];
+		int placedHere = 0;
+		for ( const sSplinePlaced& placed : s.placed ) if ( placed.layer == li ) placedHere++;
+		const char* pName = strrchr( layer.entity, '\\' );
+		pName = pName ? pName + 1 : (layer.entity[0] ? layer.entity : "no entity");
+		char label[ 400 ];
+		sprintf_s( label, 400, "%d: %s (%d placed)###splinelayer%d", li + 1, pName, placedHere, li );
+		ImGui::SetCursorPosX( fRowLabelX );
+		if ( !ImGui::TreeNodeEx( label, 0 ) ) continue;
+		ImGui::PushID( li );
+		bool bOn = layer.enabled != 0;
+		ImGui::SetCursorPosX( fRowFieldX );
+		if ( ImGui::Checkbox( "On##layeron", &bOn ) ) layer.enabled = bOn ? 1 : 0;
+		spline_row( "Entity" );
+		ImGui::InputText( "##layerentity", layer.entity, 260 );
+		ImGui::SetCursorPosX( fRowFieldX );
+		if ( ImGui::StyleButton( "Choose...##layerchoose", ImVec2( fRowRight - fRowFieldX, 0 ) ) )
+		{
+			char pStart[ MAX_PATH ] = "entitybank\\";
+			GG_GetRealPath( pStart, 0 );
+			char pFull[ MAX_PATH ];
+			if ( !_fullpath( pFull, pStart, MAX_PATH ) ) strcpy_s( pFull, MAX_PATH, pStart );
+			const char* pChosen = noc_file_dialog_open( NOC_FILE_DIALOG_OPEN, "Entity\0*.fpe\0", pFull, NULL, true, "Choose an Entity" );
+			if ( pChosen )
+			{
+				char pLower[ MAX_PATH ];
+				strcpy_s( pLower, MAX_PATH, pChosen );
+				_strlwr_s( pLower, MAX_PATH );
+				const char* pBank = strstr( pLower, "entitybank\\" );
+				if ( pBank ) strcpy_s( layer.entity, 260, pChosen + (pBank - pLower) + strlen( "entitybank\\" ) );
+			}
+		}
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Choose an entity (.fpe) from the entity bank" );
+		spline_rowmetres( "Spacing", "##layerspacing", &layer.spacing, 1.0f, 200.0f );
+		spline_rowmetres( "Start", "##layerstart", &layer.start, 0.0f, 200.0f );
+		const char* sides[] = { "Both", "Left", "Right", "Alternate", "Centre" };
+		spline_row( "Side" );
+		ImGui::Combo( "##layerside", &layer.side, sides, 5 );
+		spline_rowmetres( layer.side == SPLINE_SIDE_CENTRE ? "Across" : "From the Edge", "##layeroffset", &layer.offset, -20.0f, 40.0f );
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", layer.side == SPLINE_SIDE_CENTRE ? "How far right of the centre (left if less than 0)" : "How far out from the road's or the river bed's edge (in if less than 0)" );
+		const char* faces[] = { "Facing Across (Mirrored)", "Along", "Random" };
+		spline_row( "Facing" );
+		ImGui::Combo( "##layerfacing", &layer.facing, faces, 3 );
+		spline_row( "Extra Turn" );
+		ImGui::SliderFloat( "##layerturn", &layer.turn, -180.0f, 180.0f, "%.0f deg" );
+		spline_rowmetres( "Height", "##layerheight", &layer.height, -5.0f, 10.0f, "%.2f m" );
+		spline_row( "Scale" );
+		float scale[2] = { layer.scaleMin, layer.scaleMax };
+		if ( ImGui::SliderFloat2( "##layerscale", scale, 10.0f, 400.0f, "%.0f %%" ) ) { layer.scaleMin = std::min( scale[0], scale[1] ); layer.scaleMax = std::max( scale[0], scale[1] ); }
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Each is scaled at random between the two" );
+		spline_rowmetres( "Jitter", "##layerjitter", &layer.jitter, 0.0f, 20.0f );
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Each moved up to this far along and across, at random" );
+		if ( s.kind == SPLINE_KIND_RIVER )
+		{
+			spline_row( "Only in Rapids" );
+			ImGui::SliderFloat( "##layerrapids", &layer.minTurbulence, 0.0f, 1.0f, "%.2f" );
+			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Only where the water is at least this turbulent (0 anywhere): rocks in the rapids" );
+		}
+		ImGui::SetCursorPosX( fRowFieldX );
+		if ( ImGui::StyleButton( "Remove Layer##layerremove", ImVec2( fRowRight - fRowFieldX, 0 ) ) ) remove = li;
+		ImGui::PopID();
+		ImGui::TreePop();
+	}
+	if ( remove >= 0 )
+	{
+		s.layers.erase( s.layers.begin() + remove );
+		spline_modified();
+	}
+	ImGui::SetCursorPosX( fRowLabelX );
+	if ( ImGui::StyleButton( "Add Layer##splineaddlayer", ImVec2( w * 0.45f, 0 ) ) )
+	{
+		s.layers.push_back( spline_newlayer( s ) );
+		spline_modified();
+	}
+	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", s.kind == SPLINE_KIND_ROAD ? "A new layer of streetlights (the Long Bien bridge's, 30.8 m apart on both sides); change its entity and spacing as you like" : "A new layer for rocks or plants along the banks: choose its entity" );
+	ImGui::TreePop();
+}
+
 // Update as I Edit, Apply and Remove for a road or a river, and what its bake holds
 static void spline_rowbake( sSpline& s, int* pAutoApply, const char* pWhat, float w )
 {
@@ -2258,6 +2583,7 @@ void spline_imgui_panel( float w )
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Trees are hidden this far past the edge of the road" );
 				if ( bChanged ) spline_modified();
 				spline_rowbake( s, &r.autoApply, "Road", w );
+				spline_rowlayers( s, w );
 			}
 			else if ( s.kind == SPLINE_KIND_RIVER )
 			{
@@ -2327,6 +2653,7 @@ void spline_imgui_panel( float w )
 				}
 				if ( bChanged ) spline_modified();
 				spline_rowbake( s, &v.autoApply, "River", w );
+				spline_rowlayers( s, w );
 				if ( s.wetFraction >= 0.0f && !s.baked.empty() )
 				{
 					ImGui::TextWrapped( "Sea: %.0f%% of the bed is below the level's water line (%.1f m).", s.wetFraction * 100.0f, t.terrain.waterliney_f / SPLINE_UNITS_PER_M );
@@ -2461,6 +2788,7 @@ void spline_imgui_panel( float w )
 
 	spline_bakechanged();
 	spline_updatewater();
+	spline_placechanged();
 }
 
 //
@@ -2554,6 +2882,27 @@ void spline_savedata( void )
 		// version 7: rapids
 		const float rapids[2] = { v.rapids, v.steepFlow };
 		put( rapids, sizeof(rapids) );
+		// version 9: placement layers, what they placed, and for which layers and bake
+		const uint32_t layerCount = (uint32_t)s.layers.size();
+		put( &layerCount, sizeof(layerCount) );
+		for ( const sSplineLayer& layer : s.layers )
+		{
+			put( layer.entity, 260 );
+			const float lf[9] = { layer.spacing, layer.start, layer.offset, layer.turn, layer.height, layer.scaleMin, layer.scaleMax, layer.jitter, layer.minTurbulence };
+			const int32_t li[3] = { layer.side, layer.facing, layer.enabled };
+			put( lf, sizeof(lf) );
+			put( li, sizeof(li) );
+		}
+		const uint32_t placedCount = (uint32_t)s.placed.size();
+		put( &placedCount, sizeof(placedCount) );
+		for ( const sSplinePlaced& placed : s.placed )
+		{
+			const int32_t pl = placed.layer;
+			const float pf[3] = { placed.x, placed.y, placed.z };
+			put( &pl, sizeof(pl) );
+			put( pf, sizeof(pf) );
+		}
+		put( &s.placedSignature, sizeof(s.placedSignature) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -2664,6 +3013,36 @@ void spline_loaddata( void )
 				float rapids[2];
 				if ( version >= 7 && get( rapids, sizeof(rapids) ) ) { s.river.rapids = rapids[0]; s.river.steepFlow = rapids[1]; }
 				if ( version < 8 ) s.river.foam = 0.3f; // before version 8 the foam was the Water Object's, and 1
+				uint32_t layerCount = 0;
+				if ( version >= 9 && get( &layerCount, sizeof(layerCount) ) && layerCount < 1000 )
+				{
+					for ( uint32_t li = 0; li < layerCount; li++ )
+					{
+						sSplineLayer layer;
+						float lf[9];
+						int32_t lv[3];
+						if ( !get( layer.entity, 260 ) || !get( lf, sizeof(lf) ) || !get( lv, sizeof(lv) ) ) break;
+						layer.entity[ 259 ] = 0;
+						layer.spacing = lf[0]; layer.start = lf[1]; layer.offset = lf[2]; layer.turn = lf[3]; layer.height = lf[4];
+						layer.scaleMin = lf[5]; layer.scaleMax = lf[6]; layer.jitter = lf[7]; layer.minTurbulence = lf[8];
+						layer.side = lv[0]; layer.facing = lv[1]; layer.enabled = lv[2];
+						s.layers.push_back( layer );
+					}
+					uint32_t placedCount = 0;
+					if ( get( &placedCount, sizeof(placedCount) ) && placedCount < 1000000 )
+					{
+						for ( uint32_t pi = 0; pi < placedCount; pi++ )
+						{
+							int32_t pl = 0;
+							float pf[3];
+							if ( !get( &pl, sizeof(pl) ) || !get( pf, sizeof(pf) ) ) break;
+							sSplinePlaced placed;
+							placed.layer = pl; placed.x = pf[0]; placed.y = pf[1]; placed.z = pf[2];
+							s.placed.push_back( placed );
+						}
+					}
+					get( &s.placedSignature, sizeof(s.placedSignature) );
+				}
 			}
 		}
 		else
