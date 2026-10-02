@@ -3542,6 +3542,24 @@ static int LUA_GETTOP(lua_State* L)
  int FreezeEntity(lua_State *L) { return FreezeEntityCore ( L, 1 ); }
  int UnFreezeEntity(lua_State *L) { return FreezeEntityCore ( L, 0 ); }
 
+ // SleepEntity(e): puts a physics entity's body to sleep with every moving body touching it, directly or through others
+ // (its island), their velocities zeroed, as a body settled at rest sleeps; they wake as any sleeping body does (a blast,
+ // a hit, a velocity set, an awake body touching them). Returns how many bodies slept: 0 when e has no moving body, or its
+ // island holds a character, a body kept awake or a body still moving (try again later)
+ int SleepEntity(lua_State *L)
+ {
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int iEntityIndex = lua_tonumber(L, 1);
+	if ( !LuaEntityIDValid ( L, iEntityIndex, 1 ) ) return 0;
+	int iSlept = 0;
+	int iObjectNumber = t.entityelement[iEntityIndex].obj;
+	if ( iObjectNumber > 0 ) iSlept = PhysicsQuery_SleepIsland ( iObjectNumber );
+	lua_pushinteger ( L, iSlept );
+	return 1;
+ }
+
  // Terrain
  float GetLUATerrainHeightEx ( float fX, float fZ )
  {
@@ -16489,6 +16507,7 @@ void addFunctions()
 	// Entity Physics
 	lua_register(lua, "FreezeEntity", FreezeEntity);
 	lua_register(lua, "UnFreezeEntity", UnFreezeEntity);
+	lua_register(lua, "SleepEntity", SleepEntity);
 
 	// Terrain
 	lua_register(lua, "GetTerrainHeight", GetTerrainHeight);

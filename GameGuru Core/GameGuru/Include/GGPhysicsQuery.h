@@ -66,4 +66,12 @@ struct PhysicsStatsBody
 };
 int PhysicsQuery_StatsTop(PhysicsStatsBody* pBodies, int iMax);
 
+// puts an object's moving body to sleep with every moving body in its island (those touching it, directly or through
+// others), their velocities zeroed: a body put to sleep alone is woken again at the next step while any body in its
+// island is awake. They wake as any sleeping body does (a force, a velocity set, an awake body touching them). How many
+// bodies slept; 0 when the object has no moving body, or its island holds a character capsule, a body kept awake or a
+// body still moving (faster than twice its sleep speeds: try again later). Jolt: BodyInterface::DeactivateBody on the
+// body and the moving bodies in contact with it
+int PhysicsQuery_SleepIsland(int iObject);
+
 #endif

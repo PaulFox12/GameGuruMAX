@@ -484,3 +484,56 @@ int PhysicsQuery_StatsTop(PhysicsStatsBody* pBodies, int iMax)
 	physicslock.unlock();
 	return iCount;
 }
+
+int PhysicsQuery_SleepIsland(int iObject)
+{
+	if (!g_dynamicsWorld || iObject <= 0) return 0;
+	physicslock.lock();
+	const btCollisionObjectArray& objects = g_dynamicsWorld->getCollisionObjectArray();
+
+	// the object's moving body
+	btRigidBody* pBody = nullptr;
+	for (int i = 0; i < objects.size() && !pBody; i++)
+	{
+		btRigidBody* pRigid = btRigidBody::upcast(objects[i]);
+		const btBroadphaseProxy* pProxy = objects[i]->getBroadphaseHandle();
+		if (!pRigid || !pProxy || pRigid->isStaticOrKinematicObject()) continue;
+		if (PhysicsQuery_ObjectNumber(pRigid, pProxy->m_collisionFilterGroup) == iObject) pBody = pRigid;
+	}
+	if (!pBody)
+	{
+		physicslock.unlock();
+		return 0;
+	}
+
+	// its island's moving bodies (the islands of the last step), checked before any is put to sleep
+	int iIsland = pBody->getIslandTag();
+	btAlignedObjectArray<btRigidBody*> island;
+	bool bCanSleep = true;
+	for (int i = 0; i < objects.size() && bCanSleep; i++)
+	{
+		btRigidBody* pRigid = btRigidBody::upcast(objects[i]);
+		if (!pRigid || pRigid->isStaticOrKinematicObject()) continue;
+		if (pRigid != pBody && (iIsland < 0 || pRigid->getIslandTag() != iIsland)) continue;
+		const btBroadphaseProxy* pProxy = pRigid->getBroadphaseHandle();
+		if (pProxy && (pProxy->m_collisionFilterGroup & PHYSICS_LAYER_CHARACTER)) bCanSleep = false;
+		if (pRigid->getActivationState() == DISABLE_DEACTIVATION || pRigid->getActivationState() == DISABLE_SIMULATION) bCanSleep = false;
+		if (pRigid->getLinearVelocity().length() > pRigid->getLinearSleepingThreshold() * 2) bCanSleep = false;
+		if (pRigid->getAngularVelocity().length() > pRigid->getAngularSleepingThreshold() * 2) bCanSleep = false;
+		island.push_back(pRigid);
+	}
+	int iCount = 0;
+	if (bCanSleep)
+	{
+		for (int i = 0; i < island.size(); i++)
+		{
+			island[i]->setLinearVelocity(btVector3(0, 0, 0));
+			island[i]->setAngularVelocity(btVector3(0, 0, 0));
+			island[i]->clearForces();
+			island[i]->forceActivationState(ISLAND_SLEEPING);
+			iCount++;
+		}
+	}
+	physicslock.unlock();
+	return iCount;
+}
