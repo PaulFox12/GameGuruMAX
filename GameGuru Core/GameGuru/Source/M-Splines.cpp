@@ -80,7 +80,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 13 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across
+#define SPLINE_FILE_VERSION 14 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -234,6 +234,8 @@ struct sSpline
 	std::vector<sSplineLayer> layers;
 	std::vector<sSplinePlaced> placed;
 	uint64_t placedSignature = 0; // the layers and the bake they were placed for
+	char preset[64] = ""; // the preset it was set from (Roads and Rivers' Preset), and its settings then: edited if they differ
+	uint64_t presetSignature = 0;
 };
 
 struct sSplinePoint
@@ -2782,6 +2784,985 @@ static void spline_rowlayers( sSpline& s, float w )
 }
 
 //
+// Presets
+//
+
+// a road's or a river's preset (Roads and Rivers' Preset list): its settings, textures and layers, in a form any level's
+// paint palette and entity bank can take. Built in, and the user's own in editors\splinepresets.txt (Save as Preset)
+struct sSplinePreset
+{
+	std::string name;
+	int kind = SPLINE_KIND_ROAD;
+	bool bUser = false;
+	sSplineRoad road;
+	sSplineRiver river;
+	std::string textures[2]; // a road's carriageway and shoulders, a river's bed and banks: candidates
+	std::vector<sSplineLayer> layers;
+	std::vector<std::string> entities; // each layer's entity: candidates
+};
+static std::vector<sSplinePreset> g_SplinePresets; // the built-in ones, the user's in place of one of the same name, and the user's others
+static std::vector<sSplinePreset> g_SplineBuiltInPresets;
+static std::vector<sSplinePreset> g_SplineUserPresets;
+static bool g_bSplinePresetsLoaded = false;
+#define SPLINE_PRESET_FILE "editors\\splinepresets.txt"
+
+static const char* g_pSplineBuiltInPresets =
+	"[road: Footpath]\n"
+	"width = 1.5\n"
+	"shoulder = 0.8\n"
+	"smoothing = 6\n"
+	"maxgrade = 35\n"
+	"crown = 0\n"
+	"grassmargin = 0.3\n"
+	"treemargin = 0.6\n"
+	"texture = mat28, kind:dirt\n"
+	"edgetexture = none\n"
+	"\n"
+	"[road: Jungle Trail]\n"
+	"width = 2.5\n"
+	"shoulder = 1.2\n"
+	"smoothing = 12\n"
+	"maxgrade = 25\n"
+	"crown = 0\n"
+	"grassmargin = 0.5\n"
+	"treemargin = 1.2\n"
+	"texture = mat10, kind:dirt\n"
+	"edgetexture = none\n"
+	"layer = Puddles\n"
+	"entity = Max Collection\\Cellar\\Small Puddle.fpe | find:puddle\n"
+	"spacing = 30\n"
+	"start = 10\n"
+	"side = centre\n"
+	"offset = 0\n"
+	"facing = random\n"
+	"height = 0.02\n"
+	"scale = 60, 110\n"
+	"jitteralong = 12\n"
+	"jitteracross = 0.6\n"
+	"followslope = 1\n"
+	"\n"
+	"[road: Dirt Track]\n"
+	"width = 3.5\n"
+	"shoulder = 1.5\n"
+	"smoothing = 20\n"
+	"maxgrade = 18\n"
+	"crown = 0.03\n"
+	"grassmargin = 0.6\n"
+	"treemargin = 1.5\n"
+	"texture = mat28, kind:dirt\n"
+	"edgetexture = none\n"
+	"layer = Puddles\n"
+	"entity = Max Collection\\Cellar\\Small Puddle.fpe | find:puddle\n"
+	"spacing = 45\n"
+	"start = 15\n"
+	"side = centre\n"
+	"offset = 0\n"
+	"facing = random\n"
+	"height = 0.02\n"
+	"scale = 60, 120\n"
+	"jitteralong = 18\n"
+	"jitteracross = 1\n"
+	"followslope = 1\n"
+	"\n"
+	"[road: Jungle Road]\n"
+	"width = 5\n"
+	"shoulder = 2\n"
+	"smoothing = 30\n"
+	"maxgrade = 15\n"
+	"crown = 0.05\n"
+	"grassmargin = 1.2\n"
+	"treemargin = 3\n"
+	"texture = mat15, mat16, kind:dirt\n"
+	"edgetexture = mat10, kind:dirt\n"
+	"layer = Puddles\n"
+	"entity = Max Collection\\Cellar\\Puddle.fpe | find:puddle\n"
+	"spacing = 40\n"
+	"start = 12\n"
+	"side = centre\n"
+	"offset = 0\n"
+	"facing = random\n"
+	"height = 0.02\n"
+	"scale = 70, 130\n"
+	"jitteralong = 15\n"
+	"jitteracross = 1.5\n"
+	"followslope = 1\n"
+	"\n"
+	"[road: Gravel Road]\n"
+	"width = 5\n"
+	"shoulder = 1.5\n"
+	"smoothing = 40\n"
+	"maxgrade = 12\n"
+	"crown = 0.08\n"
+	"grassmargin = 0.8\n"
+	"treemargin = 2\n"
+	"texture = gravel, mat31, mat23, kind:stone\n"
+	"edgetexture = mat28, kind:dirt\n"
+	"\n"
+	"[road: Country Road]\n"
+	"width = 6\n"
+	"shoulder = 1.5\n"
+	"smoothing = 60\n"
+	"maxgrade = 10\n"
+	"crown = 0.1\n"
+	"grassmargin = 1\n"
+	"treemargin = 2.5\n"
+	"texture = asphalt, tarmac, mat23, kind:stone\n"
+	"edgetexture = gravel, mat31, kind:stone\n"
+	"layer = Patches\n"
+	"entity = find:pothole | find:roadpatch | find:asphaltpatch | Basement Collection\\Decals\\Concrete - Patch 1.fpe\n"
+	"spacing = 55\n"
+	"start = 20\n"
+	"side = centre\n"
+	"offset = 0\n"
+	"facing = random\n"
+	"height = 0.01\n"
+	"scale = 70, 130\n"
+	"jitteralong = 25\n"
+	"jitteracross = 1.8\n"
+	"followslope = 1\n"
+	"\n"
+	"[road: Main Road]\n"
+	"width = 8\n"
+	"shoulder = 2\n"
+	"smoothing = 80\n"
+	"maxgrade = 8\n"
+	"crown = 0.12\n"
+	"grassmargin = 1.5\n"
+	"treemargin = 3\n"
+	"texture = asphalt, tarmac, mat23, kind:stone\n"
+	"edgetexture = gravel, mat31, kind:stone\n"
+	"layer = Streetlights\n"
+	"entity = find:streetlight | find:streetlamp | find:lamppost\n"
+	"spacing = 32\n"
+	"side = both\n"
+	"offset = 0.5\n"
+	"facing = mirrored\n"
+	"keepapart = 15\n"
+	"layer = Patches\n"
+	"entity = find:pothole | find:roadpatch | find:asphaltpatch | Basement Collection\\Decals\\Concrete - Patch 1.fpe\n"
+	"spacing = 70\n"
+	"start = 25\n"
+	"side = centre\n"
+	"offset = 0\n"
+	"facing = random\n"
+	"height = 0.01\n"
+	"scale = 70, 130\n"
+	"jitteralong = 30\n"
+	"jitteracross = 2.5\n"
+	"followslope = 1\n"
+	"\n"
+	"[road: Town Street]\n"
+	"width = 7\n"
+	"shoulder = 1.5\n"
+	"smoothing = 40\n"
+	"maxgrade = 10\n"
+	"crown = 0.1\n"
+	"grassmargin = 2.5\n"
+	"treemargin = 4\n"
+	"texture = asphalt, tarmac, mat23, kind:stone\n"
+	"edgetexture = pavement, concrete, cobble, mat18, kind:stone\n"
+	"layer = Streetlights\n"
+	"entity = find:streetlight | find:streetlamp | find:lamppost\n"
+	"spacing = 25\n"
+	"side = both\n"
+	"offset = 0.3\n"
+	"facing = mirrored\n"
+	"keepapart = 12\n"
+	"\n"
+	"[road: Highway]\n"
+	"width = 14\n"
+	"shoulder = 3\n"
+	"smoothing = 150\n"
+	"maxgrade = 6\n"
+	"crown = 0.15\n"
+	"grassmargin = 2\n"
+	"treemargin = 5\n"
+	"texture = asphalt, tarmac, mat23, kind:stone\n"
+	"edgetexture = gravel, mat31, kind:stone\n"
+	"layer = Streetlights\n"
+	"entity = find:streetlight | find:streetlamp | find:lamppost\n"
+	"spacing = 45\n"
+	"side = both\n"
+	"offset = 1\n"
+	"facing = mirrored\n"
+	"keepapart = 20\n"
+	"\n"
+	"[road: Airstrip]\n"
+	"width = 30\n"
+	"shoulder = 6\n"
+	"smoothing = 400\n"
+	"maxgrade = 2\n"
+	"crown = 0.1\n"
+	"grassmargin = 3\n"
+	"treemargin = 20\n"
+	"texture = asphalt, tarmac, concrete, mat23, kind:stone\n"
+	"edgetexture = gravel, mat31, kind:stone\n"
+	"\n"
+	"[river: Creek]\n"
+	"bedwidth = 1.5\n"
+	"depth = 0.8\n"
+	"banks = 2\n"
+	"smoothing = 12\n"
+	"grassmargin = 0.5\n"
+	"treemargin = 1\n"
+	"bedtexture = mat22, kind:stone\n"
+	"banktexture = mat10, kind:dirt\n"
+	"waterdepth = 0.35\n"
+	"rapids = 1\n"
+	"steepflow = 1.5\n"
+	"bankfoam = 0.2\n"
+	"layer = Rocks in Rapids\n"
+	"entity = Max Collection\\Rocks\\Rock Small Round.fpe | find:rock\n"
+	"spacing = 5\n"
+	"side = centre\n"
+	"offset = 0\n"
+	"facing = random\n"
+	"height = -0.1\n"
+	"scale = 30, 80\n"
+	"jitteralong = 2\n"
+	"jitteracross = 0.6\n"
+	"onlyinrapids = 0.4\n"
+	"layer = Bank Rocks\n"
+	"entity = Max Collection\\Rocks\\Rock Small Group.fpe | find:rock\n"
+	"spacing = 7\n"
+	"side = both\n"
+	"offset = 0.2\n"
+	"facing = random\n"
+	"height = -0.1\n"
+	"scale = 40, 90\n"
+	"jitteralong = 3\n"
+	"jitteracross = 0.5\n"
+	"\n"
+	"[river: Stream]\n"
+	"bedwidth = 4\n"
+	"depth = 1.5\n"
+	"banks = 3.5\n"
+	"smoothing = 25\n"
+	"grassmargin = 1\n"
+	"treemargin = 2\n"
+	"bedtexture = mat22, mat23, kind:stone\n"
+	"banktexture = mat10, kind:dirt\n"
+	"waterdepth = 0.8\n"
+	"rapids = 1\n"
+	"steepflow = 1.5\n"
+	"bankfoam = 0.25\n"
+	"layer = Rocks in Rapids\n"
+	"entity = Max Collection\\Rocks\\Rock Small Irregular.fpe | find:rock\n"
+	"spacing = 6\n"
+	"side = centre\n"
+	"offset = 0\n"
+	"facing = random\n"
+	"height = -0.15\n"
+	"scale = 50, 120\n"
+	"jitteralong = 3\n"
+	"jitteracross = 1.5\n"
+	"onlyinrapids = 0.4\n"
+	"layer = Bank Rocks\n"
+	"entity = Max Collection\\Rocks\\Rock Small Group.fpe | find:rock\n"
+	"spacing = 10\n"
+	"side = both\n"
+	"offset = 0.3\n"
+	"facing = random\n"
+	"height = -0.15\n"
+	"scale = 50, 110\n"
+	"jitteralong = 4\n"
+	"jitteracross = 0.8\n"
+	"\n"
+	"[river: River]\n"
+	"bedwidth = 15\n"
+	"depth = 3\n"
+	"banks = 8\n"
+	"smoothing = 60\n"
+	"grassmargin = 2\n"
+	"treemargin = 3\n"
+	"bedtexture = mat10, kind:dirt\n"
+	"banktexture = mat28, kind:dirt\n"
+	"waterdepth = 2.2\n"
+	"rapids = 0.8\n"
+	"steepflow = 1.5\n"
+	"bankfoam = 0.3\n"
+	"layer = Boulders in Rapids\n"
+	"entity = Max Collection\\Rocks\\Rock Boulder.fpe | find:boulder | find:rock\n"
+	"spacing = 12\n"
+	"side = centre\n"
+	"offset = 0\n"
+	"facing = random\n"
+	"height = -0.3\n"
+	"scale = 60, 150\n"
+	"jitteralong = 5\n"
+	"jitteracross = 6\n"
+	"onlyinrapids = 0.5\n"
+	"\n"
+	"[river: Wide River]\n"
+	"bedwidth = 40\n"
+	"depth = 4.5\n"
+	"banks = 15\n"
+	"smoothing = 120\n"
+	"grassmargin = 3\n"
+	"treemargin = 5\n"
+	"bedtexture = mat10, kind:dirt\n"
+	"banktexture = mat26, kind:sand, kind:dirt\n"
+	"waterdepth = 3.2\n"
+	"rapids = 0.5\n"
+	"steepflow = 1.2\n"
+	"bankfoam = 0.3\n"
+	"\n"
+	"[river: Irrigation Canal]\n"
+	"bedwidth = 2.5\n"
+	"depth = 1.2\n"
+	"banks = 1.2\n"
+	"smoothing = 60\n"
+	"grassmargin = 0.5\n"
+	"treemargin = 1\n"
+	"bedtexture = mat10, kind:dirt\n"
+	"banktexture = mat10, kind:dirt\n"
+	"waterdepth = 0.8\n"
+	"rapids = 0\n"
+	"steepflow = 0.5\n"
+	"bankfoam = 0.05\n";
+
+static const char* g_pSplinePresetFileHeader =
+	"; Roads and Rivers presets of your own (Terrain Tools, Roads and Rivers, Preset). Save as Preset writes this file, and it\n"
+	"; can be edited by hand too (comments are not kept). One here with a built-in preset's name replaces it for you.\n"
+	"; [road: Name] or [river: Name] starts a preset. Lengths are in metres, grades and scales in percent.\n"
+	"; Textures: candidates in order, the first the level's paint palette has: matN (a stock texture, terraintextures\\matN),\n"
+	";   kind:dirt (a material type: grass, stone, metal, wood, snow, dirt or sand), any part of a texture's name, or none.\n"
+	"; layer = <label> starts a layer. Its entity: candidates separated by |, the first installed: a path in the entity bank,\n"
+	";   or find:<words> (the first entity file whose name holds the words, spaces, _ and - ignored, your own first).\n"
+	"; side: both, left, right, alternate or centre. facing: mirrored (the right side along, the left back), along or random.\n";
+
+static std::string spline_trim( const std::string& text )
+{
+	const size_t a = text.find_first_not_of( " \t\r\n" );
+	if ( a == std::string::npos ) return "";
+	const size_t b = text.find_last_not_of( " \t\r\n" );
+	return text.substr( a, b - a + 1 );
+}
+
+static std::string spline_lower( std::string text )
+{
+	for ( char& c : text ) c = (char)tolower( (unsigned char)c );
+	return text;
+}
+
+// lower case without spaces, _ and -, for find:
+static std::string spline_squash( const std::string& text )
+{
+	std::string out;
+	for ( char c : text ) if ( c != ' ' && c != '_' && c != '-' ) out += (char)tolower( (unsigned char)c );
+	return out;
+}
+
+static std::vector<std::string> spline_split( const std::string& text, char separator )
+{
+	std::vector<std::string> out;
+	size_t pos = 0;
+	while ( pos <= text.size() )
+	{
+		size_t end = text.find( separator, pos );
+		if ( end == std::string::npos ) end = text.size();
+		const std::string item = spline_trim( text.substr( pos, end - pos ) );
+		if ( !item.empty() ) out.push_back( item );
+		pos = end + 1;
+	}
+	return out;
+}
+
+// the material types the paint palette sets for footsteps (M-TerrainNew's Texture Material Type)
+static int spline_kindcode( const std::string& name )
+{
+	if ( name == "grass" ) return 0;
+	if ( name == "stone" ) return 1;
+	if ( name == "metal" ) return 2;
+	if ( name == "wood" ) return 3;
+	if ( name == "snow" ) return 6;
+	if ( name == "generic" || name == "tarmac" ) return 10;
+	if ( name == "dirt" ) return 11;
+	if ( name == "sand" ) return 13;
+	return -2;
+}
+
+static const char* spline_kindname( int code )
+{
+	switch ( code )
+	{
+		case 0: return "grass";
+		case 1: return "stone";
+		case 2: return "metal";
+		case 3: return "wood";
+		case 6: return "snow";
+		case 11: return "dirt";
+		case 13: return "sand";
+	}
+	return nullptr; // generic (the default of a custom texture), or not known
+}
+
+static void spline_parsepresets( const char* pText, bool bUser, std::vector<sSplinePreset>& out )
+{
+	const float M = SPLINE_UNITS_PER_M;
+	const std::string text( pText );
+	int preset = -1;
+	bool bLayer = false;
+	size_t pos = 0;
+	while ( pos < text.size() )
+	{
+		size_t end = text.find( '\n', pos );
+		if ( end == std::string::npos ) end = text.size();
+		const std::string line = spline_trim( text.substr( pos, end - pos ) );
+		pos = end + 1;
+		if ( line.empty() || line[0] == ';' || line[0] == '#' ) continue;
+		if ( line[0] == '[' )
+		{
+			preset = -1;
+			bLayer = false;
+			const size_t close = line.find( ']' );
+			const size_t colon = line.find( ':' );
+			if ( close == std::string::npos || colon == std::string::npos || colon > close ) continue;
+			const std::string kind = spline_lower( spline_trim( line.substr( 1, colon - 1 ) ) );
+			sSplinePreset p;
+			p.name = spline_trim( line.substr( colon + 1, close - colon - 1 ) ).substr( 0, 63 );
+			p.bUser = bUser;
+			if ( kind == "road" ) p.kind = SPLINE_KIND_ROAD;
+			else if ( kind == "river" ) p.kind = SPLINE_KIND_RIVER;
+			else continue;
+			if ( p.name.empty() ) continue;
+			out.push_back( p );
+			preset = (int)out.size() - 1;
+			continue;
+		}
+		if ( preset < 0 ) continue;
+		sSplinePreset& p = out[ preset ];
+		const size_t eq = line.find( '=' );
+		if ( eq == std::string::npos ) continue;
+		const std::string key = spline_lower( spline_trim( line.substr( 0, eq ) ) );
+		const std::string value = spline_trim( line.substr( eq + 1 ) );
+		const float f = (float)atof( value.c_str() );
+		const int i = atoi( value.c_str() );
+		if ( key == "layer" )
+		{
+			sSplineLayer layer;
+			layer.keepApart = 0.0f; // the struct's default is a road lamp's
+			p.layers.push_back( layer );
+			p.entities.push_back( "" );
+			bLayer = true;
+			continue;
+		}
+		if ( bLayer )
+		{
+			sSplineLayer& l = p.layers.back();
+			const std::string v = spline_lower( value );
+			if ( key == "entity" ) p.entities.back() = value;
+			else if ( key == "name" ) strcpy_s( l.name, 64, value.substr( 0, 63 ).c_str() );
+			else if ( key == "spacing" ) l.spacing = f * M;
+			else if ( key == "start" ) l.start = f * M;
+			else if ( key == "side" ) l.side = v == "left" ? SPLINE_SIDE_LEFT : v == "right" ? SPLINE_SIDE_RIGHT : v == "alternate" ? SPLINE_SIDE_ALTERNATE : (v == "centre" || v == "center") ? SPLINE_SIDE_CENTRE : SPLINE_SIDE_BOTH;
+			else if ( key == "offset" ) l.offset = f * M;
+			else if ( key == "facing" ) l.facing = v == "along" ? SPLINE_FACE_ALONG : v == "random" ? SPLINE_FACE_RANDOM : SPLINE_FACE_MIRRORED;
+			else if ( key == "turn" ) l.turn = f;
+			else if ( key == "height" ) l.height = f * M;
+			else if ( key == "scale" )
+			{
+				float a = 100.0f, b = 100.0f;
+				const int n = sscanf_s( value.c_str(), "%f , %f", &a, &b );
+				l.scaleMin = a;
+				l.scaleMax = n >= 2 ? b : a;
+			}
+			else if ( key == "jitteralong" ) l.jitter = f * M;
+			else if ( key == "jitteracross" ) l.jitterAcross = f * M;
+			else if ( key == "keepapart" ) l.keepApart = f * M;
+			else if ( key == "followslope" ) l.followSlope = i != 0;
+			else if ( key == "onlyinrapids" ) l.minTurbulence = f;
+			else if ( key == "on" ) l.enabled = i != 0;
+			continue;
+		}
+		if ( key == "smoothing" ) { p.road.smoothing = f * M; p.river.smoothing = f * M; }
+		else if ( key == "grassmargin" ) { p.road.grassMargin = f * M; p.river.grassMargin = f * M; }
+		else if ( key == "treemargin" ) { p.road.treeMargin = f * M; p.river.treeMargin = f * M; }
+		else if ( key == "width" ) p.road.width = f * M;
+		else if ( key == "shoulder" ) p.road.shoulder = f * M;
+		else if ( key == "maxgrade" ) p.road.maxGrade = f;
+		else if ( key == "crown" ) p.road.crown = f * M;
+		else if ( key == "texture" || key == "bedtexture" ) p.textures[0] = value;
+		else if ( key == "edgetexture" || key == "banktexture" ) p.textures[1] = value;
+		else if ( key == "bedwidth" ) p.river.bedWidth = f * M;
+		else if ( key == "depth" ) p.river.depth = f * M;
+		else if ( key == "banks" ) p.river.banks = f * M;
+		else if ( key == "downhill" ) p.river.downhill = i != 0;
+		else if ( key == "waterdepth" ) p.river.waterDepth = f * M;
+		else if ( key == "rapids" ) p.river.rapids = f;
+		else if ( key == "steepflow" ) p.river.steepFlow = f;
+		else if ( key == "bankfoam" ) p.river.foam = f;
+		else if ( key == "raisebanks" ) p.river.raiseBanks = i != 0;
+		else if ( key == "calmend" ) p.river.calmEnd = i != 0;
+		else if ( key == "mainlook" ) p.river.mainLook = i != 0;
+		else if ( key == "colour" || key == "color" ) sscanf_s( value.c_str(), "%f , %f , %f", &p.river.colour[0], &p.river.colour[1], &p.river.colour[2] );
+		else if ( key == "clarity" ) p.river.clarity = f;
+		else if ( key == "seedepth" ) p.river.seeDepth = f * M;
+		else if ( key == "flow" ) p.river.flow = f;
+		else if ( key == "waves" ) p.river.waves = f;
+		else if ( key == "ripples" ) p.river.ripples = f;
+	}
+}
+
+// the built-in presets, and the user's (in place of a built-in one of the same name)
+static void spline_loadpresets( void )
+{
+	g_bSplinePresetsLoaded = true;
+	g_SplineBuiltInPresets.clear();
+	g_SplineUserPresets.clear();
+	spline_parsepresets( g_pSplineBuiltInPresets, false, g_SplineBuiltInPresets );
+	char pPath[ MAX_PATH ] = SPLINE_PRESET_FILE;
+	GG_GetRealPath( pPath, 0 );
+	FILE* fp = nullptr;
+	if ( fopen_s( &fp, pPath, "rb" ) == 0 && fp )
+	{
+		std::string text;
+		char buffer[ 4096 ];
+		size_t got = 0;
+		while ( (got = fread( buffer, 1, sizeof(buffer), fp )) > 0 ) text.append( buffer, got );
+		fclose( fp );
+		spline_parsepresets( text.c_str(), true, g_SplineUserPresets );
+	}
+	g_SplinePresets = g_SplineBuiltInPresets;
+	for ( const sSplinePreset& user : g_SplineUserPresets )
+	{
+		bool bReplaced = false;
+		for ( sSplinePreset& p : g_SplinePresets )
+		{
+			if ( p.kind != user.kind || _stricmp( p.name.c_str(), user.name.c_str() ) != 0 ) continue;
+			p = user;
+			bReplaced = true;
+			break;
+		}
+		if ( !bReplaced ) g_SplinePresets.push_back( user );
+	}
+}
+
+// the material slot a palette entry paints (the palette's order can differ from the slots')
+static int spline_paletteslot( int iL )
+{
+	return sTerrainTexturesID[ 0 ] > 0 ? sTerrainSelectionID[ iL ] : iL;
+}
+
+// the stock texture (terraintextures\matN) a palette entry shows, -1 another
+static int spline_entrymat( int iL )
+{
+	const std::string path = spline_lower( t.visuals.sTerrainTextures[ iL ].Get() );
+	const char* pMat = "terraintextures\\mat";
+	const size_t at = path.find( pMat );
+	if ( at == std::string::npos ) return -1;
+	return atoi( path.c_str() + at + strlen( pMat ) );
+}
+
+// a palette entry's material type: a stock texture's from terraintextures\matsounds.txt, a custom one's as set in the
+// palette; -1 not known
+static int spline_entrykind( int iL )
+{
+	extern int g_iCustomTerrainMatSounds[32];
+	if ( t.visuals.customTexturesFolder.Len() > 0 ) return g_iCustomTerrainMatSounds[ iL ];
+	static int kinds[ 100 ];
+	static bool bRead = false;
+	if ( !bRead )
+	{
+		bRead = true;
+		for ( int& k : kinds ) k = -1;
+		char pPath[ MAX_PATH ] = "terraintextures\\matsounds.txt";
+		GG_GetRealPath( pPath, 0 );
+		FILE* fp = nullptr;
+		if ( fopen_s( &fp, pPath, "r" ) == 0 && fp )
+		{
+			char line[ 128 ];
+			int mat = 0, kind = 0;
+			while ( fgets( line, 128, fp ) ) if ( sscanf_s( line, "mat%d=%d", &mat, &kind ) == 2 && mat >= 0 && mat < 100 ) kinds[ mat ] = kind;
+			fclose( fp );
+		}
+	}
+	const int mat = spline_entrymat( iL );
+	return mat >= 0 && mat < 100 ? kinds[ mat ] : -1;
+}
+
+// texture candidates to a material slot + 1 (0 paints nothing): the first the palette has
+static int spline_presettexture( const std::string& candidates )
+{
+	for ( const std::string& candidate : spline_split( candidates, ',' ) )
+	{
+		const std::string c = spline_lower( candidate );
+		if ( c == "none" ) return 0;
+		bool bMat = c.size() > 3 && c.compare( 0, 3, "mat" ) == 0;
+		for ( size_t k = 3; bMat && k < c.size(); k++ ) if ( !isdigit( (unsigned char)c[k] ) ) bMat = false;
+		for ( int iL = 0; iL < 32; iL++ )
+		{
+			if ( t.visuals.sTerrainTextures[ iL ].Len() == 0 ) continue;
+			bool bMatch = false;
+			if ( c.compare( 0, 5, "kind:" ) == 0 ) bMatch = spline_entrykind( iL ) == spline_kindcode( c.substr( 5 ) );
+			else if ( bMat ) bMatch = spline_entrymat( iL ) == atoi( c.c_str() + 3 );
+			else bMatch = spline_lower( t.visuals.sTerrainTexturesName[ iL ].Get() ).find( c ) != std::string::npos || spline_lower( t.visuals.sTerrainTextures[ iL ].Get() ).find( c ) != std::string::npos;
+			if ( bMatch ) return spline_paletteslot( iL ) + 1;
+		}
+	}
+	return 0;
+}
+
+// a material slot as texture candidates: its stock texture, its name if the user gave it one, its material type
+static std::string spline_texturecandidates( int material )
+{
+	if ( material <= 0 ) return "none";
+	for ( int iL = 0; iL < 32; iL++ )
+	{
+		if ( t.visuals.sTerrainTextures[ iL ].Len() == 0 || spline_paletteslot( iL ) != material - 1 ) continue;
+		std::vector<std::string> out;
+		const int mat = spline_entrymat( iL );
+		if ( mat > 0 ) out.push_back( "mat" + std::to_string( mat ) );
+		std::string name = t.visuals.sTerrainTexturesName[ iL ].Get();
+		name.erase( std::remove( name.begin(), name.end(), ',' ), name.end() );
+		bool bDefaultName = name.compare( 0, 9, "Material " ) == 0;
+		for ( size_t k = 9; bDefaultName && k < name.size(); k++ ) if ( !isdigit( (unsigned char)name[k] ) ) bDefaultName = false;
+		if ( !name.empty() && !bDefaultName ) out.push_back( name );
+		const char* pKind = spline_kindname( spline_entrykind( iL ) );
+		if ( pKind ) out.push_back( std::string( "kind:" ) + pKind );
+		std::string text;
+		for ( const std::string& item : out ) text += (text.empty() ? "" : ", ") + item;
+		return text.empty() ? "none" : text;
+	}
+	return "none";
+}
+
+// every entity file in the entity banks (relative to the bank), the user's own first
+static void spline_scanentities( const std::string& root, const std::string& rel, std::vector<std::string>& out )
+{
+	WIN32_FIND_DATAA fd;
+	HANDLE h = FindFirstFileA( (root + "\\" + rel + "*").c_str(), &fd );
+	if ( h == INVALID_HANDLE_VALUE ) return;
+	do
+	{
+		if ( fd.cFileName[0] == '.' ) continue;
+		if ( fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY )
+		{
+			if ( _stricmp( fd.cFileName, "_markers" ) != 0 ) spline_scanentities( root, rel + fd.cFileName + "\\", out );
+			continue;
+		}
+		const size_t len = strlen( fd.cFileName );
+		if ( len > 4 && _stricmp( fd.cFileName + len - 4, ".fpe" ) == 0 ) out.push_back( rel + fd.cFileName );
+	}
+	while ( FindNextFileA( h, &fd ) );
+	FindClose( h );
+}
+
+static void spline_entitylist( std::vector<std::string>& out )
+{
+	out.clear();
+	char pInstall[ MAX_PATH ];
+	GetCurrentDirectoryA( MAX_PATH, pInstall );
+	strcat_s( pInstall, MAX_PATH, "\\entitybank" );
+	char pWrite[ MAX_PATH ] = "entitybank";
+	GG_GetRealPath( pWrite, 0 );
+	std::vector<std::string> mine, theirs;
+	if ( _stricmp( pWrite, pInstall ) != 0 ) spline_scanentities( pWrite, "", mine );
+	spline_scanentities( pInstall, "", theirs );
+	// the user's own folder first
+	for ( int pass = 0; pass < 2; pass++ )
+	{
+		for ( const std::string& file : mine ) if ( (_strnicmp( file.c_str(), "user\\", 5 ) == 0) == (pass == 0) ) out.push_back( file );
+	}
+	for ( const std::string& file : theirs ) if ( std::find( out.begin(), out.end(), file ) == out.end() ) out.push_back( file );
+}
+
+// entity candidates to an entity (relative to the bank), "" none installed
+static std::string spline_presetentity( const std::string& candidates, std::vector<std::string>& files, bool* pScanned )
+{
+	for ( const std::string& candidate : spline_split( candidates, '|' ) )
+	{
+		if ( _strnicmp( candidate.c_str(), "find:", 5 ) == 0 )
+		{
+			const std::string words = spline_squash( candidate.substr( 5 ) );
+			if ( words.empty() ) continue;
+			if ( !*pScanned ) { spline_entitylist( files ); *pScanned = true; }
+			for ( const std::string& file : files )
+			{
+				const size_t slash = file.find_last_of( '\\' );
+				std::string name = slash == std::string::npos ? file : file.substr( slash + 1 );
+				if ( name.size() > 4 ) name.resize( name.size() - 4 );
+				if ( spline_squash( name ).find( words ) != std::string::npos ) return file;
+			}
+			continue;
+		}
+		char pPath[ MAX_PATH ];
+		sprintf_s( pPath, MAX_PATH, "entitybank\\%s", candidate.c_str() );
+		GG_GetRealPath( pPath, 0 );
+		if ( FileExist( pPath ) ) return candidate;
+	}
+	return "";
+}
+
+// what a preset sets: Edited shows once these differ from when it was set
+static uint64_t spline_presetsignature( const sSpline& s )
+{
+	uint64_t h = 0xcbf29ce484222325ULL;
+	h = spline_hashmix( h, &s.kind, sizeof(s.kind) );
+	sSplineRoad r = s.road;
+	r.autoApply = 0;
+	sSplineRiver v = s.river;
+	v.autoApply = 0;
+	if ( s.kind == SPLINE_KIND_ROAD ) h = spline_hashmix( h, &r, sizeof(r) );
+	if ( s.kind == SPLINE_KIND_RIVER ) h = spline_hashmix( h, &v, sizeof(v) );
+	for ( const sSplineLayer& layer : s.layers ) if ( !layer.frozen ) h = spline_hashmix( h, &layer, sizeof(layer) );
+	return h ? h : 1;
+}
+
+// sets a spline from a preset: its settings and textures, and its layers in place of those it had (a frozen layer stays,
+// with its entities); Update as I Edit stays as it was
+static void spline_applypreset( sSpline& s, const sSplinePreset& p )
+{
+	spline_unplace( s );
+	s.kind = p.kind;
+	const int textures[2] = { spline_presettexture( p.textures[0] ), spline_presettexture( p.textures[1] ) };
+	if ( p.kind == SPLINE_KIND_ROAD )
+	{
+		const int autoApply = s.road.autoApply;
+		s.road = p.road;
+		s.road.autoApply = autoApply;
+		s.road.material = textures[0];
+		s.road.edgeMaterial = textures[1];
+	}
+	else
+	{
+		const int autoApply = s.river.autoApply;
+		s.river = p.river;
+		s.river.autoApply = autoApply;
+		s.river.bedMaterial = textures[0];
+		s.river.bankMaterial = textures[1];
+	}
+	std::vector<sSplineLayer> layers;
+	std::vector<int> moved( s.layers.size(), -1 );
+	for ( int li = 0; li < (int)s.layers.size(); li++ )
+	{
+		if ( !s.layers[ li ].frozen ) continue;
+		moved[ li ] = (int)layers.size();
+		layers.push_back( s.layers[ li ] );
+	}
+	for ( sSplinePlaced& placed : s.placed ) if ( placed.layer >= 0 && placed.layer < (int)moved.size() ) placed.layer = moved[ placed.layer ];
+	std::vector<std::string> files;
+	bool bScanned = false;
+	for ( size_t li = 0; li < p.layers.size(); li++ )
+	{
+		sSplineLayer layer = p.layers[ li ];
+		strcpy_s( layer.entity, 260, spline_presetentity( p.entities[ li ], files, &bScanned ).c_str() );
+		layers.push_back( layer );
+	}
+	s.layers.swap( layers );
+	strcpy_s( s.preset, 64, p.name.c_str() );
+	s.presetSignature = spline_presetsignature( s );
+}
+
+static std::string spline_number( float value )
+{
+	char text[ 32 ];
+	sprintf_s( text, 32, "%.3f", value );
+	char* pEnd = text + strlen( text ) - 1;
+	while ( pEnd > text && *pEnd == '0' ) *pEnd-- = 0;
+	if ( *pEnd == '.' ) *pEnd = 0;
+	return text;
+}
+
+static void spline_writepreset( std::string& out, const sSplinePreset& p )
+{
+	const float M = SPLINE_UNITS_PER_M;
+	auto line = [&out]( const char* pKey, const std::string& value ) { out += pKey; out += " = "; out += value; out += "\n"; };
+	auto metres = [&]( const char* pKey, float units ) { line( pKey, spline_number( units / M ) ); };
+	auto number = [&]( const char* pKey, float value ) { line( pKey, spline_number( value ) ); };
+	out += std::string( "[" ) + (p.kind == SPLINE_KIND_RIVER ? "river" : "road") + ": " + p.name + "]\n";
+	if ( p.kind == SPLINE_KIND_ROAD )
+	{
+		const sSplineRoad& r = p.road;
+		metres( "width", r.width );
+		metres( "shoulder", r.shoulder );
+		metres( "smoothing", r.smoothing );
+		number( "maxgrade", r.maxGrade );
+		metres( "crown", r.crown );
+		metres( "grassmargin", r.grassMargin );
+		metres( "treemargin", r.treeMargin );
+		line( "texture", p.textures[0] );
+		line( "edgetexture", p.textures[1] );
+	}
+	else
+	{
+		const sSplineRiver& v = p.river;
+		metres( "bedwidth", v.bedWidth );
+		metres( "depth", v.depth );
+		metres( "banks", v.banks );
+		metres( "smoothing", v.smoothing );
+		metres( "grassmargin", v.grassMargin );
+		metres( "treemargin", v.treeMargin );
+		line( "bedtexture", p.textures[0] );
+		line( "banktexture", p.textures[1] );
+		number( "downhill", (float)v.downhill );
+		metres( "waterdepth", v.waterDepth );
+		number( "rapids", v.rapids );
+		number( "steepflow", v.steepFlow );
+		number( "bankfoam", v.foam );
+		number( "raisebanks", (float)v.raiseBanks );
+		number( "calmend", (float)v.calmEnd );
+		number( "mainlook", (float)v.mainLook );
+		if ( !v.mainLook )
+		{
+			line( "colour", spline_number( v.colour[0] ) + ", " + spline_number( v.colour[1] ) + ", " + spline_number( v.colour[2] ) );
+			number( "clarity", v.clarity );
+			metres( "seedepth", v.seeDepth );
+			number( "flow", v.flow );
+			number( "waves", v.waves );
+			number( "ripples", v.ripples );
+		}
+	}
+	const char* sides[] = { "both", "left", "right", "alternate", "centre" };
+	const char* faces[] = { "mirrored", "along", "random" };
+	for ( size_t li = 0; li < p.layers.size(); li++ )
+	{
+		const sSplineLayer& l = p.layers[ li ];
+		const char* pName = strrchr( l.entity, '\\' );
+		line( "layer", pName ? pName + 1 : (l.entity[0] ? l.entity : "Layer") );
+		line( "entity", p.entities[ li ] );
+		if ( l.name[0] ) line( "name", l.name );
+		metres( "spacing", l.spacing );
+		metres( "start", l.start );
+		line( "side", sides[ std::min( 4, std::max( 0, l.side ) ) ] );
+		metres( "offset", l.offset );
+		line( "facing", faces[ std::min( 2, std::max( 0, l.facing ) ) ] );
+		number( "turn", l.turn );
+		metres( "height", l.height );
+		line( "scale", spline_number( l.scaleMin ) + ", " + spline_number( l.scaleMax ) );
+		metres( "jitteralong", l.jitter );
+		metres( "jitteracross", l.jitterAcross );
+		metres( "keepapart", l.keepApart );
+		number( "followslope", (float)l.followSlope );
+		if ( p.kind == SPLINE_KIND_RIVER ) number( "onlyinrapids", l.minTurbulence );
+		number( "on", (float)l.enabled );
+	}
+	out += "\n";
+}
+
+static bool spline_savepresetfile( void )
+{
+	std::string out = g_pSplinePresetFileHeader;
+	out += "\n";
+	for ( const sSplinePreset& p : g_SplineUserPresets ) spline_writepreset( out, p );
+	char pPath[ MAX_PATH ] = SPLINE_PRESET_FILE;
+	GG_GetRealPath( pPath, 1 );
+	FILE* fp = nullptr;
+	if ( fopen_s( &fp, pPath, "wb" ) != 0 || !fp ) return false;
+	fwrite( out.data(), 1, out.size(), fp );
+	fclose( fp );
+	return true;
+}
+
+static int spline_findpreset( const std::vector<sSplinePreset>& presets, int kind, const char* pName )
+{
+	for ( int pi = 0; pi < (int)presets.size(); pi++ ) if ( presets[ pi ].kind == kind && _stricmp( presets[ pi ].name.c_str(), pName ) == 0 ) return pi;
+	return -1;
+}
+
+// the spline's settings, textures and layers as the user's own preset (one of the same name replaced)
+static bool spline_saveaspreset( sSpline& s, const char* pName )
+{
+	sSplinePreset p;
+	p.name = pName;
+	p.kind = s.kind;
+	p.bUser = true;
+	p.road = s.road;
+	p.river = s.river;
+	p.road.autoApply = p.river.autoApply = 1;
+	if ( s.kind == SPLINE_KIND_ROAD )
+	{
+		p.textures[0] = spline_texturecandidates( s.road.material );
+		p.textures[1] = spline_texturecandidates( s.road.edgeMaterial );
+	}
+	else
+	{
+		p.textures[0] = spline_texturecandidates( s.river.bedMaterial );
+		p.textures[1] = spline_texturecandidates( s.river.bankMaterial );
+	}
+	for ( const sSplineLayer& layer : s.layers )
+	{
+		sSplineLayer l = layer;
+		l.frozen = 0;
+		p.layers.push_back( l );
+		p.entities.push_back( layer.entity );
+	}
+	const int at = spline_findpreset( g_SplineUserPresets, p.kind, pName );
+	if ( at >= 0 ) g_SplineUserPresets[ at ] = p;
+	else g_SplineUserPresets.push_back( p );
+	const bool bSaved = spline_savepresetfile();
+	spline_loadpresets();
+	strcpy_s( s.preset, 64, pName );
+	s.presetSignature = spline_presetsignature( s );
+	return bSaved;
+}
+
+// the Preset row (a road's or a river's), and Save as Preset
+static void spline_rowpreset( sSpline& s )
+{
+	if ( !g_bSplinePresetsLoaded ) spline_loadpresets();
+	char preview[ 96 ];
+	if ( !s.preset[0] ) strcpy_s( preview, 96, "Choose a preset" );
+	else sprintf_s( preview, 96, "%s%s", s.preset, spline_presetsignature( s ) != s.presetSignature ? " (edited)" : "" );
+	spline_row( "Preset" );
+	if ( ImGui::BeginCombo( "##splinepreset", preview ) )
+	{
+		for ( const sSplinePreset& p : g_SplinePresets )
+		{
+			if ( p.kind != s.kind ) continue;
+			char label[ 96 ];
+			sprintf_s( label, 96, "%s%s##splinepreset%s", p.name.c_str(), p.bUser ? " (yours)" : "", p.name.c_str() );
+			if ( ImGui::Selectable( label, _stricmp( p.name.c_str(), s.preset ) == 0 ) )
+			{
+				spline_applypreset( s, p );
+				spline_modified();
+			}
+		}
+		ImGui::EndCombo();
+	}
+	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", s.kind == SPLINE_KIND_ROAD ? "Sets the road's width, shape, textures and layers (streetlights, decals) from a preset; change any of them after.\nTextures come from this level's paint palette, entities from your entity bank (your own first)." : "Sets the river's size, water, textures and layers (rocks) from a preset; change any of them after.\nTextures come from this level's paint palette, entities from your entity bank (your own first)." );
+	static char saveName[ 64 ] = "";
+	ImGui::SetCursorPosX( fRowFieldX );
+	if ( ImGui::StyleButton( "Save as Preset...##splinesavepreset", ImVec2( fRowRight - fRowFieldX, 0 ) ) )
+	{
+		strcpy_s( saveName, 64, s.preset );
+		ImGui::OpenPopup( "##splinesavepresetpopup" );
+	}
+	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Keep these settings, textures and layers as a preset of your own (editors\\splinepresets.txt in your writable Files folder)" );
+	if ( ImGui::BeginPopup( "##splinesavepresetpopup" ) )
+	{
+		ImGui::TextUnformatted( "Preset name" );
+		ImGui::SetNextItemWidth( 260.0f );
+		ImGui::InputText( "##splinepresetname", saveName, 64 );
+		const int mine = spline_findpreset( g_SplineUserPresets, s.kind, saveName );
+		if ( mine >= 0 ) ImGui::TextUnformatted( "Replaces your preset of that name." );
+		else if ( spline_findpreset( g_SplineBuiltInPresets, s.kind, saveName ) >= 0 ) ImGui::TextUnformatted( "Replaces the built-in preset of that name, for you." );
+		if ( ImGui::StyleButton( "Save##splinepresetsave", ImVec2( 80.0f, 0 ) ) && spline_trim( saveName ).size() > 0 )
+		{
+			const std::string name = spline_trim( saveName );
+			spline_saveaspreset( s, name.c_str() );
+			spline_modified();
+			ImGui::CloseCurrentPopup();
+		}
+		if ( mine >= 0 )
+		{
+			ImGui::SameLine();
+			if ( ImGui::StyleButton( "Delete Mine##splinepresetdelete", ImVec2( 110.0f, 0 ) ) )
+			{
+				g_SplineUserPresets.erase( g_SplineUserPresets.begin() + mine );
+				spline_savepresetfile();
+				spline_loadpresets();
+				ImGui::CloseCurrentPopup();
+			}
+			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Delete your preset of this name (a built-in one of the name comes back)" );
+		}
+		ImGui::SameLine();
+		if ( ImGui::StyleButton( "Cancel##splinepresetcancel", ImVec2( 80.0f, 0 ) ) ) ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
+	}
+}
+
+//
 // Undo
 //
 
@@ -2798,6 +3779,8 @@ struct sSplineDef
 	sSplineRoad road;
 	sSplineRiver river;
 	std::vector<sSplineLayer> layers;
+	char preset[64] = "";
+	uint64_t presetSignature = 0;
 	int bakeState = 0;
 };
 
@@ -2838,6 +3821,8 @@ static void spline_getdef( const sSpline& s, sSplineDef& def )
 	def.road = s.road;
 	def.river = s.river;
 	def.layers = s.layers;
+	memcpy( def.preset, s.preset, sizeof(def.preset) );
+	def.presetSignature = s.presetSignature;
 	def.bakeState = spline_bakestate( s );
 }
 
@@ -2852,11 +3837,14 @@ static void spline_setdef( sSpline& s, const sSplineDef& def )
 	s.road = def.road;
 	s.river = def.river;
 	s.layers = def.layers;
+	memcpy( s.preset, def.preset, sizeof(s.preset) );
+	s.presetSignature = def.presetSignature;
 }
 
 static bool spline_samedef( const sSpline& s, const sSplineDef& def )
 {
 	if ( s.kind != def.kind || s.curve != def.curve || s.closed != def.closed || memcmp( s.name, def.name, sizeof(s.name) ) != 0 ) return false;
+	if ( memcmp( s.preset, def.preset, sizeof(s.preset) ) != 0 || s.presetSignature != def.presetSignature ) return false;
 	if ( s.nodes.size() != def.nodes.size() || s.layers.size() != def.layers.size() ) return false;
 	if ( !s.nodes.empty() && memcmp( s.nodes.data(), def.nodes.data(), s.nodes.size() * sizeof(sSplineNode) ) != 0 ) return false;
 	if ( !s.layers.empty() && memcmp( s.layers.data(), def.layers.data(), s.layers.size() * sizeof(sSplineLayer) ) != 0 ) return false;
@@ -3156,7 +4144,12 @@ void spline_imgui_panel( float w )
 			}
 			const char* kinds[] = { "Line only", "Road", "River" };
 			spline_row( "Type" );
-			if ( ImGui::Combo( "##splinekind", &s.kind, kinds, 3 ) ) spline_modified();
+			if ( ImGui::Combo( "##splinekind", &s.kind, kinds, 3 ) )
+			{
+				s.preset[0] = 0;
+				spline_modified();
+			}
+			if ( s.kind == SPLINE_KIND_ROAD || s.kind == SPLINE_KIND_RIVER ) spline_rowpreset( s );
 
 			if ( s.kind == SPLINE_KIND_ROAD )
 			{
@@ -3520,6 +4513,9 @@ void spline_savedata( void )
 		for ( const sSplineLayer& layer : s.layers ) put( &layer.followSlope, sizeof(layer.followSlope) );
 		// version 13: Jitter Across
 		for ( const sSplineLayer& layer : s.layers ) put( &layer.jitterAcross, sizeof(layer.jitterAcross) );
+		// version 14: the preset
+		put( s.preset, 64 );
+		put( &s.presetSignature, sizeof(s.presetSignature) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -3675,6 +4671,11 @@ void spline_loaddata( void )
 						if ( version >= 13 )
 						{
 							for ( sSplineLayer& layer : s.layers ) if ( !get( &layer.jitterAcross, sizeof(layer.jitterAcross) ) ) break;
+						}
+						if ( version >= 14 && get( s.preset, 64 ) )
+						{
+							s.preset[ 63 ] = 0;
+							get( &s.presetSignature, sizeof(s.presetSignature) );
 						}
 						if ( version < 12 )
 						{
