@@ -8357,6 +8357,8 @@ void LuaRenderSettings_Clear(void)
 	if (old.iDelayedShadows >= 0 || old.iDelayedShadowsLaptop >= 0) LuaRenderSettings_SetDelayedShadowGlobals(visuals->g_bDelayedShadows, visuals->g_bDelayedShadowsLaptop);
 	LuaRenderSettings_RestoreGraphics(old, visuals);
 	if (old.iShadowJobWait >= 0) g_bShadowJobWaits = false;
+	extern float g_fLightMaxDistance;
+	g_fLightMaxDistance = 0.0f;
 }
 
 // clouds, tree wind, the tree backlight, wind, water colour, water fog and the LUT set from Lua are kept in

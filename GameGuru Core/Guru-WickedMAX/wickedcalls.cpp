@@ -143,6 +143,9 @@ bool bEnableSpotShadowCulling = true;
 bool bEnableObjectCulling = true;
 bool bEnableAnimationCulling = true;
 bool bShadowsInFrontTakesPriority = false;
+// GG: point and spot lights farther than this from the camera, their range included, are left out of the frame (0 none;
+// Lua's SetLightMaxDistance)
+float g_fLightMaxDistance = 0.0f;
 
 bool bShadowsLowestLOD = false;
 bool bProbesLowestLOD = false;

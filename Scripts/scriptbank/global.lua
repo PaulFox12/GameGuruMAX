@@ -2509,6 +2509,7 @@ SetLODMultiplier : SetLODMultiplier ( v ) -- models with LOD levels (a _lod.dbo)
 SetShadowsLowestLOD : SetShadowsLowestLOD ( on ) -- models cast shadows from their lowest LOD (cheaper); until the level ends
 SetDelayedShadows : SetDelayedShadows ( on [, laptop] ) -- the sun's shadow cascades 1 to 4 redrawn every 2, 3, 4, 9 frames instead of every frame, point light shadows less often too; laptop also redraws cascade 0 every other frame and the rest every 3, 4, 5, 9 (on unless the level turned it off). An omitted or negative value keeps the current one; until the level ends
 ResetDelayedShadows : ResetDelayedShadows ( ) -- forget what SetDelayedShadows set and go back to the level's or the graphics quality's delayed shadows (e.g. on after a heli flight that turned them off)
+SetLightMaxDistance : SetLightMaxDistance ( distance ) -- point and spot lights farther than this from the camera (their range added) are left out of the frame as lights out of view are, so they take no light slot; 0, the default, for no limit; back to none at the next level and test end
 SetShadowJobWait : SetShadowJobWait ( on ) -- the render's shadow job waits for the frame set up and prepass jobs even with delayed shadows off, as it does with them on (off by default; a test for the stalls in Wicked's Render with delayed shadows off); off again at the next level and test end
 GetDelayedShadows : on, laptop, script = GetDelayedShadows ( ) -- the delayed shadow refresh in force now (1 or 0 each), and script 1 while a SetDelayedShadows value holds
 SetFXAA : SetFXAA ( on ) -- the FXAA pass (1 or 0); like every graphics setting below it holds through visuals pushes and quality changes and goes back to the level's at the next level and when a test game ends
@@ -2657,7 +2658,7 @@ GetObjectColCentre : x, y, z = GetObjectColCentre( obj ) -- returns real collisi
 
 ***** Lua control of dynamic light, you get the light number using entity e number then use that in the other light functions
 ***** for example; lightNum = GetEntityLightNumber( e )  then  x, y, z = GetLightPosition( lightNum )
-GetEntityLightNumber : lightNum = GetEntityLightNumber( e ) -- returns the internal light number held by the entity
+GetEntityLightNumber : lightNum = GetEntityLightNumber( e ) -- returns the internal light number held by the entity (a light marker's, or the light an entity carries when its .fpe has entitylight = 1: the engine places that one with the entity every frame, so don't set its position; 0 if none)
 GetLightPosition : x, y, z = GetLightPosition( lightNum ) -- returns the XYZ position of the dynamic light specified
 GetLightAngle : xv, yv, zv = GetLightAngle( LightNum ) -- returns the angle vector of the dynamic light specified
 GetLightRGB : r, g, b = GetLightRGB( lightNum ) -- returns the RGB color of the dynamic light specified

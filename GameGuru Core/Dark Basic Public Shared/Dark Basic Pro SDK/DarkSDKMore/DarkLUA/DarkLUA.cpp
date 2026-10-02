@@ -14139,6 +14139,16 @@ int SetGrassSimpleLighting(lua_State* L)
 	LuaRenderSettings_SetGrassSimpleLighting((int)lua_tonumber(L, 1));
 	return 0;
 }
+// SetLightMaxDistance(distance): point and spot lights farther than this from the camera (their range added) are left out
+// of the frame, as lights out of view are; 0, the default, for no limit. Back to none at the next level and test end
+int SetLightMaxDistance(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	extern float g_fLightMaxDistance;
+	const float fDistance = (float)lua_tonumber(L, 1);
+	g_fLightMaxDistance = fDistance > 0.0f ? fDistance : 0.0f;
+	return 0;
+}
 // SetShadowJobWait(on): the shadow job waits for the frame set up and prepass jobs even with delayed shadows off, as it
 // does with them on (off by default; for the stalls in Wicked's Render with delayed shadows off). Back to off at the next
 // level and test end
@@ -17595,6 +17605,7 @@ void addFunctions()
 	lua_register(lua, "SetRaycastLowestLOD", SetRaycastLowestLOD);
 	lua_register(lua, "SetTransparentShadows", SetTransparentShadows);
 	lua_register(lua, "SetShadowJobWait", SetShadowJobWait);
+	lua_register(lua, "SetLightMaxDistance", SetLightMaxDistance);
 	lua_register(lua, "ResetDelayedShadows", ResetDelayedShadows);
 	lua_register(lua, "GetDelayedShadows", GetDelayedShadows);
 	lua_register(lua, "SetShadowRange", SetShadowRange);
