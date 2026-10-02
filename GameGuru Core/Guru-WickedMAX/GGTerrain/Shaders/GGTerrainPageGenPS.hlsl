@@ -19,6 +19,19 @@ Texture2D<float>  texMaterialMap : register( t57 );
 
 Texture2DArray texGrass : register( t58 );
 
+// road markings (GGTerrain_SetMarkings, the same layout as GGTerrainMarking); a page's own run of them is in its id
+struct TerrainMarking
+{
+	float4 ab; // a.x, a.z, b.x, b.z
+	float halfWidth;
+	float dash;
+	float gap; // 0 a solid line
+	float phase;
+	float3 colour;
+	float wear;
+};
+StructuredBuffer<TerrainMarking> markings : register( t59 );
+
 SamplerState samplerTriWrap : register( s0 );
 SamplerState samplerBiClamp : register( s1 );
 SamplerState samplerBiWrap  : register( s2 );
@@ -35,6 +48,7 @@ struct PixelIn
 	float2 uv3 : TEXCOORD2;
 	float2 uvMat : TEXCOORD3;
 	uint lodLevel : TEXCOORD4;
+	float2 worldXZ : TEXCOORD5;
 };
 
 struct PixelOut
@@ -419,6 +433,57 @@ PixelOut main( PixelIn IN )
 		if ( matArray[0] != matArray[3] || matArray[1] != matArray[2] ) surfaces[0] = LerpSurface( surfaces[2], surfaces[0], interp2.y );
 
 		finalSurface = surfaces[ 0 ];
+	}
+
+	// road markings: each piece's paint over this texel from its distance to the piece (rounded ends, so pieces meet
+	// without a seam), anti-aliased over the texel, so lines hold at any distance; dashed along the line by its phase,
+	// and worn in patches. The paint keeps the ground's bumps a little and is smoother
+	uint markCount = (IN.lodLevel >> 8) & 0xFF;
+	float texel = max( max( length( ddx( IN.worldXZ ) ), length( ddy( IN.worldXZ ) ) ), 0.01 );
+	if ( markCount > 0 )
+	{
+		uint markStart = IN.lodLevel >> 16;
+		float paint = 0;
+		float3 paintColour = float3( 0, 0, 0 );
+		for( uint mk = 0; mk < markCount; mk++ )
+		{
+			TerrainMarking mark = markings[ markStart + mk ];
+			float2 a = mark.ab.xy;
+			float2 piece = mark.ab.zw - a;
+			float len = length( piece );
+			float2 dir = len > 0.001 ? piece / len : float2( 1, 0 );
+			float2 ap = IN.worldXZ - a;
+			float along = clamp( dot( ap, dir ), 0, len );
+			float dist = length( ap - dir * along );
+			float cover = saturate( (mark.halfWidth - dist) / texel + 0.5 );
+			if ( cover <= 0 ) continue;
+			if ( mark.gap > 0 )
+			{
+				float period = mark.dash + mark.gap;
+				float pos = fmod( mark.phase + along, period );
+				float inDash = saturate( min( pos, mark.dash - pos ) / texel + 0.5 );
+				inDash = max( inDash, saturate( (pos - period) / texel + 0.5 ) );
+				cover *= inDash;
+			}
+			if ( mark.wear > 0 )
+			{
+				float n = EdgeNoise( IN.worldXZ / 40.0 ) * 0.6 + EdgeNoise( IN.worldXZ / 9.0 + 7.3 ) * 0.4;
+				cover *= saturate( 1 - mark.wear * (1.5 - n) );
+			}
+			if ( cover > paint )
+			{
+				paint = cover;
+				paintColour = mark.colour;
+			}
+		}
+		if ( paint > 0 )
+		{
+			finalSurface.color = lerp( finalSurface.color, paintColour, paint );
+			finalSurface.roughness = lerp( finalSurface.roughness, 0.55, paint );
+			finalSurface.metalness = lerp( finalSurface.metalness, 0, paint );
+			finalSurface.normal.xy *= 1 - 0.6 * paint;
+			finalSurface.normal = normalize( finalSurface.normal );
+		}
 	}
 
 	float2 normalRG = finalSurface.normal.rg * 0.5 + 0.5;

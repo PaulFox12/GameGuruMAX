@@ -80,7 +80,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 17 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth
+#define SPLINE_FILE_VERSION 18 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth; 18: road markings
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -99,6 +99,7 @@ struct sSplineNode
 	int flags = 0;
 	int junction = 0; // nodes of other splines with the same junction share this node's position
 	int segCurve = -1; // the curve of the segment from this node to the next: SPLINE_CURVE_*, or -1 the spline's
+	int segMark = -1; // the markings of the segment from this node to the next: SPLINE_SEGMARK_*, or -1 the road's
 };
 
 // a river's water over a terrain texel: its height, and how turbulent it is there (0-1)
@@ -119,6 +120,18 @@ struct sRiverTexel
 #define SPLINE_FACE_MIRRORED 0 // each side turned to face the other across it (as the Long Bien bridge's lamps)
 #define SPLINE_FACE_ALONG 1
 #define SPLINE_FACE_RANDOM 2
+
+// a road's centre line (Markings)
+#define SPLINE_MARK_NONE 0
+#define SPLINE_MARK_DASHED 1
+#define SPLINE_MARK_SOLID 2
+#define SPLINE_MARK_DOUBLE 3
+#define SPLINE_MARK_SOLIDDASHED 4 // solid on the left (seen from the first node), dashed on the right
+// a segment's own markings over the road's
+#define SPLINE_SEGMARK_ROAD -1
+#define SPLINE_SEGMARK_NONE 0 // no lines
+#define SPLINE_SEGMARK_SOLID 1 // the centre line solid (a bridge, a crest)
+#define SPLINE_SEGMARK_DASHED 2 // the centre line dashed
 #define SPLINE_ENTITY_TAG 0x4E4C5053 // 'SPLN' in eleprof.iObjectReserved1; iObjectReserved2 the spline's id, 3 the layer
 struct sSplineLayer
 {
@@ -162,6 +175,19 @@ struct sSplineRoad
 	int material = 0; // terrain texture slot + 1 for the carriageway, 0 none
 	int edgeMaterial = 0; // the same for the shoulders
 	int autoApply = 1; // baked again when it changes
+	// its painted lines (spline_markings), drawn into the terrain's pages rather than baked
+	int markCentre = 0; // SPLINE_MARK_*
+	int markCentreYellow = 0; // the centre line yellow, else white
+	int markLanes = 1; // lanes each way, dashed lines between them
+	int markEdges = 0; // solid edge lines
+	int markEdgeYellow = 0;
+	float markEdgeInset = 8.0f; // the edge lines this far in from the carriageway's edge (0.2 m)
+	float markLineWidth = 3.94f; // the centre and lane lines (10 cm)
+	float markEdgeWidth = 7.87f; // the edge lines (20 cm)
+	float markDash = 118.1f; // a dash (3 m)
+	float markGap = 354.3f; // and the gap after it (9 m)
+	float markBendRadius = 0.0f; // the centre line solid where the road bends tighter than this, 0 never
+	float markWear = 0.0f; // 0 fresh paint, 1 worn away in patches
 };
 
 // a river's settings, in units (the panel shows metres)
@@ -497,6 +523,7 @@ static int spline_insertnode( int si, int seg, float t )
 	spline_point( s, seg, t, &node.x, &node.z );
 	node.y = spline_groundy( node.x, node.z );
 	node.segCurve = s.nodes[ seg ].segCurve;
+	node.segMark = s.nodes[ seg ].segMark;
 	if ( spline_segcurve( s, seg ) == SPLINE_CURVE_BEZIER )
 	{
 		auto lerp = [t]( float a, float b ) { return a + (b - a) * t; };
@@ -559,8 +586,9 @@ static void spline_deletespline( int si )
 static void spline_reverse( sSpline& s )
 {
 	const int n = (int)s.nodes.size();
-	std::vector<int> segCurves( n );
+	std::vector<int> segCurves( n ), segMarks( n );
 	for ( int i = 0; i < n; i++ ) segCurves[ i ] = s.nodes[ i ].segCurve;
+	for ( int i = 0; i < n; i++ ) segMarks[ i ] = s.nodes[ i ].segMark;
 	std::reverse( s.nodes.begin(), s.nodes.end() );
 	for ( int j = 0; j < n; j++ )
 	{
@@ -569,6 +597,7 @@ static void spline_reverse( sSpline& s )
 		std::swap( node.inZ, node.outZ );
 		// the segment from node j to the next was the one from old node n - 2 - j
 		node.segCurve = segCurves[ spline_wrap( s, n - 2 - j ) ];
+		node.segMark = segMarks[ spline_wrap( s, n - 2 - j ) ];
 	}
 }
 
@@ -1911,6 +1940,296 @@ struct sSplineAvoid
 	float bounds[4];
 };
 
+// a road's shape as its markings follow it (its nodes, curve and width)
+static uint64_t spline_markingshape( const sSpline& s )
+{
+	uint64_t h = spline_hashmix( 0xcbf29ce484222325ULL, &s.curve, sizeof(s.curve) );
+	h = spline_hashmix( h, &s.closed, sizeof(s.closed) );
+	h = spline_hashmix( h, &s.road.width, sizeof(s.road.width) );
+	for ( const sSplineNode& node : s.nodes )
+	{
+		const float f[6] = { node.x, node.z, node.inX, node.inZ, node.outX, node.outZ };
+		h = spline_hashmix( h, f, sizeof(f) );
+		h = spline_hashmix( h, &node.segCurve, sizeof(node.segCurve) );
+	}
+	return h;
+}
+
+// a road's painted lines (its Markings) as pieces about 3 m long for the terrain's pages (GGTerrain_SetMarkings), and
+// their bounds. None on an earlier road's carriageway in the list, so a road that joins or crosses an earlier one stops
+// its lines at the earlier one's edge, whose lines run on as a main road's do. The centre line goes solid where the road
+// bends tighter than its Solid on Bends, with dashes three times longer than their gaps before and after (warning lines);
+// a segment's own markings take over the road's
+static void spline_markings( int si, std::vector<GGTerrain::GGTerrainMarking>& out, float* pBounds )
+{
+	pBounds[0] = pBounds[1] = 1e30f;
+	pBounds[2] = pBounds[3] = -1e30f;
+	const sSpline& s = g_Splines[ si ];
+	const sSplineRoad& r = s.road;
+	const int lanes = std::max( 1, std::min( 4, r.markLanes ) );
+	if ( s.kind != SPLINE_KIND_ROAD || (r.markCentre == SPLINE_MARK_NONE && lanes < 2 && !r.markEdges) ) return;
+	std::vector<sRoadSample> c;
+	std::vector<int> nodeSample;
+	if ( !spline_centreline( s, 118.0f, c, nodeSample ) ) return;
+	const int n = (int)c.size();
+
+	// each sample's segment and its left normal
+	const int segs = spline_segments( s );
+	std::vector<int> seg( n, segs - 1 );
+	for ( int k = 0; k < segs; k++ )
+	{
+		const int first = nodeSample[ k ];
+		const int last = k + 1 < segs ? nodeSample[ k + 1 ] : n - 1;
+		for ( int i = std::max( 0, first ); i < last && i < n; i++ ) seg[ i ] = k;
+	}
+	std::vector<float> nx( n ), nz( n );
+	for ( int i = 0; i < n; i++ )
+	{
+		const sRoadSample& a = c[ std::max( 0, i - 1 ) ];
+		const sRoadSample& b = c[ std::min( n - 1, i + 1 ) ];
+		float tx = b.x - a.x, tz = b.z - a.z;
+		const float len = sqrtf( tx * tx + tz * tz );
+		if ( len > 0 ) { tx /= len; tz /= len; }
+		nx[ i ] = -tz;
+		nz[ i ] = tx;
+	}
+
+	// the centre line's style at each sample: a segment's own markings, then a bend tighter than Solid on Bends (and 15 m
+	// either side) solid; the dashed stretches within three dash lengths of a solid one forced so are warning lines
+	std::vector<int> centre( n, r.markCentre );
+	std::vector<char> forced( n, 0 );
+	if ( r.markBendRadius > 0 )
+	{
+		std::vector<char> bend( n, 0 );
+		for ( int i = 1; i < n - 1; i++ )
+		{
+			const float a = atan2f( c[i].z - c[i-1].z, c[i].x - c[i-1].x );
+			const float b = atan2f( c[i+1].z - c[i].z, c[i+1].x - c[i].x );
+			float turn = fabsf( b - a );
+			if ( turn > 3.14159265f ) turn = 6.2831853f - turn;
+			const float ds = (c[i+1].s - c[i-1].s) * 0.5f;
+			if ( turn > 0.00001f && ds / turn < r.markBendRadius ) bend[ i ] = 1;
+		}
+		for ( int i = 0, lo = 0, hi = 0; i < n; i++ )
+		{
+			while ( c[ lo ].s < c[ i ].s - 590.0f ) lo++;
+			while ( hi < n - 1 && c[ hi + 1 ].s <= c[ i ].s + 590.0f ) hi++;
+			for ( int k = lo; k <= hi && !forced[ i ]; k++ ) if ( bend[ k ] ) forced[ i ] = 1;
+		}
+	}
+	for ( int i = 0; i < n; i++ )
+	{
+		const int segMark = s.nodes[ seg[ i ] ].segMark;
+		int style = r.markCentre;
+		if ( segMark == SPLINE_SEGMARK_NONE ) style = SPLINE_MARK_NONE;
+		else if ( segMark == SPLINE_SEGMARK_DASHED )
+		{
+			if ( style != SPLINE_MARK_NONE ) style = SPLINE_MARK_DASHED;
+			forced[ i ] = 0;
+		}
+		else if ( segMark == SPLINE_SEGMARK_SOLID ) forced[ i ] = 1;
+		if ( forced[ i ] )
+		{
+			if ( style == SPLINE_MARK_DASHED ) style = SPLINE_MARK_SOLID;
+			else if ( style == SPLINE_MARK_SOLIDDASHED ) style = SPLINE_MARK_DOUBLE;
+			else forced[ i ] = 0;
+		}
+		centre[ i ] = style;
+	}
+	const float period = r.markDash + r.markGap;
+	std::vector<char> warning( n, 0 );
+	for ( int i = 0; i < n; i++ )
+	{
+		if ( centre[ i ] != SPLINE_MARK_DASHED && centre[ i ] != SPLINE_MARK_SOLIDDASHED ) continue;
+		for ( int k = i; k >= 0 && c[ i ].s - c[ k ].s < period * 3 && !warning[ i ]; k-- ) if ( forced[ k ] ) warning[ i ] = 1;
+		for ( int k = i; k < n && c[ k ].s - c[ i ].s < period * 3 && !warning[ i ]; k++ ) if ( forced[ k ] ) warning[ i ] = 1;
+	}
+
+	// the earlier roads' carriageways
+	std::vector<sSplineAvoid> avoid;
+	{
+		float bounds[4];
+		spline_bounds( s, s.road.width, bounds );
+		for ( int sj = 0; sj < si; sj++ )
+		{
+			const sSpline& o = g_Splines[ sj ];
+			if ( o.kind != SPLINE_KIND_ROAD ) continue;
+			sSplineAvoid road;
+			spline_bounds( o, o.road.width * 0.5f + 100.0f, road.bounds );
+			if ( !spline_overlap( bounds, road.bounds ) ) continue;
+			spline_sample( o, 100.0f, road.line );
+			road.halfWidth = o.road.width * 0.5f;
+			avoid.push_back( road );
+		}
+	}
+	auto onEarlierRoad = [&avoid]( float x, float z )
+	{
+		for ( const sSplineAvoid& road : avoid )
+		{
+			if ( x < road.bounds[0] || x > road.bounds[2] || z < road.bounds[1] || z > road.bounds[3] ) continue;
+			for ( size_t k = 1; k < road.line.size(); k++ )
+			{
+				const sSplinePoint& a = road.line[ k - 1 ];
+				const sSplinePoint& b = road.line[ k ];
+				const float dx = b.x - a.x, dz = b.z - a.z;
+				const float len2 = dx * dx + dz * dz;
+				float tt = len2 > 0 ? ((x - a.x) * dx + (z - a.z) * dz) / len2 : 0;
+				tt = std::min( 1.0f, std::max( 0.0f, tt ) );
+				const float px = a.x + dx * tt - x, pz = a.z + dz * tt - z;
+				if ( px * px + pz * pz < road.halfWidth * road.halfWidth ) return true;
+			}
+		}
+		return false;
+	};
+
+	// the lines: two for the centre (one, or a pair either side of it), the lanes' each side, the edges; each keeps its own
+	// length along it, so its dashes run on from piece to piece
+	const float white[3] = { 0.72f, 0.72f, 0.68f }, yellow[3] = { 0.75f, 0.48f, 0.04f };
+	const float* centreColour = r.markCentreYellow ? yellow : white;
+	const float* edgeColour = r.markEdgeYellow ? yellow : white;
+	const float half = r.width * 0.5f;
+	const int slots = 2 + (lanes - 1) * 2 + 2;
+	std::vector<float> phase( slots, 0.0f );
+	for ( int i = 0; i < n - 1; i++ )
+	{
+		const int segMark = s.nodes[ seg[ i ] ].segMark;
+		for ( int slot = 0; slot < slots; slot++ )
+		{
+			float offset = 0, width = r.markLineWidth, dash = 0, gap = 0;
+			const float* colour = white;
+			bool bLine = segMark != SPLINE_SEGMARK_NONE;
+			if ( slot < 2 )
+			{
+				colour = centreColour;
+				const int style = centre[ i ];
+				const float pair = r.markLineWidth;
+				if ( style == SPLINE_MARK_NONE ) bLine = false;
+				else if ( style == SPLINE_MARK_DOUBLE ) offset = slot == 0 ? pair : -pair;
+				else if ( style == SPLINE_MARK_SOLIDDASHED )
+				{
+					offset = slot == 0 ? pair : -pair;
+					if ( slot == 1 ) { dash = r.markDash; gap = r.markGap; }
+				}
+				else
+				{
+					if ( slot == 1 ) bLine = false;
+					if ( style == SPLINE_MARK_DASHED ) { dash = r.markDash; gap = r.markGap; }
+				}
+				if ( gap > 0 && warning[ i ] ) { dash = period * 0.75f; gap = period * 0.25f; }
+			}
+			else if ( slot < slots - 2 )
+			{
+				const int lane = (slot - 2) / 2 + 1;
+				offset = (slot & 1 ? -1.0f : 1.0f) * lane * r.width / (lanes * 2);
+				dash = r.markDash;
+				gap = r.markGap;
+			}
+			else
+			{
+				colour = edgeColour;
+				width = r.markEdgeWidth;
+				offset = (slot == slots - 2 ? 1.0f : -1.0f) * (half - r.markEdgeInset - r.markEdgeWidth * 0.5f);
+				bLine = bLine && r.markEdges;
+			}
+			const float ax = c[i].x + nx[i] * offset, az = c[i].z + nz[i] * offset;
+			const float bx = c[i+1].x + nx[i+1] * offset, bz = c[i+1].z + nz[i+1] * offset;
+			const float length = sqrtf( (bx - ax) * (bx - ax) + (bz - az) * (bz - az) );
+			if ( bLine && !onEarlierRoad( (ax + bx) * 0.5f, (az + bz) * 0.5f ) )
+			{
+				GGTerrain::GGTerrainMarking piece;
+				piece.ax = ax; piece.az = az; piece.bx = bx; piece.bz = bz;
+				piece.halfWidth = width * 0.5f;
+				piece.dash = dash;
+				piece.gap = gap;
+				piece.phase = phase[ slot ];
+				piece.r = colour[0]; piece.g = colour[1]; piece.b = colour[2];
+				piece.wear = r.markWear;
+				out.push_back( piece );
+				pBounds[0] = std::min( pBounds[0], std::min( ax, bx ) - width );
+				pBounds[1] = std::min( pBounds[1], std::min( az, bz ) - width );
+				pBounds[2] = std::max( pBounds[2], std::max( ax, bx ) + width );
+				pBounds[3] = std::max( pBounds[3], std::max( az, bz ) + width );
+			}
+			phase[ slot ] += length;
+		}
+	}
+}
+
+// each road's markings as last given to the terrain (by spline id), and what they were made for
+struct sSplineMarkings
+{
+	uint64_t signature = 0;
+	std::vector<GGTerrain::GGTerrainMarking> pieces;
+	float bounds[4] = { 1e30f, 1e30f, -1e30f, -1e30f };
+};
+static std::unordered_map<int, sSplineMarkings> g_SplineMarkings;
+static uint64_t g_SplineMarkingsApplied = 0, g_SplineMarkingsPending = 0;
+static int g_iSplineMarkingsStill = 0;
+
+// gives the roads' markings to the terrain when they change (a road's shape, width or markings, or an earlier road's,
+// which cuts its lines), the pages under what changed made again. A quarter second after the last change, so dragging a
+// node doesn't remake the pages every frame; called every frame in the editor and in game
+void spline_updatemarkings( void )
+{
+	if ( !GGTerrain::GGTerrain_IsReady() ) return;
+	std::vector<uint64_t> signatures( g_Splines.size(), 0 );
+	uint64_t earlier = 0xcbf29ce484222325ULL, total = earlier;
+	for ( size_t si = 0; si < g_Splines.size(); si++ )
+	{
+		const sSpline& s = g_Splines[ si ];
+		if ( s.kind != SPLINE_KIND_ROAD ) continue;
+		const uint64_t shape = spline_markingshape( s );
+		uint64_t h = spline_hashmix( earlier, &shape, sizeof(shape) );
+		h = spline_hashmix( h, &s.road.markCentre, sizeof(sSplineRoad) - offsetof( sSplineRoad, markCentre ) );
+		for ( const sSplineNode& node : s.nodes ) h = spline_hashmix( h, &node.segMark, sizeof(node.segMark) );
+		signatures[ si ] = h ? h : 1;
+		earlier = spline_hashmix( earlier, &shape, sizeof(shape) );
+		total = spline_hashmix( total, &s.id, sizeof(s.id) );
+		total = spline_hashmix( total, &signatures[ si ], sizeof(signatures[ si ]) );
+	}
+	if ( total == g_SplineMarkingsApplied ) return;
+	if ( total != g_SplineMarkingsPending )
+	{
+		g_SplineMarkingsPending = total;
+		g_iSplineMarkingsStill = 0;
+		if ( g_SplineMarkingsApplied != 0 ) return;
+	}
+	if ( g_SplineMarkingsApplied != 0 && ++g_iSplineMarkingsStill < 15 ) return;
+
+	// the roads that changed made again; the pages under what they had and have now
+	std::vector<float> dirty;
+	auto addDirty = [&dirty]( const float* b ) { if ( b[0] <= b[2] ) dirty.insert( dirty.end(), b, b + 4 ); };
+	std::unordered_set<int> live;
+	for ( size_t si = 0; si < g_Splines.size(); si++ )
+	{
+		const sSpline& s = g_Splines[ si ];
+		if ( s.kind != SPLINE_KIND_ROAD ) continue;
+		live.insert( s.id );
+		sSplineMarkings& marks = g_SplineMarkings[ s.id ];
+		if ( marks.signature == signatures[ si ] ) continue;
+		addDirty( marks.bounds );
+		marks.pieces.clear();
+		spline_markings( (int)si, marks.pieces, marks.bounds );
+		marks.signature = signatures[ si ];
+		addDirty( marks.bounds );
+	}
+	for ( auto it = g_SplineMarkings.begin(); it != g_SplineMarkings.end(); )
+	{
+		if ( live.count( it->first ) ) { ++it; continue; }
+		addDirty( it->second.bounds );
+		it = g_SplineMarkings.erase( it );
+	}
+	std::vector<GGTerrain::GGTerrainMarking> all;
+	for ( const sSpline& s : g_Splines )
+	{
+		auto it = g_SplineMarkings.find( s.id );
+		if ( s.kind == SPLINE_KIND_ROAD && it != g_SplineMarkings.end() ) all.insert( all.end(), it->second.pieces.begin(), it->second.pieces.end() );
+	}
+	GGTerrain::GGTerrain_SetMarkings( all.data(), (uint32_t)all.size() );
+	for ( size_t k = 0; k + 3 < dirty.size(); k += 4 ) GGTerrain::GGTerrain_InvalidateRegion( dirty[k], dirty[k+1], dirty[k+2], dirty[k+3], GGTERRAIN_INVALIDATE_TEXTURES );
+	g_SplineMarkingsApplied = total;
+}
+
 // places the spline's layers along it, taking away what they placed before (a frozen layer's stay). None goes on another
 // road's carriageway (a junction, a crossing), a road's in water (a river crossing it), nor within Keep Apart of one an
 // earlier spline in the list placed of the same entity (no clumps where roads meet)
@@ -3000,6 +3319,10 @@ static const char* g_pSplineBuiltInPresets =
 	"treemargin = 2.5\n"
 	"texture = asphalt, tarmac, mat23, kind:stone\n"
 	"edgetexture = gravel, mat31, kind:stone\n"
+	"centreline = dashed\n"
+	"dash = 2\n"
+	"gap = 6\n"
+	"wear = 0.5\n"
 	"layer = Patches\n"
 	"entity = find:pothole | find:roadpatch | find:asphaltpatch | Basement Collection\\Decals\\Concrete - Patch 1.fpe\n"
 	"spacing = 55\n"
@@ -3024,6 +3347,13 @@ static const char* g_pSplineBuiltInPresets =
 	"treemargin = 3\n"
 	"texture = asphalt, tarmac, mat23, kind:stone\n"
 	"edgetexture = gravel, mat31, kind:stone\n"
+	"centreline = dashed\n"
+	"dash = 3\n"
+	"gap = 9\n"
+	"solidonbends = 150\n"
+	"edgelines = 1\n"
+	"edgeinset = 0.2\n"
+	"wear = 0.15\n"
 	"layer = Streetlights\n"
 	"entity = find:streetlight | find:streetlamp | find:lamppost\n"
 	"spacing = 32\n"
@@ -3055,6 +3385,10 @@ static const char* g_pSplineBuiltInPresets =
 	"treemargin = 4\n"
 	"texture = asphalt, tarmac, mat23, kind:stone\n"
 	"edgetexture = pavement, concrete, cobble, mat18, kind:stone\n"
+	"centreline = dashed\n"
+	"dash = 2\n"
+	"gap = 6\n"
+	"wear = 0.25\n"
 	"layer = Streetlights\n"
 	"entity = find:streetlight | find:streetlamp | find:lamppost\n"
 	"spacing = 25\n"
@@ -3073,6 +3407,13 @@ static const char* g_pSplineBuiltInPresets =
 	"treemargin = 5\n"
 	"texture = asphalt, tarmac, mat23, kind:stone\n"
 	"edgetexture = gravel, mat31, kind:stone\n"
+	"centreline = double\n"
+	"lanes = 2\n"
+	"dash = 3\n"
+	"gap = 9\n"
+	"edgelines = 1\n"
+	"edgeinset = 0.2\n"
+	"wear = 0.1\n"
 	"layer = Streetlights\n"
 	"entity = find:streetlight | find:streetlamp | find:lamppost\n"
 	"spacing = 45\n"
@@ -3377,6 +3718,22 @@ static void spline_parsepresets( const char* pText, bool bUser, std::vector<sSpl
 		else if ( key == "shoulder" ) p.road.shoulder = f * M;
 		else if ( key == "maxgrade" ) p.road.maxGrade = f;
 		else if ( key == "crown" ) p.road.crown = f * M;
+		else if ( key == "centreline" || key == "centerline" )
+		{
+			const std::string v = spline_lower( value );
+			p.road.markCentre = v == "dashed" ? SPLINE_MARK_DASHED : v == "solid" ? SPLINE_MARK_SOLID : v == "double" ? SPLINE_MARK_DOUBLE : v == "soliddashed" ? SPLINE_MARK_SOLIDDASHED : SPLINE_MARK_NONE;
+		}
+		else if ( key == "centrecolour" || key == "centercolor" ) p.road.markCentreYellow = spline_lower( value ) == "yellow";
+		else if ( key == "lanes" ) p.road.markLanes = std::min( 4, std::max( 1, i ) );
+		else if ( key == "edgelines" ) p.road.markEdges = i != 0;
+		else if ( key == "edgecolour" || key == "edgecolor" ) p.road.markEdgeYellow = spline_lower( value ) == "yellow";
+		else if ( key == "edgeinset" ) p.road.markEdgeInset = f * M;
+		else if ( key == "linewidth" ) p.road.markLineWidth = f * M;
+		else if ( key == "edgewidth" ) p.road.markEdgeWidth = f * M;
+		else if ( key == "dash" ) p.road.markDash = f * M;
+		else if ( key == "gap" ) p.road.markGap = f * M;
+		else if ( key == "solidonbends" ) p.road.markBendRadius = f * M;
+		else if ( key == "wear" ) p.road.markWear = f;
 		else if ( key == "texture" || key == "bedtexture" ) p.textures[0] = value;
 		else if ( key == "edgetexture" || key == "banktexture" ) p.textures[1] = value;
 		else if ( key == "bedwidth" ) p.river.bedWidth = f * M;
@@ -3601,8 +3958,8 @@ static std::string spline_presetentity( const std::string& candidates, std::vect
 }
 
 // what a preset sets: Edited shows once these differ from when it was set
-// (riverBytes and layerBytes: the settings as an older version had them, the fields added since left out)
-static uint64_t spline_presetsignature( const sSpline& s, size_t riverBytes = sizeof(sSplineRiver), size_t layerBytes = sizeof(sSplineLayer) )
+// (roadBytes, riverBytes and layerBytes: the settings as an older version had them, the fields added since left out)
+static uint64_t spline_presetsignature( const sSpline& s, size_t riverBytes = sizeof(sSplineRiver), size_t layerBytes = sizeof(sSplineLayer), size_t roadBytes = sizeof(sSplineRoad) )
 {
 	uint64_t h = 0xcbf29ce484222325ULL;
 	h = spline_hashmix( h, &s.kind, sizeof(s.kind) );
@@ -3610,7 +3967,7 @@ static uint64_t spline_presetsignature( const sSpline& s, size_t riverBytes = si
 	r.autoApply = 0;
 	sSplineRiver v = s.river;
 	v.autoApply = 0;
-	if ( s.kind == SPLINE_KIND_ROAD ) h = spline_hashmix( h, &r, sizeof(r) );
+	if ( s.kind == SPLINE_KIND_ROAD ) h = spline_hashmix( h, &r, roadBytes );
 	if ( s.kind == SPLINE_KIND_RIVER ) h = spline_hashmix( h, &v, riverBytes );
 	for ( const sSplineLayer& layer : s.layers ) if ( !layer.frozen ) h = spline_hashmix( h, &layer, layerBytes );
 	return h ? h : 1;
@@ -3690,6 +4047,22 @@ static void spline_writepreset( std::string& out, const sSplinePreset& p )
 		metres( "treemargin", r.treeMargin );
 		line( "texture", p.textures[0] );
 		line( "edgetexture", p.textures[1] );
+		const char* centres[] = { "none", "dashed", "solid", "double", "soliddashed" };
+		line( "centreline", centres[ std::min( 4, std::max( 0, r.markCentre ) ) ] );
+		if ( r.markCentre != SPLINE_MARK_NONE ) line( "centrecolour", r.markCentreYellow ? "yellow" : "white" );
+		number( "lanes", (float)r.markLanes );
+		number( "edgelines", (float)r.markEdges );
+		if ( r.markEdges )
+		{
+			line( "edgecolour", r.markEdgeYellow ? "yellow" : "white" );
+			metres( "edgeinset", r.markEdgeInset );
+			metres( "edgewidth", r.markEdgeWidth );
+		}
+		metres( "linewidth", r.markLineWidth );
+		metres( "dash", r.markDash );
+		metres( "gap", r.markGap );
+		metres( "solidonbends", r.markBendRadius );
+		number( "wear", r.markWear );
 	}
 	else
 	{
@@ -4278,6 +4651,46 @@ void spline_imgui_panel( float w )
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Grass is cleared this far past the edge of the road" );
 				bChanged |= spline_rowmetres( "Clear Trees", "##splineroadtrees", &r.treeMargin, 0.0f, 30.0f );
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Trees are hidden this far past the edge of the road" );
+
+				// the painted lines, drawn into the terrain (no Apply needed)
+				const char* centres[] = { "None", "Dashed", "Solid", "Double Solid", "Solid and Dashed" };
+				const char* colours[] = { "White", "Yellow" };
+				spline_row( "Centre Line" );
+				bChanged |= ImGui::Combo( "##splinemarkcentre", &r.markCentre, centres, 5 );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The painted line down the middle. Solid and Dashed: solid on the left as seen from the first node, dashed on the right (overtaking from the right only)" );
+				if ( r.markCentre != SPLINE_MARK_NONE )
+				{
+					spline_row( "Centre Colour" );
+					bChanged |= ImGui::Combo( "##splinemarkcentrecolour", &r.markCentreYellow, colours, 2 );
+				}
+				spline_row( "Lanes Each Way" );
+				bChanged |= ImGui::SliderInt( "##splinemarklanes", &r.markLanes, 1, 4 );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Dashed lines between the lanes, the road's width split evenly between them" );
+				bool bEdges = r.markEdges != 0;
+				ImGui::SetCursorPosX( fRowFieldX );
+				if ( ImGui::Checkbox( "Edge Lines##splinemarkedges", &bEdges ) ) { r.markEdges = bEdges ? 1 : 0; bChanged = true; }
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Solid lines along both edges of the road" );
+				if ( r.markEdges )
+				{
+					spline_row( "Edge Colour" );
+					bChanged |= ImGui::Combo( "##splinemarkedgecolour", &r.markEdgeYellow, colours, 2 );
+					bChanged |= spline_rowmetres( "Edge Inset", "##splinemarkedgeinset", &r.markEdgeInset, 0.0f, 1.0f, "%.2f m" );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The edge lines this far in from the edge of the road" );
+					bChanged |= spline_rowmetres( "Edge Line Width", "##splinemarkedgewidth", &r.markEdgeWidth, 0.05f, 0.5f, "%.2f m" );
+				}
+				if ( r.markCentre != SPLINE_MARK_NONE || r.markLanes > 1 || r.markEdges )
+				{
+					if ( r.markCentre != SPLINE_MARK_NONE || r.markLanes > 1 ) bChanged |= spline_rowmetres( "Line Width", "##splinemarkwidth", &r.markLineWidth, 0.05f, 0.3f, "%.2f m" );
+					bChanged |= spline_rowmetres( "Dash", "##splinemarkdash", &r.markDash, 0.5f, 12.0f );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The length of a dash in a dashed line" );
+					bChanged |= spline_rowmetres( "Gap", "##splinemarkgap", &r.markGap, 0.5f, 24.0f );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The gap after each dash" );
+					bChanged |= spline_rowmetres( "Solid on Bends", "##splinemarkbends", &r.markBendRadius, 0.0f, 500.0f, "%.0f m" );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "A dashed centre line goes solid where the road bends tighter than this radius (and 15 m either side), with warning dashes before and after; 0 never" );
+					spline_row( "Wear" );
+					bChanged |= ImGui::SliderFloat( "##splinemarkwear", &r.markWear, 0.0f, 1.0f, "%.2f" );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "0 fresh paint; higher wears the lines away in patches (old country roads)" );
+				}
 				if ( bChanged ) spline_modified();
 				spline_rowbake( s, &r.autoApply, "Road", w );
 				spline_rowlayers( s, w );
@@ -4409,6 +4822,18 @@ void spline_imgui_panel( float w )
 					spline_modified();
 				}
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The curve of the highlighted segment alone; the rest keep the spline's Curve" );
+				if ( s.kind == SPLINE_KIND_ROAD )
+				{
+					const char* segMarks[] = { "As the Road", "None", "Centre Solid", "Centre Dashed" };
+					int segMark = s.nodes[ g_iSplineSegSelected ].segMark + 1;
+					spline_row( "Segment Markings" );
+					if ( ImGui::Combo( "##splinesegmark", &segMark, segMarks, 4 ) && segMark - 1 != s.nodes[ g_iSplineSegSelected ].segMark )
+					{
+						s.nodes[ g_iSplineSegSelected ].segMark = segMark - 1;
+						spline_modified();
+					}
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The highlighted segment's own markings: none (a village street), or its centre line solid (a bridge, a crest) or dashed" );
+				}
 			}
 			if ( ImGui::StyleButton( "Reverse##splinereverse", ImVec2( w * 0.45f, 0 ) ) )
 			{
@@ -4540,6 +4965,9 @@ void spline_deleteall( void )
 	g_bSplineUndoBaseSet = false;
 	g_SplineUndoBase.clear();
 	g_SplineForceBake.clear();
+	g_SplineMarkings.clear();
+	g_SplineMarkingsApplied = g_SplineMarkingsPending = 0;
+	GGTerrain::GGTerrain_SetMarkings( nullptr, 0 );
 }
 
 void spline_savedata( void )
@@ -4657,6 +5085,12 @@ void spline_savedata( void )
 		for ( const sSplineLayer& layer : s.layers ) put( &layer.layFlat, sizeof(layer.layFlat) );
 		// version 17: Wade Depth
 		put( &v.wadeDepth, sizeof(v.wadeDepth) );
+		// version 18: the road's markings, each segment's
+		const float mf[7] = { r.markEdgeInset, r.markLineWidth, r.markEdgeWidth, r.markDash, r.markGap, r.markBendRadius, r.markWear };
+		const int32_t mi[5] = { r.markCentre, r.markCentreYellow, r.markLanes, r.markEdges, r.markEdgeYellow };
+		put( mf, sizeof(mf) );
+		put( mi, sizeof(mi) );
+		for ( const sSplineNode& node : s.nodes ) put( &node.segMark, sizeof(node.segMark) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -4828,10 +5262,23 @@ void spline_loaddata( void )
 							for ( sSplineLayer& layer : s.layers ) if ( !get( &layer.layFlat, sizeof(layer.layFlat) ) ) break;
 						}
 						if ( version >= 17 ) get( &s.river.wadeDepth, sizeof(s.river.wadeDepth) );
-						if ( version < 17 && s.preset[0] && s.presetSignature == spline_presetsignature( s, offsetof( sSplineRiver, wadeDepth ), version < 16 ? offsetof( sSplineLayer, layFlat ) : sizeof(sSplineLayer) ) )
+						if ( version >= 18 )
 						{
-							// still as its preset set it, by the settings that file had: so too by today's (Lay Flat and Wade
-							// Depth added since), so it doesn't show as edited
+							float mf[7];
+							int32_t mi[5];
+							if ( get( mf, sizeof(mf) ) && get( mi, sizeof(mi) ) )
+							{
+								sSplineRoad& r = s.road;
+								r.markEdgeInset = mf[0]; r.markLineWidth = mf[1]; r.markEdgeWidth = mf[2]; r.markDash = mf[3];
+								r.markGap = mf[4]; r.markBendRadius = mf[5]; r.markWear = mf[6];
+								r.markCentre = mi[0]; r.markCentreYellow = mi[1]; r.markLanes = mi[2]; r.markEdges = mi[3]; r.markEdgeYellow = mi[4];
+								for ( sSplineNode& node : s.nodes ) if ( !get( &node.segMark, sizeof(node.segMark) ) ) break;
+							}
+						}
+						if ( version < 18 && s.preset[0] && s.presetSignature == spline_presetsignature( s, version < 17 ? offsetof( sSplineRiver, wadeDepth ) : sizeof(sSplineRiver), version < 16 ? offsetof( sSplineLayer, layFlat ) : sizeof(sSplineLayer), offsetof( sSplineRoad, markCentre ) ) )
+						{
+							// still as its preset set it, by the settings that file had: so too by today's (Lay Flat, Wade
+							// Depth and the road's markings added since), so it doesn't show as edited
 							s.presetSignature = spline_presetsignature( s );
 						}
 						if ( version < 12 )

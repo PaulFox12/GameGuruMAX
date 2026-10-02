@@ -328,6 +328,21 @@ int GGTerrain_SetSculptData( uint32_t size, uint8_t* data, sUndoSysEventTerrainS
 
 void GGTerrain_InvalidateRegion(float minX, float minZ, float maxX, float maxZ, uint32_t flags);
 void GGTerrain_InvalidateEverything( uint32_t flags );
+
+// a piece of painted road line (the spline roads' markings): straight from a to b, solid or dashed, painted into the pages
+// over whatever ground is there; the page shader's TerrainMarking has the same layout
+struct GGTerrainMarking
+{
+	float ax, az, bx, bz; // world units
+	float halfWidth;
+	float dash, gap; // a dash and the gap after it along the line, gap 0 a solid line
+	float phase; // how far along its line a is, so a dash pattern runs on from piece to piece
+	float r, g, b; // the paint's colour, linear
+	float wear; // 0 fresh paint, 1 worn away in patches
+};
+// replaces the markings painted into the pages; the caller invalidates the pages under what changed
+// (GGTerrain_InvalidateRegion with GGTERRAIN_INVALIDATE_TEXTURES)
+void GGTerrain_SetMarkings( const GGTerrainMarking* pMarkings, uint32_t count );
 uint32_t GGTerrain_GetPaintDataSize();
 int GGTerrain_GetPaintData( uint8_t* data ); // data must be allocated with a size of GGTerrain_GetPaintDataSize(), returns 1 on success
 int GGTerrain_SetPaintData( uint32_t size, uint8_t* data, sUndoSysEventTerrainPaint* = nullptr); // size must be equal to GGTerrain_GetPaintDataSize(), returns 1 on success

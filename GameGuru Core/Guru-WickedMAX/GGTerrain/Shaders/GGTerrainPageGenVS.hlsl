@@ -17,6 +17,7 @@ struct VertexOut
 	float2 uv3 : TEXCOORD2;
 	float2 uvMat : TEXCOORD3;
 	uint lodLevel : TEXCOORD4;
+	float2 worldXZ : TEXCOORD5;
 };
 
 VertexOut main( VertexIn IN )
@@ -36,6 +37,7 @@ VertexOut main( VertexIn IN )
 
 	OUT.uvMat = IN.worldPos / terrain_mapEditSize;
 	OUT.uvMat = OUT.uvMat * 0.5 + 0.5;
+	OUT.worldXZ = IN.worldPos;
 	
     return OUT;
 }

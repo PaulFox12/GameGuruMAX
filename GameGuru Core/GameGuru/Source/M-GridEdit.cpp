@@ -19676,9 +19676,10 @@ void editor_mainfunctionality ( void )
 	OPTICK_EVENT();
 #endif
 
-	// the rivers' water (the spline tool) keeps up with its rivers and the main water's look, and an undo of a spline is
-	// baked and placed with the Roads and Rivers panel closed
+	// the rivers' water (the spline tool) keeps up with its rivers and the main water's look, the roads' painted markings
+	// with the roads, and an undo of a spline is baked and placed with the Roads and Rivers panel closed
 	spline_updatewater ( );
+	spline_updatemarkings ( );
 	spline_editorupdate ( );
 
 	//  Rotation of entity

@@ -5,6 +5,9 @@
 
 #include <chrono>
 #include <string>
+#include <mutex>
+#include <vector>
+#include <unordered_map>
 #include "Utility/stb_image.h"
 #include "CFileC.h"
 #include "CStr.h"
@@ -876,6 +879,84 @@ struct VertexPageGen
 	#error GGTERRAIN_EVICTION_PAGE_MAX must be less than or equal to GGTERRAIN_REPLACEMENT_PAGE_MAX
 #endif
 VertexPageGen g_VerticesPageGen[ GGTERRAIN_REPLACEMENT_PAGE_MAX ][ 6 ] = { 0 };
+
+// road markings (GGTerrain_SetMarkings), a grid of cells over them so a page finds its own, and the pieces the pages made
+// this frame take (each page's run given to the shader in its vertices' id: count in bits 8-15, start in bits 16-31)
+#define GGTERRAIN_MARKING_CELL 1024.0f
+#define GGTERRAIN_MARKINGS_PER_PAGE 255
+#define GGTERRAIN_MARKINGS_MAX (GGTERRAIN_REPLACEMENT_PAGE_MAX * GGTERRAIN_MARKINGS_PER_PAGE)
+std::mutex markingsLock;
+std::vector<GGTerrainMarking> g_Markings;
+std::unordered_map<uint64_t, std::vector<uint32_t>> g_MarkingCells;
+std::vector<uint32_t> g_MarkingTaken; // the page that last took each marking, so one isn't taken twice
+uint32_t g_MarkingPage = 0;
+std::vector<GGTerrainMarking> g_MarkingUpload;
+GPUBuffer markingBuffer;
+
+static uint64_t GGTerrain_MarkingCell( int x, int z )
+{
+	return ((uint64_t)(uint32_t)x << 32) | (uint32_t)z;
+}
+
+void GGTerrain_SetMarkings( const GGTerrainMarking* pMarkings, uint32_t count )
+{
+	std::lock_guard<std::mutex> guard( markingsLock );
+	g_Markings.clear();
+	if ( pMarkings && count > 0 ) g_Markings.assign( pMarkings, pMarkings + count );
+	g_MarkingCells.clear();
+	g_MarkingTaken.assign( g_Markings.size(), 0 );
+	g_MarkingPage = 0;
+	for ( uint32_t i = 0; i < (uint32_t)g_Markings.size(); i++ )
+	{
+		const GGTerrainMarking& m = g_Markings[ i ];
+		int x0 = (int)floorf( (fminf( m.ax, m.bx ) - m.halfWidth) / GGTERRAIN_MARKING_CELL );
+		int x1 = (int)floorf( (fmaxf( m.ax, m.bx ) + m.halfWidth) / GGTERRAIN_MARKING_CELL );
+		int z0 = (int)floorf( (fminf( m.az, m.bz ) - m.halfWidth) / GGTERRAIN_MARKING_CELL );
+		int z1 = (int)floorf( (fmaxf( m.az, m.bz ) + m.halfWidth) / GGTERRAIN_MARKING_CELL );
+		for ( int z = z0; z <= z1; z++ )
+		{
+			for ( int x = x0; x <= x1; x++ ) g_MarkingCells[ GGTerrain_MarkingCell( x, z ) ].push_back( i );
+		}
+	}
+}
+
+// the markings over a page's rect, added to this frame's upload; the run's bits for its vertices' id. None where a page
+// texel is wider than a metre (a line there is too thin to show), and at most GGTERRAIN_MARKINGS_PER_PAGE
+static uint32_t GGTerrain_PageMarkings( float minX, float minZ, float maxX, float maxZ, float texel )
+{
+	if ( g_Markings.empty() || texel > 39.37f ) return 0;
+	if ( g_MarkingUpload.size() + GGTERRAIN_MARKINGS_PER_PAGE > GGTERRAIN_MARKINGS_MAX ) return 0;
+	const uint32_t start = (uint32_t)g_MarkingUpload.size();
+	g_MarkingPage++;
+	if ( g_MarkingPage == 0 )
+	{
+		g_MarkingTaken.assign( g_MarkingTaken.size(), 0 );
+		g_MarkingPage = 1;
+	}
+	const int x0 = (int)floorf( minX / GGTERRAIN_MARKING_CELL ), x1 = (int)floorf( maxX / GGTERRAIN_MARKING_CELL );
+	const int z0 = (int)floorf( minZ / GGTERRAIN_MARKING_CELL ), z1 = (int)floorf( maxZ / GGTERRAIN_MARKING_CELL );
+	uint32_t count = 0;
+	for ( int z = z0; z <= z1 && count < GGTERRAIN_MARKINGS_PER_PAGE; z++ )
+	{
+		for ( int x = x0; x <= x1 && count < GGTERRAIN_MARKINGS_PER_PAGE; x++ )
+		{
+			auto it = g_MarkingCells.find( GGTerrain_MarkingCell( x, z ) );
+			if ( it == g_MarkingCells.end() ) continue;
+			for ( uint32_t i : it->second )
+			{
+				if ( g_MarkingTaken[ i ] == g_MarkingPage ) continue;
+				const GGTerrainMarking& m = g_Markings[ i ];
+				const float r = m.halfWidth + texel;
+				if ( fmaxf( m.ax, m.bx ) + r < minX || fminf( m.ax, m.bx ) - r > maxX ) continue;
+				if ( fmaxf( m.az, m.bz ) + r < minZ || fminf( m.az, m.bz ) - r > maxZ ) continue;
+				g_MarkingTaken[ i ] = g_MarkingPage;
+				g_MarkingUpload.push_back( m );
+				if ( ++count >= GGTERRAIN_MARKINGS_PER_PAGE ) break;
+			}
+		}
+	}
+	return count > 0 ? ((count << 8) | (start << 16)) : 0;
+}
 GPUBuffer pageGenVertexBuffer;
 InputLayout pageGenInputLayout;
 Shader shaderPageGenVS;
@@ -7543,6 +7624,14 @@ int GGTerrain_Init( wiGraphics::CommandList cmd )
 	bd.CPUAccessFlags = 0;
 	bd.MiscFlags = 0;
 	wiRenderer::GetDevice()->CreateBuffer( &bd, &data, &pageGenVertexBuffer );
+
+	// the road markings the pages made in a frame take (GGTerrain_PageMarkings)
+	bd = {};
+	bd.ByteWidth = sizeof(GGTerrainMarking) * GGTERRAIN_MARKINGS_MAX;
+	bd.BindFlags = BIND_SHADER_RESOURCE;
+	bd.MiscFlags = RESOURCE_MISC_BUFFER_STRUCTURED;
+	bd.StructureByteStride = sizeof(GGTerrainMarking);
+	wiRenderer::GetDevice()->CreateBuffer( &bd, nullptr, &markingBuffer );
 	
 	//GGTerrainInitTest();
 
@@ -7717,6 +7806,11 @@ void GGTerrain_DrawPages( CommandList cmd )
 	float tilingPower = ggterrain_local_render_params.tilingPower;
 	float textureTiling = 16.0f / (float) pow( tilingPower, detailLimit );
 
+	// each page's road markings, the same for both mip levels
+	uint32_t markingId[ GGTERRAIN_REPLACEMENT_PAGE_MAX ] = { 0 };
+	markingsLock.lock();
+	g_MarkingUpload.clear();
+
 	// render mip level 0
 	for( uint32_t i = 0; i < numPages; i++ )
 	{
@@ -7759,6 +7853,7 @@ void GGTerrain_DrawPages( CommandList cmd )
 		float realY2 = realY - realSize - padding2;
 		realX -= padding2;
 		realY += padding2;
+		markingId[ i ] = GGTerrain_PageMarkings( realX, realY2, realX2, realY, realSize / pageSize );
 						
 		float u1 = realX * pageTiling;
 		float u2 = realX2 * pageTiling;
@@ -7798,7 +7893,7 @@ void GGTerrain_DrawPages( CommandList cmd )
 		g_VerticesPageGen[ i ][ 0 ].v2 = heightV1;
 		g_VerticesPageGen[ i ][ 0 ].worldX = realX;
 		g_VerticesPageGen[ i ][ 0 ].worldY = realY;
-		g_VerticesPageGen[ i ][ 0 ].id = heightLevel | (detailLevel << 4);
+		g_VerticesPageGen[ i ][ 0 ].id = heightLevel | (detailLevel << 4) | markingId[ i ];
 
 		g_VerticesPageGen[ i ][ 1 ].x = left;
 		g_VerticesPageGen[ i ][ 1 ].y = bottom;
@@ -7808,7 +7903,7 @@ void GGTerrain_DrawPages( CommandList cmd )
 		g_VerticesPageGen[ i ][ 1 ].v2 = heightV2;
 		g_VerticesPageGen[ i ][ 1 ].worldX = realX;
 		g_VerticesPageGen[ i ][ 1 ].worldY = realY2;
-		g_VerticesPageGen[ i ][ 1 ].id = heightLevel | (detailLevel << 4);
+		g_VerticesPageGen[ i ][ 1 ].id = heightLevel | (detailLevel << 4) | markingId[ i ];
 
 		g_VerticesPageGen[ i ][ 2 ].x = right;
 		g_VerticesPageGen[ i ][ 2 ].y = top;
@@ -7818,7 +7913,7 @@ void GGTerrain_DrawPages( CommandList cmd )
 		g_VerticesPageGen[ i ][ 2 ].v2 = heightV1;
 		g_VerticesPageGen[ i ][ 2 ].worldX = realX2;
 		g_VerticesPageGen[ i ][ 2 ].worldY = realY;
-		g_VerticesPageGen[ i ][ 2 ].id = heightLevel | (detailLevel << 4);
+		g_VerticesPageGen[ i ][ 2 ].id = heightLevel | (detailLevel << 4) | markingId[ i ];
 
 		g_VerticesPageGen[ i ][ 3 ].x = right;
 		g_VerticesPageGen[ i ][ 3 ].y = top;
@@ -7828,7 +7923,7 @@ void GGTerrain_DrawPages( CommandList cmd )
 		g_VerticesPageGen[ i ][ 3 ].v2 = heightV1;
 		g_VerticesPageGen[ i ][ 3 ].worldX = realX2;
 		g_VerticesPageGen[ i ][ 3 ].worldY = realY;
-		g_VerticesPageGen[ i ][ 3 ].id = heightLevel | (detailLevel << 4);
+		g_VerticesPageGen[ i ][ 3 ].id = heightLevel | (detailLevel << 4) | markingId[ i ];
 
 		g_VerticesPageGen[ i ][ 4 ].x = left;
 		g_VerticesPageGen[ i ][ 4 ].y = bottom;
@@ -7838,7 +7933,7 @@ void GGTerrain_DrawPages( CommandList cmd )
 		g_VerticesPageGen[ i ][ 4 ].v2 = heightV2;
 		g_VerticesPageGen[ i ][ 4 ].worldX = realX;
 		g_VerticesPageGen[ i ][ 4 ].worldY = realY2;
-		g_VerticesPageGen[ i ][ 4 ].id = heightLevel | (detailLevel << 4);
+		g_VerticesPageGen[ i ][ 4 ].id = heightLevel | (detailLevel << 4) | markingId[ i ];
 
 		g_VerticesPageGen[ i ][ 5 ].x = right;
 		g_VerticesPageGen[ i ][ 5 ].y = bottom;
@@ -7848,10 +7943,12 @@ void GGTerrain_DrawPages( CommandList cmd )
 		g_VerticesPageGen[ i ][ 5 ].v2 = heightV2;
 		g_VerticesPageGen[ i ][ 5 ].worldX = realX2;
 		g_VerticesPageGen[ i ][ 5 ].worldY = realY2;
-		g_VerticesPageGen[ i ][ 5 ].id = heightLevel | (detailLevel << 4);
+		g_VerticesPageGen[ i ][ 5 ].id = heightLevel | (detailLevel << 4) | markingId[ i ];
 	}
 
 	device->UpdateBuffer( &pageGenVertexBuffer, g_VerticesPageGen, cmd, numPages*sizeof(VertexPageGen)*6 );
+	if ( !g_MarkingUpload.empty() ) device->UpdateBuffer( &markingBuffer, g_MarkingUpload.data(), cmd, (int)(g_MarkingUpload.size() * sizeof(GGTerrainMarking)) );
+	markingsLock.unlock();
 
 	device->RenderPassBegin( &renderPassPhysicalTex, cmd );
 
@@ -7885,6 +7982,7 @@ void GGTerrain_DrawPages( CommandList cmd )
 	device->BindResource( PS, &texMask, 56, cmd );
 	device->BindResource( PS, &texMaterialMap, 57, cmd );
 	GGGrass_BindGrassArray( 58, cmd );
+	device->BindResource( PS, &markingBuffer, 59, cmd );
 
 	device->BindSampler( PS, &samplerTrilinearWrap, 0, cmd );
 	device->BindSampler( PS, &samplerBilinear, 1, cmd );
@@ -7964,7 +8062,7 @@ void GGTerrain_DrawPages( CommandList cmd )
 		g_VerticesPageGen[ i ][ 0 ].v2 = heightV1;
 		g_VerticesPageGen[ i ][ 0 ].worldX = realX;
 		g_VerticesPageGen[ i ][ 0 ].worldY = realY;
-		g_VerticesPageGen[ i ][ 0 ].id = heightLevel | (mipDetailLevel << 4);
+		g_VerticesPageGen[ i ][ 0 ].id = heightLevel | (mipDetailLevel << 4) | markingId[ i ];
 
 		g_VerticesPageGen[ i ][ 1 ].u = u1;
 		g_VerticesPageGen[ i ][ 1 ].v = v2;
@@ -7972,7 +8070,7 @@ void GGTerrain_DrawPages( CommandList cmd )
 		g_VerticesPageGen[ i ][ 1 ].v2 = heightV2;
 		g_VerticesPageGen[ i ][ 1 ].worldX = realX;
 		g_VerticesPageGen[ i ][ 1 ].worldY = realY2;
-		g_VerticesPageGen[ i ][ 1 ].id = heightLevel | (mipDetailLevel << 4);
+		g_VerticesPageGen[ i ][ 1 ].id = heightLevel | (mipDetailLevel << 4) | markingId[ i ];
 
 		g_VerticesPageGen[ i ][ 2 ].u = u2;
 		g_VerticesPageGen[ i ][ 2 ].v = v1;
@@ -7980,7 +8078,7 @@ void GGTerrain_DrawPages( CommandList cmd )
 		g_VerticesPageGen[ i ][ 2 ].v2 = heightV1;
 		g_VerticesPageGen[ i ][ 2 ].worldX = realX2;
 		g_VerticesPageGen[ i ][ 2 ].worldY = realY;
-		g_VerticesPageGen[ i ][ 2 ].id = heightLevel | (mipDetailLevel << 4);
+		g_VerticesPageGen[ i ][ 2 ].id = heightLevel | (mipDetailLevel << 4) | markingId[ i ];
 
 		g_VerticesPageGen[ i ][ 3 ].u = u2;
 		g_VerticesPageGen[ i ][ 3 ].v = v1;
@@ -7988,7 +8086,7 @@ void GGTerrain_DrawPages( CommandList cmd )
 		g_VerticesPageGen[ i ][ 3 ].v2 = heightV1;
 		g_VerticesPageGen[ i ][ 3 ].worldX = realX2;
 		g_VerticesPageGen[ i ][ 3 ].worldY = realY;
-		g_VerticesPageGen[ i ][ 3 ].id = heightLevel | (mipDetailLevel << 4);
+		g_VerticesPageGen[ i ][ 3 ].id = heightLevel | (mipDetailLevel << 4) | markingId[ i ];
 
 		g_VerticesPageGen[ i ][ 4 ].u = u1;
 		g_VerticesPageGen[ i ][ 4 ].v = v2;
@@ -7996,7 +8094,7 @@ void GGTerrain_DrawPages( CommandList cmd )
 		g_VerticesPageGen[ i ][ 4 ].v2 = heightV2;
 		g_VerticesPageGen[ i ][ 4 ].worldX = realX;
 		g_VerticesPageGen[ i ][ 4 ].worldY = realY2;
-		g_VerticesPageGen[ i ][ 4 ].id = heightLevel | (mipDetailLevel << 4);
+		g_VerticesPageGen[ i ][ 4 ].id = heightLevel | (mipDetailLevel << 4) | markingId[ i ];
 
 		g_VerticesPageGen[ i ][ 5 ].u = u2;
 		g_VerticesPageGen[ i ][ 5 ].v = v2;
@@ -8004,7 +8102,7 @@ void GGTerrain_DrawPages( CommandList cmd )
 		g_VerticesPageGen[ i ][ 5 ].v2 = heightV2;
 		g_VerticesPageGen[ i ][ 5 ].worldX = realX2;
 		g_VerticesPageGen[ i ][ 5 ].worldY = realY2;
-		g_VerticesPageGen[ i ][ 5 ].id = heightLevel | (mipDetailLevel << 4);
+		g_VerticesPageGen[ i ][ 5 ].id = heightLevel | (mipDetailLevel << 4) | markingId[ i ];
 	}
 
 	device->UpdateBuffer( &pageGenVertexBuffer, g_VerticesPageGen, cmd, numPages*sizeof(VertexPageGen)*6 );
