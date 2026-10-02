@@ -4750,6 +4750,10 @@ void imgui_Customize_Terrain_v3(int mode)
 			ImGui::SliderFloat("##RockEdgeBreakup", &rock.rockEdgeBreakup, 0.0f, 1.0f, "%.2f");
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The rock runs unevenly into the ground above and below a face, and the ground thins over it, instead of meeting it along the slope's line; 0 the line");
 
+			ImGui::TextCenter("Steep Rock Variation");
+			ImGui::SliderFloat("##RockVariation", &rock.rockVariation, 0.0f, 1.0f, "%.2f");
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The rock texture at two sizes in patches across a face, so its repeats don't line up; 0 one size (fewer texture samples)");
+
 			// the main slope's texture, or one of the palette's (by its texture slot)
 			const bool bPaletteShown = sTerrainTexturesID[0] > 0;
 			cstr current = "The Main Slope's Texture";

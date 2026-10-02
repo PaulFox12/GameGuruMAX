@@ -227,6 +227,7 @@ struct GGTerrainRenderParams3
 	int rockMaterial = -1; // the texture slot, -1 the main slope's (slopeMatIndex[0])
 	float rockTileSize = 1181.1f; // the texture repeats this often (units, 30 m: a cliff is mostly seen from afar, where the pages' own tiling is 10-60 m)
 	float rockEdgeBreakup = 0.5f; // the rock's edge moved by a noise in world space, so it runs unevenly into the ground, and blended wider: 0 (a slope line) to 1
+	float rockVariation = 0.6f; // the rock texture at two sizes in patches, so its repeats don't line up across a big face: 0 (one size) to 1
 
 	bool IsEqual( GGTerrainRenderParams3 *other )
 	{

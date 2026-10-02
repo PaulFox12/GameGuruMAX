@@ -82,7 +82,7 @@ cbuffer TerrainCB : register( b2 )
 	float    terrain_edgeSoftness; // with smoothing or breakup, 0 a crisp line, 1 a blend over a few metres
 
 	float    terrain_rockEdgeBreakup; // the rock's edge moved by a noise in world space, and blended wider, 0 to 1
-	float    terrain_padding3;
+	float    terrain_rockVariation; // the rock texture at two sizes in patches, 0 (one size) to 1
 	float    terrain_padding4;
 	float    terrain_padding5;
 };

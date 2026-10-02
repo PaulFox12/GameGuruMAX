@@ -90,12 +90,31 @@ void GGTerrainApplyRock( float3 worldPos, float3 geometricNormal, float3 posDX, 
 		float3 weights = pow( abs( N ), 4 );
 		weights /= weights.x + weights.y + weights.z;
 
+		// the texture at two sizes, in patches by a noise about two tiles across, so its repeats don't line up across a big
+		// face (Steep Rock Variation; 0 the one size); where a patch is all one size the other isn't sampled
+		float variation = 0;
+		if ( terrain_rockVariation > 0 )
+		{
+			float2 vp = float2( worldPos.x + worldPos.y * 0.5, worldPos.z - worldPos.y * 0.5 ) * terrain_rockScale * 0.45 + 41.7;
+			variation = smoothstep( 0.35, 0.65, RockNoise( vp ) * 0.5 + 0.5 ) * terrain_rockVariation;
+		}
 		RockSurface rock = (RockSurface) 0;
-		float scale = terrain_rockScale;
-		[branch] if ( weights.x > 0.01 ) AddRockSide( rock, weights.x, float2( worldPos.z, -worldPos.y ) * scale, float2( posDX.z, -posDX.y ) * scale, float2( posDY.z, -posDY.y ) * scale, float3( 0, 0, 1 ), float3( 0, -1, 0 ), N, samp );
-		[branch] if ( weights.y > 0.01 ) AddRockSide( rock, weights.y, float2( worldPos.x, -worldPos.z ) * scale, float2( posDX.x, -posDX.z ) * scale, float2( posDY.x, -posDY.z ) * scale, float3( 1, 0, 0 ), float3( 0, 0, -1 ), N, samp );
-		[branch] if ( weights.z > 0.01 ) AddRockSide( rock, weights.z, float2( worldPos.x, -worldPos.y ) * scale, float2( posDX.x, -posDX.y ) * scale, float2( posDY.x, -posDY.y ) * scale, float3( 1, 0, 0 ), float3( 0, -1, 0 ), N, samp );
-		float sampled = (weights.x > 0.01 ? weights.x : 0) + (weights.y > 0.01 ? weights.y : 0) + (weights.z > 0.01 ? weights.z : 0);
+		float sampled = 0;
+		[unroll]
+		for( int size = 0; size < 2; size++ )
+		{
+			const float share = size == 0 ? 1 - variation : variation;
+			[branch]
+			if ( share > 0.01 )
+			{
+				const float scale = size == 0 ? terrain_rockScale : terrain_rockScale * 0.43;
+				const float2 shift = size == 0 ? float2( 0, 0 ) : float2( 0.37, 0.71 );
+				[branch] if ( weights.x > 0.01 ) AddRockSide( rock, weights.x * share, float2( worldPos.z, -worldPos.y ) * scale + shift, float2( posDX.z, -posDX.y ) * scale, float2( posDY.z, -posDY.y ) * scale, float3( 0, 0, 1 ), float3( 0, -1, 0 ), N, samp );
+				[branch] if ( weights.y > 0.01 ) AddRockSide( rock, weights.y * share, float2( worldPos.x, -worldPos.z ) * scale + shift, float2( posDX.x, -posDX.z ) * scale, float2( posDY.x, -posDY.z ) * scale, float3( 1, 0, 0 ), float3( 0, 0, -1 ), N, samp );
+				[branch] if ( weights.z > 0.01 ) AddRockSide( rock, weights.z * share, float2( worldPos.x, -worldPos.y ) * scale + shift, float2( posDX.x, -posDX.y ) * scale, float2( posDY.x, -posDY.y ) * scale, float3( 1, 0, 0 ), float3( 0, -1, 0 ), N, samp );
+				sampled += ((weights.x > 0.01 ? weights.x : 0) + (weights.y > 0.01 ? weights.y : 0) + (weights.z > 0.01 ? weights.z : 0)) * share;
+			}
+		}
 		rock.color /= sampled;
 		rock.occlusion /= sampled;
 		rock.roughness /= sampled;
