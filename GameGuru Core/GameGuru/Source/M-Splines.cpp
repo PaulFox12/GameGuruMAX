@@ -629,7 +629,8 @@ static void spline_seedhandles( sSpline& s, int fromCurve )
 }
 
 // joins spline sj onto spline si at their ends ni and nj; bShared when the two ends are one point (a junction), else a new
-// segment runs between them
+// segment runs between them. The joined spline has si's curve, and no segment changes: sj's keep theirs (each that
+// followed sj's curve given it as its own) and their handles, the segment on from a shared point too
 static void spline_merge( int si, int ni, int sj, int nj, bool bShared )
 {
 	if ( si == sj ) return;
@@ -639,7 +640,10 @@ static void spline_merge( int si, int ni, int sj, int nj, bool bShared )
 	spline_unbake( sj );
 	sSpline& a = g_Splines[ si ];
 	sSpline b = g_Splines[ sj ];
-	if ( a.curve == SPLINE_CURVE_BEZIER && b.curve != SPLINE_CURVE_BEZIER ) spline_seedhandles( b, b.curve );
+	if ( b.curve != a.curve )
+	{
+		for ( sSplineNode& node : b.nodes ) if ( node.segCurve < 0 ) node.segCurve = b.curve;
+	}
 	if ( ni == 0 && a.nodes.size() > 1 ) spline_reverse( a );
 	if ( nj != 0 ) spline_reverse( b );
 	size_t first = 0;
@@ -648,6 +652,8 @@ static void spline_merge( int si, int ni, int sj, int nj, bool bShared )
 		sSplineNode& joint = a.nodes.back();
 		joint.outX = b.nodes[0].outX;
 		joint.outZ = b.nodes[0].outZ;
+		joint.segCurve = b.nodes[0].segCurve;
+		joint.segMark = b.nodes[0].segMark;
 		first = 1;
 	}
 	for ( size_t k = first; k < b.nodes.size(); k++ ) a.nodes.push_back( b.nodes[k] );
