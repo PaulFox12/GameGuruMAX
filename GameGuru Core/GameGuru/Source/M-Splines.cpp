@@ -1978,7 +1978,20 @@ static bool spline_oncarriageway( const std::vector<sSplineAvoid>& roads, float 
 	return false;
 }
 
-// a road's shape as its markings follow it (its nodes, curve and width)
+// each road's markings as last given to the terrain (by spline id), and what they were made for; with each line's dash
+// pattern where it starts and its length, so a road joined to it end to end keeps its dashes in step
+struct sSplineMarkings
+{
+	uint64_t signature = 0;
+	std::vector<GGTerrain::GGTerrainMarking> pieces;
+	float bounds[4] = { 1e30f, 1e30f, -1e30f, -1e30f };
+	int lanes = 0;
+	float dash = 0, gap = 0;
+	std::vector<float> startPhase, length; // by line (two centre, the lanes' each side, two edges)
+};
+static std::unordered_map<int, sSplineMarkings> g_SplineMarkings;
+
+// a road's shape as its markings follow it (its nodes, their junctions, curve and width)
 static uint64_t spline_markingshape( const sSpline& s )
 {
 	uint64_t h = spline_hashmix( 0xcbf29ce484222325ULL, &s.curve, sizeof(s.curve) );
@@ -1989,6 +2002,7 @@ static uint64_t spline_markingshape( const sSpline& s )
 		const float f[6] = { node.x, node.z, node.inX, node.inZ, node.outX, node.outZ };
 		h = spline_hashmix( h, f, sizeof(f) );
 		h = spline_hashmix( h, &node.segCurve, sizeof(node.segCurve) );
+		h = spline_hashmix( h, &node.junction, sizeof(node.junction) );
 	}
 	return h;
 }
@@ -2000,10 +2014,15 @@ static uint64_t spline_markingshape( const sSpline& s )
 // a segment's own markings take over the road's. Where another road's carriageway crosses or joins it, its At
 // Junctions: run on, stop, or the centre and edge lines cross as guide dashes; the other road taken as ending half a metre
 // short of its ends, so a road joined at a T breaks the edge line across its mouth and leaves the centre line
-static void spline_markings( int si, std::vector<GGTerrain::GGTerrainMarking>& out, float* pBounds )
+static void spline_markings( int si, sSplineMarkings& marks )
 {
+	std::vector<GGTerrain::GGTerrainMarking>& out = marks.pieces;
+	float* pBounds = marks.bounds;
 	pBounds[0] = pBounds[1] = 1e30f;
 	pBounds[2] = pBounds[3] = -1e30f;
+	marks.lanes = 0;
+	marks.startPhase.clear();
+	marks.length.clear();
 	const sSpline& s = g_Splines[ si ];
 	const sSplineRoad& r = s.road;
 	const int lanes = std::max( 1, std::min( 4, r.markLanes ) );
@@ -2130,48 +2149,125 @@ static void spline_markings( int si, std::vector<GGTerrain::GGTerrainMarking>& o
 	const float* edgeColour = r.markEdgeYellow ? yellow : white;
 	const float half = r.width * 0.5f;
 	const int slots = 2 + (lanes - 1) * 2 + 2;
-	std::vector<float> phase( slots, 0.0f );
-	for ( int i = 0; i < n - 1; i++ )
+
+	// a line's settings over the piece from sample i: its offset across, width, dash and gap, colour, and whether it is
+	// drawn there
+	auto lineAt = [&]( int i, int slot, float& offset, float& width, float& dash, float& gap, const float*& colour )
 	{
 		const int segMark = s.nodes[ seg[ i ] ].segMark;
-		for ( int slot = 0; slot < slots; slot++ )
+		offset = 0;
+		width = r.markLineWidth;
+		dash = 0;
+		gap = 0;
+		colour = white;
+		bool bLine = segMark != SPLINE_SEGMARK_NONE;
+		if ( slot < 2 )
 		{
-			float offset = 0, width = r.markLineWidth, dash = 0, gap = 0;
-			const float* colour = white;
-			bool bLine = segMark != SPLINE_SEGMARK_NONE;
-			if ( slot < 2 )
+			colour = centreColour;
+			const int style = centre[ i ];
+			const float pair = r.markLineWidth;
+			if ( style == SPLINE_MARK_NONE ) bLine = false;
+			else if ( style == SPLINE_MARK_DOUBLE ) offset = slot == 0 ? pair : -pair;
+			else if ( style == SPLINE_MARK_SOLIDDASHED )
 			{
-				colour = centreColour;
-				const int style = centre[ i ];
-				const float pair = r.markLineWidth;
-				if ( style == SPLINE_MARK_NONE ) bLine = false;
-				else if ( style == SPLINE_MARK_DOUBLE ) offset = slot == 0 ? pair : -pair;
-				else if ( style == SPLINE_MARK_SOLIDDASHED )
-				{
-					offset = slot == 0 ? pair : -pair;
-					if ( slot == 1 ) { dash = r.markDash; gap = r.markGap; }
-				}
-				else
-				{
-					if ( slot == 1 ) bLine = false;
-					if ( style == SPLINE_MARK_DASHED ) { dash = r.markDash; gap = r.markGap; }
-				}
-				if ( gap > 0 && warning[ i ] ) { dash = period * 0.75f; gap = period * 0.25f; }
-			}
-			else if ( slot < slots - 2 )
-			{
-				const int lane = (slot - 2) / 2 + 1;
-				offset = (slot & 1 ? -1.0f : 1.0f) * lane * r.width / (lanes * 2);
-				dash = r.markDash;
-				gap = r.markGap;
+				offset = slot == 0 ? pair : -pair;
+				if ( slot == 1 ) { dash = r.markDash; gap = r.markGap; }
 			}
 			else
 			{
-				colour = edgeColour;
-				width = r.markEdgeWidth;
-				offset = (slot == slots - 2 ? 1.0f : -1.0f) * (half - r.markEdgeInset - r.markEdgeWidth * 0.5f);
-				bLine = bLine && r.markEdges;
+				if ( slot == 1 ) bLine = false;
+				if ( style == SPLINE_MARK_DASHED ) { dash = r.markDash; gap = r.markGap; }
 			}
+			if ( gap > 0 && warning[ i ] ) { dash = period * 0.75f; gap = period * 0.25f; }
+		}
+		else if ( slot < slots - 2 )
+		{
+			const int lane = (slot - 2) / 2 + 1;
+			offset = (slot & 1 ? -1.0f : 1.0f) * lane * r.width / (lanes * 2);
+			dash = r.markDash;
+			gap = r.markGap;
+		}
+		else
+		{
+			colour = edgeColour;
+			width = r.markEdgeWidth;
+			offset = (slot == slots - 2 ? 1.0f : -1.0f) * (half - r.markEdgeInset - r.markEdgeWidth * 0.5f);
+			bLine = bLine && r.markEdges;
+		}
+		return bLine;
+	};
+
+	// each line's length, then its dash pattern's start: in step with a road earlier in the list joined to this one end to
+	// end (the same dash and gap), running the same way (its end on this one's start, or this one's end on its start) or
+	// meeting it head on (a dash pattern is the same both ways about the middle of a dash: dash - q continues q backwards)
+	std::vector<float> lineLength( slots, 0.0f ), phase( slots, 0.0f );
+	for ( int i = 0; i < n - 1; i++ )
+	{
+		for ( int slot = 0; slot < slots; slot++ )
+		{
+			float offset, width, dash, gap;
+			const float* colour;
+			lineAt( i, slot, offset, width, dash, gap, colour );
+			const float ax = c[i].x + nx[i] * offset, az = c[i].z + nz[i] * offset;
+			const float bx = c[i+1].x + nx[i+1] * offset, bz = c[i+1].z + nz[i+1] * offset;
+			lineLength[ slot ] += sqrtf( (bx - ax) * (bx - ax) + (bz - az) * (bz - az) );
+		}
+	}
+	if ( !s.closed && period > 0 )
+	{
+		const int ends[2] = { 0, (int)s.nodes.size() - 1 };
+		bool bInStep = false;
+		for ( int e = 0; e < 2 && !bInStep; e++ )
+		{
+			const int junction = s.nodes[ ends[ e ] ].junction;
+			if ( !junction ) continue;
+			for ( int sj = 0; sj < si && !bInStep; sj++ )
+			{
+				const sSpline& o = g_Splines[ sj ];
+				if ( o.kind != SPLINE_KIND_ROAD || o.closed || o.nodes.size() < 2 ) continue;
+				auto it = g_SplineMarkings.find( o.id );
+				if ( it == g_SplineMarkings.end() || it->second.startPhase.empty() ) continue;
+				const sSplineMarkings& other = it->second;
+				if ( other.dash != r.markDash || other.gap != r.markGap ) continue;
+				const int otherEnd = o.nodes.front().junction == junction ? 0 : o.nodes.back().junction == junction ? 1 : -1;
+				if ( otherEnd < 0 ) continue;
+				const bool bSameWay = (e == 0) == (otherEnd == 1);
+				const int otherSlots = (int)other.startPhase.size();
+				for ( int slot = 0; slot < slots; slot++ )
+				{
+					// the same line on the other road, its sides swapped when the two meet head on; the lane lines only
+					// when both have as many lanes
+					int otherSlot = -1;
+					if ( slot < 2 ) otherSlot = slot;
+					else if ( slot >= slots - 2 ) otherSlot = otherSlots - (slots - slot);
+					else if ( other.lanes == lanes ) otherSlot = slot;
+					if ( otherSlot < 0 ) continue;
+					if ( !bSameWay ) otherSlot ^= 1;
+					if ( otherSlot >= otherSlots ) continue;
+					const float q = other.startPhase[ otherSlot ] + (otherEnd == 1 ? other.length[ otherSlot ] : 0.0f);
+					float start = bSameWay ? q : r.markDash - q;
+					if ( e == 1 ) start -= lineLength[ slot ];
+					start = fmodf( start, period );
+					if ( start < 0 ) start += period;
+					phase[ slot ] = start;
+				}
+				bInStep = true;
+			}
+		}
+	}
+	marks.lanes = lanes;
+	marks.dash = r.markDash;
+	marks.gap = r.markGap;
+	marks.startPhase = phase;
+	marks.length = lineLength;
+
+	for ( int i = 0; i < n - 1; i++ )
+	{
+		for ( int slot = 0; slot < slots; slot++ )
+		{
+			float offset, width, dash, gap;
+			const float* colour;
+			bool bLine = lineAt( i, slot, offset, width, dash, gap, colour );
 			const float ax = c[i].x + nx[i] * offset, az = c[i].z + nz[i] * offset;
 			const float bx = c[i+1].x + nx[i+1] * offset, bz = c[i+1].z + nz[i+1] * offset;
 			const float length = sqrtf( (bx - ax) * (bx - ax) + (bz - az) * (bz - az) );
@@ -2222,14 +2318,6 @@ static void spline_markings( int si, std::vector<GGTerrain::GGTerrainMarking>& o
 	}
 }
 
-// each road's markings as last given to the terrain (by spline id), and what they were made for
-struct sSplineMarkings
-{
-	uint64_t signature = 0;
-	std::vector<GGTerrain::GGTerrainMarking> pieces;
-	float bounds[4] = { 1e30f, 1e30f, -1e30f, -1e30f };
-};
-static std::unordered_map<int, sSplineMarkings> g_SplineMarkings;
 static uint64_t g_SplineMarkingsApplied = 0, g_SplineMarkingsPending = 0;
 static int g_iSplineMarkingsStill = 0;
 
@@ -2251,6 +2339,7 @@ void spline_updatemarkings( void )
 		for ( const sSplineNode& node : s.nodes ) h = spline_hashmix( h, &node.segMark, sizeof(node.segMark) );
 		signatures[ si ] = h ? h : 1;
 		earlier = spline_hashmix( earlier, &shape, sizeof(shape) );
+		earlier = spline_hashmix( earlier, &s.road.markCentre, sizeof(sSplineRoad) - offsetof( sSplineRoad, markCentre ) );
 		total = spline_hashmix( total, &s.id, sizeof(s.id) );
 		total = spline_hashmix( total, &signatures[ si ], sizeof(signatures[ si ]) );
 	}
@@ -2276,7 +2365,7 @@ void spline_updatemarkings( void )
 		if ( marks.signature == signatures[ si ] ) continue;
 		addDirty( marks.bounds );
 		marks.pieces.clear();
-		spline_markings( (int)si, marks.pieces, marks.bounds );
+		spline_markings( (int)si, marks );
 		marks.signature = signatures[ si ];
 		addDirty( marks.bounds );
 	}
