@@ -7977,7 +7977,10 @@ int GetPhysicsStats(lua_State* L)
 // GetPhysicsStatsTop([n]): the bodies with the most contact points in the physics' last update, most first, up to n (5 by
 // default, at most 32), the ground and character capsules left out: a table of entries { e (the entity, -1 none), obj (-1
 // unknown), points, awake (true while the simulation moves or settles it), speed (units a second), kind ("dynamic",
-// "static", "tree" for the trunk cylinders round the camera, else "other") }
+// "static", "tree" for the trunk cylinders round the camera, else "other"), spin (radians a second), state ("active",
+// "asleep", "ready": still enough to sleep but its island isn't, "always": kept awake by the physics, never sleeping, "off"),
+// still (seconds under its sleep speeds; it sleeps after 2), sleepspeed and sleepspin (those speeds), island (the bodies
+// touching it, directly or through others, share it and sleep together; -1 none) }
 int GetPhysicsStatsTop(lua_State* L)
 {
 	int iMax = 5;
@@ -8002,13 +8005,24 @@ int GetPhysicsStatsTop(lua_State* L)
 		if (LuaPhysicsIsTreeCylinder(body.object)) pKind = "tree";
 		else if (body.layer & PHYSICS_LAYER_DYNAMIC) pKind = "dynamic";
 		else if (body.layer & PHYSICS_LAYER_STATIC) pKind = "static";
-		lua_createtable(L, 0, 6);
+		const char* pState = "active";
+		if (body.state == 2) pState = "asleep";
+		else if (body.state == 3) pState = "ready";
+		else if (body.state == 4) pState = "always";
+		else if (body.state == 5) pState = "off";
+		lua_createtable(L, 0, 12);
 		lua_pushinteger(L, iEntity); lua_setfield(L, -2, "e");
 		lua_pushinteger(L, body.object); lua_setfield(L, -2, "obj");
 		lua_pushinteger(L, body.points); lua_setfield(L, -2, "points");
 		lua_pushboolean(L, body.awake ? 1 : 0); lua_setfield(L, -2, "awake");
 		lua_pushnumber(L, body.speed); lua_setfield(L, -2, "speed");
 		lua_pushstring(L, pKind); lua_setfield(L, -2, "kind");
+		lua_pushnumber(L, body.spin); lua_setfield(L, -2, "spin");
+		lua_pushstring(L, pState); lua_setfield(L, -2, "state");
+		lua_pushnumber(L, body.still); lua_setfield(L, -2, "still");
+		lua_pushnumber(L, body.sleepSpeed); lua_setfield(L, -2, "sleepspeed");
+		lua_pushnumber(L, body.sleepSpin); lua_setfield(L, -2, "sleepspin");
+		lua_pushinteger(L, body.island); lua_setfield(L, -2, "island");
 		lua_rawseti(L, -2, i + 1);
 	}
 	return 1;

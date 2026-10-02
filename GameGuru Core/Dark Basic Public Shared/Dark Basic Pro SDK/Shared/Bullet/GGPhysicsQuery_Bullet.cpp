@@ -470,8 +470,15 @@ int PhysicsQuery_StatsTop(PhysicsStatsBody* pBodies, int iMax)
 		out.points = points[iBest];
 		out.awake = pBody->isActive();
 		const btRigidBody* pRigid = btRigidBody::upcast(pBody);
-		out.speed = pRigid ? pRigid->getLinearVelocity().length() : 0.0f;
+		// the world runs in units divided by gSc
+		out.speed = pRigid ? pRigid->getLinearVelocity().length() * gSc : 0.0f;
 		out.layer = iGroup;
+		out.spin = pRigid ? pRigid->getAngularVelocity().length() : 0.0f;
+		out.state = pBody->getActivationState();
+		out.still = pBody->getDeactivationTime();
+		out.sleepSpeed = pRigid ? pRigid->getLinearSleepingThreshold() * gSc : 0.0f;
+		out.sleepSpin = pRigid ? pRigid->getAngularSleepingThreshold() : 0.0f;
+		out.island = pBody->getIslandTag();
 		points[iBest] = 0;
 	}
 	physicslock.unlock();

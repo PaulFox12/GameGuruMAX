@@ -48,7 +48,8 @@ struct PhysicsStats
 void PhysicsQuery_Stats(PhysicsStats* pStats);
 
 // the bodies with the most contact points in the last step, most first (the ground and character capsules left out, as in
-// PhysicsQuery_Stats); how many were written, at most iMax. Jolt: the contact listener's counts per body
+// PhysicsQuery_Stats); how many were written, at most iMax. Jolt: the contact listener's counts per body, and for the
+// sleep fields its bodies' IsActive and motion properties (Jolt has no islands to report)
 struct PhysicsStatsBody
 {
 	int object; // -1 unknown
@@ -56,6 +57,12 @@ struct PhysicsStatsBody
 	bool awake;
 	float speed; // linear, in units a second
 	int layer; // its PHYSICS_LAYER_ group bits
+	float spin; // angular, in radians a second
+	int state; // 1 active, 2 asleep, 3 ready to sleep (its island isn't), 4 kept awake (always active), 5 not simulated
+	float still; // seconds it has been under its sleep speeds; it sleeps after 2, once every body in its island is ready
+	float sleepSpeed; // its sleep speeds: linear, units a second
+	float sleepSpin; // and angular, radians a second
+	int island; // the bodies touching it, directly or through others, share its island and sleep together; -1 none
 };
 int PhysicsQuery_StatsTop(PhysicsStatsBody* pBodies, int iMax);
 
