@@ -214,6 +214,23 @@ struct GGTerrainRenderParams2
 	}
 };
 
+// more parameters that affect rendering, kept apart from the two above so the settings string (GGTerrain_GetSettings),
+// which checks their sizes, stays the same; saved by name with the level (GGTerrain_SaveSettings)
+struct GGTerrainRenderParams3
+{
+	float edgeBreakup = 0; // painted textures meet along an uneven edge, not a straight blend over the material map's cell: 0 (none) to 1
+
+	bool IsEqual( GGTerrainRenderParams3 *other )
+	{
+		return (memcmp( this, other, sizeof(GGTerrainRenderParams3) ) == 0);
+	}
+
+	void Copy( GGTerrainRenderParams3* other )
+	{
+		memcpy( this, other, sizeof(GGTerrainRenderParams3) );
+	}
+};
+
 #define GGTERRAIN_FLAT_AREA_TYPE_RECT    0
 #define GGTERRAIN_FLAT_AREA_TYPE_CIRCLE  1
 
@@ -254,6 +271,7 @@ extern GGTerrainExtraParams ggterrain_extra_params;
 extern GGTerrainParams ggterrain_global_params; 
 extern GGTerrainRenderParams ggterrain_global_render_params;
 extern GGTerrainRenderParams2 ggterrain_global_render_params2;
+extern GGTerrainRenderParams3 ggterrain_global_render_params3;
 extern int ggterrain_draw_enabled;
 
 int GGTerrain_Init( wiGraphics::CommandList cmd);

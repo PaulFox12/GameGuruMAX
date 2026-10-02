@@ -100,6 +100,42 @@ SurfaceValues LerpSurface( SurfaceValues surface1, SurfaceValues surface2, float
 	return output;
 }
 
+// the four surfaces added by weight (they sum to 1)
+SurfaceValues WeightSurfaces( SurfaceValues surfaces[4], float4 weight )
+{
+	SurfaceValues output;
+
+	output.color = surfaces[0].color * weight.x + surfaces[1].color * weight.y + surfaces[2].color * weight.z + surfaces[3].color * weight.w;
+	output.metalness = dot( float4( surfaces[0].metalness, surfaces[1].metalness, surfaces[2].metalness, surfaces[3].metalness ), weight );
+	output.roughness = dot( float4( surfaces[0].roughness, surfaces[1].roughness, surfaces[2].roughness, surfaces[3].roughness ), weight );
+	output.ao = dot( float4( surfaces[0].ao, surfaces[1].ao, surfaces[2].ao, surfaces[3].ao ), weight );
+
+	float3 normal = surfaces[0].normal * weight.x + surfaces[1].normal * weight.y + surfaces[2].normal * weight.z + surfaces[3].normal * weight.w;
+	output.normal = normalize( normal );
+
+	return output;
+}
+
+// value noise, -1 to 1, smooth at a scale of 1
+float EdgeHash( float2 p )
+{
+	float3 p3 = frac( p.xyx * 0.1031 );
+	p3 += dot( p3, p3.yzx + 33.33 );
+	return frac( (p3.x + p3.y) * p3.z );
+}
+
+float EdgeNoise( float2 p )
+{
+	float2 cell = floor( p );
+	float2 f = frac( p );
+	f = f * f * (3 - 2 * f);
+	float a = EdgeHash( cell );
+	float b = EdgeHash( cell + float2(1, 0) );
+	float c = EdgeHash( cell + float2(0, 1) );
+	float d = EdgeHash( cell + float2(1, 1) );
+	return lerp( lerp( a, b, f.x ), lerp( c, d, f.x ), f.y ) * 2 - 1;
+}
+
 SurfaceValues SampleTexture2( uint index, float2 uv, float4 uvDXY, uint mask[4], float2 interp )
 {
 	uint material = index & 0xFF;
@@ -179,11 +215,24 @@ PixelOut main( PixelIn IN )
 	maskArray[3] = mask.w * 255;
 
 	// user material map
+	// edge breakup: the map read where a smooth noise moves it, by up to a third of its cell, so the edges painted along its
+	// cells don't run straight; faded out on pages whose texels span a cell or more (the distance), which keep the old blend
+	float2 uvMat = IN.uvMat;
+	float2 matCell = IN.uvMat * 4096;
+	float footprint = max( length( ddx( matCell ) ), length( ddy( matCell ) ) );
+	float breakup = 0;
+	if ( terrain_edgeBreakup > 0 )
+	{
+		breakup = terrain_edgeBreakup * saturate( 2 - footprint * 2 );
+		float2 warp = float2( EdgeNoise( matCell * 0.7 ), EdgeNoise( matCell * 0.7 + 31.7 ) );
+		uvMat += warp * (breakup * 0.35 / 4096);
+	}
+
 	float2 interp2;
-    interp2 = frac( IN.uvMat * 4096 );
+    interp2 = frac( uvMat * 4096 );
 	interp2 = frac( interp2 + 0.5 + (2.0/1024.0) );
     
-	float4 materialMap = texMaterialMap.GatherRed( samplerBiClamp, IN.uvMat );
+	float4 materialMap = texMaterialMap.GatherRed( samplerBiClamp, uvMat );
 
 	if ( terrain_flags & GGTERRAIN_SHADER_FLAG_SHOW_MAT_MAP )
 	{
@@ -254,11 +303,36 @@ PixelOut main( PixelIn IN )
 	}	
 
 	// blend user painted materials with default height based materials calculated above
-	if ( matArray[0] != matArray[1] ) surfaces[0] = LerpSurface( surfaces[0], surfaces[1], interp2.x );
-	if ( matArray[2] != matArray[3] ) surfaces[2] = LerpSurface( surfaces[3], surfaces[2], interp2.x );
-	if ( matArray[0] != matArray[3] || matArray[1] != matArray[2] ) surfaces[0] = LerpSurface( surfaces[2], surfaces[0], interp2.y );
+	if ( breakup > 0 )
+	{
+		// each material's share of the four cells (the corners' bilinear weights, summed where they hold the same material),
+		// moved by a noise of that material's own and sharpened, so where two meet the edge follows the middle of the blend
+		// (diagonal along a diagonal stroke, not a staircase of cells) unevenly, and the blend is narrower
+		float4 weight = float4( (1 - interp2.x) * interp2.y, interp2.x * interp2.y, interp2.x * (1 - interp2.y), (1 - interp2.x) * (1 - interp2.y) );
+		float sharpness = 1 + 5 * breakup;
+		float4 edgeWeight;
+		for( uint c = 0; c < 4; c++ )
+		{
+			float share = 0;
+			for( uint o = 0; o < 4; o++ ) if ( matArray[o] == matArray[c] ) share += weight[o];
+			float2 p = matCell * 1.3 + matArray[c] * 7.31;
+			float n = EdgeNoise( p ) * 0.7 + EdgeNoise( p * 2.8 + 11.1 ) * 0.3;
+			float pushed = saturate( share + n * 0.3 * breakup );
+			edgeWeight[c] = weight[c] / max( share, 0.0001 ) * pow( pushed, sharpness );
+		}
+		float total = dot( edgeWeight, float4( 1, 1, 1, 1 ) );
+		if ( total > 0.0001 ) edgeWeight /= total;
+		else edgeWeight = weight;
+		finalSurface = WeightSurfaces( surfaces, edgeWeight );
+	}
+	else
+	{
+		if ( matArray[0] != matArray[1] ) surfaces[0] = LerpSurface( surfaces[0], surfaces[1], interp2.x );
+		if ( matArray[2] != matArray[3] ) surfaces[2] = LerpSurface( surfaces[3], surfaces[2], interp2.x );
+		if ( matArray[0] != matArray[3] || matArray[1] != matArray[2] ) surfaces[0] = LerpSurface( surfaces[2], surfaces[0], interp2.y );
 
-	finalSurface = surfaces[ 0 ];
+		finalSurface = surfaces[ 0 ];
+	}
 
 	float2 normalRG = finalSurface.normal.rg * 0.5 + 0.5;
 	/*

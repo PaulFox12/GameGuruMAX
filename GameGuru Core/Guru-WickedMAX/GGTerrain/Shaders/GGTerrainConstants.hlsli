@@ -70,6 +70,11 @@ cbuffer TerrainCB : register( b2 )
 	float4   terrain_maskRotMat[ 64 ];
 
 	VAR_MAT4X4 terrain_rampWorldMat;
+
+	float    terrain_edgeBreakup; // painted textures meet along an uneven edge, 0 (a straight blend, as before) to 1
+	float    terrain_padding3;
+	float    terrain_padding4;
+	float    terrain_padding5;
 };
 
 #endif // GGTERRAIN_CONSTANTS_FULL_DECL

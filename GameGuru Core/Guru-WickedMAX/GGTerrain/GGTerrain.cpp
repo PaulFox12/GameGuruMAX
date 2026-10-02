@@ -744,10 +744,12 @@ GGTerrainExtraParams ggterrain_extra_params; // Carefully modify this one anywhe
 GGTerrainParams ggterrain_global_params; // Modify this one anywhere
 GGTerrainRenderParams ggterrain_global_render_params; // Modify this one anywhere
 GGTerrainRenderParams2 ggterrain_global_render_params2; // Modify this one anywhere
+GGTerrainRenderParams3 ggterrain_global_render_params3; // Modify this one anywhere
 
 GGTerrainParams ggterrain_local_params; // Do not modify these values outside this file
 GGTerrainRenderParams ggterrain_local_render_params; // Do not modify these values outside this file
 GGTerrainRenderParams2 ggterrain_local_render_params2; // Do not modify these values outside this file
+GGTerrainRenderParams3 ggterrain_local_render_params3; // Do not modify these values outside this file
 GGTerrainInternalParams ggterrain_internal_params; // Do not modify these values outside this file
 
 #define GGTERRAIN_MAX_FLAT_AREAS   0xFFFF
@@ -3612,6 +3614,13 @@ public:
 
 			if ( resized ) GGTerrain_WindowResized();
 		}
+
+		if ( !ggterrain_local_render_params3.IsEqual( &ggterrain_global_render_params3 ) )
+		{
+			settingsUpdated = true;
+			ggterrain_local_render_params3.Copy( &ggterrain_global_render_params3 );
+			iFlags |= GGTERRAIN_FLAG_REGENERATE_PAGES;
+		}
 	}
 	
 	void UpdateLODTextures( GGTerrainLODSet* pLODs, int fullUpdate )
@@ -5659,6 +5668,8 @@ char* GGTerrain_SaveSettings(int water_height)
 	output += ",\n  \"reflectance\": ";         output += std::to_string( ggterrain_local_render_params2.reflectance );
 	output += ",\n  \"textureGamma\": ";        output += std::to_string( ggterrain_local_render_params2.textureGamma );
 
+	output += ",\n  \"edgeBreakup\": ";         output += std::to_string( ggterrain_local_render_params3.edgeBreakup );
+
 
 	//Other settings related to terrain.
 	output += ",\n  \"water_height\": ";        output += std::to_string(water_height);
@@ -5697,6 +5708,7 @@ int GGTerrain_LoadSettings( const char* settingsJSON, bool bRestoreWater)
 
 	//PE: Parameters that need to be reset.
 	gggrass_global_params.grass_scale = GGGRASS_SCALE;
+	ggterrain_global_render_params3 = GGTerrainRenderParams3();
 
 	JSONObject* pObject = (JSONObject*) pElement;
 
@@ -5813,6 +5825,9 @@ int GGTerrain_LoadSettings( const char* settingsJSON, bool bRestoreWater)
 	if ( pElement ) { ggterrain_global_render_params2.reflectance = ((JSONNumber*)pElement)->m_fValue; }
 	pElement = pObject->GetElement( "textureGamma" );   
 	if ( pElement ) { ggterrain_global_render_params2.textureGamma = ((JSONNumber*)pElement)->m_fValue; }
+
+	pElement = pObject->GetElement( "edgeBreakup" );
+	if ( pElement ) { ggterrain_global_render_params3.edgeBreakup = ((JSONNumber*)pElement)->m_fValue; }
 
 	//Other settings related to terrain.
 	pElement = pObject->GetElement("water_dist");
@@ -10236,6 +10251,7 @@ void GGTerrain_Update( float playerX, float playerY, float playerZ, wiGraphics::
 	}
 
 	terrainConstantData.terrain_readBackReduction = ggterrain_local_render_params2.readBackTextureReduction;
+	terrainConstantData.terrain_edgeBreakup = ggterrain_local_render_params3.edgeBreakup;
 
 	wiInput::MouseState mouseState = wiInput::GetMouseState();
 	ggterrain_internal_params.mouseLeftState = mouseState.left_button_press;

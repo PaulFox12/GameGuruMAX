@@ -4721,6 +4721,18 @@ void imgui_Customize_Terrain_v3(int mode)
 			ImGui::Spacing();
 		}
 	}
+
+	if (ImGui::StyleCollapsingHeader("Texture Blending", 0))
+	{
+		ImGui::Indent(10);
+		ImGui::PushItemWidth(-10);
+		ImGui::TextCenter("Painted Edge Breakup");
+		ImGui::SliderFloat("##EdgeBreakup", &ggterrain_global_render_params3.edgeBreakup, 0.0f, 1.0f, "%.2f");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Painted textures meet along an uneven, narrower edge instead of a straight blend across each paint cell (2 m on an 8 km map), where a diagonal stroke shows as steps; 0 the straight blend");
+		ImGui::PopItemWidth();
+		ImGui::Indent(-10);
+		ImGui::Spacing();
+	}
 }
 
 int iDeleteSingleTreeTextures = 0;
