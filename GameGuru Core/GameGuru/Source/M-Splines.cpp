@@ -8,7 +8,9 @@
 // (a T junction or a crossing): they keep one position, so dragging one drags them all. Saved with the level in map.spl
 //
 // In the 3D view:
-// - click the terrain to add a node at the end (or the start, with the first node selected), and drag it while held
+// - click the terrain to add a node at the end (or the start, with the first node selected), and drag it while held;
+//   while drawing (New Spline, or a node just added), a click on another spline's node or curve adds the next node there
+//   joined to it, and on the spline's own other end closes it; Esc stops drawing
 // - drag a node, or a Bezier handle (Alt-drag breaks a handle pair apart)
 // - a dragged node snaps to a node of another spline, or onto its curve (a node is inserted there), and joins it on
 //   release; an end dropped on the spline's other end closes it; Alt-drag a joined node pulls it out of the junction
@@ -22,7 +24,9 @@
 // what the bake wrote are kept, so a bake is undone by putting back only what still holds the bake's value: work done over
 // a road afterwards stays. A changed road is baked again once the mouse is let go, with every spline joined to it: the
 // joined ones are restored last first and baked in list order, a junction pins the later road to the earlier one's
-// surface there, and a later road's shoulders leave an earlier road's carriageway alone
+// surface there, and a later road's shoulders leave an earlier road's carriageway alone. A River spline is baked the same
+// way as a channel: a flat bed below the averaged ground (never rising downstream when Downhill Only), banks up to the
+// ground, a tributary pinned to an earlier river's bed where they join
 
 #include "stdafx.h"
 #include "gameguru.h"
@@ -54,6 +58,8 @@ extern ImVec2 renderTargetAreaSize;
 bool Convert3DLineTo2D( float x1, float y1, float z1, float x2, float y2, float z2, ImVec2* pA, ImVec2* pB );
 float BT_GetGroundHeight( unsigned long value, float x, float z );
 extern int iCurrentTextureForPaint;
+extern int sTerrainTexturesID[32]; // the Paint palette: each entry's image, and the texture slot it paints
+extern int sTerrainSelectionID[32];
 
 #define SPLINE_CURVE_LINEAR 0
 #define SPLINE_CURVE_SMOOTH 1
@@ -66,7 +72,7 @@ extern int iCurrentTextureForPaint;
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 2 // 2: road settings and the bake
+#define SPLINE_FILE_VERSION 3 // 2: road settings and the bake; 3: river settings
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -98,6 +104,21 @@ struct sSplineRoad
 	float treeMargin = 80.0f; // trees hidden this far past it
 	int material = 0; // terrain texture slot + 1 for the carriageway, 0 none
 	int edgeMaterial = 0; // the same for the shoulders
+	int autoApply = 1; // baked again when it changes
+};
+
+// a river's settings, in units (the panel shows metres)
+struct sSplineRiver
+{
+	float bedWidth = 600.0f; // the flat bed
+	float depth = 240.0f; // the bed this far below the smoothed ground
+	float banks = 400.0f; // each side, blended from the bed up to the ground
+	float smoothing = 1575.0f; // the bed is averaged over this length
+	float grassMargin = 120.0f; // grass cleared this far past the bed's edge
+	float treeMargin = 160.0f; // trees hidden this far past it
+	int bedMaterial = 0; // terrain texture slot + 1 for the bed, 0 none
+	int bankMaterial = 0; // the same for the banks
+	int downhill = 1; // the bed never rises from the first node to the last
 	int autoApply = 1; // baked again when it changes
 };
 
@@ -133,6 +154,8 @@ struct sSpline
 	int closed = 0;
 	std::vector<sSplineNode> nodes;
 	sSplineRoad road;
+	sSplineRiver river;
+	float wetFraction = -1.0f; // a river: how much of its bed is below the level's water line, -1 not known yet
 	uint64_t bakedSignature = 0; // the spline as last baked (spline_signature)
 	std::vector<sSplineBakeTexel> baked;
 	std::vector<sSplineBakeTree> bakedTrees;
@@ -164,6 +187,8 @@ static float fSnapT = 0, fSnapX = 0, fSnapY = 0, fSnapZ = 0;
 static bool bConnectMode = false;
 // Apply: this spline is baked now, whether or not it changed
 static int iApplySpline = -1;
+// drawing: nodes are being added to the selected spline, so a click on another spline's node or curve joins it
+static bool bDrawing = false;
 
 //
 // The curve
@@ -489,6 +514,28 @@ static void spline_merge( int si, int ni, int sj, int nj, bool bShared )
 	spline_modified();
 }
 
+// a node at the end of the spline that is being drawn: its last node, or its first while that is selected
+static int spline_addend( int si, float x, float y, float z )
+{
+	sSpline& s = g_Splines[ si ];
+	sSplineNode node;
+	node.x = x; node.y = y; node.z = z;
+	int at = (int)s.nodes.size();
+	if ( g_iSplineSelected == si && g_iSplineNodeSelected == 0 && s.nodes.size() > 1 ) at = 0;
+	s.nodes.insert( s.nodes.begin() + at, node );
+	if ( s.curve == SPLINE_CURVE_BEZIER )
+	{
+		// handles for the new node a third of the way to its neighbour
+		sSplineNode& added = s.nodes[ at ];
+		const sSplineNode& next = s.nodes[ at == 0 ? (s.nodes.size() > 1 ? 1 : 0) : at - 1 ];
+		const float dx = (next.x - added.x) / 3.0f, dz = (next.z - added.z) / 3.0f;
+		if ( at == 0 ) { added.outX = dx; added.outZ = dz; added.inX = -dx; added.inZ = -dz; }
+		else { added.inX = dx; added.inZ = dz; added.outX = -dx; added.outZ = -dz; }
+	}
+	spline_modified();
+	return at;
+}
+
 //
 // The bake
 //
@@ -512,6 +559,11 @@ static uint64_t spline_signature( const sSpline& s )
 	const int ri[2] = { r.material, r.edgeMaterial };
 	mix( rf, sizeof(rf) );
 	mix( ri, sizeof(ri) );
+	const sSplineRiver& v = s.river;
+	const float vf[6] = { v.bedWidth, v.depth, v.banks, v.smoothing, v.grassMargin, v.treeMargin };
+	const int vi[3] = { v.bedMaterial, v.bankMaterial, v.downhill };
+	mix( vf, sizeof(vf) );
+	mix( vi, sizeof(vi) );
 	return h ? h : 1;
 }
 
@@ -569,24 +621,14 @@ struct sRoadFoot
 	int k;
 };
 
-// the road profile, the footprint on the terrain's texels, and the writes
-static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protectedTexels, float* pBounds )
+// the centre line about spacing apart with the ground along it (an earlier road's surface included), and the sample at
+// each node; false when there is no line
+static bool spline_centreline( const sSpline& sp, float spacing, std::vector<sRoadSample>& c, std::vector<int>& nodeSample )
 {
-	const sSplineRoad& r = sp.road;
-	float* pH = GGTerrain::GGTerrain_GetHeightEditMap();
-	uint8_t* pT = GGTerrain::GGTerrain_GetHeightEditTypeMap();
-	uint8_t* pM = GGTerrain::GGTerrain_GetMaterialMap();
-	uint8_t* pG = GGGrass::GGGrass_GetGrassMap();
+	c.clear();
+	nodeSample.assign( sp.nodes.size(), -1 );
 	const int segs = spline_segments( sp );
-	const float E = GGTerrain::GGTerrain_GetEditableSize();
-	if ( !pH || !pT || segs == 0 || E <= 0 || r.width <= 0 ) return;
-	const float texel = E * 2.0f / SPLINE_MAP_SIZE;
-	const float halfW = r.width * 0.5f;
-
-	// the centre line about a quarter texel apart, and the sample at each node
-	std::vector<sRoadSample> c;
-	std::vector<int> nodeSample( sp.nodes.size(), -1 );
-	const float spacing = texel * 0.25f;
+	if ( segs == 0 ) return false;
 	for ( int seg = 0; seg < segs; seg++ )
 	{
 		float ctl[8];
@@ -603,87 +645,88 @@ static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protecte
 			c.push_back( p );
 		}
 	}
-	{
-		sRoadSample p;
-		spline_point( sp, segs - 1, 1.0f, &p.x, &p.z );
-		const int last = spline_wrap( sp, segs );
-		if ( nodeSample[ last ] < 0 ) nodeSample[ last ] = (int)c.size();
-		c.push_back( p );
-	}
+	sRoadSample last;
+	spline_point( sp, segs - 1, 1.0f, &last.x, &last.z );
+	const int lastNode = spline_wrap( sp, segs );
+	if ( nodeSample[ lastNode ] < 0 ) nodeSample[ lastNode ] = (int)c.size();
+	c.push_back( last );
 	const int n = (int)c.size();
-	if ( n < 2 ) return;
+	if ( n < 2 ) return false;
 	c[0].s = 0;
 	for ( int i = 1; i < n; i++ ) c[i].s = c[i-1].s + sqrtf( (c[i].x - c[i-1].x) * (c[i].x - c[i-1].x) + (c[i].z - c[i-1].z) * (c[i].z - c[i-1].z) );
-
-	// the ground along it (an earlier road's surface included), averaged over the smoothing length
 	for ( sRoadSample& p : c )
 	{
 		if ( !GGTerrain::GGTerrain_GetHeight( p.x, p.z, &p.ground, 1, 1 ) || p.ground != p.ground ) p.ground = spline_groundy( p.x, p.z );
 	}
+	return true;
+}
+
+// the ground averaged over a length into the profile
+static void spline_smoothprofile( std::vector<sRoadSample>& c, float length )
+{
+	const int n = (int)c.size();
 	std::vector<double> prefix( n + 1, 0.0 );
 	for ( int i = 0; i < n; i++ ) prefix[ i + 1 ] = prefix[ i ] + c[i].ground;
 	const float avgSpacing = c[ n - 1 ].s / (float)(n - 1);
-	const int window = avgSpacing > 0 ? (int)(r.smoothing * 0.5f / avgSpacing) : 0;
+	const int window = avgSpacing > 0 ? (int)(length * 0.5f / avgSpacing) : 0;
 	for ( int i = 0; i < n; i++ )
 	{
 		const int a = std::max( 0, i - window ), b = std::min( n - 1, i + window );
 		c[i].h = (float)((prefix[ b + 1 ] - prefix[ a ]) / (double)(b - a + 1));
 	}
+}
 
-	// pinned to the ground at open ends and at junctions (so it meets an earlier road), the rest shifted to suit
-	std::vector<std::pair<int, float>> pins;
-	if ( !(sp.closed && sp.nodes.size() > 2) )
-	{
-		pins.push_back( { 0, c[0].ground } );
-		pins.push_back( { n - 1, c[ n - 1 ].ground } );
-	}
-	for ( size_t ni = 0; ni < sp.nodes.size(); ni++ )
-	{
-		if ( sp.nodes[ ni ].junction && nodeSample[ ni ] >= 0 ) pins.push_back( { nodeSample[ ni ], c[ nodeSample[ ni ] ].ground } );
-	}
+// the profile held at the pins (sample, height) and shifted linearly between them
+static void spline_pinprofile( std::vector<sRoadSample>& c, std::vector<std::pair<int, float>>& pins, std::vector<char>& pinned )
+{
+	const int n = (int)c.size();
+	pinned.assign( n, 0 );
 	std::sort( pins.begin(), pins.end() );
 	pins.erase( std::unique( pins.begin(), pins.end(), []( const std::pair<int, float>& a, const std::pair<int, float>& b ) { return a.first == b.first; } ), pins.end() );
-	std::vector<char> pinned( n, 0 );
-	if ( !pins.empty() )
+	if ( pins.empty() ) return;
+	std::vector<float> corr( n, 0.0f );
+	size_t pi = 0;
+	for ( int i = 0; i < n; i++ )
 	{
-		std::vector<float> corr( n, 0.0f );
-		size_t pi = 0;
-		for ( int i = 0; i < n; i++ )
-		{
-			while ( pi + 1 < pins.size() && pins[ pi + 1 ].first <= i ) pi++;
-			const int ia = pins[ pi ].first;
-			const float ca = pins[ pi ].second - c[ ia ].h;
-			if ( i <= ia || pi + 1 >= pins.size() ) { corr[i] = ca; continue; }
-			const int ib = pins[ pi + 1 ].first;
-			const float cb = pins[ pi + 1 ].second - c[ ib ].h;
-			const float span = c[ ib ].s - c[ ia ].s;
-			corr[i] = span > 0 ? ca + (cb - ca) * (c[i].s - c[ ia ].s) / span : ca;
-		}
-		for ( int i = 0; i < n; i++ ) c[i].h += corr[i];
-		for ( const auto& pin : pins ) { c[ pin.first ].h = pin.second; pinned[ pin.first ] = 1; }
+		while ( pi + 1 < pins.size() && pins[ pi + 1 ].first <= i ) pi++;
+		const int ia = pins[ pi ].first;
+		const float ca = pins[ pi ].second - c[ ia ].h;
+		if ( i <= ia || pi + 1 >= pins.size() ) { corr[i] = ca; continue; }
+		const int ib = pins[ pi + 1 ].first;
+		const float cb = pins[ pi + 1 ].second - c[ ib ].h;
+		const float span = c[ ib ].s - c[ ia ].s;
+		corr[i] = span > 0 ? ca + (cb - ca) * (c[i].s - c[ ia ].s) / span : ca;
 	}
+	for ( int i = 0; i < n; i++ ) c[i].h += corr[i];
+	for ( const auto& pin : pins ) { c[ pin.first ].h = pin.second; pinned[ pin.first ] = 1; }
+}
 
-	// no steeper than the maximum grade, both ways, pins kept
-	const float grade = std::max( 0.001f, r.maxGrade / 100.0f );
-	for ( int pass = 0; pass < 2; pass++ )
-	{
-		for ( int i = 1; i < n; i++ )
-		{
-			if ( pinned[i] ) continue;
-			const float rise = grade * (c[i].s - c[i-1].s);
-			c[i].h = std::min( std::max( c[i].h, c[i-1].h - rise ), c[i-1].h + rise );
-		}
-		for ( int i = n - 2; i >= 0; i-- )
-		{
-			if ( pinned[i] ) continue;
-			const float rise = grade * (c[i+1].s - c[i].s);
-			c[i].h = std::min( std::max( c[i].h, c[i+1].h - rise ), c[i+1].h + rise );
-		}
-	}
+// the shape across a spline: a core (a carriageway, a river bed) flat at the profile, edges (shoulders, banks) blended
+// from it to the ground, textures on each, grass cleared and trees hidden within margins past the core's edge
+struct sSplineShape
+{
+	float halfCore = 0, edge = 0, crown = 0;
+	int coreMaterial = 0, edgeMaterial = 0;
+	float grassMargin = 0, treeMargin = 0;
+};
 
-	// the footprint: every texel near the centre line (one texel steps), its distance and the road height there
-	const float reach = halfW + std::max( std::max( r.shoulder, r.grassMargin ), r.treeMargin );
-	const int step = std::max( 1, (int)(texel / spacing + 0.5f) );
+// the footprint on the terrain's texels, and the writes
+static void spline_bakeshape( sSpline& sp, const std::vector<sRoadSample>& c, const sSplineShape& shape, std::unordered_set<uint32_t>& protectedTexels, float* pBounds )
+{
+	float* pH = GGTerrain::GGTerrain_GetHeightEditMap();
+	uint8_t* pT = GGTerrain::GGTerrain_GetHeightEditTypeMap();
+	uint8_t* pM = GGTerrain::GGTerrain_GetMaterialMap();
+	uint8_t* pG = GGGrass::GGGrass_GetGrassMap();
+	const float E = GGTerrain::GGTerrain_GetEditableSize();
+	const int n = (int)c.size();
+	if ( !pH || !pT || E <= 0 || n < 2 || shape.halfCore <= 0 ) return;
+	const float texel = E * 2.0f / SPLINE_MAP_SIZE;
+	const float halfW = shape.halfCore;
+
+	// every texel near the centre line (in one texel pieces), its distance and the profile there
+	const float reach = halfW + std::max( std::max( shape.edge, shape.grassMargin ), shape.treeMargin );
+	const float spacing = c[ n - 1 ].s / (float)(n - 1);
+	const int step = std::max( 1, (int)(texel / std::max( 1.0f, spacing ) + 0.5f) );
 	std::unordered_map<uint32_t, sRoadFoot> foot;
 	foot.reserve( (size_t)(c[ n - 1 ].s / texel * (reach * 2.0f / texel + 2.0f)) + 64 );
 	auto toTexel = [E]( float v ) { return (v / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE; };
@@ -716,9 +759,9 @@ static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protecte
 		}
 	}
 
-	// the writes: the carriageway flat at the profile, the shoulders blended to the ground (not over an earlier road's
-	// carriageway), the textures, the grass cleared
-	std::vector<uint32_t> carriageway;
+	// the core flat at the profile, the edges blended to the ground (not over an earlier road's carriageway), the
+	// textures, the grass cleared
+	std::vector<uint32_t> core;
 	for ( const auto& entry : foot )
 	{
 		const uint32_t key = entry.first;
@@ -728,8 +771,8 @@ static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protecte
 		const float wz = ((float)iz / SPLINE_MAP_SIZE * 2.0f - 1.0f) * E;
 		const uint32_t hIndex = (SPLINE_MAP_SIZE - 1 - iz) * SPLINE_MAP_SIZE + ix;
 		const uint32_t mIndex = key;
-		const bool bCarriage = f.d <= halfW;
-		const bool bProtected = !bCarriage && protectedTexels.count( key ) > 0;
+		const bool bCore = f.d <= halfW;
+		const bool bProtected = !bCore && protectedTexels.count( key ) > 0;
 		sSplineBakeTexel b;
 		b.x = (uint16_t)ix;
 		b.z = (uint16_t)iz;
@@ -737,19 +780,19 @@ static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protecte
 		b.typeBefore = pT[ hIndex ];
 		b.matBefore = pM ? pM[ mIndex ] : 0;
 		b.grassBefore = pG ? pG[ mIndex ] : 0;
-		if ( bCarriage )
+		if ( bCore )
 		{
-			const float e = halfW > 0 ? f.d / halfW : 0;
-			pH[ hIndex ] = GGTerrain::GGTerrain_HeightToEdit( f.h - r.crown * e * e );
+			const float e = f.d / halfW;
+			pH[ hIndex ] = GGTerrain::GGTerrain_HeightToEdit( f.h - shape.crown * e * e );
 			pT[ hIndex ] = 1;
 			b.flags |= SPLINE_TEXEL_CARRIAGEWAY | SPLINE_TEXEL_HEIGHT;
-			carriageway.push_back( key );
+			core.push_back( key );
 		}
-		else if ( f.d <= halfW + r.shoulder && !bProtected && r.shoulder > 0 )
+		else if ( f.d <= halfW + shape.edge && !bProtected && shape.edge > 0 )
 		{
 			float ground = f.h;
 			if ( !GGTerrain::GGTerrain_GetHeight( wx, wz, &ground, 1, 1 ) || ground != ground ) ground = f.h;
-			const float tt = (f.d - halfW) / r.shoulder;
+			const float tt = (f.d - halfW) / shape.edge;
 			const float smooth = tt * tt * (3.0f - 2.0f * tt);
 			pH[ hIndex ] = GGTerrain::GGTerrain_HeightToEdit( f.h + (ground - f.h) * smooth );
 			pT[ hIndex ] = 1;
@@ -757,10 +800,10 @@ static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protecte
 		}
 		if ( pM )
 		{
-			if ( bCarriage && r.material > 0 ) { pM[ mIndex ] = (uint8_t)r.material; b.flags |= SPLINE_TEXEL_MATERIAL; }
-			else if ( !bCarriage && !bProtected && r.edgeMaterial > 0 && f.d <= halfW + r.shoulder ) { pM[ mIndex ] = (uint8_t)r.edgeMaterial; b.flags |= SPLINE_TEXEL_MATERIAL; }
+			if ( bCore && shape.coreMaterial > 0 ) { pM[ mIndex ] = (uint8_t)shape.coreMaterial; b.flags |= SPLINE_TEXEL_MATERIAL; }
+			else if ( !bCore && !bProtected && shape.edgeMaterial > 0 && f.d <= halfW + shape.edge ) { pM[ mIndex ] = (uint8_t)shape.edgeMaterial; b.flags |= SPLINE_TEXEL_MATERIAL; }
 		}
-		if ( pG && f.d <= halfW + r.grassMargin && !bProtected )
+		if ( pG && f.d <= halfW + shape.grassMargin && !bProtected )
 		{
 			pG[ mIndex ] &= 0x80;
 			b.flags |= SPLINE_TEXEL_GRASS;
@@ -775,12 +818,12 @@ static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protecte
 			spline_texelbounds( ix, iz, pBounds );
 		}
 	}
-	for ( uint32_t key : carriageway ) protectedTexels.insert( key );
+	for ( uint32_t key : core ) protectedTexels.insert( key );
 
-	// the trees whose trunks stand within the tree margin of the carriageway
+	// the trees whose trunks stand within the tree margin of the core
 	float minX = FLT_MAX, minZ = FLT_MAX, maxX = -FLT_MAX, maxZ = -FLT_MAX;
 	for ( const sRoadSample& p : c ) { minX = std::min( minX, p.x ); minZ = std::min( minZ, p.z ); maxX = std::max( maxX, p.x ); maxZ = std::max( maxZ, p.z ); }
-	const float treeReach = halfW + r.treeMargin;
+	const float treeReach = halfW + shape.treeMargin;
 	std::vector<GGTrees::GGTreeSlot> trees;
 	GGTrees::GGTrees_GetTreesInRect( minX - treeReach - 200.0f, minZ - treeReach - 200.0f, maxX + treeReach + 200.0f, maxZ + treeReach + 200.0f, trees );
 	for ( const GGTrees::GGTreeSlot& tree : trees )
@@ -810,6 +853,109 @@ static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protecte
 		sp.bakedTrees.push_back( record );
 		spline_texelbounds( ix, iz, pBounds );
 	}
+}
+
+// a road: the ground averaged, pinned to the ground at open ends and junctions (so it meets an earlier road's surface),
+// held to the maximum grade; flat across the carriageway with an optional crown
+static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protectedTexels, float* pBounds )
+{
+	const sSplineRoad& r = sp.road;
+	const float E = GGTerrain::GGTerrain_GetEditableSize();
+	if ( E <= 0 || r.width <= 0 ) return;
+	std::vector<sRoadSample> c;
+	std::vector<int> nodeSample;
+	if ( !spline_centreline( sp, E * 2.0f / SPLINE_MAP_SIZE * 0.25f, c, nodeSample ) ) return;
+	const int n = (int)c.size();
+	spline_smoothprofile( c, r.smoothing );
+	std::vector<std::pair<int, float>> pins;
+	if ( !(sp.closed && sp.nodes.size() > 2) )
+	{
+		pins.push_back( { 0, c[0].ground } );
+		pins.push_back( { n - 1, c[ n - 1 ].ground } );
+	}
+	for ( size_t ni = 0; ni < sp.nodes.size(); ni++ )
+	{
+		if ( sp.nodes[ ni ].junction && nodeSample[ ni ] >= 0 ) pins.push_back( { nodeSample[ ni ], c[ nodeSample[ ni ] ].ground } );
+	}
+	std::vector<char> pinned;
+	spline_pinprofile( c, pins, pinned );
+
+	// no steeper than the maximum grade, both ways, pins kept
+	const float grade = std::max( 0.001f, r.maxGrade / 100.0f );
+	for ( int pass = 0; pass < 2; pass++ )
+	{
+		for ( int i = 1; i < n; i++ )
+		{
+			if ( pinned[i] ) continue;
+			const float rise = grade * (c[i].s - c[i-1].s);
+			c[i].h = std::min( std::max( c[i].h, c[i-1].h - rise ), c[i-1].h + rise );
+		}
+		for ( int i = n - 2; i >= 0; i-- )
+		{
+			if ( pinned[i] ) continue;
+			const float rise = grade * (c[i+1].s - c[i].s);
+			c[i].h = std::min( std::max( c[i].h, c[i+1].h - rise ), c[i+1].h + rise );
+		}
+	}
+
+	sSplineShape shape;
+	shape.halfCore = r.width * 0.5f;
+	shape.edge = r.shoulder;
+	shape.crown = r.crown;
+	shape.coreMaterial = r.material;
+	shape.edgeMaterial = r.edgeMaterial;
+	shape.grassMargin = r.grassMargin;
+	shape.treeMargin = r.treeMargin;
+	spline_bakeshape( sp, c, shape, protectedTexels, pBounds );
+}
+
+// a river: the ground averaged and lowered by the depth, never rising from the first node to the last when downhill;
+// pinned at a junction with an earlier river (its bed there), so a tributary meets it; a flat bed, banks up to the ground
+static void spline_bakeriver( int si, std::unordered_set<uint32_t>& protectedTexels, float* pBounds )
+{
+	sSpline& sp = g_Splines[ si ];
+	const sSplineRiver& v = sp.river;
+	const float E = GGTerrain::GGTerrain_GetEditableSize();
+	if ( E <= 0 || v.bedWidth <= 0 ) return;
+	std::vector<sRoadSample> c;
+	std::vector<int> nodeSample;
+	if ( !spline_centreline( sp, E * 2.0f / SPLINE_MAP_SIZE * 0.25f, c, nodeSample ) ) return;
+	const int n = (int)c.size();
+	spline_smoothprofile( c, v.smoothing );
+	for ( sRoadSample& p : c ) p.h -= v.depth;
+	std::vector<std::pair<int, float>> pins;
+	for ( size_t ni = 0; ni < sp.nodes.size(); ni++ )
+	{
+		const int junction = sp.nodes[ ni ].junction;
+		if ( !junction || nodeSample[ ni ] < 0 ) continue;
+		bool bEarlierRiver = false;
+		for ( int sj = 0; sj < si && !bEarlierRiver; sj++ )
+		{
+			if ( g_Splines[ sj ].kind != SPLINE_KIND_RIVER ) continue;
+			for ( const sSplineNode& other : g_Splines[ sj ].nodes ) if ( other.junction == junction ) { bEarlierRiver = true; break; }
+		}
+		if ( bEarlierRiver ) pins.push_back( { nodeSample[ ni ], c[ nodeSample[ ni ] ].ground } );
+	}
+	std::vector<char> pinned;
+	spline_pinprofile( c, pins, pinned );
+	if ( v.downhill )
+	{
+		for ( int i = 1; i < n; i++ ) if ( !pinned[i] ) c[i].h = std::min( c[i].h, c[i-1].h );
+	}
+
+	// how much of the bed is below the level's water line (only that part holds water)
+	int wet = 0;
+	for ( const sRoadSample& p : c ) if ( p.h < t.terrain.waterliney_f ) wet++;
+	sp.wetFraction = (float)wet / (float)n;
+
+	sSplineShape shape;
+	shape.halfCore = v.bedWidth * 0.5f;
+	shape.edge = v.banks;
+	shape.coreMaterial = v.bedMaterial;
+	shape.edgeMaterial = v.bankMaterial;
+	shape.grassMargin = v.grassMargin;
+	shape.treeMargin = v.treeMargin;
+	spline_bakeshape( sp, c, shape, protectedTexels, pBounds );
 }
 
 // makes the terrain, grass and trees show the changes inside the bounds
@@ -869,6 +1015,7 @@ static void spline_bakegroup( const std::vector<char>& in )
 		if ( !in[ si ] ) continue;
 		sSpline& s = g_Splines[ si ];
 		if ( s.kind == SPLINE_KIND_ROAD ) spline_bakeroad( s, protectedTexels, bounds );
+		else if ( s.kind == SPLINE_KIND_RIVER ) spline_bakeriver( (int)si, protectedTexels, bounds );
 		s.bakedSignature = spline_signature( s );
 	}
 	spline_refresh( bounds );
@@ -903,6 +1050,7 @@ static void spline_bakechanged( void )
 		const bool bChanged = spline_signature( s ) != s.bakedSignature;
 		bool bBake = false;
 		if ( s.kind == SPLINE_KIND_ROAD ) bBake = (bChanged && s.road.autoApply) || (int)si == iApplySpline;
+		else if ( s.kind == SPLINE_KIND_RIVER ) bBake = (bChanged && s.river.autoApply) || (int)si == iApplySpline;
 		else bBake = !s.baked.empty() || !s.bakedTrees.empty();
 		if ( bBake ) { in[ si ] = 1; bAny = true; }
 	}
@@ -1248,6 +1396,48 @@ static void spline_mouse( void )
 		return;
 	}
 
+	// drawing (a node just added at an end of the selected spline): a click on another spline's node adds the next node
+	// there joined to it, on another spline's curve too (a node is inserted on it), on this spline's other end closes it
+	if ( bDrawing && g_iSplineSelected >= 0 && !io.KeyCtrl && !io.KeyAlt && !io.KeyShift )
+	{
+		const int sel = g_iSplineSelected;
+		sSpline& s = g_Splines[ sel ];
+		const bool bAtEnd = s.nodes.empty() || (g_iSplineNodeSelected >= 0 && spline_isend( s, g_iSplineNodeSelected ));
+		if ( bAtEnd && !s.closed )
+		{
+			if ( spline_picknode( mouse, SPLINE_PICK_NODE, -1, -1, &si, &ni ) )
+			{
+				if ( si != sel )
+				{
+					const sSplineNode target = g_Splines[ si ].nodes[ ni ];
+					const int at = spline_addend( sel, target.x, target.y, target.z );
+					spline_join( sel, at, si, ni );
+					g_iSplineNodeSelected = at;
+					g_iSplineSegSelected = -1;
+					return;
+				}
+				if ( s.nodes.size() > 2 && spline_isend( s, ni ) && ni != g_iSplineNodeSelected )
+				{
+					s.closed = 1;
+					bDrawing = false;
+					g_iSplineNodeSelected = -1;
+					spline_modified();
+					return;
+				}
+			}
+			else if ( spline_pickcurve( mouse, SPLINE_PICK_CURVE, -1, sel, &si, &seg, &t ) )
+			{
+				const int nj = spline_insertnode( si, seg, t );
+				const sSplineNode target = g_Splines[ si ].nodes[ nj ];
+				const int at = spline_addend( sel, target.x, target.y, target.z );
+				spline_join( sel, at, si, nj );
+				g_iSplineNodeSelected = at;
+				g_iSplineSegSelected = -1;
+				return;
+			}
+		}
+	}
+
 	// a handle of the selected spline
 	if ( spline_pickhandle( mouse, SPLINE_PICK_NODE, &ni, &h ) )
 	{
@@ -1263,6 +1453,7 @@ static void spline_mouse( void )
 	if ( spline_picknode( mouse, SPLINE_PICK_NODE, -1, -1, &si, &ni ) )
 	{
 		g_iSplineSelected = si;
+		bDrawing = false;
 		if ( io.KeyCtrl )
 		{
 			spline_deletenode( si, ni );
@@ -1284,6 +1475,7 @@ static void spline_mouse( void )
 	// Shift+click on the selected spline's curve inserts a node there
 	if ( io.KeyShift && g_iSplineSelected >= 0 && spline_pickcurve( mouse, SPLINE_PICK_CURVE, g_iSplineSelected, -1, &si, &seg, &t ) )
 	{
+		bDrawing = false;
 		g_iSplineNodeSelected = spline_insertnode( si, seg, t );
 		iDragSpline = si;
 		iDragNode = g_iSplineNodeSelected;
@@ -1298,6 +1490,7 @@ static void spline_mouse( void )
 		else g_iSplineSegSelected = -1;
 		g_iSplineSelected = si;
 		g_iSplineNodeSelected = -1;
+		bDrawing = false;
 		return;
 	}
 
@@ -1307,20 +1500,8 @@ static void spline_mouse( void )
 	if ( g_iSplineSelected < 0 ) g_iSplineSelected = spline_new();
 	sSpline& s = g_Splines[ g_iSplineSelected ];
 	if ( s.closed ) return;
-	sSplineNode node;
-	node.x = x; node.y = y; node.z = z;
-	int at = (int)s.nodes.size();
-	if ( g_iSplineNodeSelected == 0 && s.nodes.size() > 1 ) at = 0;
-	s.nodes.insert( s.nodes.begin() + at, node );
-	if ( s.curve == SPLINE_CURVE_BEZIER )
-	{
-		// handles for the new node a third of the way to its neighbour
-		sSplineNode& added = s.nodes[ at ];
-		const sSplineNode& next = s.nodes[ at == 0 ? (s.nodes.size() > 1 ? 1 : 0) : at - 1 ];
-		const float dx = (next.x - added.x) / 3.0f, dz = (next.z - added.z) / 3.0f;
-		if ( at == 0 ) { added.outX = dx; added.outZ = dz; added.inX = -dx; added.inZ = -dz; }
-		else { added.inX = dx; added.inZ = dz; added.outX = -dx; added.outZ = -dz; }
-	}
+	const int at = spline_addend( g_iSplineSelected, x, y, z );
+	bDrawing = true;
 	g_iSplineNodeSelected = at;
 	g_iSplineSegSelected = -1;
 	iDragSpline = g_iSplineSelected;
@@ -1361,21 +1542,86 @@ static bool spline_rowmetres( const char* pLabel, const char* pId, float* pUnits
 	return true;
 }
 
-// a terrain texture slot (stored + 1), with the Paint tool's current texture a click away
+// a terrain texture slot (stored + 1): the texture's picture, which opens the palette's textures as a grid to pick from
 static void spline_rowtexture( const char* pLabel, const char* pId, int* pSlot, float w )
 {
-	char items[ 33 ][ 16 ];
-	const char* pItems[ 33 ];
-	strcpy_s( items[ 0 ], 16, "None" );
-	pItems[ 0 ] = items[ 0 ];
-	for ( int i = 1; i <= 32; i++ ) { sprintf_s( items[ i ], 16, "Texture %d", i ); pItems[ i ] = items[ i ]; }
-	spline_row( pLabel );
-	ImGui::Combo( pId, pSlot, pItems, 33 );
-	char button[ 64 ];
-	sprintf_s( button, 64, "Use the Paint Tool's Texture%s", pId );
+	const float size = ImGui::GetFontSize() * 2.6f;
+	const float cell = ImGui::GetFontSize() * 4.0f;
+	int current = -1;
+	for ( int iL = 0; iL < 32; iL++ ) if ( sTerrainTexturesID[ iL ] > 0 && sTerrainSelectionID[ iL ] == *pSlot - 1 ) { current = iL; break; }
+
+	ImGui::SetCursorPosX( fRowLabelX );
+	ImGui::AlignTextToFramePadding();
+	ImGui::TextUnformatted( pLabel );
+	ImGui::SameLine();
 	ImGui::SetCursorPosX( fRowFieldX );
-	if ( ImGui::StyleButton( button, ImVec2( fRowRight - fRowFieldX, 0 ) ) ) *pSlot = iCurrentTextureForPaint + 1;
-	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The texture selected in Terrain Tools' Paint mode" );
+	char popup[ 64 ];
+	sprintf_s( popup, 64, "Textures%s", pId );
+	ImGui::PushID( pId );
+	bool bOpen = false;
+	if ( current >= 0 )
+	{
+		ImGui::SetBlurMode( true );
+		bOpen = ImGui::ImgBtn( sTerrainTexturesID[ current ], ImVec2( size, size ), ImColor( 0, 0, 0, 255 ), ImColor( 220, 220, 220, 220 ), ImColor( 255, 255, 255, 255 ), ImColor( 180, 180, 160, 255 ), -1, 0, 0, 0, false, false, false, false, false, true );
+		ImGui::SetBlurMode( false );
+	}
+	else
+	{
+		bOpen = ImGui::StyleButton( "None##picker", ImVec2( size, size ) );
+	}
+	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Click to pick a texture" );
+	ImGui::SameLine();
+	ImGui::AlignTextToFramePadding();
+	ImGui::TextUnformatted( current >= 0 ? t.visuals.sTerrainTexturesName[ current ].Get() : "None" );
+	if ( bOpen ) ImGui::OpenPopup( popup );
+	if ( ImGui::BeginPopup( popup ) )
+	{
+		if ( ImGui::StyleButton( "None##pickernone", ImVec2( cell * 4.0f + 18.0f, 0 ) ) ) { *pSlot = 0; ImGui::CloseCurrentPopup(); }
+		if ( ImGui::StyleButton( "The Paint Tool's Texture##pickerpaint", ImVec2( cell * 4.0f + 18.0f, 0 ) ) ) { *pSlot = iCurrentTextureForPaint + 1; ImGui::CloseCurrentPopup(); }
+		int column = 0;
+		ImGui::SetBlurMode( true );
+		for ( int iL = 0; iL < 32; iL++ )
+		{
+			if ( sTerrainTexturesID[ iL ] <= 0 ) continue;
+			ImGui::PushID( iL );
+			if ( ImGui::ImgBtn( sTerrainTexturesID[ iL ], ImVec2( cell, cell ), ImColor( 0, 0, 0, 255 ), ImColor( 220, 220, 220, 220 ), ImColor( 255, 255, 255, 255 ), ImColor( 180, 180, 160, 255 ), -1, 0, 0, 0, false, false, false, false, false, true ) )
+			{
+				*pSlot = sTerrainSelectionID[ iL ] + 1;
+				ImGui::CloseCurrentPopup();
+			}
+			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", t.visuals.sTerrainTexturesName[ iL ].Get() );
+			ImGui::PopID();
+			if ( ++column % 4 ) ImGui::SameLine();
+		}
+		ImGui::SetBlurMode( false );
+		ImGui::EndPopup();
+	}
+	ImGui::PopID();
+}
+
+// Update as I Edit, Apply and Remove for a road or a river, and what its bake holds
+static void spline_rowbake( sSpline& s, int* pAutoApply, const char* pWhat, float w )
+{
+	bool bAuto = *pAutoApply != 0;
+	ImGui::SetCursorPosX( fRowLabelX );
+	if ( ImGui::Checkbox( "Update as I Edit##splineautoapply", &bAuto ) ) *pAutoApply = bAuto ? 1 : 0;
+	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Bake it into the terrain again whenever it changes" );
+	ImGui::SetCursorPosX( fRowLabelX );
+	if ( ImGui::StyleButton( "Apply##splineapply", ImVec2( w * 0.45f, 0 ) ) ) iApplySpline = g_iSplineSelected;
+	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Bake it into the terrain now" );
+	ImGui::SameLine();
+	char remove[ 64 ];
+	sprintf_s( remove, 64, "Remove %s##splineremove", pWhat );
+	if ( ImGui::StyleButton( remove, ImVec2( w * 0.45f, 0 ) ) )
+	{
+		spline_unbake( g_iSplineSelected );
+		s.kind = SPLINE_KIND_NONE;
+		s.bakedSignature = spline_signature( s );
+		spline_modified();
+	}
+	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Take it out of the terrain and keep the spline as a line" );
+	if ( s.baked.empty() ) ImGui::TextWrapped( "%s", *pAutoApply ? "Not baked yet." : "Not baked: press Apply." );
+	else ImGui::Text( "Baked: %d texels, %d trees hidden%s", (int)s.baked.size(), (int)s.bakedTrees.size(), spline_signature( s ) != s.bakedSignature ? " (changed)" : "" );
 }
 
 void spline_imgui_panel( float w )
@@ -1397,11 +1643,13 @@ void spline_imgui_panel( float w )
 		}
 		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Click the terrain to add nodes and drag them. Shift+click the curve inserts a node, Ctrl+click deletes one.\nA dragged node snaps to another spline's node or curve and joins it (a T junction or a crossing); Alt+drag pulls it out again.\nAn end dropped on the spline's other end closes it. Alt+drag a Bezier handle to break the pair." );
 
+		if ( g_bSplineEditMode && bDrawing ) ImGui::TextWrapped( "%s", "Drawing: click the terrain to add nodes, or another spline's node or curve to join it. Esc to stop." );
 		if ( ImGui::StyleButton( "New Spline##splinenew", ImVec2( w * 0.45f, 0 ) ) )
 		{
 			g_iSplineSelected = spline_new();
 			g_iSplineNodeSelected = -1;
 			g_bSplineEditMode = true;
+			bDrawing = true;
 			spline_modified();
 		}
 		ImGui::SameLine();
@@ -1422,6 +1670,7 @@ void spline_imgui_panel( float w )
 					g_iSplineSelected = si;
 					g_iSplineNodeSelected = -1;
 					g_iSplineSegSelected = -1;
+					bDrawing = false;
 				}
 			}
 			ImGui::EndChild();
@@ -1447,7 +1696,7 @@ void spline_imgui_panel( float w )
 				spline_modified();
 			}
 			const char* kinds[] = { "Line only", "Road", "River" };
-			spline_row( "Kind" );
+			spline_row( "Type" );
 			if ( ImGui::Combo( "##splinekind", &s.kind, kinds, 3 ) ) spline_modified();
 
 			if ( s.kind == SPLINE_KIND_ROAD )
@@ -1469,27 +1718,33 @@ void spline_imgui_panel( float w )
 				bChanged |= spline_rowmetres( "Clear Trees", "##splineroadtrees", &r.treeMargin, 0.0f, 30.0f );
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Trees are hidden this far past the edge of the road" );
 				if ( bChanged ) spline_modified();
-				bool bAuto = r.autoApply != 0;
-				ImGui::SetCursorPosX( fRowLabelX );
-				if ( ImGui::Checkbox( "Update the Road as I Edit##splineroadauto", &bAuto ) ) r.autoApply = bAuto ? 1 : 0;
-				ImGui::SetCursorPosX( fRowLabelX );
-				if ( ImGui::StyleButton( "Apply##splineroadapply", ImVec2( w * 0.45f, 0 ) ) ) iApplySpline = g_iSplineSelected;
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Bake the road into the terrain now" );
-				ImGui::SameLine();
-				if ( ImGui::StyleButton( "Remove Road##splineroadremove", ImVec2( w * 0.45f, 0 ) ) )
-				{
-					spline_unbake( g_iSplineSelected );
-					s.kind = SPLINE_KIND_NONE;
-					s.bakedSignature = spline_signature( s );
-					spline_modified();
-				}
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Take the road out of the terrain and keep the spline as a line" );
-				if ( s.baked.empty() ) ImGui::TextWrapped( "%s", r.autoApply ? "Not baked yet." : "Not baked: press Apply." );
-				else ImGui::Text( "Baked: %d texels, %d trees hidden%s", (int)s.baked.size(), (int)s.bakedTrees.size(), spline_signature( s ) != s.bakedSignature ? " (changed)" : "" );
+				spline_rowbake( s, &r.autoApply, "Road", w );
 			}
 			else if ( s.kind == SPLINE_KIND_RIVER )
 			{
-				ImGui::TextWrapped( "%s", "Baking rivers into the terrain comes in the next build." );
+				sSplineRiver& v = s.river;
+				bool bChanged = false;
+				bChanged |= spline_rowmetres( "Bed Width", "##splineriverbed", &v.bedWidth, 1.0f, 80.0f );
+				bChanged |= spline_rowmetres( "Depth", "##splineriverdepth", &v.depth, 0.5f, 30.0f );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How far the bed lies below the averaged ground" );
+				bChanged |= spline_rowmetres( "Banks", "##splineriverbanks", &v.banks, 0.0f, 50.0f );
+				bChanged |= spline_rowmetres( "Smoothing", "##splineriversmoothing", &v.smoothing, 0.0f, 200.0f, "%.0f m" );
+				bool bDownhill = v.downhill != 0;
+				ImGui::SetCursorPosX( fRowFieldX );
+				if ( ImGui::Checkbox( "Downhill Only##splineriverdownhill", &bDownhill ) ) { v.downhill = bDownhill ? 1 : 0; bChanged = true; }
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The bed never rises from the first node to the last: draw from the source to the mouth" );
+				spline_rowtexture( "Bed Texture", "##splineriverbedtexture", &v.bedMaterial, w );
+				spline_rowtexture( "Bank Texture", "##splineriverbanktexture", &v.bankMaterial, w );
+				bChanged |= spline_rowmetres( "Clear Grass", "##splinerivergrass", &v.grassMargin, 0.0f, 30.0f );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Grass is cleared this far past the edge of the bed" );
+				bChanged |= spline_rowmetres( "Clear Trees", "##splinerivertrees", &v.treeMargin, 0.0f, 30.0f );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Trees are hidden this far past the edge of the bed" );
+				if ( bChanged ) spline_modified();
+				spline_rowbake( s, &v.autoApply, "River", w );
+				if ( s.wetFraction >= 0.0f && !s.baked.empty() )
+				{
+					ImGui::TextWrapped( "Water: %.0f%% of the bed is below the level's water line (%.1f m); only that part holds water.", s.wetFraction * 100.0f, t.terrain.waterliney_f / SPLINE_UNITS_PER_M );
+				}
 			}
 			bool bClosed = s.closed != 0;
 			if ( ImGui::Checkbox( "Closed Loop##splineclosed", &bClosed ) && s.nodes.size() > 2 )
@@ -1598,6 +1853,7 @@ void spline_imgui_panel( float w )
 
 	if ( g_bSplineEditMode )
 	{
+		if ( bDrawing && ImGui::IsKeyPressed( ImGui::GetKeyIndex( ImGuiKey_Escape ) ) ) { bDrawing = false; g_iSplineNodeSelected = -1; }
 		// the terrain's own tools leave the mouse alone meanwhile
 		GGTerrain::ggterrain_extra_params.edit_mode = GGTERRAIN_EDIT_NONE;
 		GGTerrain::ggterrain_global_render_params2.flags2 &= ~GGTERRAIN_SHADER_FLAG2_SHOW_BRUSH_SIZE;
@@ -1609,6 +1865,7 @@ void spline_imgui_panel( float w )
 		iDragSpline = iDragNode = -1;
 		iDragHandle = 0;
 		bConnectMode = false;
+		bDrawing = false;
 	}
 
 	spline_bakechanged();
@@ -1685,6 +1942,12 @@ void spline_savedata( void )
 			put( xz, sizeof(xz) );
 			put( &tree.data, sizeof(tree.data) );
 		}
+		// version 3: the river's settings
+		const sSplineRiver& v = s.river;
+		const float vf[6] = { v.bedWidth, v.depth, v.banks, v.smoothing, v.grassMargin, v.treeMargin };
+		const int32_t vi[4] = { v.bedMaterial, v.bankMaterial, v.downhill, v.autoApply };
+		put( vf, sizeof(vf) );
+		put( vi, sizeof(vi) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -1769,6 +2032,14 @@ void spline_loaddata( void )
 						tree.x = xz[0]; tree.z = xz[1];
 						s.bakedTrees.push_back( tree );
 					}
+				}
+				float vf[6];
+				int32_t vi[4];
+				if ( version >= 3 && get( vf, sizeof(vf) ) && get( vi, sizeof(vi) ) )
+				{
+					sSplineRiver& v = s.river;
+					v.bedWidth = vf[0]; v.depth = vf[1]; v.banks = vf[2]; v.smoothing = vf[3]; v.grassMargin = vf[4]; v.treeMargin = vf[5];
+					v.bedMaterial = vi[0]; v.bankMaterial = vi[1]; v.downhill = vi[2]; v.autoApply = vi[3];
 				}
 			}
 		}
