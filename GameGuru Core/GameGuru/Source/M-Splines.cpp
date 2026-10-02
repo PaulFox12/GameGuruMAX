@@ -1204,21 +1204,23 @@ static void spline_buildwater( sSpline& s )
 	}
 	s.waterLowered = (float)lowered / (float)n;
 
-	// a dip eased over a few sections either side, never above any section's own limit
+	// how far a low bank lowers the water, eased over a few sections either side, never above any section's own limit;
+	// the lowering is eased, not the level, which falls fast along a steep river
 	const int window = 4;
-	std::vector<float> eroded( n );
+	std::vector<float> lowering( n ), widened( n );
+	for ( int i = 0; i < n; i++ ) lowering[i] = (c[i].ground + v.waterDepth) - limit[i];
 	for ( int i = 0; i < n; i++ )
 	{
-		float m = limit[i];
-		for ( int j = std::max( 0, i - window ); j <= std::min( n - 1, i + window ); j++ ) m = std::min( m, limit[j] );
-		eroded[i] = m;
+		float m = lowering[i];
+		for ( int j = std::max( 0, i - window ); j <= std::min( n - 1, i + window ); j++ ) m = std::max( m, lowering[j] );
+		widened[i] = m;
 	}
 	for ( int i = 0; i < n; i++ )
 	{
 		float sum = 0;
 		int count = 0;
-		for ( int j = std::max( 0, i - window ); j <= std::min( n - 1, i + window ); j++ ) { sum += eroded[j]; count++; }
-		level[i] = std::min( sum / count, limit[i] );
+		for ( int j = std::max( 0, i - window ); j <= std::min( n - 1, i + window ); j++ ) { sum += widened[j]; count++; }
+		level[i] = std::min( c[i].ground + v.waterDepth - sum / count, limit[i] );
 	}
 
 	// where a side's terrain rises to the level, and a little further while it stays above it
@@ -2040,7 +2042,12 @@ void spline_imgui_panel( float w )
 	if ( g_iSplineSelected >= 0 && g_iSplineNodeSelected >= (int)g_Splines[ g_iSplineSelected ].nodes.size() ) g_iSplineNodeSelected = -1;
 	if ( g_iSplineSelected < 0 || g_iSplineSegSelected >= spline_segments( g_Splines[ g_iSplineSelected ] ) ) g_iSplineSegSelected = -1;
 
-	if ( ImGui::StyleCollapsingHeader( "Roads and Rivers", 0 ) )
+	// the section open stops the terrain's brush (its settings are edited over the 3D view), and choosing a terrain tool
+	// closes it, so that tool's brush works again
+	if ( bForceKey2 ) ImGui::SetNextItemOpen( false, ImGuiCond_Always );
+	const bool bSectionOpen = ImGui::StyleCollapsingHeader( "Roads and Rivers", 0 );
+	if ( !bSectionOpen ) g_bSplineEditMode = false;
+	if ( bSectionOpen )
 	{
 		ImGui::Indent( 10 );
 		if ( ImGui::Checkbox( "Edit Splines##splineeditmode", &g_bSplineEditMode ) )
@@ -2293,14 +2300,17 @@ void spline_imgui_panel( float w )
 		ImGui::Indent( -10 );
 	}
 
+	if ( bSectionOpen )
+	{
+		// the terrain's own tools leave the mouse alone meanwhile, and the splines are shown
+		GGTerrain::ggterrain_extra_params.edit_mode = GGTERRAIN_EDIT_NONE;
+		GGTerrain::ggterrain_global_render_params2.flags2 &= ~GGTERRAIN_SHADER_FLAG2_SHOW_BRUSH_SIZE;
+		spline_draw();
+	}
 	if ( g_bSplineEditMode )
 	{
 		if ( bDrawing && ImGui::IsKeyPressed( ImGui::GetKeyIndex( ImGuiKey_Escape ) ) ) { bDrawing = false; g_iSplineNodeSelected = -1; }
-		// the terrain's own tools leave the mouse alone meanwhile
-		GGTerrain::ggterrain_extra_params.edit_mode = GGTERRAIN_EDIT_NONE;
-		GGTerrain::ggterrain_global_render_params2.flags2 &= ~GGTERRAIN_SHADER_FLAG2_SHOW_BRUSH_SIZE;
 		spline_mouse();
-		spline_draw();
 	}
 	else
 	{
