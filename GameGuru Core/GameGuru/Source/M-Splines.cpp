@@ -2563,6 +2563,9 @@ static bool spline_paletteentry( int iL, int* pImage, int* pSlot )
 	const int image = bPaletteShown ? sTerrainTexturesID[ iL ] : t.terrain.imagestartindex + 80 + iL;
 	*pSlot = bPaletteShown ? sTerrainSelectionID[ iL ] : iL;
 	if ( image <= 0 ) return false;
+	// a texture whose picture won't load is tried once, not every frame (each try reads the whole file), until its path changes
+	static std::string failed[ 32 ];
+	if ( ImageExist( image ) == 0 && failed[ iL ] == t.visuals.sTerrainTextures[ iL ].Get() ) return false;
 	if ( ImageExist( image ) == 0 )
 	{
 		image_setlegacyimageloading( true );
@@ -2582,7 +2585,13 @@ static bool spline_paletteentry( int iL, int* pImage, int* pSlot )
 		image_setlegacyimageloading( false );
 	}
 	*pImage = image;
-	return ImageExist( image ) == 1;
+	if ( ImageExist( image ) == 0 )
+	{
+		failed[ iL ] = t.visuals.sTerrainTextures[ iL ].Get();
+		return false;
+	}
+	failed[ iL ].clear();
+	return true;
 }
 
 // a terrain texture slot (stored + 1): the texture's picture, which opens the palette's textures as a grid to pick from
