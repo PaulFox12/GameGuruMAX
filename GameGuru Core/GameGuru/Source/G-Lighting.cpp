@@ -150,7 +150,9 @@ void lighting_loop(void)
 		}
 		else
 		{
-			WickedCall_UpdateLight(uiFlashLight, 0, 0, 0, 0, 0, 0, 0.0f, 0.0f, 64, 64, 64, false);
+			// GG: off, it keeps its range and goes dark far below the world: a range of 0 switched it off, and a light
+			// switched on or off makes the reflection probes capture again
+			WickedCall_UpdateLight(uiFlashLight, 0, -900000.0f, 0, 0, 0, 0, t.playerlight.flashlightcontrol_range_f, t.playerlight.flashlightcontrol_radius_f, 0, 0, 0, false);
 		}
 	}
 
@@ -327,7 +329,9 @@ void lighting_weaponFlash_loop(void)
 	{
 		if (bWeaponFlashIsOn)
 		{
-			WickedCall_UpdateLight(uiWeaponFlash, 0, 0, 0, 0, 0, 0, 0.0f, 0.0f, 64, 64, 64, false); //Resets light
+			// GG: off, it keeps its range and goes dark far below the world: a range of 0 switched it off at every shot, and
+			// a light switched on or off makes the reflection probes capture again
+			WickedCall_UpdateLight(uiWeaponFlash, 0, -900000.0f, 0, 0, 0, 0, 400.0f, 2.0f, 0, 0, 0, false); //Resets light
 			bWeaponFlashIsOn = false;
 		}
 	}
