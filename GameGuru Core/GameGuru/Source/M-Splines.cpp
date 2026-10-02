@@ -80,7 +80,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 14 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset
+#define SPLINE_FILE_VERSION 15 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -98,6 +98,7 @@ struct sSplineNode
 	float outX = 0, outZ = 0;
 	int flags = 0;
 	int junction = 0; // nodes of other splines with the same junction share this node's position
+	int segCurve = -1; // the curve of the segment from this node to the next: SPLINE_CURVE_*, or -1 the spline's
 };
 
 // a river's water over a terrain texel: its height, and how turbulent it is there (0-1)
@@ -299,17 +300,25 @@ static bool spline_isend( const sSpline& s, int i )
 }
 
 // a node's handles as the curve uses them: none on a straight spline, along the neighbours on a smooth one
+// the curve of the segment from node seg to the next: its own if set, else the spline's
+static int spline_segcurve( const sSpline& s, int seg )
+{
+	if ( seg < 0 || seg >= (int)s.nodes.size() ) return s.curve;
+	const int curve = s.nodes[ seg ].segCurve;
+	return (curve >= SPLINE_CURVE_LINEAR && curve <= SPLINE_CURVE_BEZIER) ? curve : s.curve;
+}
+
+// a node's handles: its in handle by the curve of the segment ending at it, its out handle by the one starting there
 static void spline_handles( const sSpline& s, int i, float* pInX, float* pInZ, float* pOutX, float* pOutZ )
 {
 	*pInX = *pInZ = *pOutX = *pOutZ = 0;
 	const int n = (int)s.nodes.size();
 	const sSplineNode& p = s.nodes[ i ];
-	if ( s.curve == SPLINE_CURVE_BEZIER )
-	{
-		*pInX = p.inX; *pInZ = p.inZ; *pOutX = p.outX; *pOutZ = p.outZ;
-		return;
-	}
-	if ( s.curve != SPLINE_CURVE_SMOOTH || n < 2 ) return;
+	const int inCurve = (i > 0 || (s.closed && n > 2)) ? spline_segcurve( s, spline_wrap( s, i - 1 ) ) : s.curve;
+	const int outCurve = spline_segcurve( s, i );
+	if ( inCurve == SPLINE_CURVE_BEZIER ) { *pInX = p.inX; *pInZ = p.inZ; }
+	if ( outCurve == SPLINE_CURVE_BEZIER ) { *pOutX = p.outX; *pOutZ = p.outZ; }
+	if ( (inCurve != SPLINE_CURVE_SMOOTH && outCurve != SPLINE_CURVE_SMOOTH) || n < 2 ) return;
 	const bool bWrap = s.closed && n > 2;
 	const sSplineNode& prev = (i > 0 || bWrap) ? s.nodes[ spline_wrap( s, i - 1 ) ] : p;
 	const sSplineNode& next = (i < n - 1 || bWrap) ? s.nodes[ spline_wrap( s, i + 1 ) ] : p;
@@ -320,8 +329,8 @@ static void spline_handles( const sSpline& s, int i, float* pInX, float* pInZ, f
 	dz /= len;
 	const float before = sqrtf( (p.x - prev.x) * (p.x - prev.x) + (p.z - prev.z) * (p.z - prev.z) ) / 3.0f;
 	const float after = sqrtf( (next.x - p.x) * (next.x - p.x) + (next.z - p.z) * (next.z - p.z) ) / 3.0f;
-	*pInX = -dx * before; *pInZ = -dz * before;
-	*pOutX = dx * after; *pOutZ = dz * after;
+	if ( inCurve == SPLINE_CURVE_SMOOTH ) { *pInX = -dx * before; *pInZ = -dz * before; }
+	if ( outCurve == SPLINE_CURVE_SMOOTH ) { *pOutX = dx * after; *pOutZ = dz * after; }
 }
 
 // a segment's four control points on the ground plane (x, z pairs)
@@ -337,7 +346,7 @@ static void spline_controls( const sSpline& s, int seg, float* c )
 	c[2] = a.x + aOutX; c[3] = a.z + aOutZ;
 	c[4] = b.x + bInX; c[5] = b.z + bInZ;
 	c[6] = b.x; c[7] = b.z;
-	if ( s.curve == SPLINE_CURVE_LINEAR )
+	if ( spline_segcurve( s, seg ) == SPLINE_CURVE_LINEAR )
 	{
 		c[2] = a.x + (b.x - a.x) / 3.0f; c[3] = a.z + (b.z - a.z) / 3.0f;
 		c[4] = a.x + (b.x - a.x) * 2.0f / 3.0f; c[5] = a.z + (b.z - a.z) * 2.0f / 3.0f;
@@ -480,7 +489,8 @@ static int spline_insertnode( int si, int seg, float t )
 	sSplineNode node;
 	spline_point( s, seg, t, &node.x, &node.z );
 	node.y = spline_groundy( node.x, node.z );
-	if ( s.curve == SPLINE_CURVE_BEZIER )
+	node.segCurve = s.nodes[ seg ].segCurve;
+	if ( spline_segcurve( s, seg ) == SPLINE_CURVE_BEZIER )
 	{
 		auto lerp = [t]( float a, float b ) { return a + (b - a) * t; };
 		const float q0x = lerp( c[0], c[2] ), q0z = lerp( c[1], c[3] );
@@ -541,11 +551,17 @@ static void spline_deletespline( int si )
 
 static void spline_reverse( sSpline& s )
 {
+	const int n = (int)s.nodes.size();
+	std::vector<int> segCurves( n );
+	for ( int i = 0; i < n; i++ ) segCurves[ i ] = s.nodes[ i ].segCurve;
 	std::reverse( s.nodes.begin(), s.nodes.end() );
-	for ( sSplineNode& node : s.nodes )
+	for ( int j = 0; j < n; j++ )
 	{
+		sSplineNode& node = s.nodes[ j ];
 		std::swap( node.inX, node.outX );
 		std::swap( node.inZ, node.outZ );
+		// the segment from node j to the next was the one from old node n - 2 - j
+		node.segCurve = segCurves[ spline_wrap( s, n - 2 - j ) ];
 	}
 }
 
@@ -650,6 +666,7 @@ static uint64_t spline_signature( const sSpline& s )
 		const float f[6] = { node.x, node.z, node.inX, node.inZ, node.outX, node.outZ };
 		mix( f, sizeof(f) );
 		mix( &node.junction, sizeof(node.junction) );
+		mix( &node.segCurve, sizeof(node.segCurve) );
 	}
 	const sSplineRoad& r = s.road;
 	const float rf[7] = { r.width, r.shoulder, r.smoothing, r.maxGrade, r.crown, r.grassMargin, r.treeMargin };
@@ -2139,9 +2156,17 @@ static bool spline_picknode( ImVec2 mouse, float radius, int skipSpline, int ski
 }
 
 // the nearest handle of the selected Bezier spline within radius: 1 in, 2 out
+// a node's handle (1 in, 2 out) is shown and can be dragged where its segment is Bezier
+static bool spline_handleshown( const sSpline& s, int ni, int h )
+{
+	const int n = (int)s.nodes.size();
+	if ( h == 1 ) return (ni > 0 || (s.closed && n > 2)) && spline_segcurve( s, spline_wrap( s, ni - 1 ) ) == SPLINE_CURVE_BEZIER;
+	return ni < spline_segments( s ) && spline_segcurve( s, ni ) == SPLINE_CURVE_BEZIER;
+}
+
 static bool spline_pickhandle( ImVec2 mouse, float radius, int* pNode, int* pHandle )
 {
-	if ( g_iSplineSelected < 0 || g_Splines[ g_iSplineSelected ].curve != SPLINE_CURVE_BEZIER ) return false;
+	if ( g_iSplineSelected < 0 ) return false;
 	const sSpline& s = g_Splines[ g_iSplineSelected ];
 	float best = radius;
 	bool bFound = false;
@@ -2149,6 +2174,7 @@ static bool spline_pickhandle( ImVec2 mouse, float radius, int* pNode, int* pHan
 	{
 		for ( int h = 1; h <= 2; h++ )
 		{
+			if ( !spline_handleshown( s, ni, h ) ) continue;
 			const float hx = s.nodes[ni].x + (h == 1 ? s.nodes[ni].inX : s.nodes[ni].outX);
 			const float hz = s.nodes[ni].z + (h == 1 ? s.nodes[ni].inZ : s.nodes[ni].outZ);
 			ImVec2 p;
@@ -2226,10 +2252,11 @@ static void spline_draw( void )
 			const float ny = spline_groundy( node.x, node.z ) + SPLINE_DRAW_LIFT;
 			ImVec2 p;
 			if ( !spline_project( node.x, ny, node.z, &p ) ) continue;
-			if ( bSelected && s.curve == SPLINE_CURVE_BEZIER )
+			if ( bSelected )
 			{
 				for ( int h = 1; h <= 2; h++ )
 				{
+					if ( !spline_handleshown( s, ni, h ) ) continue;
 					const float hx = node.x + (h == 1 ? node.inX : node.outX);
 					const float hz = node.z + (h == 1 ? node.inZ : node.outZ);
 					ImVec2 a, b;
@@ -4322,6 +4349,28 @@ void spline_imgui_panel( float w )
 				g_iSplineSegSelected = -1;
 			}
 			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", g_iSplineSegSelected >= 0 ? "Split the highlighted segment between its two nodes" : "Click the spline's curve first to pick the segment between two nodes" );
+			if ( g_iSplineSegSelected >= 0 && g_iSplineSegSelected < (int)s.nodes.size() )
+			{
+				// the picked segment's own curve; a Bezier one starts from the shape it has now
+				const char* segCurves[] = { "As the Spline", "Straight", "Smooth", "Bezier" };
+				int segCurve = s.nodes[ g_iSplineSegSelected ].segCurve + 1;
+				spline_row( "Segment Curve" );
+				if ( ImGui::Combo( "##splinesegcurve", &segCurve, segCurves, 4 ) && segCurve - 1 != s.nodes[ g_iSplineSegSelected ].segCurve )
+				{
+					const int seg = g_iSplineSegSelected;
+					const int ib = spline_wrap( s, seg + 1 );
+					float c[8];
+					spline_controls( s, seg, c );
+					s.nodes[ seg ].segCurve = segCurve - 1;
+					if ( spline_segcurve( s, seg ) == SPLINE_CURVE_BEZIER )
+					{
+						s.nodes[ seg ].outX = c[2] - c[0]; s.nodes[ seg ].outZ = c[3] - c[1];
+						s.nodes[ ib ].inX = c[4] - c[6]; s.nodes[ ib ].inZ = c[5] - c[7];
+					}
+					spline_modified();
+				}
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The curve of the highlighted segment alone; the rest keep the spline's Curve" );
+			}
 			if ( ImGui::StyleButton( "Reverse##splinereverse", ImVec2( w * 0.45f, 0 ) ) )
 			{
 				spline_reverse( s );
@@ -4383,16 +4432,18 @@ void spline_imgui_panel( float w )
 				if ( g_iSplineSelected >= 0 && g_iSplineNodeSelected >= 0 )
 				{
 					sSpline& sel = g_Splines[ g_iSplineSelected ];
-					if ( sel.curve == SPLINE_CURVE_BEZIER && ImGui::StyleButton( "Smooth Handles##splinesmoothhandles", ImVec2( w * 0.45f, 0 ) ) )
+					const bool bNodeBezier = spline_handleshown( sel, g_iSplineNodeSelected, 1 ) || spline_handleshown( sel, g_iSplineNodeSelected, 2 );
+					if ( bNodeBezier && ImGui::StyleButton( "Smooth Handles##splinesmoothhandles", ImVec2( w * 0.45f, 0 ) ) )
 					{
 						sSpline smooth = sel;
 						smooth.curve = SPLINE_CURVE_SMOOTH;
+						for ( sSplineNode& sn : smooth.nodes ) sn.segCurve = -1;
 						sSplineNode& n = sel.nodes[ g_iSplineNodeSelected ];
 						spline_handles( smooth, g_iSplineNodeSelected, &n.inX, &n.inZ, &n.outX, &n.outZ );
 						n.flags &= ~SPLINE_NODE_BROKEN;
 						spline_modified();
 					}
-					if ( sel.curve == SPLINE_CURVE_BEZIER ) ImGui::SameLine();
+					if ( bNodeBezier ) ImGui::SameLine();
 					if ( ImGui::StyleButton( "Delete Node##splinedeletenode", ImVec2( w * 0.45f, 0 ) ) )
 					{
 						spline_deletenode( g_iSplineSelected, g_iSplineNodeSelected );
@@ -4561,6 +4612,8 @@ void spline_savedata( void )
 		// version 14: the preset
 		put( s.preset, 64 );
 		put( &s.presetSignature, sizeof(s.presetSignature) );
+		// version 15: each segment's curve
+		for ( const sSplineNode& node : s.nodes ) put( &node.segCurve, sizeof(node.segCurve) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -4721,6 +4774,10 @@ void spline_loaddata( void )
 						{
 							s.preset[ 63 ] = 0;
 							get( &s.presetSignature, sizeof(s.presetSignature) );
+						}
+						if ( version >= 15 )
+						{
+							for ( sSplineNode& node : s.nodes ) if ( !get( &node.segCurve, sizeof(node.segCurve) ) ) break;
 						}
 						if ( version < 12 )
 						{
