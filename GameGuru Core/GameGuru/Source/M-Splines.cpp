@@ -261,6 +261,8 @@ static float fSnapT = 0, fSnapX = 0, fSnapY = 0, fSnapZ = 0;
 static bool bConnectMode = false;
 // Apply: this spline is baked now, whether or not it changed
 static int iApplySpline = -1;
+// an undo or redo put these splines (ids) back as they were baked: they are baked now, whether or not they Update as I Edit
+static std::unordered_set<int> g_SplineForceBake;
 // the object library is open to pick a layer's entity
 static bool g_bLibraryPickEntity = false;
 // drawing: nodes are being added to the selected spline, so a click on another spline's node or curve joins it
@@ -1155,12 +1157,14 @@ static void spline_bakechanged( void )
 		const sSpline& s = g_Splines[ si ];
 		const bool bChanged = spline_signature( s ) != s.bakedSignature;
 		bool bBake = false;
-		if ( s.kind == SPLINE_KIND_ROAD ) bBake = (bChanged && s.road.autoApply) || (int)si == iApplySpline;
-		else if ( s.kind == SPLINE_KIND_RIVER ) bBake = (bChanged && s.river.autoApply) || (int)si == iApplySpline;
+		const bool bForce = (int)si == iApplySpline || g_SplineForceBake.count( s.id ) != 0;
+		if ( s.kind == SPLINE_KIND_ROAD ) bBake = (bChanged && s.road.autoApply) || bForce;
+		else if ( s.kind == SPLINE_KIND_RIVER ) bBake = (bChanged && s.river.autoApply) || bForce;
 		else bBake = !s.baked.empty() || !s.bakedTrees.empty();
 		if ( bBake ) { in[ si ] = 1; bAny = true; }
 	}
 	iApplySpline = -1;
+	g_SplineForceBake.clear();
 	if ( !bAny ) return;
 	spline_joined( in );
 	spline_bakegroup( in );
@@ -2772,6 +2776,275 @@ static void spline_rowlayers( sSpline& s, float w )
 	ImGui::TreePop();
 }
 
+//
+// Undo
+//
+
+// a spline as the user set it (what an undo puts back), and how its bake stood: 0 not baked, 1 baked as it is, 2 baked
+// before it last changed (Update as I Edit off)
+struct sSplineDef
+{
+	int id = 0;
+	char name[64] = "";
+	int kind = SPLINE_KIND_NONE;
+	int curve = SPLINE_CURVE_SMOOTH;
+	int closed = 0;
+	std::vector<sSplineNode> nodes;
+	sSplineRoad road;
+	sSplineRiver river;
+	std::vector<sSplineLayer> layers;
+	int bakeState = 0;
+};
+
+// one undo or redo step: the splines it changed as they were (one that didn't exist then is marked so), the list's order
+// and the spline selected
+struct sSplineUndoState
+{
+	bool bExists = false;
+	sSplineDef def;
+};
+struct sSplineUndoEvent
+{
+	int generation = 0;
+	std::vector<int> order;
+	std::vector<sSplineUndoState> states;
+	int selected = 0;
+};
+
+static std::vector<sSplineDef> g_SplineUndoBase; // the splines as of the last step
+static int g_iSplineUndoBaseSelected = 0;
+static bool g_bSplineUndoBaseSet = false;
+static int g_iSplineUndoGeneration = 1; // a level's steps do nothing in another (the editor keeps its undo list for a new level)
+
+static int spline_bakestate( const sSpline& s )
+{
+	if ( s.baked.empty() && s.bakedTrees.empty() ) return 0;
+	return spline_signature( s ) == s.bakedSignature ? 1 : 2;
+}
+
+static void spline_getdef( const sSpline& s, sSplineDef& def )
+{
+	def.id = s.id;
+	memcpy( def.name, s.name, sizeof(def.name) );
+	def.kind = s.kind;
+	def.curve = s.curve;
+	def.closed = s.closed;
+	def.nodes = s.nodes;
+	def.road = s.road;
+	def.river = s.river;
+	def.layers = s.layers;
+	def.bakeState = spline_bakestate( s );
+}
+
+static void spline_setdef( sSpline& s, const sSplineDef& def )
+{
+	s.id = def.id;
+	memcpy( s.name, def.name, sizeof(s.name) );
+	s.kind = def.kind;
+	s.curve = def.curve;
+	s.closed = def.closed;
+	s.nodes = def.nodes;
+	s.road = def.road;
+	s.river = def.river;
+	s.layers = def.layers;
+}
+
+static bool spline_samedef( const sSpline& s, const sSplineDef& def )
+{
+	if ( s.kind != def.kind || s.curve != def.curve || s.closed != def.closed || memcmp( s.name, def.name, sizeof(s.name) ) != 0 ) return false;
+	if ( s.nodes.size() != def.nodes.size() || s.layers.size() != def.layers.size() ) return false;
+	if ( !s.nodes.empty() && memcmp( s.nodes.data(), def.nodes.data(), s.nodes.size() * sizeof(sSplineNode) ) != 0 ) return false;
+	if ( !s.layers.empty() && memcmp( s.layers.data(), def.layers.data(), s.layers.size() * sizeof(sSplineLayer) ) != 0 ) return false;
+	return memcmp( &s.road, &def.road, sizeof(s.road) ) == 0 && memcmp( &s.river, &def.river, sizeof(s.river) ) == 0;
+}
+
+static int spline_indexofid( int id )
+{
+	for ( int si = 0; si < (int)g_Splines.size(); si++ ) if ( g_Splines[ si ].id == id ) return si;
+	return -1;
+}
+
+static int spline_selectedid( void )
+{
+	return g_iSplineSelected >= 0 && g_iSplineSelected < (int)g_Splines.size() ? g_Splines[ g_iSplineSelected ].id : 0;
+}
+
+static void spline_undosetbase( void )
+{
+	g_SplineUndoBase.resize( g_Splines.size() );
+	for ( size_t si = 0; si < g_Splines.size(); si++ ) spline_getdef( g_Splines[ si ], g_SplineUndoBase[ si ] );
+	g_iSplineUndoBaseSelected = spline_selectedid();
+	g_bSplineUndoBaseSet = true;
+}
+
+// once an edit is finished (nothing dragged or being edited), what changed since the last step becomes the next step on
+// the editor's undo list: the splines it changed as they were before. Every edit in the panel and the view is caught so
+static void spline_undocommit( void )
+{
+	if ( !g_bSplineUndoBaseSet ) { spline_undosetbase(); return; }
+	if ( iDragNode >= 0 || ImGui::IsAnyItemActive() ) return;
+	std::unordered_map<int, int> baseIndex;
+	for ( int bi = 0; bi < (int)g_SplineUndoBase.size(); bi++ ) baseIndex[ g_SplineUndoBase[ bi ].id ] = bi;
+	std::vector<sSplineUndoState> states;
+	bool bOrder = g_Splines.size() != g_SplineUndoBase.size();
+	std::unordered_set<int> liveIds;
+	for ( int si = 0; si < (int)g_Splines.size(); si++ )
+	{
+		const sSpline& s = g_Splines[ si ];
+		liveIds.insert( s.id );
+		auto it = baseIndex.find( s.id );
+		if ( it == baseIndex.end() )
+		{
+			sSplineUndoState state;
+			state.def.id = s.id;
+			states.push_back( state );
+			continue;
+		}
+		sSplineDef& base = g_SplineUndoBase[ it->second ];
+		if ( it->second != si ) bOrder = true;
+		if ( spline_samedef( s, base ) )
+		{
+			base.bakeState = spline_bakestate( s ); // an Apply, or a bake that had to wait, isn't a step of its own
+			continue;
+		}
+		sSplineUndoState state;
+		state.bExists = true;
+		state.def = base;
+		states.push_back( state );
+	}
+	for ( const sSplineDef& base : g_SplineUndoBase )
+	{
+		if ( liveIds.count( base.id ) ) continue;
+		sSplineUndoState state;
+		state.bExists = true;
+		state.def = base;
+		states.push_back( state );
+	}
+	if ( states.empty() && !bOrder )
+	{
+		g_iSplineUndoBaseSelected = spline_selectedid();
+		return;
+	}
+	sSplineUndoEvent* pEvent = new sSplineUndoEvent;
+	pEvent->generation = g_iSplineUndoGeneration;
+	for ( const sSplineDef& base : g_SplineUndoBase ) pEvent->order.push_back( base.id );
+	pEvent->states.swap( states );
+	pEvent->selected = g_iSplineUndoBaseSelected;
+	undosys_clearredostack();
+	undosys_addevent( eUndoSys_Spline, eUndoSys_Spline_Change, pEvent );
+	spline_undosetbase();
+}
+
+// performs an undo or redo step from the editor's undo system: its opposite (these splines as they are now) goes on the
+// other list first, then the splines it holds are put back, deleted or made again, the list is ordered as it was, and each
+// one's bake is made to stand as it did. The layers place again, and a river's water is built again, by themselves
+void spline_performundoredo( void* pEventData )
+{
+	sSplineUndoEvent* pEvent = (sSplineUndoEvent*)pEventData;
+	if ( !pEvent ) return;
+	if ( pEvent->generation != g_iSplineUndoGeneration )
+	{
+		delete pEvent;
+		return;
+	}
+	sSplineUndoEvent* pOpposite = new sSplineUndoEvent;
+	pOpposite->generation = g_iSplineUndoGeneration;
+	for ( const sSpline& s : g_Splines ) pOpposite->order.push_back( s.id );
+	pOpposite->selected = spline_selectedid();
+	for ( const sSplineUndoState& state : pEvent->states )
+	{
+		sSplineUndoState now;
+		const int si = spline_indexofid( state.def.id );
+		now.bExists = si >= 0;
+		if ( si >= 0 ) spline_getdef( g_Splines[ si ], now.def );
+		else now.def.id = state.def.id;
+		pOpposite->states.push_back( now );
+	}
+	undosys_addevent( eUndoSys_Spline, eUndoSys_Spline_Change, pOpposite );
+
+	// nothing half done carries over
+	iDragSpline = iDragNode = -1;
+	iDragHandle = 0;
+	bDrawing = false;
+	bConnectMode = false;
+
+	for ( const sSplineUndoState& state : pEvent->states )
+	{
+		if ( state.bExists ) continue;
+		const int si = spline_indexofid( state.def.id );
+		if ( si >= 0 ) spline_deletespline( si );
+	}
+	for ( const sSplineUndoState& state : pEvent->states )
+	{
+		if ( !state.bExists ) continue;
+		const int si = spline_indexofid( state.def.id );
+		if ( si >= 0 )
+		{
+			spline_setdef( g_Splines[ si ], state.def );
+			continue;
+		}
+		sSpline s;
+		spline_setdef( s, state.def );
+		g_Splines.push_back( s );
+		if ( state.def.id >= g_iSplineNextID ) g_iSplineNextID = state.def.id + 1;
+	}
+	{
+		std::unordered_map<int, int> index;
+		for ( int si = 0; si < (int)g_Splines.size(); si++ ) index[ g_Splines[ si ].id ] = si;
+		std::vector<char> used( g_Splines.size(), 0 );
+		std::vector<sSpline> ordered;
+		ordered.reserve( g_Splines.size() );
+		for ( int id : pEvent->order )
+		{
+			auto it = index.find( id );
+			if ( it == index.end() || used[ it->second ] ) continue;
+			used[ it->second ] = 1;
+			ordered.push_back( std::move( g_Splines[ it->second ] ) );
+		}
+		for ( size_t si = 0; si < g_Splines.size(); si++ ) if ( !used[ si ] ) ordered.push_back( std::move( g_Splines[ si ] ) );
+		g_Splines.swap( ordered );
+	}
+	// the bake as it stood: taken away if it wasn't baked, baked again if it was baked as it is (or is made again), left as
+	// it is if its bake was already behind it
+	for ( const sSplineUndoState& state : pEvent->states )
+	{
+		if ( !state.bExists ) continue;
+		const int si = spline_indexofid( state.def.id );
+		if ( si < 0 ) continue;
+		sSpline& s = g_Splines[ si ];
+		const bool bBaked = !s.baked.empty() || !s.bakedTrees.empty();
+		if ( state.def.bakeState == 0 )
+		{
+			if ( bBaked ) spline_unbake( si );
+			s.bakedSignature = 0;
+		}
+		else if ( state.def.bakeState == 1 || !bBaked )
+		{
+			if ( !bBaked || spline_signature( s ) != s.bakedSignature ) g_SplineForceBake.insert( s.id );
+		}
+	}
+	g_iSplineSelected = pEvent->selected ? spline_indexofid( pEvent->selected ) : -1;
+	g_iSplineNodeSelected = -1;
+	g_iSplineSegSelected = -1;
+	g.projectmodified = 1;
+	delete pEvent;
+	spline_undosetbase();
+}
+
+// the undo system frees a step it no longer holds
+void spline_undodelete( void* pEventData )
+{
+	delete (sSplineUndoEvent*)pEventData;
+}
+
+// the editor, every frame: with the Roads and Rivers panel not drawn, a spline's undo or redo still bakes and places
+void spline_editorupdate( void )
+{
+	if ( ImGui::GetFrameCount() - g_iSplinePanelFrame <= 2 ) return;
+	spline_bakechanged();
+	spline_placechanged();
+}
+
 // Update as I Edit, Apply and Remove for a road or a river, and what its bake holds
 static void spline_rowbake( sSpline& s, int* pAutoApply, const char* pWhat, float w )
 {
@@ -3108,6 +3381,7 @@ void spline_imgui_panel( float w )
 	spline_bakechanged();
 	spline_updatewater();
 	spline_placechanged();
+	spline_undocommit();
 }
 
 //
@@ -3126,6 +3400,11 @@ void spline_deleteall( void )
 	iDragSpline = iDragNode = -1;
 	iDragHandle = 0;
 	bConnectMode = false;
+	// a new or loaded level: the steps on the undo list are another level's
+	g_iSplineUndoGeneration++;
+	g_bSplineUndoBaseSet = false;
+	g_SplineUndoBase.clear();
+	g_SplineForceBake.clear();
 }
 
 void spline_savedata( void )

@@ -13,6 +13,7 @@ void spline_loaddata ( void );
 void spline_deleteall ( void );
 bool spline_librarypicking ( void );
 void spline_updatewater ( bool bForce = false );
+void spline_editorupdate ( void );
 float spline_waterheightat ( float x, float z, int* pIsRiver );
 float spline_riverturbulenceat ( float x, float z );
 void spline_waterflowat ( float x, float z, float* pFlowX, float* pFlowZ );

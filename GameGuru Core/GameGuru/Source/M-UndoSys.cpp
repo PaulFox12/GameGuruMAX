@@ -10,6 +10,9 @@ eUndoMasterList g_UndoList;
 std::stack<sUndoMasterStackItem> g_UndoSysMasterStack[2];
 bool g_UndoSysMasterCollectingMultipleEvents = false;
 int g_UndoSysMasterMultipleEventsCount = 0;
+std::stack<sUndoStackItem> g_UndoSysSplineStack[2];
+extern void spline_performundoredo(void* pEventData);
+extern void spline_undodelete(void* pEventData);
 
 // 
 // UNDO SYSTEM CORE
@@ -96,6 +99,7 @@ void undosys_addevent ( eUndoMasterItemType mastertype, eUndoEventType eventtype
 	{
 		case eUndoSys_Object:	g_UndoSysObjectStack[g_UndoList].push(UndoStackItem); break;
 		case eUndoSys_Terrain:  g_UndoSysTerrainStack[g_UndoList].push(UndoStackItem); break;
+		case eUndoSys_Spline:   g_UndoSysSplineStack[g_UndoList].push(UndoStackItem); break;
 	}
 }
 
@@ -162,6 +166,11 @@ void undosys_undoredoevent_core ( eUndoMasterList eList, eUndoMasterList eListFo
 		case eUndoSys_Terrain:
 			item = g_UndoSysTerrainStack[eList].top();
 			g_UndoSysTerrainStack[eList].pop();
+			break;
+
+		case eUndoSys_Spline:
+			item = g_UndoSysSplineStack[eList].top();
+			g_UndoSysSplineStack[eList].pop();
 			break;
 		}
 
@@ -261,6 +270,14 @@ void undosys_undoredoevent_core ( eUndoMasterList eList, eUndoMasterList eListFo
 				#endif
 				break;
 			}
+			case eUndoSys_Spline:
+			{
+				// the spline tool adds the redo action (its splines as they are now) before it performs the undo
+				undosys_setlist(eListForRedo);
+				spline_performundoredo(item.pEventData);
+				undosys_setlist(eList);
+				break;
+			}
 			}
 		}
 	}
@@ -307,6 +324,13 @@ void undosys_clearall(void)
 		if (eventitem.pEventData) delete eventitem.pEventData;
 		g_UndoSysTerrainStack[eUndoSys_UndoList].pop();
 	}
+	undostacksize = g_UndoSysSplineStack[eUndoSys_UndoList].size();
+	for (int n = 0; n < undostacksize; n++)
+	{
+		sUndoStackItem eventitem = g_UndoSysSplineStack[eUndoSys_UndoList].top();
+		spline_undodelete(eventitem.pEventData);
+		g_UndoSysSplineStack[eUndoSys_UndoList].pop();
+	}
 	undosys_clearredostack();
 }
 
@@ -330,6 +354,13 @@ void undosys_clearredostack (void)
 		sUndoStackItem eventitem = g_UndoSysTerrainStack[eUndoSys_RedoList].top();
 		if (eventitem.pEventData) delete eventitem.pEventData;
 		g_UndoSysTerrainStack[eUndoSys_RedoList].pop();
+	}
+	redostacksize = g_UndoSysSplineStack[eUndoSys_RedoList].size();
+	for (int n = 0; n < redostacksize; n++)
+	{
+		sUndoStackItem eventitem = g_UndoSysSplineStack[eUndoSys_RedoList].top();
+		spline_undodelete(eventitem.pEventData);
+		g_UndoSysSplineStack[eUndoSys_RedoList].pop();
 	}
 }
 

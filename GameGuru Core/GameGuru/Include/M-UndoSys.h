@@ -19,7 +19,8 @@ enum eUndoMasterList
 enum eUndoMasterItemType
 {
 	eUndoSys_Object,
-	eUndoSys_Terrain
+	eUndoSys_Terrain,
+	eUndoSys_Spline
 };
 struct sUndoMasterStackItem
 {
@@ -46,7 +47,8 @@ enum eUndoEventType
 	eUndoSys_Terrain_RemoveTree,	//
 	eUndoSys_Terrain_ScaleTree,		//
 	eUndoSys_Terrain_PaintTree,		//
-	eUndoSys_Terrain_SculptMovedObject
+	eUndoSys_Terrain_SculptMovedObject,
+	eUndoSys_Spline_Change
 };
 struct sUndoStackItem
 {
