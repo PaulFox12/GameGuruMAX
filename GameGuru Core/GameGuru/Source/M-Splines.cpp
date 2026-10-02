@@ -1940,6 +1940,31 @@ struct sSplineAvoid
 	float bounds[4];
 };
 
+// whether a point is on one of these carriageways: within half its width of its line, which ends square at its first and
+// last points (another road joined end to end runs on up to the junction, rather than stopping half a width short of a
+// round end) and is round at its bends (so a point outside a bend isn't missed between two pieces)
+static bool spline_oncarriageway( const std::vector<sSplineAvoid>& roads, float x, float z )
+{
+	for ( const sSplineAvoid& road : roads )
+	{
+		if ( x < road.bounds[0] || x > road.bounds[2] || z < road.bounds[1] || z > road.bounds[3] ) continue;
+		const size_t last = road.line.size() - 1;
+		for ( size_t k = 1; k < road.line.size(); k++ )
+		{
+			const sSplinePoint& a = road.line[ k - 1 ];
+			const sSplinePoint& b = road.line[ k ];
+			const float dx = b.x - a.x, dz = b.z - a.z;
+			const float len2 = dx * dx + dz * dz;
+			float tt = len2 > 0 ? ((x - a.x) * dx + (z - a.z) * dz) / len2 : 0;
+			if ( (k == 1 && tt < 0) || (k == last && tt > 1) ) continue;
+			tt = std::min( 1.0f, std::max( 0.0f, tt ) );
+			const float px = a.x + dx * tt - x, pz = a.z + dz * tt - z;
+			if ( px * px + pz * pz < road.halfWidth * road.halfWidth ) return true;
+		}
+	}
+	return false;
+}
+
 // a road's shape as its markings follow it (its nodes, curve and width)
 static uint64_t spline_markingshape( const sSpline& s )
 {
@@ -2062,25 +2087,7 @@ static void spline_markings( int si, std::vector<GGTerrain::GGTerrainMarking>& o
 			avoid.push_back( road );
 		}
 	}
-	auto onEarlierRoad = [&avoid]( float x, float z )
-	{
-		for ( const sSplineAvoid& road : avoid )
-		{
-			if ( x < road.bounds[0] || x > road.bounds[2] || z < road.bounds[1] || z > road.bounds[3] ) continue;
-			for ( size_t k = 1; k < road.line.size(); k++ )
-			{
-				const sSplinePoint& a = road.line[ k - 1 ];
-				const sSplinePoint& b = road.line[ k ];
-				const float dx = b.x - a.x, dz = b.z - a.z;
-				const float len2 = dx * dx + dz * dz;
-				float tt = len2 > 0 ? ((x - a.x) * dx + (z - a.z) * dz) / len2 : 0;
-				tt = std::min( 1.0f, std::max( 0.0f, tt ) );
-				const float px = a.x + dx * tt - x, pz = a.z + dz * tt - z;
-				if ( px * px + pz * pz < road.halfWidth * road.halfWidth ) return true;
-			}
-		}
-		return false;
-	};
+	auto onEarlierRoad = [&avoid]( float x, float z ) { return spline_oncarriageway( avoid, x, z ); };
 
 	// the lines: two for the centre (one, or a pair either side of it), the lanes' each side, the edges; each keeps its own
 	// length along it, so its dashes run on from piece to piece
@@ -2254,25 +2261,7 @@ static void spline_place( int si )
 			avoid.push_back( road );
 		}
 	}
-	auto onAnotherRoad = [&avoid]( float x, float z )
-	{
-		for ( const sSplineAvoid& road : avoid )
-		{
-			if ( x < road.bounds[0] || x > road.bounds[2] || z < road.bounds[1] || z > road.bounds[3] ) continue;
-			for ( size_t k = 1; k < road.line.size(); k++ )
-			{
-				const sSplinePoint& a = road.line[ k - 1 ];
-				const sSplinePoint& b = road.line[ k ];
-				const float dx = b.x - a.x, dz = b.z - a.z;
-				const float len2 = dx * dx + dz * dz;
-				float tt = len2 > 0 ? ((x - a.x) * dx + (z - a.z) * dz) / len2 : 0;
-				tt = std::min( 1.0f, std::max( 0.0f, tt ) );
-				const float px = a.x + dx * tt - x, pz = a.z + dz * tt - z;
-				if ( px * px + pz * pz < road.halfWidth * road.halfWidth ) return true;
-			}
-		}
-		return false;
-	};
+	auto onAnotherRoad = [&avoid]( float x, float z ) { return spline_oncarriageway( avoid, x, z ); };
 	std::vector<sRoadSample> c;
 	std::vector<int> nodeSample;
 	if ( !spline_centreline( s, 50.0f, c, nodeSample ) ) return;
