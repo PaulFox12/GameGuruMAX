@@ -1116,9 +1116,26 @@ bool entity_load (bool bCalledFromLibrary)
 							//PE: Make sure LOD use the correct fpe settings.
 							g_iWickedEntityId = t.entid;
 							LoadObject((char *) lodname.c_str(), t.entobj);
+							char lodlog[1024];
 							if (ObjectExist(t.entobj))
 							{
 								bLODLoaded = true;
+								// GG: logged, with each mesh's index counts at LOD0 to LOD3 (0 where a level is missing)
+								sprintf(lodlog, "LoadObject LOD ( %s )", lodname.c_str());
+								timestampactivity(0, lodlog);
+								sObject* pLODObject = GetObjectData(t.entobj);
+								for (int iMesh = 0; pLODObject && iMesh < pLODObject->iMeshCount; iMesh++)
+								{
+									sMesh* pLODMesh = pLODObject->ppMeshList[iMesh];
+									if (!pLODMesh) continue;
+									sprintf(lodlog, "LOD mesh %d indices: %u %u %u %u", iMesh, (unsigned)pLODMesh->dwIndexCount, (unsigned)pLODMesh->dwIndexCountLOD1, (unsigned)pLODMesh->dwIndexCountLOD2, (unsigned)pLODMesh->dwIndexCountLOD3);
+									timestampactivity(0, lodlog);
+								}
+							}
+							else
+							{
+								sprintf(lodlog, "LoadObject LOD failed ( %s )", lodname.c_str());
+								timestampactivity(0, lodlog);
 							}
 							g_iWickedEntityId = -1;
 						}
