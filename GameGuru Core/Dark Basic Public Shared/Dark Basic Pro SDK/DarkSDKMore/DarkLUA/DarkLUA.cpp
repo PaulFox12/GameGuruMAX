@@ -9204,6 +9204,15 @@ int GetWaterHeightAt(lua_State *L)
 	lua_pushinteger(L, iIsRiver);
 	return 2;
 }
+// GG: GetRiverTurbulenceAt(x, z): how rough a river's water is at a point (the editor's Roads and Rivers splines), 0 smooth
+// or no river above the sea there, to 1 rapids (where its slope changes sharply)
+int GetRiverTurbulenceAt(lua_State *L)
+{
+	lua = L;
+	if (LUA_GETTOP(L) < 2) return 0;
+	lua_pushnumber(L, spline_riverturbulenceat(lua_tonumber(L, 1), lua_tonumber(L, 2)));
+	return 1;
+}
 int GetWaterWaveIntensity(lua_State *L)
 {
 	lua = L;
@@ -17395,6 +17404,7 @@ void addFunctions()
 	//getter
 	lua_register(lua, "GetWaterHeight", GetWaterHeight);
 	lua_register(lua, "GetWaterHeightAt", GetWaterHeightAt);
+	lua_register(lua, "GetRiverTurbulenceAt", GetRiverTurbulenceAt);
 	lua_register(lua, "GetWaterWaveIntensity", GetWaterWaveIntensity);
 	lua_register(lua, "GetWaterShaderColorRed", GetWaterShaderColorRed);
 	lua_register(lua, "GetWaterShaderColorGreen", GetWaterShaderColorGreen);
