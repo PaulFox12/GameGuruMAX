@@ -668,6 +668,101 @@ inline void NormalMapping(in float4 uvsets, inout float3 N, in float3x3 TBN, out
 	}
 }
 
+#ifdef ROCKTRIPLANAR
+// GG: Rock Triplanar (the custom shader of that name): the material's colour, normal and surface maps laid on in world
+// space from three sides, as the terrain's Steep Rock lays its rock (GGTerrainRockHF.hlsli: the same sides, directions,
+// two sizes and patches), so a cliff mesh with the same textures and tile size meets the terrain's rock without a seam.
+// customShaderParam1 the tile size in metres (0: 30), customShaderParam2 how sharply the sides blend (1 as the terrain's,
+// higher sharper; 0: 1), customShaderParam3 the variation, the texture at two sizes in patches (as Steep Rock Variation,
+// 0 one size)
+float RockObjectHash(float2 p)
+{
+	float3 p3 = frac(p.xyx * 0.1031);
+	p3 += dot(p3, p3.yzx + 33.33);
+	return frac((p3.x + p3.y) * p3.z);
+}
+
+float RockObjectNoise(float2 p)
+{
+	float2 cell = floor(p);
+	float2 f = frac(p);
+	f = f * f * (3 - 2 * f);
+	float a = RockObjectHash(cell);
+	float b = RockObjectHash(cell + float2(1, 0));
+	float c = RockObjectHash(cell + float2(0, 1));
+	float d = RockObjectHash(cell + float2(1, 1));
+	return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y) * 2 - 1;
+}
+
+// one side's sample by its weight: its UV and the world directions of its U and V (the normal map's X and Y)
+void RockObjectSide(inout float3 colour, inout float4 surfaceMap, inout float3 normal, float weight, float2 uv, float2 uvDX, float2 uvDY, float3 dirU, float3 dirV, float3 N)
+{
+	float4 baseColorMap = texture_basecolormap.SampleGrad(sampler_objectshader, uv, uvDX, uvDY);
+	colour += DEGAMMA(baseColorMap.rgb) * weight;
+	float4 surface = 1;
+	[branch]
+	if (GetMaterial().uvset_surfaceMap >= 0)
+	{
+		surface = texture_surfacemap.SampleGrad(sampler_objectshader, uv, uvDX, uvDY);
+	}
+	surfaceMap += surface * weight;
+	float3 tangentNormal = float3(0, 0, 1);
+	[branch]
+	if (GetMaterial().normalMapStrength > 0 && GetMaterial().uvset_normalMap >= 0)
+	{
+		tangentNormal = texture_normalmap.SampleGrad(sampler_objectshader, uv, uvDX, uvDY).rgb;
+		tangentNormal.b = tangentNormal.b == 0 ? 1 : tangentNormal.b;
+		tangentNormal = normalize(tangentNormal * 2 - 1);
+	}
+	dirU = normalize(dirU - N * dot(N, dirU));
+	dirV = normalize(dirV - N * dot(N, dirV));
+	normal += normalize(dirU * tangentNormal.x + dirV * tangentNormal.y + N * tangentNormal.z) * weight;
+}
+
+// the rock's colour (linear); its normal and surface map
+float3 GGRockTriplanar(float3 P, float3 N, out float3 rockNormal, out float4 rockSurfaceMap)
+{
+	const float tile = GetMaterial().customShaderParam1 > 0 ? GetMaterial().customShaderParam1 : 30;
+	const float sharpness = 4 * (GetMaterial().customShaderParam2 > 0 ? GetMaterial().customShaderParam2 : 1);
+	const float rockScale = 1.0 / (tile * 39.37);
+	float3 weights = pow(abs(N), sharpness);
+	weights /= weights.x + weights.y + weights.z;
+	const float3 posDX = ddx(P);
+	const float3 posDY = ddy(P);
+
+	float variation = 0;
+	if (GetMaterial().customShaderParam3 > 0)
+	{
+		float2 vp = float2(P.x + P.y * 0.5, P.z - P.y * 0.5) * rockScale * 0.45 + 41.7;
+		variation = smoothstep(0.35, 0.65, RockObjectNoise(vp) * 0.5 + 0.5) * saturate(GetMaterial().customShaderParam3);
+	}
+
+	float3 colour = 0;
+	float3 normal = 0;
+	rockSurfaceMap = 0;
+	float sampled = 0;
+	[unroll]
+	for (int size = 0; size < 2; size++)
+	{
+		const float share = size == 0 ? 1 - variation : variation;
+		[branch]
+		if (share > 0.01)
+		{
+			const float scale = size == 0 ? rockScale : rockScale * 0.43;
+			const float2 shift = size == 0 ? float2(0, 0) : float2(0.37, 0.71);
+			[branch] if (weights.x > 0.01) RockObjectSide(colour, rockSurfaceMap, normal, weights.x * share, float2(P.z, -P.y) * scale + shift, float2(posDX.z, -posDX.y) * scale, float2(posDY.z, -posDY.y) * scale, float3(0, 0, 1), float3(0, -1, 0), N);
+			[branch] if (weights.y > 0.01) RockObjectSide(colour, rockSurfaceMap, normal, weights.y * share, float2(P.x, -P.z) * scale + shift, float2(posDX.x, -posDX.z) * scale, float2(posDY.x, -posDY.z) * scale, float3(1, 0, 0), float3(0, 0, -1), N);
+			[branch] if (weights.z > 0.01) RockObjectSide(colour, rockSurfaceMap, normal, weights.z * share, float2(P.x, -P.y) * scale + shift, float2(posDX.x, -posDX.y) * scale, float2(posDY.x, -posDY.y) * scale, float3(1, 0, 0), float3(0, -1, 0), N);
+			sampled += ((weights.x > 0.01 ? weights.x : 0) + (weights.y > 0.01 ? weights.y : 0) + (weights.z > 0.01 ? weights.z : 0)) * share;
+		}
+	}
+	colour /= sampled;
+	rockSurfaceMap /= sampled;
+	rockNormal = normalize(lerp(N, normalize(normal), saturate(GetMaterial().normalMapStrength)));
+	return colour;
+}
+#endif // ROCKTRIPLANAR
+
 inline float3 PlanarReflection(in Surface surface, in float2 bumpColor)
 {
 	float4 reflectionUV = mul(g_xCamera_ReflVP, float4(surface.P, 1));
@@ -1654,6 +1749,11 @@ struct OutputPrepass
 #ifndef WATEROBJECT
 #ifdef OBJECTSHADER_USE_UVSETS
 #ifndef OBJECTLOD
+#ifdef ROCKTRIPLANAR
+	float3 rockNormal;
+	float4 rockSurfaceMap;
+	color.rgb *= GGRockTriplanar(input.pos3D, normalize(input.nor), rockNormal, rockSurfaceMap);
+#else
 	[branch]
 	if (GetMaterial().uvset_baseColorMap >= 0 && (g_xFrame_Options & OPTION_BIT_DISABLE_ALBEDO_MAPS) == 0)
 	{
@@ -1662,6 +1762,7 @@ struct OutputPrepass
 		baseColorMap.rgb = DEGAMMA(baseColorMap.rgb);
 		color *= baseColorMap;
 	}
+#endif // ROCKTRIPLANAR
 #endif
 #endif // OBJECTSHADER_USE_UVSETS
 #endif // WATEROBJECT
@@ -1720,7 +1821,12 @@ struct OutputPrepass
 #ifndef WATER
 #ifdef OBJECTSHADER_USE_TANGENT
 #ifndef OBJECTLOD
+#ifdef ROCKTRIPLANAR
+	surface.N = rockNormal;
+	bumpColor = 0;
+#else
 	NormalMapping(input.uvsets, surface.N, TBN, bumpColor);
+#endif // ROCKTRIPLANAR
 #endif
 #endif // OBJECTSHADER_USE_TANGENT
 #endif // WATER
@@ -1731,12 +1837,16 @@ struct OutputPrepass
 
 #ifdef OBJECTSHADER_USE_UVSETS
 #ifndef OBJECTLOD
+#ifdef ROCKTRIPLANAR
+	surfaceMap = rockSurfaceMap;
+#else
 	[branch]
 	if (GetMaterial().uvset_surfaceMap >= 0)
 	{
 		const float2 UV_surfaceMap = GetMaterial().uvset_surfaceMap == 0 ? input.uvsets.xy : input.uvsets.zw;
 		surfaceMap = texture_surfacemap.Sample(sampler_objectshader, UV_surfaceMap);
 	}
+#endif // ROCKTRIPLANAR
 #endif
 #endif // OBJECTSHADER_USE_UVSETS
 

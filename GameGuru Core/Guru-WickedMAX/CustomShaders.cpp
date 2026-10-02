@@ -72,6 +72,7 @@ Shader shaderPrepassTreeAnimateVS;
 Shader shaderShadowTreeAnimateVS;
 Shader shaderWaterPS;
 Shader shaderRiverWaterPS;
+Shader shaderRockTriplanarPS;
 Shader shaderGlassPS;
 Shader shaderGridPS;
 Shader damageBloodPS;
@@ -228,6 +229,26 @@ void AddCustomShaders(void)
 	customRiverWaterShader.renderTypeFlags = RENDERTYPE_TRANSPARENT;
 	customRiverWaterShader.pso[RENDERPASS_MAIN] = psoriverwater;
 	RegisterCustomShader(customRiverWaterShader);
+
+	// GG: Rock Triplanar (customshaderid 7, after Wicked's Hologram and these six): the material's textures laid on in world space from three sides, as the
+	// terrain's Steep Rock, for cliff and karst meshes that meet the terrain's rock; opaque, the standard pipelines for every
+	// pass but the main pass's pixel shader
+	CustomShader customRockShader;
+	if (!LoadShader(PS, shaderRockTriplanarPS, "objectPS_custom_rocktriplanar.cso"))
+		customRockShader.bActive = false;
+	for (int i = 0; i < RENDERPASS_COUNT; i++)
+	{
+		PipelineStateDesc descrock;
+		wiRenderer::AddPipelineDesc(descrock, i, PSTYPE_OBJECT, MaterialComponent::SHADERTYPE::SHADERTYPE_PBR, BLENDMODE_OPAQUE, OBJECTRENDERING_DOUBLESIDED_DISABLED, false, false, false);
+		if (customRockShader.bActive && i == RENDERPASS_MAIN)
+		{
+			descrock.ps = &shaderRockTriplanarPS;
+		}
+		wiRenderer::GetDevice()->CreatePipelineState(&descrock, &customRockShader.pso[i]);
+	}
+	customRockShader.name = "Rock Triplanar";
+	customRockShader.renderTypeFlags = RENDERTYPE_OPAQUE;
+	RegisterCustomShader(customRockShader);
 
 
 }

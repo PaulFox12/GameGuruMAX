@@ -11681,6 +11681,16 @@ void Wicked_Change_Object_Material(void* pVObject, int mode, entityeleproftype *
 								param4 = "Min Alpha";
 							}
 
+							if (pObjectMaterial->customShaderID == 7)
+							{
+								// Rock Triplanar: the material's textures laid on in world space, as the terrain's Steep Rock
+								numpar = 3;
+								maxRange1 = 100.0f;
+								param1 = "Tile Size (m)";
+								param2 = "Side Blend";
+								param3 = "Variation";
+							}
+
 							if (pObjectMaterial->customShaderID == 5)
 							{
 								numpar = 6;
