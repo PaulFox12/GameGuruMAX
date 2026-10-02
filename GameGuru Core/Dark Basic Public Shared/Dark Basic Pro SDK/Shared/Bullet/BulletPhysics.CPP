@@ -3983,6 +3983,9 @@ void ODESetLinearVelocity ( int iObject, float fX, float fY, float fZ )
 	if ( pPhyObject==NULL ) return;
 	if ( pPhyObject->body==NULL ) return;
 
+	// a frozen body (FreezeEntity) keeps still: its zeroed factors scale forces, not a velocity set directly
+	if ( pPhyObject->iResponseMode > 0 ) return;
+
 	// apply linear velocity
 	physicslock.lock();
 	pPhyObject->body->activate();
@@ -3996,6 +3999,7 @@ void ODESetLinearVelocityXZWithGravity ( int iObject, float fX, float fZ, float 
 	sObjectList* pPhyObject = ODEFindID ( iObject );
 	if ( pPhyObject==NULL ) return;
 	if ( pPhyObject->body==NULL ) return;
+	if ( pPhyObject->iResponseMode > 0 ) return; // frozen (ODESetLinearVelocity)
 
 	// apply linear velocity for XZ (kinetic but force for gravity)
 	pPhyObject->body->activate();
@@ -4040,6 +4044,10 @@ void ODESetAngularVelocity (int iObject, float fX, float fY, float fZ)
 	sObjectList* pPhyObject = ODEFindID (iObject);
 	if (pPhyObject == NULL) return;
 	if (pPhyObject->body == NULL) return;
+
+	// a frozen body keeps still (ODESetLinearVelocity): an explosion's random spin turned it about its centre, through
+	// the ground, as its zeroed angular factor let no contact stop it
+	if (pPhyObject->iResponseMode > 0) return;
 
 	// apply linear velocity
 	pPhyObject->body->activate();
