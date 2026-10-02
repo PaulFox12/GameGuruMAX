@@ -80,7 +80,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 10 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End
+#define SPLINE_FILE_VERSION 11 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -135,6 +135,7 @@ struct sSplineLayer
 	char name[64] = ""; // each placed one named this with _01, _02, ... after it (the game's scripts find lamps by name), else the entity's own name
 	float keepApart = 600.0f; // none placed this close to one another spline (earlier in the list) placed of the same entity
 	int frozen = 0; // its entities stay as they are, no longer placed again
+	int followSlope = 0; // each tilted to the ground under it (decals, flat things), else upright
 };
 
 // an entity a layer placed, where it was put (found again by its tag and place)
@@ -1678,7 +1679,7 @@ static uint64_t spline_layersignature( int si )
 }
 
 // the element's entity file is loaded and placed at a place and turn, scale in percent; 0 if it can't be
-static int spline_addelement( const char* pEntity, float x, float y, float z, float yaw, float scale )
+static int spline_addelement( const char* pEntity, float x, float y, float z, float yaw, float scale, const float* pUp = nullptr )
 {
 	char pPath[ MAX_PATH ];
 	sprintf_s( pPath, MAX_PATH, "entitybank\\%s", pEntity );
@@ -1713,6 +1714,35 @@ static int spline_addelement( const char* pEntity, float x, float y, float z, fl
 	const int e = t.e;
 	t.gridentity = storeGridEntity;
 	t.grideleprof = storeGridEleprof;
+	if ( e > 0 && pUp && t.entityelement[ e ].obj > 0 && ObjectExist( t.entityelement[ e ].obj ) )
+	{
+		// turned to its heading, then tilted the shortest way from upright to the ground's normal (as the editor's own
+		// rotation, the object turned by the quaternion and the angles read back)
+		GGVECTOR3 up( 0, 1, 0 ), normal( pUp[0], pUp[1], pUp[2] );
+		GGVec3Normalize( &normal, &normal );
+		GGQUATERNION quatYaw, quatTilt;
+		GGQuaternionRotationAxis( &quatYaw, &up, GGToRadian( yaw ) );
+		GGVECTOR3 axis;
+		GGVec3Cross( &axis, &up, &normal );
+		const float axisLength = sqrtf( axis.x * axis.x + axis.y * axis.y + axis.z * axis.z );
+		if ( axisLength > 0.0001f )
+		{
+			axis /= axisLength;
+			GGQuaternionRotationAxis( &quatTilt, &axis, acosf( std::min( 1.0f, std::max( -1.0f, normal.y ) ) ) );
+			const GGQUATERNION quat = quatYaw * quatTilt;
+			const int obj = t.entityelement[ e ].obj;
+			RotateObjectQuat( obj, quat.x, quat.y, quat.z, quat.w );
+			t.entityelement[ e ].rx = ObjectAngleX( obj );
+			t.entityelement[ e ].ry = ObjectAngleY( obj );
+			t.entityelement[ e ].rz = ObjectAngleZ( obj );
+			t.entityelement[ e ].quatmode = 1;
+			t.entityelement[ e ].quatx = quat.x;
+			t.entityelement[ e ].quaty = quat.y;
+			t.entityelement[ e ].quatz = quat.z;
+			t.entityelement[ e ].quatw = quat.w;
+			if ( t.entityelement[ e ].staticflag == 1 ) g.projectmodifiedstatic = 1;
+		}
+	}
 	return e;
 }
 
@@ -1875,7 +1905,22 @@ static void spline_place( int si )
 				while ( yaw >= 360.0f ) yaw -= 360.0f;
 				while ( yaw < 0.0f ) yaw += 360.0f;
 				const float scale = layer.scaleMin + (layer.scaleMax - layer.scaleMin) * spline_random( s.id, li, count, salt * 3 + 3 );
-				const int e = spline_addelement( layer.entity, px, py, pz, yaw, scale );
+				float normal[3] = { 0, 1, 0 };
+				if ( layer.followSlope )
+				{
+					// the ground's slope across 60 u
+					const float step = 30.0f;
+					float hx[2], hz[2];
+					for ( int j = 0; j < 2; j++ )
+					{
+						const float dd = j ? step : -step;
+						if ( !GGTerrain::GGTerrain_GetHeight( px + dd, pz, &hx[j], 1, 1 ) || hx[j] != hx[j] ) hx[j] = spline_groundy( px + dd, pz );
+						if ( !GGTerrain::GGTerrain_GetHeight( px, pz + dd, &hz[j], 1, 1 ) || hz[j] != hz[j] ) hz[j] = spline_groundy( px, pz + dd );
+					}
+					normal[0] = -(hx[1] - hx[0]) / (2.0f * step);
+					normal[2] = -(hz[1] - hz[0]) / (2.0f * step);
+				}
+				const int e = spline_addelement( layer.entity, px, py, pz, yaw, scale, layer.followSlope ? normal : nullptr );
 				if ( e <= 0 ) break;
 				t.entityelement[ e ].eleprof.iObjectReserved1 = SPLINE_ENTITY_TAG;
 				t.entityelement[ e ].eleprof.iObjectReserved2 = s.id;
@@ -2192,7 +2237,12 @@ static void spline_mouse( void )
 {
 	ImGuiIO& io = ImGui::GetIO();
 	const ImVec2 mouse = io.MousePos;
-	const bool bInView = bImGuiRenderTargetFocus && !bImGuiGotFocus
+	// ImGui's hovered window is the one under the mouse whichever window is drawn first this frame (the object library sets
+	// bImGuiGotFocus only when it is drawn, after this)
+	ImGuiWindow* pViewWindow = ImGui::FindWindowByName( TABEDITORNAME );
+	ImGuiWindow* pHovered = GImGui->HoveredWindow;
+	const bool bOverView = !pViewWindow || !pHovered || pHovered->RootWindow == pViewWindow->RootWindow;
+	const bool bInView = bImGuiRenderTargetFocus && !bImGuiGotFocus && bOverView
 		&& !ImGui::IsWindowHovered( ImGuiHoveredFlags_RootAndChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem )
 		&& mouse.x >= renderTargetAreaPos.x && mouse.y >= renderTargetAreaPos.y
 		&& mouse.x < renderTargetAreaPos.x + renderTargetAreaSize.x && mouse.y < renderTargetAreaPos.y + renderTargetAreaSize.y;
@@ -2612,6 +2662,10 @@ static void spline_rowlayers( sSpline& s, float w )
 		spline_row( "Extra Turn" );
 		ImGui::SliderFloat( "##layerturn", &layer.turn, -180.0f, 180.0f, "%.0f deg" );
 		spline_rowmetres( "Height", "##layerheight", &layer.height, -5.0f, 10.0f, "%.2f m" );
+		bool bSlope = layer.followSlope != 0;
+		ImGui::SetCursorPosX( fRowFieldX );
+		if ( ImGui::Checkbox( "Follow Slope##layerslope", &bSlope ) ) layer.followSlope = bSlope ? 1 : 0;
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Tilt each to the ground under it (decals, drain covers, flat things); off keeps them upright (lamps, posts)" );
 		spline_row( "Scale" );
 		float scale[2] = { layer.scaleMin, layer.scaleMax };
 		if ( ImGui::SliderFloat2( "##layerscale", scale, 10.0f, 400.0f, "%.0f %%" ) ) { layer.scaleMin = std::min( scale[0], scale[1] ); layer.scaleMax = std::max( scale[0], scale[1] ); }
@@ -2982,7 +3036,7 @@ void spline_imgui_panel( float w )
 		// the terrain's own tools leave the mouse alone meanwhile, and the splines are shown
 		GGTerrain::ggterrain_extra_params.edit_mode = GGTERRAIN_EDIT_NONE;
 		GGTerrain::ggterrain_global_render_params2.flags2 &= ~GGTERRAIN_SHADER_FLAG2_SHOW_BRUSH_SIZE;
-		spline_draw();
+		if ( g_bSplineEditMode ) spline_draw();
 	}
 	if ( g_bSplineEditMode )
 	{
@@ -3122,6 +3176,8 @@ void spline_savedata( void )
 			put( &layer.frozen, sizeof(layer.frozen) );
 		}
 		put( &v.calmEnd, sizeof(v.calmEnd) );
+		// version 11: Follow Slope
+		for ( const sSplineLayer& layer : s.layers ) put( &layer.followSlope, sizeof(layer.followSlope) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -3269,6 +3325,10 @@ void spline_loaddata( void )
 							layer.name[ 63 ] = 0;
 						}
 						get( &s.river.calmEnd, sizeof(s.river.calmEnd) );
+						if ( version >= 11 )
+						{
+							for ( sSplineLayer& layer : s.layers ) if ( !get( &layer.followSlope, sizeof(layer.followSlope) ) ) break;
+						}
 					}
 					else
 					{
