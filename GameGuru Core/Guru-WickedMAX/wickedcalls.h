@@ -360,7 +360,7 @@ void WickedCall_SetShaderParameter(int obj, int parameter, float value);
 
 // GG: a river's water surface (the spline tool): a mesh drawn with the River Water custom shader (the Water Object
 // shader's scrolling normal maps and shore foam, coloured as the ocean is), its water normal map and colour map made in
-// memory. The colour (0-1, alpha the opacity) and the
+// memory. pUVs2, if given, is the second texture coordinates (with River Water, x the turbulence 0-1). The colour (0-1, alpha the opacity) and the
 // shader's parameters: UV scale, flow speed, wave distortion, flow direction (0-1 of a turn, 0 still), texture scroll,
 // foam size and texture scale
 struct WickedCallWaterLook
@@ -371,6 +371,6 @@ struct WickedCallWaterLook
 	// its minimum amount (0-1)
 	float fogMin = 0.0f, fogMax = 11500.0f, fogMinAmount = 0.25f;
 };
-uint64_t WickedCall_CreateWaterSurface(const float* pPositions, const float* pUVs, uint32_t vertCount, const uint32_t* pIndices, uint32_t indexCount, const WickedCallWaterLook& look);
+uint64_t WickedCall_CreateWaterSurface(const float* pPositions, const float* pUVs, uint32_t vertCount, const uint32_t* pIndices, uint32_t indexCount, const WickedCallWaterLook& look, const float* pUVs2 = 0);
 void WickedCall_SetWaterSurfaceLook(uint64_t entity, const WickedCallWaterLook& look);
 void WickedCall_DeleteWaterSurface(uint64_t entity);

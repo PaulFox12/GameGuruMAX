@@ -30,7 +30,8 @@
 // (WickedCall_CreateWaterSurface, the Water Object shader) at its water depth above the bed (no higher than its lower bank,
 // reaching to the banks and ending at the sea), flowing from the first node to the last, its look the
 // main water's or its own; spline_waterheightat gives the water height anywhere (Lua GetWaterHeightAt), and the whole map
-// navmesh keeps soldiers out of the river water as out of the sea
+// navmesh keeps soldiers out of the river water as out of the sea. Where the river's slope changes sharply it is turbulent:
+// white water and choppy, and it runs faster down a steep run (spline_riverturbulenceat, Lua GetRiverTurbulenceAt)
 
 #include "stdafx.h"
 #include "gameguru.h"
@@ -76,7 +77,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 6 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth
+#define SPLINE_FILE_VERSION 7 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -94,6 +95,13 @@ struct sSplineNode
 	float outX = 0, outZ = 0;
 	int flags = 0;
 	int junction = 0; // nodes of other splines with the same junction share this node's position
+};
+
+// a river's water over a terrain texel: its height, and how turbulent it is there (0-1)
+struct sRiverTexel
+{
+	float height = 0;
+	float turbulence = 0;
 };
 
 // a road's settings, in units (the panel shows metres)
@@ -134,6 +142,8 @@ struct sSplineRiver
 	float foam = 1.0f; // foam size at the banks
 	float ripples = 1.0f; // ripple size
 	int raiseBanks = 1; // where the ground beside it is lower than the water, a bank is raised to hold it
+	float rapids = 1.0f; // white water where the river's slope changes sharply (and a little on steep runs), 0 none
+	float steepFlow = 1.5f; // how much faster the water runs on a steep slope, 0 the same everywhere
 };
 
 // a terrain texel a bake wrote: what it held, and what the bake left there
@@ -172,7 +182,7 @@ struct sSpline
 	float wetFraction = -1.0f; // a river: how much of its bed is below the level's water line, -1 not known yet
 	uint64_t waterEntity = 0; // a river: its water surface (WickedCall_CreateWaterSurface), 0 none
 	uint64_t waterShape = 0, waterLook = 0; // what the surface was built from, and the look it was given
-	std::vector<std::pair<uint32_t, float>> waterTexels; // the terrain texels under its water, and the water's height there
+	std::vector<std::pair<uint32_t, sRiverTexel>> waterTexels; // the terrain texels under its water, its height and turbulence there
 	uint64_t bakedSignature = 0; // the spline as last baked (spline_signature)
 	int bakeCount = 0; // bakes since the level loaded, so a bake again rebuilds the river's water
 	float waterLowered = 0.0f; // a river: how much of it has its water lowered by a bank lower than the water
@@ -209,7 +219,7 @@ static int iApplySpline = -1;
 // drawing: nodes are being added to the selected spline, so a click on another spline's node or curve joins it
 static bool bDrawing = false;
 // the rivers' water over the terrain texels (the highest where rivers meet), for the water height and the navmesh
-static std::unordered_map<uint32_t, float> g_RiverWater;
+static std::unordered_map<uint32_t, sRiverTexel> g_RiverWater;
 // after a level load the water waits this many frames (and for the terrain), so the terrain has taken the level's settings
 static int g_iSplineWaterWait = 0;
 
@@ -1162,7 +1172,7 @@ static void spline_rebuildwatermap( void )
 		for ( const auto& texel : s.waterTexels )
 		{
 			auto it = g_RiverWater.find( texel.first );
-			if ( it == g_RiverWater.end() || texel.second > it->second ) g_RiverWater[ texel.first ] = texel.second;
+			if ( it == g_RiverWater.end() || texel.second.height > it->second.height ) g_RiverWater[ texel.first ] = texel.second;
 		}
 	}
 }
@@ -1247,6 +1257,43 @@ static void spline_buildwater( sSpline& s )
 		level[i] = std::min( c[i].ground + v.waterDepth - sum / count, limit[i] );
 	}
 
+	// the water's slope (downhill positive), its turbulence where the slope changes sharply (the lip and the foot of a steep
+	// run) and a little along a steep run, eased out up and down stream; and how fast it runs, faster where it is steep
+	std::vector<float> grade( n ), turbulence( n ), speed( n );
+	for ( int i = 0; i < n; i++ )
+	{
+		const int a = std::max( 0, i - 2 ), b = std::min( n - 1, i + 2 );
+		grade[i] = c[b].s > c[a].s ? (level[a] - level[b]) / (c[b].s - c[a].s) : 0.0f;
+	}
+	{
+		std::vector<float> raw( n ), widened( n );
+		for ( int i = 0; i < n; i++ )
+		{
+			const float change = fabsf( grade[ std::min( n - 1, i + 3 ) ] - grade[ std::max( 0, i - 3 ) ] );
+			const float steep = std::min( 1.0f, std::max( 0.0f, (grade[i] - 0.1f) / 0.3f ) );
+			raw[i] = std::min( 1.0f, v.rapids * (std::min( 1.0f, change / 0.12f ) + 0.5f * steep) );
+		}
+		for ( int i = 0; i < n; i++ )
+		{
+			float m = raw[i];
+			for ( int j = std::max( 0, i - 2 ); j <= std::min( n - 1, i + 2 ); j++ ) m = std::max( m, raw[j] );
+			widened[i] = m;
+		}
+		for ( int i = 0; i < n; i++ )
+		{
+			float sum = 0, fastSum = 0;
+			int count = 0;
+			for ( int j = std::max( 0, i - 5 ); j <= std::min( n - 1, i + 5 ); j++ )
+			{
+				sum += widened[j];
+				fastSum += 1.0f + v.steepFlow * std::min( 2.0f, std::max( 0.0f, grade[j] ) / 0.15f );
+				count++;
+			}
+			turbulence[i] = std::min( 1.0f, sum / count );
+			speed[i] = std::min( 6.0f, fastSum / count );
+		}
+	}
+
 	// where a side's terrain rises to the level, and a little further while it stays above it
 	auto edge = [&]( int i, int side, float L )
 	{
@@ -1273,7 +1320,9 @@ static void spline_buildwater( sSpline& s )
 		below[i] = level[i] <= sea + 2.0f;
 	}
 	const float tile = 600.0f;
-	std::vector<float> positions, uvs;
+	std::vector<float> along( n, 0.0f );
+	for ( int i = 1; i < n; i++ ) along[i] = along[ i - 1 ] + (c[i].s - c[ i - 1 ].s) / (0.5f * (speed[ i - 1 ] + speed[i]));
+	std::vector<float> positions, uvs, uvs2;
 	std::vector<uint32_t> indices;
 	std::vector<int> vertex( n, -1 );
 	std::vector<float> drawLevel( n ), leftEdge( n ), rightEdge( n );
@@ -1288,9 +1337,11 @@ static void spline_buildwater( sSpline& s )
 		const float right[3] = { c[i].x + nxs[i] * rightEdge[i], drawLevel[i], c[i].z + nzs[i] * rightEdge[i] };
 		positions.insert( positions.end(), left, left + 3 );
 		positions.insert( positions.end(), right, right + 3 );
-		const float uvLeft[2] = { -leftEdge[i] / tile, c[i].s / tile }, uvRight[2] = { rightEdge[i] / tile, c[i].s / tile };
+		const float uvLeft[2] = { -leftEdge[i] / tile, along[i] / tile }, uvRight[2] = { rightEdge[i] / tile, along[i] / tile };
 		uvs.insert( uvs.end(), uvLeft, uvLeft + 2 );
 		uvs.insert( uvs.end(), uvRight, uvRight + 2 );
+		const float rough[4] = { turbulence[i], 0.0f, turbulence[i], 0.0f };
+		uvs2.insert( uvs2.end(), rough, rough + 4 );
 	};
 	std::vector<int> quads;
 	for ( int i = 1; i < n; i++ )
@@ -1305,11 +1356,11 @@ static void spline_buildwater( sSpline& s )
 	}
 	if ( indices.empty() ) return;
 	const WickedCallWaterLook look = spline_waterlook( v );
-	s.waterEntity = WickedCall_CreateWaterSurface( positions.data(), uvs.data(), (uint32_t)(positions.size() / 3), indices.data(), (uint32_t)indices.size(), look );
+	s.waterEntity = WickedCall_CreateWaterSurface( positions.data(), uvs.data(), (uint32_t)(positions.size() / 3), indices.data(), (uint32_t)indices.size(), look, uvs2.data() );
 	s.waterLook = spline_waterlookhash( look );
 
-	// the texels under the water, and its height over each
-	std::unordered_map<uint32_t, float> under;
+	// the texels under the water, and its height and turbulence over each
+	std::unordered_map<uint32_t, sRiverTexel> under;
 	auto toTexel = [E]( float x ) { return (x / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE; };
 	for ( int i : quads )
 	{
@@ -1336,9 +1387,11 @@ static void spline_buildwater( sSpline& s )
 				const float rightLimit = rightEdge[ia] + (rightEdge[ib] - rightEdge[ia]) * tt;
 				if ( lateral < -leftLimit || lateral > rightLimit ) continue;
 				const uint32_t key = (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix;
-				const float h = drawLevel[ia] + (drawLevel[ib] - drawLevel[ia]) * tt;
+				sRiverTexel texel;
+				texel.height = drawLevel[ia] + (drawLevel[ib] - drawLevel[ia]) * tt;
+				texel.turbulence = turbulence[ia] + (turbulence[ib] - turbulence[ia]) * tt;
 				auto it = under.find( key );
-				if ( it == under.end() || h > it->second ) under[ key ] = h;
+				if ( it == under.end() || texel.height > it->second.height ) under[ key ] = texel;
 			}
 		}
 	}
@@ -1352,6 +1405,8 @@ static uint64_t spline_watershape( const sSpline& s )
 	uint64_t h = spline_hashmix( 0xcbf29ce484222325ULL, &s.bakedSignature, sizeof(s.bakedSignature) );
 	h = spline_hashmix( h, &s.bakeCount, sizeof(s.bakeCount) );
 	h = spline_hashmix( h, &s.river.waterDepth, sizeof(s.river.waterDepth) );
+	h = spline_hashmix( h, &s.river.rapids, sizeof(s.river.rapids) );
+	h = spline_hashmix( h, &s.river.steepFlow, sizeof(s.river.steepFlow) );
 	h = spline_hashmix( h, &t.terrain.waterliney_f, sizeof(t.terrain.waterliney_f) );
 	return h ? h : 1;
 }
@@ -1398,12 +1453,24 @@ float spline_waterheightat( float x, float z, int* pIsRiver )
 	const int ix = (int)((x / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE + 0.5f), iz = (int)((z / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE + 0.5f);
 	if ( ix < 0 || iz < 0 || ix >= SPLINE_MAP_SIZE || iz >= SPLINE_MAP_SIZE ) return h;
 	auto it = g_RiverWater.find( (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix );
-	if ( it != g_RiverWater.end() && it->second > h )
+	if ( it != g_RiverWater.end() && it->second.height > h )
 	{
-		h = it->second;
+		h = it->second.height;
 		if ( pIsRiver ) *pIsRiver = 1;
 	}
 	return h;
+}
+
+// how turbulent a river's water is at a point, 0 (smooth, or no river above the sea there) to 1 (rapids)
+float spline_riverturbulenceat( float x, float z )
+{
+	const float E = GGTerrain::GGTerrain_GetEditableSize();
+	if ( g_RiverWater.empty() || E <= 0 ) return 0.0f;
+	const int ix = (int)((x / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE + 0.5f), iz = (int)((z / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE + 0.5f);
+	if ( ix < 0 || iz < 0 || ix >= SPLINE_MAP_SIZE || iz >= SPLINE_MAP_SIZE ) return 0.0f;
+	auto it = g_RiverWater.find( (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix );
+	if ( it == g_RiverWater.end() || it->second.height <= t.terrain.waterliney_f ) return 0.0f;
+	return it->second.turbulence;
 }
 
 // for the navmesh bake: the rivers' water height at a point (none: -1e30), and a hash of their water over a rect (0 none)
@@ -1414,7 +1481,7 @@ float spline_riverwaterlevel( float x, float z )
 	const int ix = (int)((x / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE + 0.5f), iz = (int)((z / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE + 0.5f);
 	if ( ix < 0 || iz < 0 || ix >= SPLINE_MAP_SIZE || iz >= SPLINE_MAP_SIZE ) return -1e30f;
 	auto it = g_RiverWater.find( (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix );
-	return it != g_RiverWater.end() ? it->second : -1e30f;
+	return it != g_RiverWater.end() ? it->second.height : -1e30f;
 }
 
 uint64_t spline_riverwaterinputs( float minX, float minZ, float maxX, float maxZ )
@@ -1428,13 +1495,16 @@ uint64_t spline_riverwaterinputs( float minX, float minZ, float maxX, float maxZ
 	if ( (uint64_t)(ix1 - ix0 + 1) * (uint64_t)(iz1 - iz0 + 1) > g_RiverWater.size() * 4 )
 	{
 		// a large rect (the whole map): every river texel, in key order so the hash doesn't depend on the map's order
-		std::vector<std::pair<uint32_t, float>> all( g_RiverWater.begin(), g_RiverWater.end() );
+		std::vector<std::pair<uint32_t, float>> all;
+		all.reserve( g_RiverWater.size() );
+		for ( const auto& texel : g_RiverWater ) all.push_back( { texel.first, texel.second.height } );
 		std::sort( all.begin(), all.end() );
 		for ( const auto& texel : all )
 		{
 			const int ix = (int)(texel.first % SPLINE_MAP_SIZE), iz = (int)(texel.first / SPLINE_MAP_SIZE);
 			if ( ix < ix0 || ix > ix1 || iz < iz0 || iz > iz1 ) continue;
-			h = spline_hashmix( h, &texel, sizeof(texel) );
+			h = spline_hashmix( h, &texel.first, sizeof(texel.first) );
+			h = spline_hashmix( h, &texel.second, sizeof(texel.second) );
 			bAny = true;
 		}
 	}
@@ -1448,7 +1518,7 @@ uint64_t spline_riverwaterinputs( float minX, float minZ, float maxX, float maxZ
 				auto it = g_RiverWater.find( key );
 				if ( it == g_RiverWater.end() ) continue;
 				h = spline_hashmix( h, &key, sizeof(key) );
-				h = spline_hashmix( h, &it->second, sizeof(it->second) );
+				h = spline_hashmix( h, &it->second.height, sizeof(it->second.height) );
 				bAny = true;
 			}
 		}
@@ -2117,7 +2187,7 @@ void spline_imgui_panel( float w )
 		{
 			sSpline& s = g_Splines[ g_iSplineSelected ];
 			fRowLabelX = ImGui::GetCursorPosX();
-			fRowFieldX = fRowLabelX + ImGui::CalcTextSize( "Shoulder Texture" ).x + 12.0f;
+			fRowFieldX = fRowLabelX + ImGui::CalcTextSize( "Steep Flow Speed" ).x + 12.0f;
 			fRowRight = ImGui::GetWindowContentRegionMax().x - 10.0f;
 			if ( fRowRight < fRowFieldX + 60.0f ) fRowRight = fRowFieldX + 60.0f;
 
@@ -2182,6 +2252,12 @@ void spline_imgui_panel( float w )
 				ImGui::SetCursorPosX( fRowFieldX );
 				if ( ImGui::Checkbox( "Raise Low Banks##splineriverraise", &bRaise ) ) { v.raiseBanks = bRaise ? 1 : 0; bChanged = true; }
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Where the ground beside the river is lower than its water (a dip it crosses, a shallow bank), raise a bank to hold the water; off, the water is lowered or left out there" );
+				spline_row( "Rapids" );
+				bChanged |= ImGui::SliderFloat( "##splineriverrapids", &v.rapids, 0.0f, 2.0f, "%.2f" );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "White water where the river's slope changes sharply (the top and the foot of a steep run), and a little along a steep run; 0 none" );
+				spline_row( "Steep Flow Speed" );
+				bChanged |= ImGui::SliderFloat( "##splineriversteepflow", &v.steepFlow, 0.0f, 4.0f, "%.2f" );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How much faster the water runs where the river is steep; 0 the same everywhere" );
 				bool bMainLook = v.mainLook != 0;
 				ImGui::SetCursorPosX( fRowFieldX );
 				if ( ImGui::Checkbox( "Use the Main Water's Look##splinerivermainlook", &bMainLook ) )
@@ -2443,6 +2519,9 @@ void spline_savedata( void )
 		put( &v.raiseBanks, sizeof(v.raiseBanks) );
 		// version 6: See Depth
 		put( &v.seeDepth, sizeof(v.seeDepth) );
+		// version 7: rapids
+		const float rapids[2] = { v.rapids, v.steepFlow };
+		put( rapids, sizeof(rapids) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -2550,6 +2629,8 @@ void spline_loaddata( void )
 				float seeDepth = 0;
 				if ( version >= 6 && get( &seeDepth, sizeof(seeDepth) ) ) s.river.seeDepth = seeDepth;
 				else if ( version < 6 ) s.river.clarity = 0.75f; // before version 6 clarity was the opacity
+				float rapids[2];
+				if ( version >= 7 && get( rapids, sizeof(rapids) ) ) { s.river.rapids = rapids[0]; s.river.steepFlow = rapids[1]; }
 			}
 		}
 		else

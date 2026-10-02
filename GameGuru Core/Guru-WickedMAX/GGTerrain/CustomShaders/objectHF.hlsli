@@ -1511,6 +1511,13 @@ struct OutputPrepass
 
 	float distortion = 0.0085f * uvdistorsion; // PE: water distortion reflection default 0.0055f
 	float distortion2 = 0.040f * uvdistorsion; // PE: water distortion waves default 0.030f
+#ifdef RIVERWATER
+	// GG: a river's turbulence (rapids), 0-1 in the second texture coordinates: choppier water and white water
+	const float riverTurbulence = saturate(input.uvsets.z);
+	distortion *= 1 + 2 * riverTurbulence;
+	distortion2 *= 1 + 2 * riverTurbulence;
+	float riverFoam = 0;
+#endif // RIVERWATER
 	float WaterSpeed1 = 0.03f * uvspeed; // PE: Speed 1 lower = faster default 30.0f
 	float WaterSpeed2 = 0.0125f * uvspeed; // PE: Speed 2 lower = faster default 70.0f  
 
@@ -1573,6 +1580,9 @@ struct OutputPrepass
 	float foamThreshold = 4.0 * GetMaterial().customShaderParam6;
 	
 	float foamIntensity = saturate((foamThreshold - depth_difference) / foamThreshold);
+#ifdef RIVERWATER
+	foamIntensity = max(foamIntensity, riverTurbulence);
+#endif // RIVERWATER
 
 	[branch]
     if (foamIntensity > 0.0)
@@ -1591,7 +1601,11 @@ struct OutputPrepass
         float upDotNormal = saturate(dot(bumpColor4*2, float3(0, 1, 0)));
 
         foamIntensity *= lerp(0.0, 1.0, upDotNormal * normalInfluenceStrength);
+#ifdef RIVERWATER
+		riverFoam = saturate(foamIntensity); // whitens the water after its lighting
+#else
         baseColorMap.rgb = lerp(baseColorMap.rgb, foamColor, foamIntensity);
+#endif // RIVERWATER
 	}
 
 	//PE: Looks better but needed ?
@@ -2277,7 +2291,9 @@ struct OutputPrepass
 		const float fogMax = max(fogMin + 0.01, GetMaterial().customShaderParam7 * 0.0254);
 		float fade = exp(max(0, riverDepth - fogMin) * (-4.0 / (fogMax - fogMin)));
 		fade = min(saturate(1 - GetMaterial().baseColor.a), fade);
-		surface.refraction = float4(refracted, fade);
+		// foam (the banks', and white water where the river is turbulent) hides the water beneath
+		surface.albedo = lerp(surface.albedo, 0.8, riverFoam);
+		surface.refraction = float4(refracted, fade * (1 - riverFoam));
 		color.a = 1;
 	}
 #endif // RIVERWATER

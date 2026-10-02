@@ -9594,7 +9594,7 @@ static void WickedCall_ApplyWaterLook(MaterialComponent& material, const WickedC
 	material.SetDirty();
 }
 
-uint64_t WickedCall_CreateWaterSurface(const float* pPositions, const float* pUVs, uint32_t vertCount, const uint32_t* pIndices, uint32_t indexCount, const WickedCallWaterLook& look)
+uint64_t WickedCall_CreateWaterSurface(const float* pPositions, const float* pUVs, uint32_t vertCount, const uint32_t* pIndices, uint32_t indexCount, const WickedCallWaterLook& look, const float* pUVs2)
 {
 	if (vertCount == 0 || indexCount == 0) return 0;
 	Scene& scene = wiScene::GetScene();
@@ -9624,6 +9624,11 @@ uint64_t WickedCall_CreateWaterSurface(const float* pPositions, const float* pUV
 		mesh.vertex_positions[i] = XMFLOAT3(pPositions[i * 3 + 0], pPositions[i * 3 + 1], pPositions[i * 3 + 2]);
 		mesh.vertex_normals[i] = XMFLOAT3(0.0f, 1.0f, 0.0f);
 		mesh.vertex_uvset_0[i] = XMFLOAT2(pUVs[i * 2 + 0], pUVs[i * 2 + 1]);
+	}
+	if (pUVs2)
+	{
+		mesh.vertex_uvset_1.resize(vertCount);
+		for (uint32_t i = 0; i < vertCount; i++) mesh.vertex_uvset_1[i] = XMFLOAT2(pUVs2[i * 2 + 0], pUVs2[i * 2 + 1]);
 	}
 	mesh.indices.assign(pIndices, pIndices + indexCount);
 	mesh.subsets.back().indexCount = indexCount;
