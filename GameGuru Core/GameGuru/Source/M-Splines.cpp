@@ -2681,6 +2681,26 @@ static void spline_findsnap( ImVec2 mouse )
 	}
 }
 
+// a drag's start: where the mouse was, and the dragged node's (or handle's) offset from the ground under it, so a node
+// clicked off its centre doesn't jump to the mouse (or snap onto one nearby), and nothing moves until the mouse does
+static ImVec2 vDragStart;
+static float fDragOffsetX = 0.0f, fDragOffsetZ = 0.0f;
+static bool bDragMoved = false;
+static void spline_dragstart( const ImVec2& mouse )
+{
+	vDragStart = mouse;
+	bDragMoved = false;
+	fDragOffsetX = fDragOffsetZ = 0.0f;
+	float x, y, z;
+	if ( iDragNode < 0 || !spline_terrainpick( &x, &y, &z ) ) return;
+	const sSplineNode& node = g_Splines[ iDragSpline ].nodes[ iDragNode ];
+	float targetX = node.x, targetZ = node.z;
+	if ( iDragHandle == 1 ) { targetX += node.inX; targetZ += node.inZ; }
+	else if ( iDragHandle == 2 ) { targetX += node.outX; targetZ += node.outZ; }
+	fDragOffsetX = targetX - x;
+	fDragOffsetZ = targetZ - z;
+}
+
 static void spline_mouse( void )
 {
 	ImGuiIO& io = ImGui::GetIO();
@@ -2706,10 +2726,14 @@ static void spline_mouse( void )
 	{
 		sSpline& s = g_Splines[ iDragSpline ];
 		float x, y, z;
+		if ( io.MouseDown[0] && !bDragMoved && fabsf( mouse.x - vDragStart.x ) + fabsf( mouse.y - vDragStart.y ) >= 4.0f ) bDragMoved = true;
 		if ( io.MouseDown[0] )
 		{
-			if ( spline_terrainpick( &x, &y, &z ) )
+			if ( bDragMoved && spline_terrainpick( &x, &y, &z ) )
 			{
+				x += fDragOffsetX;
+				z += fDragOffsetZ;
+				y = spline_groundy( x, z );
 				if ( iDragHandle == 0 )
 				{
 					spline_findsnap( mouse );
@@ -2832,6 +2856,7 @@ static void spline_mouse( void )
 		iDragNode = ni;
 		iDragHandle = h;
 		if ( io.KeyAlt ) g_Splines[ iDragSpline ].nodes[ ni ].flags |= SPLINE_NODE_BROKEN;
+		spline_dragstart( mouse );
 		return;
 	}
 
@@ -2855,6 +2880,7 @@ static void spline_mouse( void )
 		iDragSpline = si;
 		iDragNode = ni;
 		iDragHandle = 0;
+		spline_dragstart( mouse );
 		return;
 	}
 
@@ -2866,6 +2892,7 @@ static void spline_mouse( void )
 		iDragSpline = si;
 		iDragNode = g_iSplineNodeSelected;
 		iDragHandle = 0;
+		spline_dragstart( mouse );
 		return;
 	}
 
@@ -2893,6 +2920,7 @@ static void spline_mouse( void )
 	iDragSpline = g_iSplineSelected;
 	iDragNode = at;
 	iDragHandle = 0;
+	spline_dragstart( mouse );
 	spline_modified();
 }
 
