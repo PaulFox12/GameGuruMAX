@@ -9213,6 +9213,19 @@ int GetRiverTurbulenceAt(lua_State *L)
 	lua_pushnumber(L, spline_riverturbulenceat(lua_tonumber(L, 1), lua_tonumber(L, 2)));
 	return 1;
 }
+// GG: GetWaterFlowAt(x, z): a river's current at a point (the editor's Roads and Rivers splines), x and z in units a second
+// downstream and its speed; 0, 0, 0 where no river flows above the sea
+int GetWaterFlowAt(lua_State *L)
+{
+	lua = L;
+	if (LUA_GETTOP(L) < 2) return 0;
+	float fFlowX = 0, fFlowZ = 0;
+	spline_waterflowat(lua_tonumber(L, 1), lua_tonumber(L, 2), &fFlowX, &fFlowZ);
+	lua_pushnumber(L, fFlowX);
+	lua_pushnumber(L, fFlowZ);
+	lua_pushnumber(L, sqrtf(fFlowX * fFlowX + fFlowZ * fFlowZ));
+	return 3;
+}
 int GetWaterWaveIntensity(lua_State *L)
 {
 	lua = L;
@@ -17405,6 +17418,7 @@ void addFunctions()
 	lua_register(lua, "GetWaterHeight", GetWaterHeight);
 	lua_register(lua, "GetWaterHeightAt", GetWaterHeightAt);
 	lua_register(lua, "GetRiverTurbulenceAt", GetRiverTurbulenceAt);
+	lua_register(lua, "GetWaterFlowAt", GetWaterFlowAt);
 	lua_register(lua, "GetWaterWaveIntensity", GetWaterWaveIntensity);
 	lua_register(lua, "GetWaterShaderColorRed", GetWaterShaderColorRed);
 	lua_register(lua, "GetWaterShaderColorGreen", GetWaterShaderColorGreen);

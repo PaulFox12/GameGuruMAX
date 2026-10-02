@@ -2683,6 +2683,7 @@ SetRippleWaterSpeed(value) -- sets water setting attributes
 GetWaterHeight() -- gets water setting attributes
 GetWaterHeightAt : height, isRiver = GetWaterHeightAt ( x, z ) -- the water surface's height at a point: a river's (the editor's Roads and Rivers splines) where one flows over it, else the level's water line; isRiver 1 for a river, 0 for the sea
 GetRiverTurbulenceAt : turbulence = GetRiverTurbulenceAt ( x, z ) -- how rough a river's water is at a point (the editor's Roads and Rivers splines): 0 smooth, or no river above the sea there, to 1 rapids where its slope changes sharply
+GetWaterFlowAt : flowX, flowZ, speed = GetWaterFlowAt ( x, z ) -- a river's current at a point (the editor's Roads and Rivers splines): its x and z in units a second downstream, and its speed; 0, 0, 0 where no river flows above the sea
 GetWaterWaveIntensity() -- gets water setting attributes
 GetWaterShaderColorRed() -- gets water setting attributes
 GetWaterShaderColorGreen() -- gets water setting attributes
