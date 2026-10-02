@@ -80,7 +80,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 16 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat
+#define SPLINE_FILE_VERSION 17 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -107,6 +107,7 @@ struct sRiverTexel
 	float height = 0;
 	float turbulence = 0;
 	float flowX = 0, flowZ = 0; // the current, units a second downstream
+	float wade = 0; // the ground under it walkable this far down (the river's Wade Depth)
 };
 
 // a placement layer: copies of an entity along a road or a river, spacing apart, on its sides or its centre
@@ -189,6 +190,7 @@ struct sSplineRiver
 	float rapids = 1.0f; // white water where the river's slope changes sharply (and a little on steep runs), 0 none
 	float steepFlow = 1.5f; // how much faster the water runs on a steep slope, 0 the same everywhere
 	int calmEnd = 1; // the rapids fade out before its last node (they always fade before the sea)
+	float wadeDepth = 35.4f; // the navmesh walks its bed where the water is no deeper than this (0.9 m), 0 none of it
 };
 
 // a terrain texel a bake wrote: what it held, and what the bake left there
@@ -1510,6 +1512,7 @@ static void spline_buildwater( sSpline& s )
 				sRiverTexel texel;
 				texel.height = drawLevel[ia] + (drawLevel[ib] - drawLevel[ia]) * tt;
 				texel.turbulence = turbulence[ia] + (turbulence[ib] - turbulence[ia]) * tt;
+				texel.wade = s.river.wadeDepth;
 				const float flow = baseFlow * (speed[ia] + (speed[ib] - speed[ia]) * tt);
 				texel.flowX = (nzs[ia] + (nzs[ib] - nzs[ia]) * tt) * flow; // downstream is the normal turned back a quarter
 				texel.flowZ = -(nxs[ia] + (nxs[ib] - nxs[ia]) * tt) * flow;
@@ -1531,6 +1534,7 @@ static uint64_t spline_watershape( const sSpline& s )
 	h = spline_hashmix( h, &s.river.rapids, sizeof(s.river.rapids) );
 	h = spline_hashmix( h, &s.river.steepFlow, sizeof(s.river.steepFlow) );
 	h = spline_hashmix( h, &s.river.calmEnd, sizeof(s.river.calmEnd) );
+	h = spline_hashmix( h, &s.river.wadeDepth, sizeof(s.river.wadeDepth) );
 	const WickedCallWaterLook look = spline_waterlook( s.river );
 	h = spline_hashmix( h, &look.speed, sizeof(look.speed) );
 	h = spline_hashmix( h, &look.uvScale, sizeof(look.uvScale) );
@@ -1614,7 +1618,8 @@ float spline_riverturbulenceat( float x, float z )
 	return it->second.turbulence;
 }
 
-// for the navmesh bake: the rivers' water height at a point (none: -1e30), and a hash of their water over a rect (0 none)
+// for the navmesh bake: the level under the rivers' water above which the ground is walkable at a point, the water's height
+// less the river's wade depth (none: -1e30), and a hash of those levels over a rect (0 none)
 float spline_riverwaterlevel( float x, float z )
 {
 	const float E = GGTerrain::GGTerrain_GetEditableSize();
@@ -1622,7 +1627,7 @@ float spline_riverwaterlevel( float x, float z )
 	const int ix = (int)((x / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE + 0.5f), iz = (int)((z / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE + 0.5f);
 	if ( ix < 0 || iz < 0 || ix >= SPLINE_MAP_SIZE || iz >= SPLINE_MAP_SIZE ) return -1e30f;
 	auto it = g_RiverWater.find( (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix );
-	return it != g_RiverWater.end() ? it->second.height : -1e30f;
+	return it != g_RiverWater.end() ? it->second.height - it->second.wade : -1e30f;
 }
 
 uint64_t spline_riverwaterinputs( float minX, float minZ, float maxX, float maxZ )
@@ -1638,7 +1643,7 @@ uint64_t spline_riverwaterinputs( float minX, float minZ, float maxX, float maxZ
 		// a large rect (the whole map): every river texel, in key order so the hash doesn't depend on the map's order
 		std::vector<std::pair<uint32_t, float>> all;
 		all.reserve( g_RiverWater.size() );
-		for ( const auto& texel : g_RiverWater ) all.push_back( { texel.first, texel.second.height } );
+		for ( const auto& texel : g_RiverWater ) all.push_back( { texel.first, texel.second.height - texel.second.wade } );
 		std::sort( all.begin(), all.end() );
 		for ( const auto& texel : all )
 		{
@@ -1658,8 +1663,9 @@ uint64_t spline_riverwaterinputs( float minX, float minZ, float maxX, float maxZ
 				const uint32_t key = (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix;
 				auto it = g_RiverWater.find( key );
 				if ( it == g_RiverWater.end() ) continue;
+				const float level = it->second.height - it->second.wade;
 				h = spline_hashmix( h, &key, sizeof(key) );
-				h = spline_hashmix( h, &it->second.height, sizeof(it->second.height) );
+				h = spline_hashmix( h, &level, sizeof(level) );
 				bAny = true;
 			}
 		}
@@ -3378,6 +3384,7 @@ static void spline_parsepresets( const char* pText, bool bUser, std::vector<sSpl
 		else if ( key == "banks" ) p.river.banks = f * M;
 		else if ( key == "downhill" ) p.river.downhill = i != 0;
 		else if ( key == "waterdepth" ) p.river.waterDepth = f * M;
+		else if ( key == "wadedepth" ) p.river.wadeDepth = f * M;
 		else if ( key == "rapids" ) p.river.rapids = f;
 		else if ( key == "steepflow" ) p.river.steepFlow = f;
 		else if ( key == "bankfoam" ) p.river.foam = f;
@@ -3594,7 +3601,8 @@ static std::string spline_presetentity( const std::string& candidates, std::vect
 }
 
 // what a preset sets: Edited shows once these differ from when it was set
-static uint64_t spline_presetsignature( const sSpline& s )
+// (riverBytes and layerBytes: the settings as an older version had them, the fields added since left out)
+static uint64_t spline_presetsignature( const sSpline& s, size_t riverBytes = sizeof(sSplineRiver), size_t layerBytes = sizeof(sSplineLayer) )
 {
 	uint64_t h = 0xcbf29ce484222325ULL;
 	h = spline_hashmix( h, &s.kind, sizeof(s.kind) );
@@ -3603,8 +3611,8 @@ static uint64_t spline_presetsignature( const sSpline& s )
 	sSplineRiver v = s.river;
 	v.autoApply = 0;
 	if ( s.kind == SPLINE_KIND_ROAD ) h = spline_hashmix( h, &r, sizeof(r) );
-	if ( s.kind == SPLINE_KIND_RIVER ) h = spline_hashmix( h, &v, sizeof(v) );
-	for ( const sSplineLayer& layer : s.layers ) if ( !layer.frozen ) h = spline_hashmix( h, &layer, sizeof(layer) );
+	if ( s.kind == SPLINE_KIND_RIVER ) h = spline_hashmix( h, &v, riverBytes );
+	for ( const sSplineLayer& layer : s.layers ) if ( !layer.frozen ) h = spline_hashmix( h, &layer, layerBytes );
 	return h ? h : 1;
 }
 
@@ -3696,6 +3704,7 @@ static void spline_writepreset( std::string& out, const sSplinePreset& p )
 		line( "banktexture", p.textures[1] );
 		number( "downhill", (float)v.downhill );
 		metres( "waterdepth", v.waterDepth );
+		metres( "wadedepth", v.wadeDepth );
 		number( "rapids", v.rapids );
 		number( "steepflow", v.steepFlow );
 		number( "bankfoam", v.foam );
@@ -4294,6 +4303,8 @@ void spline_imgui_panel( float w )
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Trees are hidden this far past the edge of the bed" );
 				bChanged |= spline_rowmetres( "Water Depth", "##splineriverwaterdepth", &v.waterDepth, 0.0f, std::max( 0.5f, v.depth / SPLINE_UNITS_PER_M ) );
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How deep the river's water is above its bed (0: a dry channel)" );
+				bChanged |= spline_rowmetres( "Wade Depth", "##splineriverwadedepth", &v.wadeDepth, 0.0f, 2.0f );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Characters walk through the river where its water is no deeper than this (the navmesh, for paths): a shallow river is crossed, a deep one only along its edges; 0 none of it" );
 				bool bRaise = v.raiseBanks != 0;
 				ImGui::SetCursorPosX( fRowFieldX );
 				if ( ImGui::Checkbox( "Raise Low Banks##splineriverraise", &bRaise ) ) { v.raiseBanks = bRaise ? 1 : 0; bChanged = true; }
@@ -4644,6 +4655,8 @@ void spline_savedata( void )
 		for ( const sSplineNode& node : s.nodes ) put( &node.segCurve, sizeof(node.segCurve) );
 		// version 16: Lay Flat
 		for ( const sSplineLayer& layer : s.layers ) put( &layer.layFlat, sizeof(layer.layFlat) );
+		// version 17: Wade Depth
+		put( &v.wadeDepth, sizeof(v.wadeDepth) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -4813,6 +4826,13 @@ void spline_loaddata( void )
 						if ( version >= 16 )
 						{
 							for ( sSplineLayer& layer : s.layers ) if ( !get( &layer.layFlat, sizeof(layer.layFlat) ) ) break;
+						}
+						if ( version >= 17 ) get( &s.river.wadeDepth, sizeof(s.river.wadeDepth) );
+						if ( version < 17 && s.preset[0] && s.presetSignature == spline_presetsignature( s, offsetof( sSplineRiver, wadeDepth ), version < 16 ? offsetof( sSplineLayer, layFlat ) : sizeof(sSplineLayer) ) )
+						{
+							// still as its preset set it, by the settings that file had: so too by today's (Lay Flat and Wade
+							// Depth added since), so it doesn't show as edited
+							s.presetSignature = spline_presetsignature( s );
 						}
 						if ( version < 12 )
 						{

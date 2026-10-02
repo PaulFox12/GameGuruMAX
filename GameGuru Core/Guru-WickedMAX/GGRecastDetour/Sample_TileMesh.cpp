@@ -1188,7 +1188,7 @@ void Sample_TileMesh::rasteriseBakeInputs( TileMeshData* tempData, int index, co
 	if ( !areas.empty() ) rcRasterizeTriangles( 0, tris.data(), areas.data(), (int)areas.size(), *tempData->m_solid, cfg.walkableClimb );
 
 	// below the water nothing is walkable; a bridge or pier above it keeps its surface. A river's water (above the sea)
-	// counts the same where it flows
+	// counts the same where it flows, less the depth it can be waded
 	rcHeightfield& hf = *tempData->m_solid;
 	const bool bRivers = m_pBake->pfnWaterLevel && m_pBake->pfnWaterInputs && m_pBake->pfnWaterInputs( hf.bmin[0], hf.bmin[2], hf.bmax[0], hf.bmax[2] ) != 0;
 	if ( m_pBake->waterY > -1e29f || bRivers )
