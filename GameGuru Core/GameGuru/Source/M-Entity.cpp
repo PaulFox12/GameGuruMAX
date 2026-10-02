@@ -1938,6 +1938,11 @@ void entity_loaddata ( void )
 		t.entityprofile[t.entid].ismarker = 0;  //PE: Was not reset.
 		t.entityprofile[t.entid].ischaracter = 0;
 		t.entityprofile[t.entid].bIsDecal = false; //PE: Was not set.
+		t.entityprofile[t.entid].entitylight = 0;
+		t.entityprofile[t.entid].entitylightx = 0.0f;
+		t.entityprofile[t.entid].entitylighty = 0.0f;
+		t.entityprofile[t.entid].entitylightz = 0.0f;
+		t.entityprofile[t.entid].entitylightshadows = 0;
 		t.entityprofile[t.entid].isspinetracker = 1;
 		t.entityprofile[t.entid].phyweight=100;
 		t.entityprofile[t.entid].phyfriction=100;
@@ -2975,6 +2980,18 @@ void entity_loaddata ( void )
 					// light type flags
 					cmpStrConst( t_field_s, "usespotlighting" );
 					if (  matched  )  t.entityprofile[t.entid].usespotlighting = t.value1;
+
+					// GG: a light each placed one carries (lightrange and lightcolor give its range and colour)
+					cmpStrConst( t_field_s, "entitylight" );
+					if (  matched  )  t.entityprofile[t.entid].entitylight = t.value1;
+					cmpStrConst( t_field_s, "entitylightx" );
+					if (  matched  )  t.entityprofile[t.entid].entitylightx = t.value1_f;
+					cmpStrConst( t_field_s, "entitylighty" );
+					if (  matched  )  t.entityprofile[t.entid].entitylighty = t.value1_f;
+					cmpStrConst( t_field_s, "entitylightz" );
+					if (  matched  )  t.entityprofile[t.entid].entitylightz = t.value1_f;
+					cmpStrConst( t_field_s, "entitylightshadows" );
+					if (  matched  )  t.entityprofile[t.entid].entitylightshadows = t.value1;
 
 					//  trigger extras
 					cmpStrConst( t_field_s, "stylecolor" );
@@ -8166,12 +8183,13 @@ void entity_addentitytomap ( void )
 
 	//PE: Moved here as we use the object direction vector for spot lights.
 	// update infinilight list with addition
-	if (t.entityprofile[t.entitybankindex].ismarker == 2 || t.entityprofile[t.entitybankindex].ismarker == 5 || t.entityelement[t.e].eleprof.usespotlighting)
+	if (t.entityprofile[t.entitybankindex].ismarker == 2 || t.entityprofile[t.entitybankindex].ismarker == 5 || t.entityelement[t.e].eleprof.usespotlighting || t.entityprofile[t.entitybankindex].entitylight)
 	{
 		//PE: Some weapons have usespotlighting , this ruin all the lua light states.
-		if (!(t.bSpawnCalledFromLua && t.entityprofile[t.entitybankindex].ismarker == 0 ))
+		// GG: an entity that carries a light gets it however it was added
+		if (!(t.bSpawnCalledFromLua && t.entityprofile[t.entitybankindex].ismarker == 0 ) || t.entityprofile[t.entitybankindex].entitylight)
 		{
-			lighting_refresh();
+			lighting_refreshorhold();
 			entity_updatelightobj(t.e, t.entityelement[t.e].obj);
 		}
 	}
@@ -8236,10 +8254,10 @@ void entity_deleteentityfrommap ( void )
 	t.tDontDeleteWPFlag = 0;
 
 	// update infinilight list with removal
-	if ( t.entityprofile[iWasEntID].ismarker == 2 || t.entityprofile[iWasEntID].ismarker == 5 ) 
+	if ( t.entityprofile[iWasEntID].ismarker == 2 || t.entityprofile[iWasEntID].ismarker == 5 || t.entityprofile[iWasEntID].entitylight )
 	{
 		//  refresh existing lights
-		lighting_refresh ( );
+		lighting_refreshorhold ( );
 	}
 	//Delete any particle effects.
 	if (g_UndoSysObjectIsBeingMoved != true)

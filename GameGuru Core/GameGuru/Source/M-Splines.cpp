@@ -1809,6 +1809,8 @@ static void spline_unplace( sSpline& s )
 {
 	if ( s.placed.empty() ) return;
 	extern bool DeleteEntityFromLists( int e );
+	// entities carrying lights rebuild the light list once, after all are gone
+	lighting_holdrefresh( true );
 	for ( int e = 1; e <= g.entityelementlist; e++ )
 	{
 		if ( t.entityelement[ e ].maintype == 0 || t.entityelement[ e ].bankindex <= 0 ) continue;
@@ -1829,6 +1831,7 @@ static void spline_unplace( sSpline& s )
 		entity_deleteentityfrommap();
 		t.tentitytoselect = 0;
 	}
+	lighting_holdrefresh( false );
 	// a frozen layer's entities stay, and stay known
 	std::vector<sSplinePlaced> kept;
 	for ( const sSplinePlaced& placed : s.placed )
@@ -2014,16 +2017,20 @@ static void spline_place( int si )
 static void spline_placechanged( void )
 {
 	if ( iDragNode >= 0 || ImGui::IsAnyItemActive() ) return;
-	// in list order, so a spline placing again is seen by the later ones near it in the same pass
+	// in list order, so a spline placing again is seen by the later ones near it in the same pass; entities carrying lights
+	// (lamps) rebuild the light list once, after the pass
+	bool bHeld = false;
 	for ( int si = 0; si < (int)g_Splines.size(); si++ )
 	{
 		sSpline& s = g_Splines[ si ];
 		const uint64_t signature = spline_layersignature( si );
 		if ( signature == s.placedSignature ) continue;
 		if ( s.kind == SPLINE_KIND_RIVER && !s.baked.empty() && s.waterShape != spline_watershape( s ) ) continue;
+		if ( !bHeld ) { lighting_holdrefresh( true ); bHeld = true; }
 		spline_place( si );
 		s.placedSignature = spline_layersignature( si );
 	}
+	if ( bHeld ) lighting_holdrefresh( false );
 }
 
 // a new layer, set for the spline's kind: the Long Bien bridge's streetlights along a road, rocks along a river

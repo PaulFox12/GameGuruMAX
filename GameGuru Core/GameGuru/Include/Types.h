@@ -5852,6 +5852,9 @@ struct entityprofiletype
 	int range;
 	int dropoff;
 	int usespotlighting;
+	int entitylight; // GG: each placed one carries a light of its own (.fpe entitylight), made and placed by the engine
+	float entitylightx, entitylighty, entitylightz; // where, in the model's own space (.fpe entitylightx/y/z)
+	int entitylightshadows; // it casts shadows (.fpe entitylightshadows), off by default
 	float lifespan;
 	float throwspeed;
 	float throwangle;
@@ -6050,6 +6053,11 @@ struct entityprofiletype
 		 throwspeed = 0.0f;
 		 lifespan = 0.0f;
 		 usespotlighting = 0;
+		 entitylight = 0;
+		 entitylightx = 0.0f;
+		 entitylighty = 0.0f;
+		 entitylightz = 0.0f;
+		 entitylightshadows = 0;
 		 dropoff = 0;
 		 range = 0;
 		 fireiterations = 0;
@@ -8276,10 +8284,12 @@ struct infinilighttype
 	float fLightHasProbe;
 	float spotlightradius;
 	bool bCanShadow;
+	bool bEntityLight; // GG: the light entity e carries (its .fpe's entitylight), placed with it every frame
 
 	// Constructor
 	infinilighttype ( )
 	{
+		 bEntityLight = false;
 		 bCanShadow = true;
 		 wickedlightindex = 0;
 		 fLightHasProbe = 0.0f;

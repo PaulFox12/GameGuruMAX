@@ -158,6 +158,31 @@ void lighting_loop(void)
 
 	lighting_weaponFlash_loop(); //Handles weapon gun flash
 
+	// GG: a light an entity carries is where the entity's model puts it, every frame; while the entity is hidden or gone it
+	// waits far below the world, its range kept (a light switched on or off makes the reflection probes capture again)
+	for ( int l = 1; l <= g.infinilightmax; l++ )
+	{
+		infinilighttype* pLightPtr = &t.infinilight[l];
+		if ( !pLightPtr->bEntityLight ) continue;
+		const int e = pLightPtr->e;
+		const int entid = (e > 0 && e <= g.entityelementlist) ? t.entityelement[e].bankindex : 0;
+		const int obj = entid > 0 ? t.entityelement[e].obj : 0;
+		sObject* pObject = (obj > 0 && ObjectExist(obj) == 1 && GetVisible(obj) == 1) ? GetObjectData(obj) : NULL;
+		if ( !pObject )
+		{
+			pLightPtr->x = 0;
+			pLightPtr->y = -900000.0f;
+			pLightPtr->z = 0;
+			continue;
+		}
+		GGVECTOR3 vecLocal( t.entityprofile[entid].entitylightx, t.entityprofile[entid].entitylighty, t.entityprofile[entid].entitylightz );
+		GGVECTOR3 vecWorld;
+		GGVec3TransformCoord( &vecWorld, &vecLocal, &pObject->position.matWorld );
+		pLightPtr->x = vecWorld.x;
+		pLightPtr->y = vecWorld.y;
+		pLightPtr->z = vecWorld.z;
+	}
+
 	// Wicked can host ALL the lights in the scene, so pass them to wicked
 	if ( g.infinilightmax > 0 && g.infinilightmax <= ArrayCount(t.infinilight) )
 	{
