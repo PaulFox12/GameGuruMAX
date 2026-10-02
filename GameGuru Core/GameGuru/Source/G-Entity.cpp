@@ -4890,25 +4890,33 @@ void entity_resetmaterial ( int e )
 		sMesh* pMesh = pObject->ppMeshList[iMeshIndex];
 		if (pMesh && pMesh->bInstanced && pMesh->wickedmaterialindex == 0 && pMesh->master_wickedmaterialindex > 0) bInstanced = true;
 	}
-	if (bInstanced)
+	int iMasterObj = g.entitybankoffset + entid;
+	if (ObjectExist(iMasterObj) == 1)
 	{
-		int iMasterObj = g.entitybankoffset + entid;
-		if (ObjectExist(iMasterObj) == 1)
+		sObject* pMasterObject = GetObjectData(iMasterObj);
+		if (bInstanced)
 		{
-			sObject* pMasterObject = GetObjectData(iMasterObj);
 			WickedSetEntityId(entid);
 			WickedSetElementId(0);
 			WickedCall_TextureObject(pMasterObject, NULL);
 			WickedSetEntityId(-1);
 			WickedCall_CopyMaterialColorsToMeshes(pMasterObject);
+		}
 
-			// the instance's meshes keep their own copy of the material, which the getters read and the next change writes
-			// back, so they take the master's
+		// the meshes keep their own copy of the material, which the getters read and the next change writes back, so they
+		// take the master's again, as at level load. An instance shares the master's material; a clone (an animated entity)
+		// owns one, and the .fpe alone can't restore its base colour, as a white one (4294967295) reads as not set. Not for
+		// entities whose meshes are their own (markers, structures, characters made in the creator)
+		bool bOwnMeshes = t.entityprofile[entid].ismarker != 0 || t.entityprofile[entid].isebe != 0 || t.entityprofile[entid].ischaractercreator == 1;
+		if (bInstanced || (!bOwnMeshes && pObject->iMeshCount == pMasterObject->iMeshCount))
+		{
 			for (int iMeshIndex = 0; iMeshIndex < pObject->iMeshCount && iMeshIndex < pMasterObject->iMeshCount; iMeshIndex++)
 			{
 				sMesh* pMesh = pObject->ppMeshList[iMeshIndex];
 				sMesh* pMasterMesh = pMasterObject->ppMeshList[iMeshIndex];
-				if (pMesh && pMasterMesh && pMesh->bInstanced && pMesh->wickedmaterialindex == 0) pMesh->mMaterial = pMasterMesh->mMaterial;
+				if (!pMesh || !pMasterMesh) continue;
+				if (bInstanced && !(pMesh->bInstanced && pMesh->wickedmaterialindex == 0)) continue;
+				pMesh->mMaterial = pMasterMesh->mMaterial;
 			}
 		}
 	}
