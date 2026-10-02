@@ -265,6 +265,10 @@ static float fSnapT = 0, fSnapX = 0, fSnapY = 0, fSnapZ = 0;
 static bool bConnectMode = false;
 // Apply: this spline is baked now, whether or not it changed
 static int iApplySpline = -1;
+// the frame a level's splines were loaded: nothing is baked or placed again for a while after it, so a bake never runs on
+// a level still settling (a bake at load captured the wrong ground under a road, and a re-place put its entities out of sight)
+static int g_iSplineLoadFrame = -1000;
+#define SPLINE_LOAD_SETTLE_FRAMES 60
 // an undo or redo put these splines (ids) back as they were baked: they are baked now, whether or not they Update as I Edit
 static std::unordered_set<int> g_SplineForceBake;
 // the object library is open to pick a layer's entity
@@ -655,9 +659,6 @@ static uint64_t spline_signature( const sSpline& s )
 {
 	uint64_t h = 0xcbf29ce484222325ULL;
 	auto mix = [&h]( const void* p, size_t bytes ) { const uint8_t* b = (const uint8_t*)p; for ( size_t i = 0; i < bytes; i++ ) { h ^= b[i]; h *= 0x100000001b3ULL; } };
-	// 2: paint and grass by the texel's centre; a spline baked before is baked again (Update as I Edit)
-	const int bakeVersion = 2;
-	mix( &bakeVersion, sizeof(bakeVersion) );
 	mix( &s.kind, sizeof(s.kind) );
 	mix( &s.curve, sizeof(s.curve) );
 	mix( &s.closed, sizeof(s.closed) );
@@ -1187,6 +1188,7 @@ static void spline_unbake( int si )
 static void spline_bakechanged( void )
 {
 	if ( iDragNode >= 0 || ImGui::IsAnyItemActive() ) return;
+	if ( ImGui::GetFrameCount() - g_iSplineLoadFrame < SPLINE_LOAD_SETTLE_FRAMES ) return;
 	if ( !GGTerrain::GGTerrain_IsReady() ) return;
 	const size_t count = g_Splines.size();
 	std::vector<char> in( count, 0 );
@@ -2053,6 +2055,7 @@ static void spline_place( int si )
 static void spline_placechanged( void )
 {
 	if ( iDragNode >= 0 || ImGui::IsAnyItemActive() ) return;
+	if ( ImGui::GetFrameCount() - g_iSplineLoadFrame < SPLINE_LOAD_SETTLE_FRAMES ) return;
 	// in list order, so a spline placing again is seen by the later ones near it in the same pass; entities carrying lights
 	// (lamps) rebuild the light list once, after the pass
 	bool bHeld = false;
@@ -4624,6 +4627,7 @@ void spline_savedata( void )
 void spline_loaddata( void )
 {
 	spline_deleteall();
+	if ( ImGui::GetCurrentContext() ) g_iSplineLoadFrame = ImGui::GetFrameCount();
 	char pPath[ MAX_PATH ];
 	strcpy_s( pPath, MAX_PATH, (g.mysystem.levelBankTestMap_s + "map.spl").Get() );
 	GG_GetRealPath( pPath, 0 );
