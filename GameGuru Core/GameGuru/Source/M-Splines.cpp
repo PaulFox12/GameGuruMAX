@@ -639,6 +639,9 @@ static uint64_t spline_signature( const sSpline& s )
 {
 	uint64_t h = 0xcbf29ce484222325ULL;
 	auto mix = [&h]( const void* p, size_t bytes ) { const uint8_t* b = (const uint8_t*)p; for ( size_t i = 0; i < bytes; i++ ) { h ^= b[i]; h *= 0x100000001b3ULL; } };
+	// 2: paint and grass by the texel's centre; a spline baked before is baked again (Update as I Edit)
+	const int bakeVersion = 2;
+	mix( &bakeVersion, sizeof(bakeVersion) );
 	mix( &s.kind, sizeof(s.kind) );
 	mix( &s.curve, sizeof(s.curve) );
 	mix( &s.closed, sizeof(s.closed) );
@@ -716,8 +719,9 @@ struct sRoadSample
 
 struct sRoadFoot
 {
-	float d, h;
+	float d, h; // at the texel's corner, where its height is (the height edit map's grid)
 	int k;
+	float dc; // at its centre, where its paint and grass are shown (the material and grass maps are read per texel)
 };
 
 // the centre line about spacing apart with the ground along it (an earlier road's surface included), and the sample at
@@ -851,10 +855,22 @@ static void spline_bakeshape( sSpline& sp, const std::vector<sRoadSample>& c, co
 				t = std::min( 1.0f, std::max( 0.0f, t ) );
 				const float px = a.x + dx * t - wx, pz = a.z + dz * t - wz;
 				const float dist = sqrtf( px * px + pz * pz );
-				if ( dist > reach ) continue;
+				// the texel's centre, half a texel on: the terrain shows its paint and grass there, so measured by the corner
+				// a road's paint sat half a texel (a metre on an 8 km level) off its line, and off its placed lamps
+				const float wxc = wx + texel * 0.5f, wzc = wz + texel * 0.5f;
+				float tc = len2 > 0 ? ((wxc - a.x) * dx + (wzc - a.z) * dz) / len2 : 0;
+				tc = std::min( 1.0f, std::max( 0.0f, tc ) );
+				const float pxc = a.x + dx * tc - wxc, pzc = a.z + dz * tc - wzc;
+				const float distc = sqrtf( pxc * pxc + pzc * pzc );
+				if ( dist > reach && distc > reach ) continue;
 				const uint32_t key = (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix;
 				auto it = foot.find( key );
-				if ( it == foot.end() || dist < it->second.d ) foot[ key ] = { dist, a.h + (b.h - a.h) * t, k };
+				if ( it == foot.end() ) foot[ key ] = { dist, a.h + (b.h - a.h) * t, k, distc };
+				else
+				{
+					if ( dist < it->second.d ) { it->second.d = dist; it->second.h = a.h + (b.h - a.h) * t; it->second.k = k; }
+					if ( distc < it->second.dc ) it->second.dc = distc;
+				}
 			}
 		}
 	}
@@ -907,12 +923,15 @@ static void spline_bakeshape( sSpline& sp, const std::vector<sRoadSample>& c, co
 			pT[ hIndex ] = 1;
 			b.flags |= SPLINE_TEXEL_HEIGHT;
 		}
+		// paint and grass by the texel's centre
+		const bool bPaintCore = f.dc <= halfW;
+		const bool bPaintProtected = !bPaintCore && protectedTexels.count( key ) > 0;
 		if ( pM )
 		{
-			if ( bCore && shape.coreMaterial > 0 ) { pM[ mIndex ] = (uint8_t)shape.coreMaterial; b.flags |= SPLINE_TEXEL_MATERIAL; }
-			else if ( !bCore && !bProtected && shape.edgeMaterial > 0 && f.d <= halfW + shape.edge ) { pM[ mIndex ] = (uint8_t)shape.edgeMaterial; b.flags |= SPLINE_TEXEL_MATERIAL; }
+			if ( bPaintCore && shape.coreMaterial > 0 ) { pM[ mIndex ] = (uint8_t)shape.coreMaterial; b.flags |= SPLINE_TEXEL_MATERIAL; }
+			else if ( !bPaintCore && !bPaintProtected && shape.edgeMaterial > 0 && f.dc <= halfW + shape.edge ) { pM[ mIndex ] = (uint8_t)shape.edgeMaterial; b.flags |= SPLINE_TEXEL_MATERIAL; }
 		}
-		if ( pG && f.d <= halfW + shape.grassMargin && !bProtected )
+		if ( pG && f.dc <= halfW + shape.grassMargin && !bPaintProtected )
 		{
 			pG[ mIndex ] &= 0x80;
 			b.flags |= SPLINE_TEXEL_GRASS;
