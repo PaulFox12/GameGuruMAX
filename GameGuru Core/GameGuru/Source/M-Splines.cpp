@@ -80,7 +80,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 15 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve
+#define SPLINE_FILE_VERSION 16 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -138,6 +138,7 @@ struct sSplineLayer
 	int frozen = 0; // its entities stay as they are, no longer placed again
 	int followSlope = 0; // each tilted to the ground under it (decals, flat things), else upright
 	float jitterAcross = 0.0f; // each moved up to this far across, at random (cars spread over both lanes)
+	int layFlat = 0; // the model turned onto its back first, a wall decal laid on the ground: 1 its face (-Z) up, 2 its back up
 };
 
 // an entity a layer placed, where it was put (found again by its tag and place)
@@ -1724,7 +1725,7 @@ static uint64_t spline_layersignature( int si )
 }
 
 // the element's entity file is loaded and placed at a place and turn, scale in percent; 0 if it can't be
-static int spline_addelement( const char* pEntity, float x, float y, float z, float yaw, float scale, const float* pUp = nullptr )
+static int spline_addelement( const char* pEntity, float x, float y, float z, float yaw, float scale, const float* pUp = nullptr, int layFlat = 0 )
 {
 	char pPath[ MAX_PATH ];
 	sprintf_s( pPath, MAX_PATH, "entitybank\\%s", pEntity );
@@ -1759,22 +1760,38 @@ static int spline_addelement( const char* pEntity, float x, float y, float z, fl
 	const int e = t.e;
 	t.gridentity = storeGridEntity;
 	t.grideleprof = storeGridEleprof;
-	if ( e > 0 && pUp && t.entityelement[ e ].obj > 0 && ObjectExist( t.entityelement[ e ].obj ) )
+	if ( e > 0 && (pUp || layFlat) && t.entityelement[ e ].obj > 0 && ObjectExist( t.entityelement[ e ].obj ) )
 	{
-		// turned to its heading, then tilted the shortest way from upright to the ground's normal (as the editor's own
-		// rotation, the object turned by the quaternion and the angles read back)
-		GGVECTOR3 up( 0, 1, 0 ), normal( pUp[0], pUp[1], pUp[2] );
-		GGVec3Normalize( &normal, &normal );
-		GGQUATERNION quatYaw, quatTilt;
-		GGQuaternionRotationAxis( &quatYaw, &up, GGToRadian( yaw ) );
-		GGVECTOR3 axis;
-		GGVec3Cross( &axis, &up, &normal );
-		const float axisLength = sqrtf( axis.x * axis.x + axis.y * axis.y + axis.z * axis.z );
-		if ( axisLength > 0.0001f )
+		// laid flat about its own X first (a model standing up, a wall decal, turned onto its back), turned to its heading,
+		// then tilted the shortest way from upright to the ground's normal (as the editor's own rotation, the object turned
+		// by the quaternion and the angles read back)
+		GGVECTOR3 up( 0, 1, 0 );
+		GGQUATERNION quat;
+		GGQuaternionRotationAxis( &quat, &up, GGToRadian( yaw ) );
+		if ( layFlat )
 		{
-			axis /= axisLength;
-			GGQuaternionRotationAxis( &quatTilt, &axis, acosf( std::min( 1.0f, std::max( -1.0f, normal.y ) ) ) );
-			const GGQUATERNION quat = quatYaw * quatTilt;
+			// +90 turns the model's face (-Z, where a model faces the camera) up
+			GGVECTOR3 side( 1, 0, 0 );
+			GGQUATERNION quatFlat;
+			GGQuaternionRotationAxis( &quatFlat, &side, GGToRadian( layFlat == 1 ? 90.0f : -90.0f ) );
+			quat = quatFlat * quat;
+		}
+		if ( pUp )
+		{
+			GGVECTOR3 normal( pUp[0], pUp[1], pUp[2] );
+			GGVec3Normalize( &normal, &normal );
+			GGVECTOR3 axis;
+			GGVec3Cross( &axis, &up, &normal );
+			const float axisLength = sqrtf( axis.x * axis.x + axis.y * axis.y + axis.z * axis.z );
+			if ( axisLength > 0.0001f )
+			{
+				axis /= axisLength;
+				GGQUATERNION quatTilt;
+				GGQuaternionRotationAxis( &quatTilt, &axis, acosf( std::min( 1.0f, std::max( -1.0f, normal.y ) ) ) );
+				quat = quat * quatTilt;
+			}
+		}
+		{
 			const int obj = t.entityelement[ e ].obj;
 			RotateObjectQuat( obj, quat.x, quat.y, quat.z, quat.w );
 			t.entityelement[ e ].rx = ObjectAngleX( obj );
@@ -2020,7 +2037,7 @@ static void spline_place( int si )
 					normal[0] = -(hx[1] - hx[0]) / (2.0f * step);
 					normal[2] = -(hz[1] - hz[0]) / (2.0f * step);
 				}
-				const int e = spline_addelement( layer.entity, px, py, pz, yaw, scale, layer.followSlope ? normal : nullptr );
+				const int e = spline_addelement( layer.entity, px, py, pz, yaw, scale, layer.followSlope ? normal : nullptr, layer.layFlat );
 				if ( e <= 0 ) break;
 				t.entityelement[ e ].eleprof.iObjectReserved1 = SPLINE_ENTITY_TAG;
 				t.entityelement[ e ].eleprof.iObjectReserved2 = s.id;
@@ -2794,6 +2811,10 @@ static void spline_rowlayers( sSpline& s, float w )
 		ImGui::SetCursorPosX( fRowFieldX );
 		if ( ImGui::Checkbox( "Follow Slope##layerslope", &bSlope ) ) layer.followSlope = bSlope ? 1 : 0;
 		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Tilt each to the ground under it (decals, drain covers, flat things); off keeps them upright (lamps, posts)" );
+		const char* flats[] = { "No (as Modelled)", "Yes", "Yes, Flipped" };
+		spline_row( "Lay Flat" );
+		ImGui::Combo( "##layerlayflat", &layer.layFlat, flats, 3 );
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "For a model that stands up (a wall decal): turned onto its back to lie on the ground, before the slope's tilt.\nFlipped if it lies face down (you see it from below only)." );
 		spline_row( "Scale" );
 		float scale[2] = { layer.scaleMin, layer.scaleMax };
 		if ( ImGui::SliderFloat2( "##layerscale", scale, 10.0f, 400.0f, "%.0f %%" ) ) { layer.scaleMin = std::min( scale[0], scale[1] ); layer.scaleMax = std::max( scale[0], scale[1] ); }
@@ -2985,6 +3006,7 @@ static const char* g_pSplineBuiltInPresets =
 	"jitteralong = 25\n"
 	"jitteracross = 1.8\n"
 	"followslope = 1\n"
+	"layflat = 1\n"
 	"\n"
 	"[road: Main Road]\n"
 	"width = 8\n"
@@ -3015,6 +3037,7 @@ static const char* g_pSplineBuiltInPresets =
 	"jitteralong = 30\n"
 	"jitteracross = 2.5\n"
 	"followslope = 1\n"
+	"layflat = 1\n"
 	"\n"
 	"[road: Town Street]\n"
 	"width = 7\n"
@@ -3336,6 +3359,7 @@ static void spline_parsepresets( const char* pText, bool bUser, std::vector<sSpl
 			else if ( key == "jitteracross" ) l.jitterAcross = f * M;
 			else if ( key == "keepapart" ) l.keepApart = f * M;
 			else if ( key == "followslope" ) l.followSlope = i != 0;
+			else if ( key == "layflat" ) l.layFlat = std::min( 2, std::max( 0, i ) );
 			else if ( key == "onlyinrapids" ) l.minTurbulence = f;
 			else if ( key == "on" ) l.enabled = i != 0;
 			continue;
@@ -3709,6 +3733,7 @@ static void spline_writepreset( std::string& out, const sSplinePreset& p )
 		metres( "jitteracross", l.jitterAcross );
 		metres( "keepapart", l.keepApart );
 		number( "followslope", (float)l.followSlope );
+		number( "layflat", (float)l.layFlat );
 		if ( p.kind == SPLINE_KIND_RIVER ) number( "onlyinrapids", l.minTurbulence );
 		number( "on", (float)l.enabled );
 	}
@@ -4617,6 +4642,8 @@ void spline_savedata( void )
 		put( &s.presetSignature, sizeof(s.presetSignature) );
 		// version 15: each segment's curve
 		for ( const sSplineNode& node : s.nodes ) put( &node.segCurve, sizeof(node.segCurve) );
+		// version 16: Lay Flat
+		for ( const sSplineLayer& layer : s.layers ) put( &layer.layFlat, sizeof(layer.layFlat) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -4782,6 +4809,10 @@ void spline_loaddata( void )
 						if ( version >= 15 )
 						{
 							for ( sSplineNode& node : s.nodes ) if ( !get( &node.segCurve, sizeof(node.segCurve) ) ) break;
+						}
+						if ( version >= 16 )
+						{
+							for ( sSplineLayer& layer : s.layers ) if ( !get( &layer.layFlat, sizeof(layer.layFlat) ) ) break;
 						}
 						if ( version < 12 )
 						{
