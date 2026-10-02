@@ -1187,15 +1187,24 @@ void Sample_TileMesh::rasteriseBakeInputs( TileMeshData* tempData, int index, co
 
 	if ( !areas.empty() ) rcRasterizeTriangles( 0, tris.data(), areas.data(), (int)areas.size(), *tempData->m_solid, cfg.walkableClimb );
 
-	// below the water nothing is walkable; a bridge or pier above it keeps its surface
-	if ( m_pBake->waterY > -1e29f )
+	// below the water nothing is walkable; a bridge or pier above it keeps its surface. A river's water (above the sea)
+	// counts the same where it flows
+	rcHeightfield& hf = *tempData->m_solid;
+	const bool bRivers = m_pBake->pfnWaterLevel && m_pBake->pfnWaterInputs && m_pBake->pfnWaterInputs( hf.bmin[0], hf.bmin[2], hf.bmax[0], hf.bmax[2] ) != 0;
+	if ( m_pBake->waterY > -1e29f || bRivers )
 	{
-		rcHeightfield& hf = *tempData->m_solid;
 		for ( int i = 0; i < hf.width * hf.height; i++ )
 		{
+			float waterY = m_pBake->waterY;
+			if ( bRivers )
+			{
+				const float x = hf.bmin[0] + ((i % hf.width) + 0.5f) * hf.cs;
+				const float z = hf.bmin[2] + ((i / hf.width) + 0.5f) * hf.cs;
+				waterY = rcMax( waterY, m_pBake->pfnWaterLevel( x, z ) );
+			}
 			for ( rcSpan* pSpan = hf.spans[ i ]; pSpan; pSpan = pSpan->next )
 			{
-				if ( hf.bmin[1] + pSpan->smax * hf.ch < m_pBake->waterY ) pSpan->area = RC_NULL_AREA;
+				if ( hf.bmin[1] + pSpan->smax * hf.ch < waterY ) pSpan->area = RC_NULL_AREA;
 			}
 		}
 	}
@@ -1211,7 +1220,8 @@ void Sample_TileMesh::bakeTile( TileMeshData* tempData, TileWork* pWork, const f
 
 	float minY = FLT_MAX, maxY = -FLT_MAX;
 	int statics = 0, trees = 0;
-	const uint64_t objectsHash = hashTileObjects( index, rmin, rmax, &minY, &maxY, &statics, &trees );
+	uint64_t objectsHash = hashTileObjects( index, rmin, rmax, &minY, &maxY, &statics, &trees );
+	if ( m_pBake->pfnWaterInputs ) objectsHash += m_pBake->pfnWaterInputs( rmin[0], rmin[2], rmax[0], rmax[2] );
 	const int objects = statics + trees;
 
 	// the terrain's hash from its height inputs on the sample grid (those that apply everywhere, and the sculpting and flat

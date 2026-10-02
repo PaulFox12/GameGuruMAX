@@ -40,6 +40,8 @@ struct GGNavMeshBake
 	uint64_t terrainFingerprint = 0; // the terrain's height inputs over the whole area: while they and the objects match, nothing is checked
 	uint64_t terrainGlobal = 0; // of those, the ones that apply everywhere (the settings, the imported heightmap)
 	uint64_t (*pfnTerrainInputs)( float minX, float minZ, float maxX, float maxZ ) = 0; // the rest on a rect (sculpting, flat areas), called from the build threads
+	float (*pfnWaterLevel)( float x, float z ) = 0; // water above the sea (rivers): its height at a point, -1e30 for none
+	uint64_t (*pfnWaterInputs)( float minX, float minZ, float maxX, float maxZ ) = 0; // that water over a rect, hashed (0 for none)
 };
 
 // GG: the whole map bake's settings (setup.ini navmesh*); any change builds every tile

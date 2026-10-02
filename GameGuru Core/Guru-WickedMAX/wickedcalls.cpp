@@ -9425,4 +9425,222 @@ void WickedCall_SetShaderParameter(int obj, int parameter , float value)
 
 }
 
+// GG: river water surfaces (the spline tool)
 
+// a 32 bit RGBA DDS with its mip chain, made in memory
+static void WickedCall_WaterDDS(std::vector<uint8_t>& out, uint32_t size, const std::vector<std::vector<uint8_t>>& mips)
+{
+	uint32_t header[32] = {};
+	header[0] = 0x20534444; // 'DDS '
+	header[1] = 124; // header size
+	header[2] = 0x1 | 0x2 | 0x4 | 0x8 | 0x1000 | 0x20000; // caps, height, width, pitch, pixel format, mip count
+	header[3] = size;
+	header[4] = size;
+	header[5] = size * 4;
+	header[7] = (uint32_t)mips.size();
+	header[19] = 32; // pixel format size
+	header[20] = 0x40 | 0x1; // RGB with alpha
+	header[22] = 32;
+	header[23] = 0x000000ff;
+	header[24] = 0x0000ff00;
+	header[25] = 0x00ff0000;
+	header[26] = 0xff000000;
+	header[27] = 0x1000 | 0x400000 | 0x8; // texture, mipmap, complex
+	out.assign((const uint8_t*)header, (const uint8_t*)header + sizeof(header));
+	for (const std::vector<uint8_t>& mip : mips) out.insert(out.end(), mip.begin(), mip.end());
+}
+
+// a tiling water normal map: waves of whole cycles across the tile with tiling noise over them, its mips the averaged normals
+static std::shared_ptr<wiResource> WickedCall_WaterNormalMap()
+{
+	static std::shared_ptr<wiResource> resource;
+	if (resource) return resource;
+	const int N = 256;
+	std::vector<float> height(N * N, 0.0f);
+	const int waves[6][2] = { {1, 2}, {3, -1}, {-2, 5}, {6, 3}, {-7, 4}, {9, -8} };
+	const float phase[6] = { 0.3f, 1.7f, 4.1f, 2.6f, 5.3f, 0.9f };
+	const float amp[6] = { 1.0f, 0.8f, 0.55f, 0.4f, 0.3f, 0.2f };
+	for (int y = 0; y < N; y++)
+	{
+		for (int x = 0; x < N; x++)
+		{
+			float h = 0;
+			for (int w = 0; w < 6; w++) h += amp[w] * sinf(6.2831853f * (waves[w][0] * x + waves[w][1] * y) / N + phase[w]);
+			height[y * N + x] = h;
+		}
+	}
+	// tiling value noise: lattices of 8, 16 and 32 cells, smoothly interpolated
+	uint32_t seed = 0x9e3779b9;
+	auto rnd = [&seed]() { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; return (seed & 0xffff) / 65535.0f; };
+	for (int cells = 8; cells <= 32; cells *= 2)
+	{
+		std::vector<float> lattice(cells * cells);
+		for (float& v : lattice) v = rnd() * 2.0f - 1.0f;
+		const float strength = 0.5f * 8.0f / cells;
+		for (int y = 0; y < N; y++)
+		{
+			for (int x = 0; x < N; x++)
+			{
+				const float fx = (float)x * cells / N, fy = (float)y * cells / N;
+				const int x0 = (int)fx, y0 = (int)fy;
+				float tx = fx - x0, ty = fy - y0;
+				tx = tx * tx * (3 - 2 * tx);
+				ty = ty * ty * (3 - 2 * ty);
+				const float a = lattice[(y0 % cells) * cells + (x0 % cells)], b = lattice[(y0 % cells) * cells + ((x0 + 1) % cells)];
+				const float c = lattice[((y0 + 1) % cells) * cells + (x0 % cells)], e = lattice[((y0 + 1) % cells) * cells + ((x0 + 1) % cells)];
+				height[y * N + x] += strength * ((a + (b - a) * tx) + ((c + (e - c) * tx) - (a + (b - a) * tx)) * ty);
+			}
+		}
+	}
+	// normals from the slopes, the mips averaged from them
+	std::vector<XMFLOAT3> normals(N * N);
+	const float strength = 1.5f; // the slope scale: typical slopes of 0.3 to 0.5
+	for (int y = 0; y < N; y++)
+	{
+		for (int x = 0; x < N; x++)
+		{
+			const float dx = height[y * N + (x + 1) % N] - height[y * N + (x + N - 1) % N];
+			const float dy = height[((y + 1) % N) * N + x] - height[((y + N - 1) % N) * N + x];
+			XMVECTOR n = XMVector3Normalize(XMVectorSet(-dx * strength, -dy * strength, 1.0f, 0.0f));
+			XMStoreFloat3(&normals[y * N + x], n);
+		}
+	}
+	std::vector<std::vector<uint8_t>> mips;
+	int size = N;
+	while (true)
+	{
+		std::vector<uint8_t> mip(size * size * 4);
+		for (int i = 0; i < size * size; i++)
+		{
+			mip[i * 4 + 0] = (uint8_t)((normals[i].x * 0.5f + 0.5f) * 255.0f + 0.5f);
+			mip[i * 4 + 1] = (uint8_t)((normals[i].y * 0.5f + 0.5f) * 255.0f + 0.5f);
+			mip[i * 4 + 2] = (uint8_t)((normals[i].z * 0.5f + 0.5f) * 255.0f + 0.5f);
+			mip[i * 4 + 3] = 255;
+		}
+		mips.push_back(mip);
+		if (size == 1) break;
+		const int half = size / 2;
+		std::vector<XMFLOAT3> smaller(half * half);
+		for (int y = 0; y < half; y++)
+		{
+			for (int x = 0; x < half; x++)
+			{
+				XMVECTOR sum = XMLoadFloat3(&normals[(y * 2) * size + x * 2]) + XMLoadFloat3(&normals[(y * 2) * size + x * 2 + 1])
+					+ XMLoadFloat3(&normals[(y * 2 + 1) * size + x * 2]) + XMLoadFloat3(&normals[(y * 2 + 1) * size + x * 2 + 1]);
+				XMStoreFloat3(&smaller[y * half + x], XMVector3Normalize(sum));
+			}
+		}
+		normals.swap(smaller);
+		size = half;
+	}
+	std::vector<uint8_t> dds;
+	WickedCall_WaterDDS(dds, N, mips);
+	resource = wiResourceManager::Load("gg_river_water_normal.dds", wiResourceManager::EMPTY, dds.data(), dds.size());
+	return resource;
+}
+
+// a white colour map, so the water's colour is the material's
+static std::shared_ptr<wiResource> WickedCall_WaterColourMap()
+{
+	static std::shared_ptr<wiResource> resource;
+	if (resource) return resource;
+	std::vector<std::vector<uint8_t>> mips;
+	for (int size = 4; size >= 1; size /= 2) mips.push_back(std::vector<uint8_t>(size * size * 4, 255));
+	std::vector<uint8_t> dds;
+	WickedCall_WaterDDS(dds, 4, mips);
+	resource = wiResourceManager::Load("gg_river_water_colour.dds", wiResourceManager::EMPTY, dds.data(), dds.size());
+	return resource;
+}
+
+struct WickedCallWaterSurface
+{
+	wiECS::Entity mesh = wiECS::INVALID_ENTITY;
+	wiECS::Entity material = wiECS::INVALID_ENTITY;
+};
+static std::unordered_map<uint64_t, WickedCallWaterSurface> g_WickedCallWaterSurfaces;
+
+static void WickedCall_ApplyWaterLook(MaterialComponent& material, const WickedCallWaterLook& look)
+{
+	material.baseColor = XMFLOAT4(look.r, look.g, look.b, look.a);
+	material.metalness = 0.0f;
+	material.roughness = 0.05f;
+	material.reflectance = 0.04f;
+	material.userBlendMode = BLENDMODE_ALPHA;
+	material.customShaderID = -1;
+	const std::vector<wiRenderer::CustomShader>& shaders = wiRenderer::GetCustomShaders();
+	for (size_t i = 0; i < shaders.size(); i++)
+	{
+		if (shaders[i].name == "Water Object" && shaders[i].bActive) { material.customShaderID = (int)i; break; }
+	}
+	material.customShaderParam1 = look.uvScale;
+	material.customShaderParam2 = look.speed;
+	material.customShaderParam3 = look.distortion;
+	material.customShaderParam4 = look.direction;
+	material.customShaderParam5 = look.scroll;
+	material.customShaderParam6 = look.foam;
+	material.customShaderParam7 = look.texScale;
+	material.SetDirty();
+}
+
+uint64_t WickedCall_CreateWaterSurface(const float* pPositions, const float* pUVs, uint32_t vertCount, const uint32_t* pIndices, uint32_t indexCount, const WickedCallWaterLook& look)
+{
+	if (vertCount == 0 || indexCount == 0) return 0;
+	Scene& scene = wiScene::GetScene();
+	WickedCallWaterSurface surface;
+	surface.material = scene.Entity_CreateMaterial("ggriverwater_material");
+	MaterialComponent& material = *scene.materials.GetComponent(surface.material);
+	material.textures[MaterialComponent::BASECOLORMAP].name = "gg_river_water_colour.dds";
+	material.textures[MaterialComponent::BASECOLORMAP].resource = WickedCall_WaterColourMap();
+	material.textures[MaterialComponent::NORMALMAP].name = "gg_river_water_normal.dds";
+	material.textures[MaterialComponent::NORMALMAP].resource = WickedCall_WaterNormalMap();
+	WickedCall_ApplyWaterLook(material, look);
+
+	wiECS::Entity objectEntity = scene.Entity_CreateObject("ggriverwater");
+	surface.mesh = scene.Entity_CreateMesh("ggriverwater_mesh");
+	ObjectComponent& object = *scene.objects.GetComponent(objectEntity);
+	MeshComponent& mesh = *scene.meshes.GetComponent(surface.mesh);
+	object.meshID = surface.mesh;
+	object.SetCastShadow(false);
+	mesh.subsets.push_back(MeshComponent::MeshSubset());
+	mesh.subsets.back().materialID = surface.material;
+	mesh.subsets.back().indexOffset = 0;
+	mesh.vertex_positions.resize(vertCount);
+	mesh.vertex_normals.resize(vertCount);
+	mesh.vertex_uvset_0.resize(vertCount);
+	for (uint32_t i = 0; i < vertCount; i++)
+	{
+		mesh.vertex_positions[i] = XMFLOAT3(pPositions[i * 3 + 0], pPositions[i * 3 + 1], pPositions[i * 3 + 2]);
+		mesh.vertex_normals[i] = XMFLOAT3(0.0f, 1.0f, 0.0f);
+		mesh.vertex_uvset_0[i] = XMFLOAT2(pUVs[i * 2 + 0], pUVs[i * 2 + 1]);
+	}
+	mesh.indices.assign(pIndices, pIndices + indexCount);
+	mesh.subsets.back().indexCount = indexCount;
+	mesh.CreateRenderData();
+
+	g_WickedCallWaterSurfaces[(uint64_t)objectEntity] = surface;
+	return (uint64_t)objectEntity;
+}
+
+void WickedCall_SetWaterSurfaceLook(uint64_t entity, const WickedCallWaterLook& look)
+{
+	auto it = g_WickedCallWaterSurfaces.find(entity);
+	if (it == g_WickedCallWaterSurfaces.end()) return;
+	MaterialComponent* pMaterial = wiScene::GetScene().materials.GetComponent(it->second.material);
+	if (pMaterial) WickedCall_ApplyWaterLook(*pMaterial, look);
+}
+
+void WickedCall_DeleteWaterSurface(uint64_t entity)
+{
+	auto it = g_WickedCallWaterSurfaces.find(entity);
+	if (it == g_WickedCallWaterSurfaces.end()) return;
+	// only while the entity is still that surface: a level change may have cleared it, and its id may have been reused
+	Scene& scene = wiScene::GetScene();
+	ObjectComponent* pObject = scene.objects.GetComponent((wiECS::Entity)entity);
+	if (pObject && pObject->meshID == it->second.mesh)
+	{
+		scene.Entity_Remove((wiECS::Entity)entity);
+		scene.Entity_Remove(it->second.mesh);
+		scene.Entity_Remove(it->second.material);
+	}
+	g_WickedCallWaterSurfaces.erase(it);
+}

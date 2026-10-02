@@ -519,6 +519,8 @@ static void game_createwholemapnavmesh(bool bStandalone)
 	bake.terrainFingerprint = GGTerrain_GetHeightFingerprint();
 	bake.terrainGlobal = GGTerrain_GetHeightFingerprintGlobal();
 	bake.pfnTerrainInputs = GGTerrain_GetHeightFingerprintRect;
+	bake.pfnWaterLevel = spline_riverwaterlevel;
+	bake.pfnWaterInputs = spline_riverwaterinputs;
 
 	// the static entities as the old navmesh takes them, first only their hash
 	int iBuildAllLevelMesh = g.meshgeneralwork;
@@ -554,6 +556,9 @@ static void game_createwholemapnavmesh(bool bStandalone)
 		}
 	}
 	bake.pTrees = trees.data();
+	// the rivers' water (the spline tool), built now if a level load left it waiting
+	spline_updatewater(true);
+	objectsHash += spline_riverwaterinputs(bake.bmin[0], bake.bmin[2], bake.bmax[0], bake.bmax[2]);
 	bake.numTrees = (uint32_t)(trees.size() / 4);
 
 
@@ -3729,6 +3734,7 @@ void game_loadinleveldata ( void )
 	if (  t.game.gameisexe == 0  )  printscreenprompt(t.screenprompt_s.Get()); else loadingpageprogress(5);
 	timestampactivity(0,t.screenprompt_s.Get());
 	waypoint_loaddata ( );
+	spline_loaddata ( );
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );
 	waypoint_recreateobjs ( );
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );
@@ -4630,6 +4636,9 @@ void game_main_loop ( void )
 	// SetGamePaused has no AI for it to serve
 	extern bool g_bInGameCPUFrameComplete;
 	if ( g_bGamePaused == false ) g_bInGameCPUFrameComplete = true;
+
+	// the rivers' water (the spline tool) keeps up with its rivers and the main water's look
+	spline_updatewater ( );
 
 	// the engine probes' totals (GetEngineProbe) are per game frame
 	extern void WickedCall_ProbeFrame(void);

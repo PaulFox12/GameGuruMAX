@@ -26,7 +26,10 @@
 // joined ones are restored last first and baked in list order, a junction pins the later road to the earlier one's
 // surface there, and a later road's shoulders leave an earlier road's carriageway alone. A River spline is baked the same
 // way as a channel: a flat bed below the averaged ground (never rising downstream when Downhill Only), banks up to the
-// ground, a tributary pinned to an earlier river's bed where they join
+// ground, a tributary pinned to an earlier river's bed where they join. A baked river gets a water surface of its own
+// (WickedCall_CreateWaterSurface, the Water Object shader) at its water depth above the bed, flowing along it, its look the
+// main water's or its own; spline_waterheightat gives the water height anywhere (Lua GetWaterHeightAt), and the whole map
+// navmesh keeps soldiers out of the river water as out of the sea
 
 #include "stdafx.h"
 #include "gameguru.h"
@@ -72,7 +75,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 3 // 2: road settings and the bake; 3: river settings
+#define SPLINE_FILE_VERSION 4 // 2: road settings and the bake; 3: river settings; 4: the river's water
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -120,6 +123,14 @@ struct sSplineRiver
 	int bankMaterial = 0; // the same for the banks
 	int downhill = 1; // the bed never rises from the first node to the last
 	int autoApply = 1; // baked again when it changes
+	float waterDepth = 180.0f; // the water surface this far above the bed
+	int mainLook = 1; // the water looks like the main water (its colour, flow and waves), else as set here
+	float colour[3] = { 0.04f, 0.08f, 0.17f };
+	float clarity = 0.8f; // opacity
+	float flow = 1.0f; // flow speed
+	float waves = 1.0f; // wave distortion
+	float foam = 1.0f; // foam size at the banks
+	float ripples = 1.0f; // ripple size
 };
 
 // a terrain texel a bake wrote: what it held, and what the bake left there
@@ -156,6 +167,9 @@ struct sSpline
 	sSplineRoad road;
 	sSplineRiver river;
 	float wetFraction = -1.0f; // a river: how much of its bed is below the level's water line, -1 not known yet
+	uint64_t waterEntity = 0; // a river: its water surface (WickedCall_CreateWaterSurface), 0 none
+	uint64_t waterShape = 0, waterLook = 0; // what the surface was built from, and the look it was given
+	std::vector<std::pair<uint32_t, float>> waterTexels; // the terrain texels under its water, and the water's height there
 	uint64_t bakedSignature = 0; // the spline as last baked (spline_signature)
 	std::vector<sSplineBakeTexel> baked;
 	std::vector<sSplineBakeTree> bakedTrees;
@@ -189,6 +203,10 @@ static bool bConnectMode = false;
 static int iApplySpline = -1;
 // drawing: nodes are being added to the selected spline, so a click on another spline's node or curve joins it
 static bool bDrawing = false;
+// the rivers' water over the terrain texels (the highest where rivers meet), for the water height and the navmesh
+static std::unordered_map<uint32_t, float> g_RiverWater;
+// after a level load the water waits this many frames (and for the terrain), so the terrain has taken the level's settings
+static int g_iSplineWaterWait = 0;
 
 //
 // The curve
@@ -436,11 +454,15 @@ static void spline_deletenode( int si, int ni )
 }
 
 static void spline_unbake( int si );
+static void spline_rebuildwatermap( void );
 
 static void spline_deletespline( int si )
 {
 	spline_unbake( si );
+	if ( g_Splines[ si ].waterEntity ) WickedCall_DeleteWaterSurface( g_Splines[ si ].waterEntity );
+	g_Splines[ si ].waterTexels.clear();
 	g_Splines.erase( g_Splines.begin() + si );
+	spline_rebuildwatermap();
 	spline_cleanjunctions();
 	g_iSplineSelected = -1;
 	g_iSplineNodeSelected = -1;
@@ -506,6 +528,7 @@ static void spline_merge( int si, int ni, int sj, int nj, bool bShared )
 		first = 1;
 	}
 	for ( size_t k = first; k < b.nodes.size(); k++ ) a.nodes.push_back( b.nodes[k] );
+	if ( g_Splines[ sj ].waterEntity ) WickedCall_DeleteWaterSurface( g_Splines[ sj ].waterEntity );
 	g_Splines.erase( g_Splines.begin() + sj );
 	if ( si > sj ) si--;
 	g_iSplineSelected = si;
@@ -1061,6 +1084,256 @@ static void spline_bakechanged( void )
 }
 
 //
+// River water
+//
+
+static uint64_t spline_hashmix( uint64_t h, const void* p, size_t bytes )
+{
+	const uint8_t* b = (const uint8_t*)p;
+	for ( size_t i = 0; i < bytes; i++ ) { h ^= b[i]; h *= 0x100000001b3ULL; }
+	return h;
+}
+
+// the river's water look: the main water's colour, with its flow and waves relative to their defaults, or its own
+static WickedCallWaterLook spline_waterlook( const sSplineRiver& v )
+{
+	WickedCallWaterLook look;
+	if ( v.mainLook )
+	{
+		look.r = t.visuals.WaterRed_f / 255.0f;
+		look.g = t.visuals.WaterGreen_f / 255.0f;
+		look.b = t.visuals.WaterBlue_f / 255.0f;
+		look.a = 0.8f;
+		look.speed = std::min( 4.0f, std::max( 0.1f, t.visuals.WaterSpeed1 / 0.06f ) );
+		look.distortion = std::min( 4.0f, std::max( 0.1f, t.visuals.fWaterWaveAmplitude / 20.0f ) );
+	}
+	else
+	{
+		look.r = v.colour[0]; look.g = v.colour[1]; look.b = v.colour[2];
+		look.a = v.clarity;
+		look.speed = v.flow;
+		look.distortion = v.waves;
+		look.foam = v.foam;
+		look.uvScale = v.ripples > 0.01f ? 1.0f / v.ripples : 1.0f;
+	}
+	look.direction = 0.25f; // along the river (the surface's v)
+	look.scroll = look.speed;
+	return look;
+}
+
+static uint64_t spline_waterlookhash( const WickedCallWaterLook& look )
+{
+	return spline_hashmix( 0xcbf29ce484222325ULL, &look, sizeof(look) );
+}
+
+static void spline_rebuildwatermap( void )
+{
+	g_RiverWater.clear();
+	for ( const sSpline& s : g_Splines )
+	{
+		for ( const auto& texel : s.waterTexels )
+		{
+			auto it = g_RiverWater.find( texel.first );
+			if ( it == g_RiverWater.end() || texel.second > it->second ) g_RiverWater[ texel.first ] = texel.second;
+		}
+	}
+}
+
+// the river's water surface: a strip along the centre line at its water depth above the baked bed, as wide as the water
+// reaches up the banks, its texture coordinates in world units so the ripples keep their size; and the texels under it
+static void spline_buildwater( sSpline& s )
+{
+	if ( s.waterEntity ) WickedCall_DeleteWaterSurface( s.waterEntity );
+	s.waterEntity = 0;
+	s.waterTexels.clear();
+	if ( s.kind != SPLINE_KIND_RIVER || s.baked.empty() ) return;
+	const sSplineRiver& v = s.river;
+	const float E = GGTerrain::GGTerrain_GetEditableSize();
+	if ( E <= 0 || v.waterDepth <= 0 ) return;
+	const float texel = E * 2.0f / SPLINE_MAP_SIZE;
+	std::vector<sRoadSample> c;
+	std::vector<int> nodeSample;
+	if ( !spline_centreline( s, texel, c, nodeSample ) ) return;
+	const int n = (int)c.size();
+
+	// the water reaches up the banks where the bank's rise (a smoothstep from the bed to the ground) equals its depth
+	const float ratio = v.depth > 0 ? std::min( 1.0f, v.waterDepth / v.depth ) : 1.0f;
+	const float along = 0.5f - sinf( asinf( 1.0f - 2.0f * ratio ) / 3.0f );
+	const float halfWidth = v.bedWidth * 0.5f + v.banks * along + texel * 0.5f;
+
+	// the strip: two vertices a sample, the water level the bed there (the baked ground) plus the depth
+	const float tile = 600.0f;
+	std::vector<float> positions, uvs;
+	std::vector<uint32_t> indices;
+	std::vector<float> level( n );
+	for ( int i = 0; i < n; i++ ) level[i] = c[i].ground + v.waterDepth;
+	for ( int i = 0; i < n; i++ )
+	{
+		const sRoadSample& a = c[ std::max( 0, i - 1 ) ];
+		const sRoadSample& b = c[ std::min( n - 1, i + 1 ) ];
+		float tx = b.x - a.x, tz = b.z - a.z;
+		const float len = sqrtf( tx * tx + tz * tz );
+		if ( len > 0 ) { tx /= len; tz /= len; }
+		const float nx = -tz, nz = tx;
+		const float left[3] = { c[i].x - nx * halfWidth, level[i], c[i].z - nz * halfWidth };
+		const float right[3] = { c[i].x + nx * halfWidth, level[i], c[i].z + nz * halfWidth };
+		positions.insert( positions.end(), left, left + 3 );
+		positions.insert( positions.end(), right, right + 3 );
+		const float uvLeft[2] = { -halfWidth / tile, c[i].s / tile }, uvRight[2] = { halfWidth / tile, c[i].s / tile };
+		uvs.insert( uvs.end(), uvLeft, uvLeft + 2 );
+		uvs.insert( uvs.end(), uvRight, uvRight + 2 );
+		if ( i > 0 )
+		{
+			const uint32_t a0 = (uint32_t)(i - 1) * 2, b0 = (uint32_t)i * 2;
+			const uint32_t quad[6] = { a0, b0, a0 + 1, a0 + 1, b0, b0 + 1 };
+			indices.insert( indices.end(), quad, quad + 6 );
+		}
+	}
+	const WickedCallWaterLook look = spline_waterlook( v );
+	s.waterEntity = WickedCall_CreateWaterSurface( positions.data(), uvs.data(), (uint32_t)(positions.size() / 3), indices.data(), (uint32_t)indices.size(), look );
+	s.waterLook = spline_waterlookhash( look );
+
+	// the texels under the water, and its height over each
+	std::unordered_map<uint32_t, float> under;
+	auto toTexel = [E]( float x ) { return (x / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE; };
+	for ( int k = 0; k < n - 1; k++ )
+	{
+		const sRoadSample& a = c[ k ];
+		const sRoadSample& b = c[ k + 1 ];
+		const int ix0 = std::max( 0, (int)floorf( toTexel( std::min( a.x, b.x ) - halfWidth ) ) ), ix1 = std::min( SPLINE_MAP_SIZE - 1, (int)ceilf( toTexel( std::max( a.x, b.x ) + halfWidth ) ) );
+		const int iz0 = std::max( 0, (int)floorf( toTexel( std::min( a.z, b.z ) - halfWidth ) ) ), iz1 = std::min( SPLINE_MAP_SIZE - 1, (int)ceilf( toTexel( std::max( a.z, b.z ) + halfWidth ) ) );
+		const float dx = b.x - a.x, dz = b.z - a.z;
+		const float len2 = dx * dx + dz * dz;
+		for ( int iz = iz0; iz <= iz1; iz++ )
+		{
+			const float wz = ((float)iz / SPLINE_MAP_SIZE * 2.0f - 1.0f) * E;
+			for ( int ix = ix0; ix <= ix1; ix++ )
+			{
+				const float wx = ((float)ix / SPLINE_MAP_SIZE * 2.0f - 1.0f) * E;
+				float tt = len2 > 0 ? ((wx - a.x) * dx + (wz - a.z) * dz) / len2 : 0;
+				tt = std::min( 1.0f, std::max( 0.0f, tt ) );
+				const float px = a.x + dx * tt - wx, pz = a.z + dz * tt - wz;
+				if ( px * px + pz * pz > halfWidth * halfWidth ) continue;
+				const uint32_t key = (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix;
+				const float h = level[k] + (level[k + 1] - level[k]) * tt;
+				auto it = under.find( key );
+				if ( it == under.end() || h > it->second ) under[ key ] = h;
+			}
+		}
+	}
+	s.waterTexels.assign( under.begin(), under.end() );
+}
+
+// what a river's water surface is built from: its bake and its water depth
+static uint64_t spline_watershape( const sSpline& s )
+{
+	if ( s.kind != SPLINE_KIND_RIVER || s.baked.empty() ) return 0;
+	uint64_t h = spline_hashmix( 0xcbf29ce484222325ULL, &s.bakedSignature, sizeof(s.bakedSignature) );
+	h = spline_hashmix( h, &s.river.waterDepth, sizeof(s.river.waterDepth) );
+	return h ? h : 1;
+}
+
+// builds the rivers' water surfaces that changed (their bake or water depth), once the terrain is ready (or now when
+// forced), and gives a changed look to the rest; called every frame in the editor and in game
+void spline_updatewater( bool bForce )
+{
+	if ( g_iSplineWaterWait > 0 ) g_iSplineWaterWait--;
+	const bool bCanBuild = bForce || (g_iSplineWaterWait == 0 && GGTerrain::GGTerrain_IsReady());
+	bool bMapChanged = false;
+	for ( sSpline& s : g_Splines )
+	{
+		const uint64_t shape = spline_watershape( s );
+		if ( shape != s.waterShape )
+		{
+			if ( !bCanBuild ) continue;
+			spline_buildwater( s );
+			s.waterShape = shape;
+			bMapChanged = true;
+			continue;
+		}
+		if ( s.waterEntity )
+		{
+			const WickedCallWaterLook look = spline_waterlook( s.river );
+			const uint64_t lookHash = spline_waterlookhash( look );
+			if ( lookHash != s.waterLook )
+			{
+				WickedCall_SetWaterSurfaceLook( s.waterEntity, look );
+				s.waterLook = lookHash;
+			}
+		}
+	}
+	if ( bMapChanged ) spline_rebuildwatermap();
+}
+
+// the water's height at a point: a river's where one flows over it, else the level's water line
+float spline_waterheightat( float x, float z, int* pIsRiver )
+{
+	if ( pIsRiver ) *pIsRiver = 0;
+	float h = t.terrain.waterliney_f;
+	const float E = GGTerrain::GGTerrain_GetEditableSize();
+	if ( g_RiverWater.empty() || E <= 0 ) return h;
+	const int ix = (int)((x / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE + 0.5f), iz = (int)((z / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE + 0.5f);
+	if ( ix < 0 || iz < 0 || ix >= SPLINE_MAP_SIZE || iz >= SPLINE_MAP_SIZE ) return h;
+	auto it = g_RiverWater.find( (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix );
+	if ( it != g_RiverWater.end() && it->second > h )
+	{
+		h = it->second;
+		if ( pIsRiver ) *pIsRiver = 1;
+	}
+	return h;
+}
+
+// for the navmesh bake: the rivers' water height at a point (none: -1e30), and a hash of their water over a rect (0 none)
+float spline_riverwaterlevel( float x, float z )
+{
+	const float E = GGTerrain::GGTerrain_GetEditableSize();
+	if ( g_RiverWater.empty() || E <= 0 ) return -1e30f;
+	const int ix = (int)((x / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE + 0.5f), iz = (int)((z / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE + 0.5f);
+	if ( ix < 0 || iz < 0 || ix >= SPLINE_MAP_SIZE || iz >= SPLINE_MAP_SIZE ) return -1e30f;
+	auto it = g_RiverWater.find( (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix );
+	return it != g_RiverWater.end() ? it->second : -1e30f;
+}
+
+uint64_t spline_riverwaterinputs( float minX, float minZ, float maxX, float maxZ )
+{
+	const float E = GGTerrain::GGTerrain_GetEditableSize();
+	if ( g_RiverWater.empty() || E <= 0 ) return 0;
+	const int ix0 = std::max( 0, (int)floorf( (minX / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE ) ), ix1 = std::min( SPLINE_MAP_SIZE - 1, (int)ceilf( (maxX / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE ) );
+	const int iz0 = std::max( 0, (int)floorf( (minZ / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE ) ), iz1 = std::min( SPLINE_MAP_SIZE - 1, (int)ceilf( (maxZ / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE ) );
+	uint64_t h = 0xcbf29ce484222325ULL;
+	bool bAny = false;
+	if ( (uint64_t)(ix1 - ix0 + 1) * (uint64_t)(iz1 - iz0 + 1) > g_RiverWater.size() * 4 )
+	{
+		// a large rect (the whole map): every river texel, in key order so the hash doesn't depend on the map's order
+		std::vector<std::pair<uint32_t, float>> all( g_RiverWater.begin(), g_RiverWater.end() );
+		std::sort( all.begin(), all.end() );
+		for ( const auto& texel : all )
+		{
+			const int ix = (int)(texel.first % SPLINE_MAP_SIZE), iz = (int)(texel.first / SPLINE_MAP_SIZE);
+			if ( ix < ix0 || ix > ix1 || iz < iz0 || iz > iz1 ) continue;
+			h = spline_hashmix( h, &texel, sizeof(texel) );
+			bAny = true;
+		}
+	}
+	else
+	{
+		for ( int iz = iz0; iz <= iz1; iz++ )
+		{
+			for ( int ix = ix0; ix <= ix1; ix++ )
+			{
+				const uint32_t key = (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix;
+				auto it = g_RiverWater.find( key );
+				if ( it == g_RiverWater.end() ) continue;
+				h = spline_hashmix( h, &key, sizeof(key) );
+				h = spline_hashmix( h, &it->second, sizeof(it->second) );
+				bAny = true;
+			}
+		}
+	}
+	return bAny ? (h ? h : 1) : 0;
+}
+
+//
 // The 3D view
 //
 
@@ -1542,13 +1815,48 @@ static bool spline_rowmetres( const char* pLabel, const char* pId, float* pUnits
 	return true;
 }
 
+// the Paint palette's entry iL: its picture (loaded here as the palette loads it, if the palette hasn't been shown yet) and
+// the texture slot it paints; false for an empty entry
+static bool spline_paletteentry( int iL, int* pImage, int* pSlot )
+{
+	if ( t.visuals.sTerrainTextures[ iL ] == "" ) return false;
+	const bool bPaletteShown = sTerrainTexturesID[ 0 ] > 0;
+	const int image = bPaletteShown ? sTerrainTexturesID[ iL ] : t.terrain.imagestartindex + 80 + iL;
+	*pSlot = bPaletteShown ? sTerrainSelectionID[ iL ] : iL;
+	if ( image <= 0 ) return false;
+	if ( ImageExist( image ) == 0 )
+	{
+		image_setlegacyimageloading( true );
+		SetMipmapNum( 1 );
+		// the compressed version of an "(uncompressed)" texture loads quicker
+		char path[ MAX_PATH ];
+		strcpy_s( path, MAX_PATH, t.visuals.sTerrainTextures[ iL ].Get() );
+		const int len = (int)strlen( path ) - (int)strlen( " (uncompressed).dds" );
+		if ( len > 0 )
+		{
+			path[ len ] = 0;
+			strcat_s( path, MAX_PATH, ".dds" );
+			if ( FileExist( path ) == 0 ) strcpy_s( path, MAX_PATH, t.visuals.sTerrainTextures[ iL ].Get() );
+		}
+		LoadImage( path, image, 0, g.gdividetexturesize );
+		SetMipmapNum( -1 );
+		image_setlegacyimageloading( false );
+	}
+	*pImage = image;
+	return ImageExist( image ) == 1;
+}
+
 // a terrain texture slot (stored + 1): the texture's picture, which opens the palette's textures as a grid to pick from
 static void spline_rowtexture( const char* pLabel, const char* pId, int* pSlot, float w )
 {
 	const float size = ImGui::GetFontSize() * 2.6f;
 	const float cell = ImGui::GetFontSize() * 4.0f;
-	int current = -1;
-	for ( int iL = 0; iL < 32; iL++ ) if ( sTerrainTexturesID[ iL ] > 0 && sTerrainSelectionID[ iL ] == *pSlot - 1 ) { current = iL; break; }
+	int current = -1, currentImage = 0;
+	for ( int iL = 0; iL < 32; iL++ )
+	{
+		int image = 0, slot = 0;
+		if ( spline_paletteentry( iL, &image, &slot ) && slot == *pSlot - 1 ) { current = iL; currentImage = image; break; }
+	}
 
 	ImGui::SetCursorPosX( fRowLabelX );
 	ImGui::AlignTextToFramePadding();
@@ -1562,7 +1870,7 @@ static void spline_rowtexture( const char* pLabel, const char* pId, int* pSlot, 
 	if ( current >= 0 )
 	{
 		ImGui::SetBlurMode( true );
-		bOpen = ImGui::ImgBtn( sTerrainTexturesID[ current ], ImVec2( size, size ), ImColor( 0, 0, 0, 255 ), ImColor( 220, 220, 220, 220 ), ImColor( 255, 255, 255, 255 ), ImColor( 180, 180, 160, 255 ), -1, 0, 0, 0, false, false, false, false, false, true );
+		bOpen = ImGui::ImgBtn( currentImage, ImVec2( size, size ), ImColor( 0, 0, 0, 255 ), ImColor( 220, 220, 220, 220 ), ImColor( 255, 255, 255, 255 ), ImColor( 180, 180, 160, 255 ), -1, 0, 0, 0, false, false, false, false, false, true );
 		ImGui::SetBlurMode( false );
 	}
 	else
@@ -1582,11 +1890,12 @@ static void spline_rowtexture( const char* pLabel, const char* pId, int* pSlot, 
 		ImGui::SetBlurMode( true );
 		for ( int iL = 0; iL < 32; iL++ )
 		{
-			if ( sTerrainTexturesID[ iL ] <= 0 ) continue;
+			int image = 0, slot = 0;
+			if ( !spline_paletteentry( iL, &image, &slot ) ) continue;
 			ImGui::PushID( iL );
-			if ( ImGui::ImgBtn( sTerrainTexturesID[ iL ], ImVec2( cell, cell ), ImColor( 0, 0, 0, 255 ), ImColor( 220, 220, 220, 220 ), ImColor( 255, 255, 255, 255 ), ImColor( 180, 180, 160, 255 ), -1, 0, 0, 0, false, false, false, false, false, true ) )
+			if ( ImGui::ImgBtn( image, ImVec2( cell, cell ), ImColor( 0, 0, 0, 255 ), ImColor( 220, 220, 220, 220 ), ImColor( 255, 255, 255, 255 ), ImColor( 180, 180, 160, 255 ), -1, 0, 0, 0, false, false, false, false, false, true ) )
 			{
-				*pSlot = sTerrainSelectionID[ iL ] + 1;
+				*pSlot = slot + 1;
 				ImGui::CloseCurrentPopup();
 			}
 			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", t.visuals.sTerrainTexturesName[ iL ].Get() );
@@ -1739,11 +2048,45 @@ void spline_imgui_panel( float w )
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Grass is cleared this far past the edge of the bed" );
 				bChanged |= spline_rowmetres( "Clear Trees", "##splinerivertrees", &v.treeMargin, 0.0f, 30.0f );
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Trees are hidden this far past the edge of the bed" );
+				bChanged |= spline_rowmetres( "Water Depth", "##splineriverwaterdepth", &v.waterDepth, 0.0f, std::max( 0.5f, v.depth / SPLINE_UNITS_PER_M ) );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How deep the river's water is above its bed (0: a dry channel)" );
+				bool bMainLook = v.mainLook != 0;
+				ImGui::SetCursorPosX( fRowFieldX );
+				if ( ImGui::Checkbox( "Use the Main Water's Look##splinerivermainlook", &bMainLook ) )
+				{
+					if ( !bMainLook )
+					{
+						// start from the main water's look
+						WickedCallWaterLook look = spline_waterlook( v );
+						v.colour[0] = look.r; v.colour[1] = look.g; v.colour[2] = look.b;
+						v.clarity = look.a; v.flow = look.speed; v.waves = look.distortion; v.foam = 1.0f; v.ripples = 1.0f;
+					}
+					v.mainLook = bMainLook ? 1 : 0;
+					bChanged = true;
+				}
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The river's water takes its colour, flow and waves from the main water; untick to set them here" );
+				if ( !v.mainLook )
+				{
+					spline_row( "Water Colour" );
+					bChanged |= ImGui::ColorEdit3( "##splineriverwatercolour", v.colour, ImGuiColorEditFlags_NoInputs );
+					spline_row( "Clarity" );
+					bChanged |= ImGui::SliderFloat( "##splineriverclarity", &v.clarity, 0.1f, 1.0f, "%.2f" );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How opaque the water is" );
+					spline_row( "Flow Speed" );
+					bChanged |= ImGui::SliderFloat( "##splineriverflow", &v.flow, 0.0f, 4.0f, "%.2f" );
+					spline_row( "Waves" );
+					bChanged |= ImGui::SliderFloat( "##splineriverwaves", &v.waves, 0.0f, 4.0f, "%.2f" );
+					spline_row( "Foam" );
+					bChanged |= ImGui::SliderFloat( "##splineriverfoam", &v.foam, 0.0f, 4.0f, "%.2f" );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How far foam reaches out from the banks" );
+					spline_row( "Ripple Size" );
+					bChanged |= ImGui::SliderFloat( "##splineriverripples", &v.ripples, 0.25f, 4.0f, "%.2f" );
+				}
 				if ( bChanged ) spline_modified();
 				spline_rowbake( s, &v.autoApply, "River", w );
 				if ( s.wetFraction >= 0.0f && !s.baked.empty() )
 				{
-					ImGui::TextWrapped( "Water: %.0f%% of the bed is below the level's water line (%.1f m); only that part holds water.", s.wetFraction * 100.0f, t.terrain.waterliney_f / SPLINE_UNITS_PER_M );
+					ImGui::TextWrapped( "Sea: %.0f%% of the bed is below the level's water line (%.1f m).", s.wetFraction * 100.0f, t.terrain.waterliney_f / SPLINE_UNITS_PER_M );
 				}
 			}
 			bool bClosed = s.closed != 0;
@@ -1869,6 +2212,7 @@ void spline_imgui_panel( float w )
 	}
 
 	spline_bakechanged();
+	spline_updatewater();
 }
 
 //
@@ -1877,6 +2221,8 @@ void spline_imgui_panel( float w )
 
 void spline_deleteall( void )
 {
+	for ( sSpline& s : g_Splines ) if ( s.waterEntity ) WickedCall_DeleteWaterSurface( s.waterEntity );
+	g_RiverWater.clear();
 	g_Splines.clear();
 	g_iSplineSelected = -1;
 	g_iSplineNodeSelected = -1;
@@ -1948,6 +2294,11 @@ void spline_savedata( void )
 		const int32_t vi[4] = { v.bedMaterial, v.bankMaterial, v.downhill, v.autoApply };
 		put( vf, sizeof(vf) );
 		put( vi, sizeof(vi) );
+		// version 4: the river's water
+		const float wf[9] = { v.waterDepth, v.colour[0], v.colour[1], v.colour[2], v.clarity, v.flow, v.waves, v.foam, v.ripples };
+		const int32_t wi[1] = { v.mainLook };
+		put( wf, sizeof(wf) );
+		put( wi, sizeof(wi) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -2041,6 +2392,15 @@ void spline_loaddata( void )
 					v.bedWidth = vf[0]; v.depth = vf[1]; v.banks = vf[2]; v.smoothing = vf[3]; v.grassMargin = vf[4]; v.treeMargin = vf[5];
 					v.bedMaterial = vi[0]; v.bankMaterial = vi[1]; v.downhill = vi[2]; v.autoApply = vi[3];
 				}
+				float wf[9];
+				int32_t wi[1];
+				if ( version >= 4 && get( wf, sizeof(wf) ) && get( wi, sizeof(wi) ) )
+				{
+					sSplineRiver& v = s.river;
+					v.waterDepth = wf[0]; v.colour[0] = wf[1]; v.colour[1] = wf[2]; v.colour[2] = wf[3];
+					v.clarity = wf[4]; v.flow = wf[5]; v.waves = wf[6]; v.foam = wf[7]; v.ripples = wf[8];
+					v.mainLook = wi[0];
+				}
 			}
 		}
 		else
@@ -2053,4 +2413,5 @@ void spline_loaddata( void )
 	}
 	fclose( fp );
 	spline_cleanjunctions();
+	g_iSplineWaterWait = 60;
 }

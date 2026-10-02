@@ -19676,6 +19676,9 @@ void editor_mainfunctionality ( void )
 	OPTICK_EVENT();
 #endif
 
+	// the rivers' water (the spline tool) keeps up with its rivers and the main water's look
+	spline_updatewater ( );
+
 	//  Rotation of entity
 	if (  t.grideditselect == 5 ) 
 	{

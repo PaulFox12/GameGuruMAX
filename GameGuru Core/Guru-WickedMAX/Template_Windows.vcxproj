@@ -932,7 +932,6 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseForDEV|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseForEdu|x64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseForSteam|x64'">true</ExcludedFromBuild>
     </FxCompile>
     <FxCompile Include="GGTerrain\CustomShaders\objectPS_grid.hlsl">
       <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='ReleaseForDEV|x64'">$(GG_MAX_BUILD_PATH)\Max\shaders\%(Filename).cso</ObjectFileOutput>
