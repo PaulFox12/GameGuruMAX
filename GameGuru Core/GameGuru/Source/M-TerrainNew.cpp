@@ -11865,6 +11865,7 @@ void ChooseTerrainTextureFolder(char* folder)
 
 	char destination[MAX_PATH];
 	bool bInMaxFolder = false;
+	bool bInWritableFiles = false;
 	
 	// User chooses new texture folder
 	if (folder == nullptr)
@@ -11986,7 +11987,15 @@ void ChooseTerrainTextureFolder(char* folder)
 				char* inWritablePath = strstr(destination, writePath);
 				if (inWritablePath)
 				{
-					t.visuals.customTexturesFolder = destination + strlen(writePath);
+					// GG: relative to Files, as the install's above and the loader below take it (and the biomes store it);
+					// it kept Files at its front, so the next load looked in Files\Files and found nothing
+					const char* pRelative = destination + strlen(writePath);
+					if (_strnicmp(pRelative, "Files\\", 6) == 0)
+					{
+						pRelative += 6;
+						bInWritableFiles = true;
+					}
+					t.visuals.customTexturesFolder = pRelative;
 				}
 				else
 				{
@@ -12007,6 +12016,11 @@ void ChooseTerrainTextureFolder(char* folder)
 	{
 		// Determine full path to custom textures folder (writable or max install)
 		// so that we can load the textures during the refresh below (destination needs to point to valid area!!)
+		// GG: a level saved by the palette's button with Files at the front of its folder; copied, as folder can be the
+		// level's own setting, which is set again from it below
+		char folderInFiles[MAX_PATH];
+		strcpy_s(folderInFiles, MAX_PATH, _strnicmp(folder, "Files\\", 6) == 0 ? folder + 6 : folder);
+		folder = folderInFiles;
 		if (strlen(folder) > 0)
 		{
 			char fullPath[MAX_PATH];
@@ -12052,7 +12066,7 @@ void ChooseTerrainTextureFolder(char* folder)
 
 	char newDir[MAX_PATH];
 	strcpy(newDir, destination);
-	if (bInMaxFolder)
+	if (bInMaxFolder || bInWritableFiles)
 	{
 		newDir[strlen(newDir) - strlen(t.visuals.customTexturesFolder.Get())] = 0;
 	}
