@@ -2175,32 +2175,47 @@ static void spline_markings( int si, std::vector<GGTerrain::GGTerrainMarking>& o
 			const float ax = c[i].x + nx[i] * offset, az = c[i].z + nz[i] * offset;
 			const float bx = c[i+1].x + nx[i+1] * offset, bz = c[i+1].z + nz[i+1] * offset;
 			const float length = sqrtf( (bx - ax) * (bx - ax) + (bz - az) * (bz - az) );
-			const float mx = (ax + bx) * 0.5f, mz = (az + bz) * 0.5f;
-			if ( bLine && onEarlierRoad( mx, mz ) ) bLine = false;
-			if ( bLine && !others.empty() && spline_oncarriageway( others, mx, mz, 20.0f ) )
-			{
-				if ( r.markJunctions == SPLINE_MARKJUNCTION_STOP || (slot >= 2 && slot < slots - 2) ) bLine = false;
-				else
-				{
-					dash = 19.7f;
-					gap = 19.7f;
-				}
-			}
 			if ( bLine )
 			{
-				GGTerrain::GGTerrainMarking piece;
-				piece.ax = ax; piece.az = az; piece.bx = bx; piece.bz = bz;
-				piece.halfWidth = width * 0.5f;
-				piece.dash = dash;
-				piece.gap = gap;
-				piece.phase = phase[ slot ];
-				piece.r = colour[0]; piece.g = colour[1]; piece.b = colour[2];
-				piece.wear = r.markWear;
-				out.push_back( piece );
-				pBounds[0] = std::min( pBounds[0], std::min( ax, bx ) - width );
-				pBounds[1] = std::min( pBounds[1], std::min( az, bz ) - width );
-				pBounds[2] = std::max( pBounds[2], std::max( ax, bx ) + width );
-				pBounds[3] = std::max( pBounds[3], std::max( az, bz ) + width );
+				// a point's place: 2 on an earlier road (no line), 1 on another road with At Junctions set, 0 neither. A
+				// piece whose ends differ crosses a road's edge: cut into eighths, each by its own middle, so the line
+				// changes within about 20 cm of the edge rather than up to half a piece past it
+				auto place = [&]( float x, float z )
+				{
+					if ( onEarlierRoad( x, z ) ) return 2;
+					if ( !others.empty() && spline_oncarriageway( others, x, z, 20.0f ) ) return 1;
+					return 0;
+				};
+				const int parts = place( ax, az ) == place( bx, bz ) ? 1 : 8;
+				for ( int part = 0; part < parts; part++ )
+				{
+					const float t0 = (float)part / parts, t1 = (float)(part + 1) / parts;
+					const float px0 = ax + (bx - ax) * t0, pz0 = az + (bz - az) * t0;
+					const float px1 = ax + (bx - ax) * t1, pz1 = az + (bz - az) * t1;
+					const int at = place( (px0 + px1) * 0.5f, (pz0 + pz1) * 0.5f );
+					float partDash = dash, partGap = gap;
+					if ( at == 2 ) continue;
+					if ( at == 1 )
+					{
+						// stopped, or the centre and edges across it as guide dashes
+						if ( r.markJunctions == SPLINE_MARKJUNCTION_STOP || (slot >= 2 && slot < slots - 2) ) continue;
+						partDash = 19.7f;
+						partGap = 19.7f;
+					}
+					GGTerrain::GGTerrainMarking piece;
+					piece.ax = px0; piece.az = pz0; piece.bx = px1; piece.bz = pz1;
+					piece.halfWidth = width * 0.5f;
+					piece.dash = partDash;
+					piece.gap = partGap;
+					piece.phase = phase[ slot ] + length * t0;
+					piece.r = colour[0]; piece.g = colour[1]; piece.b = colour[2];
+					piece.wear = r.markWear;
+					out.push_back( piece );
+					pBounds[0] = std::min( pBounds[0], std::min( px0, px1 ) - width );
+					pBounds[1] = std::min( pBounds[1], std::min( pz0, pz1 ) - width );
+					pBounds[2] = std::max( pBounds[2], std::max( px0, px1 ) + width );
+					pBounds[3] = std::max( pBounds[3], std::max( pz0, pz1 ) + width );
+				}
 			}
 			phase[ slot ] += length;
 		}
