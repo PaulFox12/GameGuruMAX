@@ -3305,9 +3305,21 @@ int mapfile_savestandalone_stage2c ( void )
 		if (t.visuals.customTexturesFolder.Len() > 0)
 		{
 			// Collect all .dds textures in this folder and add them to the standalone file collection
+			// GG: the folder is relative to Files (as ChooseTerrainTextureFolder loads it), in the writable area or else the
+			// install; the write path alone found nothing, so an exported game had none of its custom terrain textures. One
+			// stored with Files at its front (the palette's button did that) is read without it
+			const char* pCustomFolder = t.visuals.customTexturesFolder.Get();
+			if (_strnicmp(pCustomFolder, "Files\\", 6) == 0) pCustomFolder += 6;
 			char customTexturePath[MAX_PATH];
 			strcpy(customTexturePath, GG_GetWritePath());
-			strcat(customTexturePath, t.visuals.customTexturesFolder.Get());
+			strcat(customTexturePath, "Files\\");
+			strcat(customTexturePath, pCustomFolder);
+			if (PathExist(customTexturePath) == 0)
+			{
+				strcpy(customTexturePath, g.fpscrootdir_s.Get());
+				strcat(customTexturePath, "\\Files\\");
+				strcat(customTexturePath, pCustomFolder);
+			}
 			std::vector<std::string> filesToCollect;
 			CollectFilesWithExtension(".dds", customTexturePath, &filesToCollect);
 			for (auto& file : filesToCollect)
