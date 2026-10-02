@@ -680,6 +680,8 @@ const char* GGGrass_GetTextureSource( int slice, int* pChanged )
 }
 
 // only call this when grass heights need to be updated, e.g. when the terrain has changed
+uint8_t* GGGrass_GetGrassMap() { return pGrassMap; }
+
 int GGGrass_UpdateInstances()
 {
 	if (!gggrass_initialised) return 0;

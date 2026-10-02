@@ -276,6 +276,15 @@ int GGTerrain_GetHeight( float x, float z, float* outHeight, int accurateButSlow
 uint64_t GGTerrain_GetHeightFingerprintGlobal();
 uint64_t GGTerrain_GetHeightFingerprintRect( float minX, float minZ, float maxX, float maxZ );
 uint64_t GGTerrain_GetHeightFingerprint();
+// GG: the edit maps for a tool that writes them directly (the spline roads). Sculpt heights (normalized, see
+// GGTerrain_HeightToEdit) and their types, rows flipped as the height function reads them (index (4095 - z) * 4096 + x);
+// the material map (0 automatic, n texture slot n-1), not flipped (index z * 4096 + x); each over the editable area.
+// After writing: GGTerrain_InvalidateRegion for heights, GGTerrain_MaterialMapChanged for materials
+float* GGTerrain_GetHeightEditMap();
+uint8_t* GGTerrain_GetHeightEditTypeMap();
+uint8_t* GGTerrain_GetMaterialMap();
+float GGTerrain_HeightToEdit( float y );
+void GGTerrain_MaterialMapChanged( float minX, float minZ, float maxX, float maxZ );
 int GGTerrain_GetNormal( float x, float z, float* outNx, float* outNy, float* outNz );
 
 void GGTerrain_CancelRamp();

@@ -2,6 +2,7 @@
 #define _H_GGTREES
 
 #include <stdint.h>
+#include <vector>
 #include "wiGraphicsDevice.h"
 #include "wiScene.h"
 
@@ -77,6 +78,14 @@ namespace GGTrees
 	};
 
 	int GGTrees_GetClosest( float x, float z, float radius, GGTreePoint** pOutPoints ); // returns the number of trees in pOutPoints, pOutPoints must be undefined it will be created
+	// GG: for tools that hide trees and show them again (the spline roads): the drawn trees in a rect (slot, position, trunk
+	// centre and diameter, data), hiding one as the editor's remove does, showing it again only if its slot is still hidden
+	// and holds the same tree (position and data), and refreshing the chunks in a rect afterwards
+	struct GGTreeSlot { uint32_t id; float x, z; float trunkX, trunkZ, diameter; uint32_t data; };
+	void GGTrees_GetTreesInRect( float minX, float minZ, float maxX, float maxZ, std::vector<GGTreeSlot>& out );
+	void GGTrees_HideTree( uint32_t id );
+	bool GGTrees_ShowTree( uint32_t id, float x, float z, uint32_t data );
+	void GGTrees_RefreshRect( float minX, float minZ, float maxX, float maxZ );
 	int GGTrees_RayCast( RAY pickRay, float maxDist, float* outDist, uint32_t* treeID ); // returns 1 if hit, 0 if not. If hit then treeID will be populated
 	int GGTrees_RayCastTrunks( float x1, float y1, float z1, float x2, float y2, float z2, float* pOut ); // the first trunk on a segment, map-wide: pOut gets x, y, z, nx, ny, nz; returns 1 if hit
 	int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, const float* pMotion, float* pOut, int* pType = 0, bool bBareTrunk = false ); // the first trunk a moving box meets: fraction, x, y, z, nx, ny, nz, and its tree type; bBareTrunk tests each trunk only up to its crown

@@ -1878,6 +1878,69 @@ bool GGTrees_GetDefaultDataV2(char *filename)
 	return bRet;
 }
 
+void GGTrees_GetTreesInRect( float minX, float minZ, float maxX, float maxZ, std::vector<GGTreeSlot>& out )
+{
+	out.clear();
+	if ( !ggtrees_initialised ) return;
+	for ( uint32_t i = 0; i < numTreeChunks; i++ )
+	{
+		TreeChunk* pChunk = &pTreeChunks[ i ];
+		if ( pChunk->pInstances.NumItems() == 0 ) continue;
+		AABB aabb;
+		pChunk->GetBounds( &aabb );
+		if ( minX > aabb._max.x || minZ > aabb._max.z || maxX < aabb._min.x || maxZ < aabb._min.z ) continue;
+		for ( uint32_t j = 0; j < pChunk->pInstances.NumItems(); j++ )
+		{
+			InstanceTree* pInstance = pChunk->pInstances[ j ];
+			if ( !pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsKilled() || pInstance->IsInvalid() ) continue;
+			if ( pInstance->x < minX || pInstance->x > maxX || pInstance->z < minZ || pInstance->z > maxZ ) continue;
+			GGTreeSlot slot;
+			slot.id = (uint32_t)(pInstance - pAllTrees);
+			slot.x = pInstance->x;
+			slot.z = pInstance->z;
+			pInstance->GetTrunkCentre( &slot.trunkX, &slot.trunkZ );
+			slot.diameter = pInstance->GetTreeThickness() * pInstance->GetScaleFloat();
+			slot.data = pInstance->data;
+			out.push_back( slot );
+		}
+	}
+}
+
+void GGTrees_HideTree( uint32_t id )
+{
+	if ( id >= numTotalTrees ) return;
+	InstanceTree* pInstance = &pAllTrees[ id ];
+	if ( !pInstance->IsVisible() ) return;
+	pInstance->SetVisible( 0 );
+	pInvisibleTrees.AddItem( id );
+}
+
+bool GGTrees_ShowTree( uint32_t id, float x, float z, uint32_t data )
+{
+	if ( id >= numTotalTrees ) return false;
+	InstanceTree* pInstance = &pAllTrees[ id ];
+	if ( pInstance->IsVisible() ) return false;
+	// the same tree still in the slot: its position and type, variation and scale (the bits above the flags)
+	if ( pInstance->x != x || pInstance->z != z || (pInstance->data >> 8) != (data >> 8) ) return false;
+	pInvisibleTrees.RemoveItem( id );
+	pInstance->SetVisible( 1 );
+	return true;
+}
+
+void GGTrees_RefreshRect( float minX, float minZ, float maxX, float maxZ )
+{
+	if ( !ggtrees_initialised ) return;
+	for ( uint32_t i = 0; i < numTreeChunks; i++ )
+	{
+		TreeChunk* pChunk = &pTreeChunks[ i ];
+		if ( pChunk->pInstances.NumItems() == 0 ) continue;
+		AABB aabb;
+		pChunk->GetBounds( &aabb );
+		if ( minX > aabb._max.x || minZ > aabb._max.z || maxX < aabb._min.x || maxZ < aabb._min.z ) continue;
+		pChunk->Update();
+	}
+}
+
 int GGTrees_GetClosest( float x, float z, float radius, GGTreePoint** pOutPoints )
 {
 	if (!ggtrees_initialised) return 0;

@@ -10578,6 +10578,26 @@ uint64_t GGTerrain_GetHeightFingerprint()
 	return h ? h : 1;
 }
 
+float* GGTerrain_GetHeightEditMap() { return pHeightMapEdit; }
+uint8_t* GGTerrain_GetHeightEditTypeMap() { return pHeightMapEditType; }
+uint8_t* GGTerrain_GetMaterialMap() { return pMaterialMap; }
+
+// a world height as a sculpt edit stores it (as the ramp and write sculpt modes do)
+float GGTerrain_HeightToEdit( float y )
+{
+	float n = y - ggterrain_local_params.offset_y;
+	if ( n < 0 ) return ggterrain_local_params.minHeight != 0 ? n / ggterrain_local_params.minHeight : 0;
+	return ggterrain_local_params.height != 0 ? n / ggterrain_local_params.height : 0;
+}
+
+void GGTerrain_MaterialMapChanged( float minX, float minZ, float maxX, float maxZ )
+{
+	if ( !pMaterialMap ) return;
+	wiRenderer::GetDevice()->UpdateTexture( &texMaterialMap, 0, 0, NULL, pMaterialMap, GGTERRAIN_MATERIALMAP_SIZE, -1 );
+	bCheckForNewTerrainTextures = true; // a texture not used before gets loaded
+	GGTerrain_InvalidateRegion( minX, minZ, maxX, maxZ, GGTERRAIN_INVALIDATE_TEXTURES );
+}
+
 int GGTerrain_GetNormal( float x, float z, float* outNx, float* outNy, float* outNz )
 {
 	return ggterrain.GetNormal( x, z, outNx, outNy, outNz );
