@@ -1432,6 +1432,12 @@ struct OutputPrepass
 	const float lineardepth = input.pos.w;
 	const float2 pixel = input.pos.xy;
 	const float2 ScreenCoord = pixel * g_xFrame_InternalResolution_rcp;
+
+#ifdef RIVERWATER
+	// GG: a river's water is drawn only in the main view, not in the passes with a clip plane (the transparents under the
+	// sea drawn before the refraction copy, the planar reflection), so its refraction is the scene beneath it
+	if (any(g_xCamera_ClipPlane != 0)) discard;
+#endif // RIVERWATER
 	float3 bumpColor = 0;
 
 #ifndef DISABLE_ALPHATEST
@@ -1536,7 +1542,11 @@ struct OutputPrepass
 	float2 timeScaledUV5 = ((input.uvsets.xy+offset)*6)+dudv.rg+sin((g_xFrame_Time*WaterSpeed2*2));
 	float2 timeScaledUV6 = ((input.uvsets.xy+offset)*5)+dudv.rg+cos((g_xFrame_Time*WaterSpeed2*2));
 
+#ifdef RIVERWATER
+	float4 baseColorMap = 1; // the colour is the material's (customShaderParam5 and 7 hold the water fog)
+#else
 	float4 baseColorMap = texture_basecolormap.Sample(sampler_objectshader, (input.uvsets.xy * GetMaterial().customShaderParam7 )+dudv3.rg+offset2);
+#endif // RIVERWATER
 
 	float3 bumpColor2 = 0, bumpColor3 = 0, bumpColor4 = 0, bumpColor5 = 0, bumpColor6 = 0;
 	float3 normal2 = 0, normal3 = 0, normal4 = 0;
@@ -2248,6 +2258,29 @@ struct OutputPrepass
 	color.a = 1;
 
 #endif // WATER
+
+#ifdef RIVERWATER
+	// GG: as the ocean's surface (oceanSurfacePS): the scene beneath seen through the water, fading to the water colour
+	// with the depth looked through, from the fog start to the fog max (customShaderParam5 and 7, in units) and never
+	// clearer than 1 - fog minimum (the base colour's alpha); drawn opaque over it
+	{
+		const float2 perturb = surface.N.xz * 0.04;
+		float riverSampledDepth = texture_lineardepth.SampleLevel(sampler_linear_clamp, ScreenCoord + perturb, 0) * g_xCamera_ZFarP;
+		float riverDepth = max(0, (riverSampledDepth - lineardepth) * 0.0254);
+		const float2 refractUV = ScreenCoord + perturb * saturate(0.5 * riverDepth);
+		const float3 refracted = texture_refraction.SampleLevel(sampler_linear_mirror, refractUV, 0).rgb;
+		riverSampledDepth = texture_lineardepth.SampleLevel(sampler_linear_clamp, refractUV, 0) * g_xCamera_ZFarP;
+		riverDepth = max(0, (riverSampledDepth - lineardepth) * 0.0254);
+		// the path through the water is longer the more slanting the view
+		riverDepth += riverDepth / max(0.001, dist * 0.0254) * max(0, g_xCamera_CamPos.y - surface.P.y) * 0.0254;
+		const float fogMin = GetMaterial().customShaderParam5 * 0.0254;
+		const float fogMax = max(fogMin + 0.01, GetMaterial().customShaderParam7 * 0.0254);
+		float fade = exp(max(0, riverDepth - fogMin) * (-4.0 / (fogMax - fogMin)));
+		fade = min(saturate(1 - GetMaterial().baseColor.a), fade);
+		surface.refraction = float4(refracted, fade);
+		color.a = 1;
+	}
+#endif // RIVERWATER
 
 #ifdef UNLIT
 	lighting.direct.diffuse = 1;

@@ -71,6 +71,7 @@ Shader shaderMainTreeAnimateVS;
 Shader shaderPrepassTreeAnimateVS;
 Shader shaderShadowTreeAnimateVS;
 Shader shaderWaterPS;
+Shader shaderRiverWaterPS;
 Shader shaderGlassPS;
 Shader shaderGridPS;
 Shader damageBloodPS;
@@ -209,6 +210,24 @@ void AddCustomShaders(void)
 		customBloodDamageShader.pso[i] = pso2[i];
 
 	RegisterCustomShader(customBloodDamageShader);
+
+	// GG: a river's water (the editor's spline rivers): the Water Object shader's flow and foam, coloured as the ocean is,
+	// the scene beneath fading to the water colour with depth
+	PipelineState psoriverwater;
+	PipelineStateDesc descriverwater;
+	CustomShader customRiverWaterShader;
+	if (!LoadShader(PS, shaderRiverWaterPS, "objectPS_custom_riverwater.cso"))
+		customRiverWaterShader.bActive = false;
+	wiRenderer::AddPipelineDesc(descriverwater, RENDERPASS_MAIN, PSTYPE_OBJECT, MaterialComponent::SHADERTYPE::SHADERTYPE_PBR, BLENDMODE_ALPHA, OBJECTRENDERING_DOUBLESIDED_DISABLED, false, false, true);
+	if (customRiverWaterShader.bActive)
+	{
+		descriverwater.ps = &shaderRiverWaterPS;
+	}
+	wiRenderer::GetDevice()->CreatePipelineState(&descriverwater, &psoriverwater);
+	customRiverWaterShader.name = "River Water";
+	customRiverWaterShader.renderTypeFlags = RENDERTYPE_TRANSPARENT;
+	customRiverWaterShader.pso[RENDERPASS_MAIN] = psoriverwater;
+	RegisterCustomShader(customRiverWaterShader);
 
 
 }

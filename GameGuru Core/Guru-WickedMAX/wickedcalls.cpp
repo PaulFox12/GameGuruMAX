@@ -9567,10 +9567,15 @@ static void WickedCall_ApplyWaterLook(MaterialComponent& material, const WickedC
 	material.reflectance = 0.04f;
 	material.userBlendMode = BLENDMODE_ALPHA;
 	material.customShaderID = -1;
+	bool bRiverWater = false;
 	const std::vector<wiRenderer::CustomShader>& shaders = wiRenderer::GetCustomShaders();
 	for (size_t i = 0; i < shaders.size(); i++)
 	{
-		if (shaders[i].name == "Water Object" && shaders[i].bActive) { material.customShaderID = (int)i; break; }
+		if (shaders[i].name == "River Water" && shaders[i].bActive) { material.customShaderID = (int)i; bRiverWater = true; break; }
+	}
+	for (size_t i = 0; i < shaders.size() && material.customShaderID < 0; i++)
+	{
+		if (shaders[i].name == "Water Object" && shaders[i].bActive) material.customShaderID = (int)i;
 	}
 	material.customShaderParam1 = look.uvScale;
 	material.customShaderParam2 = look.speed;
@@ -9579,6 +9584,13 @@ static void WickedCall_ApplyWaterLook(MaterialComponent& material, const WickedC
 	material.customShaderParam5 = look.scroll;
 	material.customShaderParam6 = look.foam;
 	material.customShaderParam7 = look.texScale;
+	if (bRiverWater)
+	{
+		// the water fog in place of the colour map's scroll and scale, its minimum amount in the colour's alpha
+		material.customShaderParam5 = look.fogMin;
+		material.customShaderParam7 = look.fogMax;
+		material.baseColor.w = look.fogMinAmount;
+	}
 	material.SetDirty();
 }
 

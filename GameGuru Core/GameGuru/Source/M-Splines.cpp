@@ -76,7 +76,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 4 // 2: road settings and the bake; 3: river settings; 4: the river's water
+#define SPLINE_FILE_VERSION 6 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -127,11 +127,13 @@ struct sSplineRiver
 	float waterDepth = 180.0f; // the water surface this far above the bed
 	int mainLook = 1; // the water looks like the main water (its colour, flow and waves), else as set here
 	float colour[3] = { 0.04f, 0.08f, 0.17f };
-	float clarity = 0.8f; // opacity
+	float clarity = 0.75f; // how much of the bed shows through in the shallows (1 - the water fog's minimum)
+	float seeDepth = 11500.0f; // how deep the water is before its colour hides the bed (the water fog's max)
 	float flow = 1.0f; // flow speed
 	float waves = 1.0f; // wave distortion
 	float foam = 1.0f; // foam size at the banks
 	float ripples = 1.0f; // ripple size
+	int raiseBanks = 1; // where the ground beside it is lower than the water, a bank is raised to hold it
 };
 
 // a terrain texel a bake wrote: what it held, and what the bake left there
@@ -590,6 +592,11 @@ static uint64_t spline_signature( const sSpline& s )
 	const int vi[3] = { v.bedMaterial, v.bankMaterial, v.downhill };
 	mix( vf, sizeof(vf) );
 	mix( vi, sizeof(vi) );
+	if ( s.kind == SPLINE_KIND_RIVER )
+	{
+		mix( &v.raiseBanks, sizeof(v.raiseBanks) );
+		if ( v.raiseBanks ) mix( &v.waterDepth, sizeof(v.waterDepth) );
+	}
 	return h ? h : 1;
 }
 
@@ -734,6 +741,7 @@ struct sSplineShape
 	float halfCore = 0, edge = 0, crown = 0;
 	int coreMaterial = 0, edgeMaterial = 0;
 	float grassMargin = 0, treeMargin = 0;
+	float crest = 0; // above 0, the edges rise at least this far above the core before falling to lower ground (a river's raised banks)
 };
 
 // the footprint on the terrain's texels, and the writes
@@ -820,7 +828,16 @@ static void spline_bakeshape( sSpline& sp, const std::vector<sRoadSample>& c, co
 			if ( !GGTerrain::GGTerrain_GetHeight( wx, wz, &ground, 1, 1 ) || ground != ground ) ground = f.h;
 			const float tt = (f.d - halfW) / shape.edge;
 			const float smooth = tt * tt * (3.0f - 2.0f * tt);
-			pH[ hIndex ] = GGTerrain::GGTerrain_HeightToEdit( f.h + (ground - f.h) * smooth );
+			float target = f.h + (ground - f.h) * smooth;
+			const float crest = f.h + shape.crest;
+			if ( shape.crest > 0 && ground < crest )
+			{
+				// a raised bank: up from the core to the crest over the first half of the edge, down to the ground over the rest
+				const float u = tt < 0.5f ? tt * 2.0f : (tt - 0.5f) * 2.0f;
+				const float s = u * u * (3.0f - 2.0f * u);
+				target = tt < 0.5f ? f.h + (crest - f.h) * s : crest + (ground - crest) * s;
+			}
+			pH[ hIndex ] = GGTerrain::GGTerrain_HeightToEdit( target );
 			pT[ hIndex ] = 1;
 			b.flags |= SPLINE_TEXEL_HEIGHT;
 		}
@@ -977,6 +994,7 @@ static void spline_bakeriver( int si, std::unordered_set<uint32_t>& protectedTex
 	sSplineShape shape;
 	shape.halfCore = v.bedWidth * 0.5f;
 	shape.edge = v.banks;
+	if ( v.raiseBanks && v.waterDepth > 0 ) shape.crest = v.waterDepth + 40.0f; // a metre above the water
 	shape.coreMaterial = v.bedMaterial;
 	shape.edgeMaterial = v.bankMaterial;
 	shape.grassMargin = v.grassMargin;
@@ -1110,6 +1128,9 @@ static WickedCallWaterLook spline_waterlook( const sSplineRiver& v )
 		look.a = 0.8f;
 		look.speed = std::min( 4.0f, std::max( 0.1f, t.visuals.WaterSpeed1 / 0.06f ) );
 		look.distortion = std::min( 4.0f, std::max( 0.1f, t.visuals.fWaterWaveAmplitude / 20.0f ) );
+		look.fogMin = t.visuals.WaterFogMinDist;
+		look.fogMax = t.visuals.WaterFogMaxDist;
+		look.fogMinAmount = t.visuals.WaterFogMinAmount;
 	}
 	else
 	{
@@ -1119,6 +1140,9 @@ static WickedCallWaterLook spline_waterlook( const sSplineRiver& v )
 		look.distortion = v.waves;
 		look.foam = v.foam;
 		look.uvScale = v.ripples > 0.01f ? 1.0f / v.ripples : 1.0f;
+		look.fogMin = 0.0f;
+		look.fogMax = v.seeDepth;
+		look.fogMinAmount = 1.0f - v.clarity;
 	}
 	look.direction = 0.75f; // downstream, the surface's v rising (the shader's pattern moves against its direction)
 	look.scroll = look.speed;
@@ -2154,6 +2178,10 @@ void spline_imgui_panel( float w )
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Trees are hidden this far past the edge of the bed" );
 				bChanged |= spline_rowmetres( "Water Depth", "##splineriverwaterdepth", &v.waterDepth, 0.0f, std::max( 0.5f, v.depth / SPLINE_UNITS_PER_M ) );
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How deep the river's water is above its bed (0: a dry channel)" );
+				bool bRaise = v.raiseBanks != 0;
+				ImGui::SetCursorPosX( fRowFieldX );
+				if ( ImGui::Checkbox( "Raise Low Banks##splineriverraise", &bRaise ) ) { v.raiseBanks = bRaise ? 1 : 0; bChanged = true; }
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Where the ground beside the river is lower than its water (a dip it crosses, a shallow bank), raise a bank to hold the water; off, the water is lowered or left out there" );
 				bool bMainLook = v.mainLook != 0;
 				ImGui::SetCursorPosX( fRowFieldX );
 				if ( ImGui::Checkbox( "Use the Main Water's Look##splinerivermainlook", &bMainLook ) )
@@ -2163,7 +2191,8 @@ void spline_imgui_panel( float w )
 						// start from the main water's look
 						WickedCallWaterLook look = spline_waterlook( v );
 						v.colour[0] = look.r; v.colour[1] = look.g; v.colour[2] = look.b;
-						v.clarity = look.a; v.flow = look.speed; v.waves = look.distortion; v.foam = 1.0f; v.ripples = 1.0f;
+						v.clarity = 1.0f - look.fogMinAmount; v.seeDepth = look.fogMax;
+						v.flow = look.speed; v.waves = look.distortion; v.foam = 1.0f; v.ripples = 1.0f;
 					}
 					v.mainLook = bMainLook ? 1 : 0;
 					bChanged = true;
@@ -2174,8 +2203,10 @@ void spline_imgui_panel( float w )
 					spline_row( "Water Colour" );
 					bChanged |= ImGui::ColorEdit3( "##splineriverwatercolour", v.colour, ImGuiColorEditFlags_NoInputs );
 					spline_row( "Clarity" );
-					bChanged |= ImGui::SliderFloat( "##splineriverclarity", &v.clarity, 0.1f, 1.0f, "%.2f" );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How opaque the water is" );
+					bChanged |= ImGui::SliderFloat( "##splineriverclarity", &v.clarity, 0.0f, 1.0f, "%.2f" );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How much of the river bed shows through where the water is shallow" );
+					bChanged |= spline_rowmetres( "See Depth", "##splineriverseedepth", &v.seeDepth, 0.5f, 400.0f, "%.1f m" );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How deep the water gets before its colour hides the bed" );
 					spline_row( "Flow Speed" );
 					bChanged |= ImGui::SliderFloat( "##splineriverflow", &v.flow, 0.0f, 4.0f, "%.2f" );
 					spline_row( "Waves" );
@@ -2408,6 +2439,10 @@ void spline_savedata( void )
 		const int32_t wi[1] = { v.mainLook };
 		put( wf, sizeof(wf) );
 		put( wi, sizeof(wi) );
+		// version 5: Raise Low Banks
+		put( &v.raiseBanks, sizeof(v.raiseBanks) );
+		// version 6: See Depth
+		put( &v.seeDepth, sizeof(v.seeDepth) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -2510,6 +2545,11 @@ void spline_loaddata( void )
 					v.clarity = wf[4]; v.flow = wf[5]; v.waves = wf[6]; v.foam = wf[7]; v.ripples = wf[8];
 					v.mainLook = wi[0];
 				}
+				int32_t raise = 1;
+				if ( version >= 5 && get( &raise, sizeof(raise) ) ) s.river.raiseBanks = raise;
+				float seeDepth = 0;
+				if ( version >= 6 && get( &seeDepth, sizeof(seeDepth) ) ) s.river.seeDepth = seeDepth;
+				else if ( version < 6 ) s.river.clarity = 0.75f; // before version 6 clarity was the opacity
 			}
 		}
 		else
