@@ -80,7 +80,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 12 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set
+#define SPLINE_FILE_VERSION 13 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -127,7 +127,7 @@ struct sSplineLayer
 	float turn = 0.0f; // degrees more
 	float height = 0.0f;
 	float scaleMin = 100.0f, scaleMax = 100.0f; // percent
-	float jitter = 0.0f; // each moved up to this far along and across, at random
+	float jitter = 0.0f; // each moved up to this far along the spline, at random
 	float minTurbulence = 0.0f; // a river: only where its water is at least this turbulent (rapids), 0 anywhere
 	int side = SPLINE_SIDE_BOTH;
 	int facing = SPLINE_FACE_MIRRORED;
@@ -136,6 +136,7 @@ struct sSplineLayer
 	float keepApart = 600.0f; // none placed this close to one another spline (earlier in the list) placed of the same entity
 	int frozen = 0; // its entities stay as they are, no longer placed again
 	int followSlope = 0; // each tilted to the ground under it (decals, flat things), else upright
+	float jitterAcross = 0.0f; // each moved up to this far across, at random (cars spread over both lanes)
 };
 
 // an entity a layer placed, where it was put (found again by its tag and place)
@@ -1925,7 +1926,7 @@ static void spline_place( int si )
 				if ( len > 0 ) { tx /= len; tz /= len; }
 				const float nx = -tz, nz = tx; // right of the way downstream
 				float lateral = side == 0 ? layer.offset : side * (edge + layer.offset);
-				lateral += (spline_random( s.id, li, count, salt * 3 + 1 ) * 2.0f - 1.0f) * layer.jitter;
+				lateral += (spline_random( s.id, li, count, salt * 3 + 1 ) * 2.0f - 1.0f) * layer.jitterAcross;
 				const float px = c[ k ].x + (c[ k + 1 ].x - c[ k ].x) * tt + nx * lateral;
 				const float pz = c[ k ].z + (c[ k + 1 ].z - c[ k ].z) * tt + nz * lateral;
 				if ( s.kind == SPLINE_KIND_RIVER && layer.minTurbulence > 0.0f && spline_riverturbulenceat( px, pz ) < layer.minTurbulence ) continue;
@@ -2045,6 +2046,7 @@ static sSplineLayer spline_newlayer( const sSpline& s )
 		layer.scaleMin = 70.0f;
 		layer.scaleMax = 140.0f;
 		layer.jitter = 150.0f;
+		layer.jitterAcross = 150.0f;
 		layer.keepApart = 0.0f;
 	}
 	return layer;
@@ -2714,9 +2716,10 @@ static void spline_rowlayers( sSpline& s, float w )
 		ImGui::Combo( "##layerside", &layer.side, sides, 5 );
 		spline_rowmetres( layer.side == SPLINE_SIDE_CENTRE ? "Across" : "From the Edge", "##layeroffset", &layer.offset, -20.0f, 40.0f );
 		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", layer.side == SPLINE_SIDE_CENTRE ? "How far right of the centre (left if less than 0)" : "How far out from the road's or the river bed's edge (in if less than 0)" );
-		const char* faces[] = { "Facing Across (Mirrored)", "Along", "Random" };
+		const char* faces[] = { "Mirrored per Side", "Along", "Random" };
 		spline_row( "Facing" );
 		ImGui::Combo( "##layerfacing", &layer.facing, faces, 3 );
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Mirrored per Side: the right side faces along the spline, the left side back (a lamp's arm reaches over the road from both sides; cars on Both sides, From the Edge less than 0, drive on the right).\nAlong: all face along it. Random: any way." );
 		spline_row( "Extra Turn" );
 		ImGui::SliderFloat( "##layerturn", &layer.turn, -180.0f, 180.0f, "%.0f deg" );
 		spline_rowmetres( "Height", "##layerheight", &layer.height, -5.0f, 10.0f, "%.2f m" );
@@ -2728,8 +2731,10 @@ static void spline_rowlayers( sSpline& s, float w )
 		float scale[2] = { layer.scaleMin, layer.scaleMax };
 		if ( ImGui::SliderFloat2( "##layerscale", scale, 10.0f, 400.0f, "%.0f %%" ) ) { layer.scaleMin = std::min( scale[0], scale[1] ); layer.scaleMax = std::max( scale[0], scale[1] ); }
 		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Each is scaled at random between the two" );
-		spline_rowmetres( "Jitter", "##layerjitter", &layer.jitter, 0.0f, 20.0f );
-		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Each moved up to this far along and across, at random" );
+		spline_rowmetres( "Jitter Along", "##layerjitter", &layer.jitter, 0.0f, 20.0f );
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Each moved up to this far along the spline, either way, at random" );
+		spline_rowmetres( "Jitter Across", "##layerjitteracross", &layer.jitterAcross, 0.0f, 20.0f );
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Each moved up to this far across it, either side, at random (with Side Centre and half the road's width, spread over both lanes)" );
 		spline_rowmetres( "Keep Apart", "##layerkeepapart", &layer.keepApart, 0.0f, 100.0f );
 		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "None placed this close to one of the same entity another spline placed (where roads meet or run side by side); 0 to allow any" );
 		if ( s.kind == SPLINE_KIND_RIVER )
@@ -3089,11 +3094,13 @@ void spline_imgui_panel( float w )
 	if ( bSectionOpen )
 	{
 		ImGui::Indent( 10 );
-		if ( ImGui::Checkbox( "Edit Splines##splineeditmode", &g_bSplineEditMode ) )
+		// Edit Splines once there is a spline to edit (New Spline turns it on)
+		if ( g_Splines.empty() ) g_bSplineEditMode = false;
+		else if ( ImGui::Checkbox( "Edit Splines##splineeditmode", &g_bSplineEditMode ) )
 		{
 			bConnectMode = false;
 		}
-		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Click the terrain to add nodes and drag them. Shift+click the curve inserts a node, Ctrl+click deletes one.\nA dragged node snaps to another spline's node or curve and joins it (a T junction or a crossing); Alt+drag pulls it out again.\nAn end dropped on the spline's other end closes it. Alt+drag a Bezier handle to break the pair." );
+		if ( !g_Splines.empty() && ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Click the terrain to add nodes and drag them. Shift+click the curve inserts a node, Ctrl+click deletes one.\nA dragged node snaps to another spline's node or curve and joins it (a T junction or a crossing); Alt+drag pulls it out again.\nAn end dropped on the spline's other end closes it. Alt+drag a Bezier handle to break the pair." );
 
 		if ( g_bSplineEditMode && bDrawing ) ImGui::TextWrapped( "%s", "Drawing: click the terrain to add nodes, or another spline's node or curve to join it. Esc to stop." );
 		if ( ImGui::StyleButton( "New Spline##splinenew", ImVec2( w * 0.45f, 0 ) ) )
@@ -3511,6 +3518,8 @@ void spline_savedata( void )
 		put( &v.calmEnd, sizeof(v.calmEnd) );
 		// version 11: Follow Slope
 		for ( const sSplineLayer& layer : s.layers ) put( &layer.followSlope, sizeof(layer.followSlope) );
+		// version 13: Jitter Across
+		for ( const sSplineLayer& layer : s.layers ) put( &layer.jitterAcross, sizeof(layer.jitterAcross) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -3633,6 +3642,7 @@ void spline_loaddata( void )
 						layer.entity[ 259 ] = 0;
 						layer.spacing = lf[0]; layer.start = lf[1]; layer.offset = lf[2]; layer.turn = lf[3]; layer.height = lf[4];
 						layer.scaleMin = lf[5]; layer.scaleMax = lf[6]; layer.jitter = lf[7]; layer.minTurbulence = lf[8];
+						layer.jitterAcross = layer.jitter; // before version 13 one jitter moved it both ways
 						layer.side = lv[0]; layer.facing = lv[1]; layer.enabled = lv[2];
 						s.layers.push_back( layer );
 					}
@@ -3661,6 +3671,10 @@ void spline_loaddata( void )
 						if ( version >= 11 )
 						{
 							for ( sSplineLayer& layer : s.layers ) if ( !get( &layer.followSlope, sizeof(layer.followSlope) ) ) break;
+						}
+						if ( version >= 13 )
+						{
+							for ( sSplineLayer& layer : s.layers ) if ( !get( &layer.jitterAcross, sizeof(layer.jitterAcross) ) ) break;
 						}
 						if ( version < 12 )
 						{
