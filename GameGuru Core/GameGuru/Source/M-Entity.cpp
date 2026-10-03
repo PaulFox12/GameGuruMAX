@@ -8071,6 +8071,7 @@ void entity_addentitytomap ( void )
 	t.entitymaintype=1;
 	t.entitybankindex=t.gridentity;
 	entity_addentitytomap_core ( );
+	SpawnProbe_Mark(SPAWNSTEP_ADDCORE);
 
 	// transfer waypoint zone index to entityelement
 	if (t.grideleprof.trigger.waypointzoneindex > 0)
@@ -8166,6 +8167,7 @@ void entity_addentitytomap ( void )
 
 	//  Add entity reference into map
 	t.tupdatee=t.e; entity_updateentityobj ( );
+	SpawnProbe_Mark(SPAWNSTEP_POSITION);
 
 	// mark as static if it was
 	if ( t.entityelement[t.tupdatee].staticflag == 1 ) g.projectmodifiedstatic = 1;
@@ -8214,15 +8216,18 @@ void entity_addentitytomap ( void )
 			entity_updatelightobj(t.e, t.entityelement[t.e].obj);
 		}
 	}
+	SpawnProbe_Mark(SPAWNSTEP_LIGHTS);
 
 	// if new particle emitter, update it when created (to start the particle emission)
 	entity_updateparticleemitter(t.tupdatee);
+	SpawnProbe_Mark(SPAWNSTEP_EMITTER);
 
 	// when add an entity to the scene, auto flatten if flagged
 	if (t.entityelement[t.e].eleprof.iFlattenID == -1)
 		entity_autoFlattenWhenAdded(t.e); //MD: Wrapped this section into a function to use when loading in levels to auto flatten areas
 	else
 		entity_updateautoflatten(t.e); //LB: Fix in case already added (in prepareobj for example)
+	SpawnProbe_Mark(SPAWNSTEP_FLATTEN);
 
 	// ensure collection list up to date with new entity additions (such as weapons and other implied collectables)
 	extern bool g_bSelectedNewObjectToAddToLevel;

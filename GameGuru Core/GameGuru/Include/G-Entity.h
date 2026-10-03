@@ -90,3 +90,12 @@ void entity_resettodefaultanimation ( void );
 void entity_positionandscale ( void );
 void entity_updateentityobj ( void );
 void entity_cleargrideleprofrelationshipdata (void);
+
+// the time of each step of a clone made from Lua (SpawnNewEntity), logged with it (a diagnostic): each mark adds the time
+// since the last one to its step
+enum { SPAWNSTEP_PROFILE, SPAWNSTEP_ADDCORE, SPAWNSTEP_BEFORECLONE, SPAWNSTEP_CLONE, SPAWNSTEP_ANIMATIONS, SPAWNSTEP_PREPARE,
+	SPAWNSTEP_DEPTHLOD, SPAWNSTEP_POSITION, SPAWNSTEP_LIGHTS, SPAWNSTEP_EMITTER, SPAWNSTEP_FLATTEN, SPAWNSTEP_ADDREST,
+	SPAWNSTEP_PHYSICS, SPAWNSTEP_COUNT };
+void SpawnProbe_Start ( void );
+void SpawnProbe_Mark ( int iStep );
+void SpawnProbe_Stop ( char* pText, int iSize );

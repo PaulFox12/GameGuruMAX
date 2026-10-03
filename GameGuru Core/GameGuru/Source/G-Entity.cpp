@@ -4466,6 +4466,47 @@ void entity_converttoinstance ( void )
 	}
 }
 
+// a clone's steps timed from SpawnProbe_Start to SpawnProbe_Stop (SpawnNewEntityCore); marks outside a spawn do nothing
+static bool g_bSpawnProbeActive = false;
+static LARGE_INTEGER g_SpawnProbeStart, g_SpawnProbeLast;
+static double g_dSpawnProbeMs[SPAWNSTEP_COUNT];
+
+void SpawnProbe_Start ( void )
+{
+	QueryPerformanceCounter(&g_SpawnProbeStart);
+	g_SpawnProbeLast = g_SpawnProbeStart;
+	for (int i = 0; i < SPAWNSTEP_COUNT; i++) g_dSpawnProbeMs[i] = 0;
+	g_bSpawnProbeActive = true;
+}
+
+void SpawnProbe_Mark ( int iStep )
+{
+	if (!g_bSpawnProbeActive || iStep < 0 || iStep >= SPAWNSTEP_COUNT) return;
+	LARGE_INTEGER now, freq;
+	QueryPerformanceCounter(&now);
+	QueryPerformanceFrequency(&freq);
+	g_dSpawnProbeMs[iStep] += (double)(now.QuadPart - g_SpawnProbeLast.QuadPart) * 1000.0 / (double)freq.QuadPart;
+	g_SpawnProbeLast = now;
+}
+
+// "N ms: profile a, add core b, ..." for the steps of 0.05 ms or more, in order
+void SpawnProbe_Stop ( char* pText, int iSize )
+{
+	static const char* pNames[SPAWNSTEP_COUNT] = { "profile", "add core", "before the clone", "clone", "animations and shadows",
+		"prepare (materials)", "depth and LOD", "position", "lights", "emitter", "flatten", "add rest", "physics" };
+	LARGE_INTEGER now, freq;
+	QueryPerformanceCounter(&now);
+	QueryPerformanceFrequency(&freq);
+	g_bSpawnProbeActive = false;
+	int iLen = sprintf_s(pText, iSize, "%.1f ms:", (double)(now.QuadPart - g_SpawnProbeStart.QuadPart) * 1000.0 / (double)freq.QuadPart);
+	for (int i = 0; i < SPAWNSTEP_COUNT && iLen > 0 && iLen < iSize - 40; i++)
+	{
+		if (g_dSpawnProbeMs[i] < 0.05) continue;
+		iLen += sprintf_s(pText + iLen, iSize - iLen, " %s %.1f,", pNames[i], g_dSpawnProbeMs[i]);
+	}
+	if (iLen > 0 && pText[iLen - 1] == ',') pText[iLen - 1] = 0;
+}
+
 void entity_createobj ( void )
 {
 	//  takes OBJ, TUPDATEE, TENDIT
@@ -4617,6 +4658,7 @@ void entity_createobj ( void )
 		}
 
 
+		SpawnProbe_Mark(SPAWNSTEP_BEFORECLONE);
 		if ( bCreateAsClone == true )
 		{
 			CloneObject (  t.obj,t.sourceobj,1 );
@@ -4627,6 +4669,7 @@ void entity_createobj ( void )
 			InstanceObject (  t.obj,t.sourceobj );
 			if (  t.tupdatee != -1  )  t.entityelement[t.tupdatee].isclone = 0;
 		}
+		SpawnProbe_Mark(SPAWNSTEP_CLONE);
 		iUseMasterObjectID = 0;
 		bUseInstancing = false;
 		WickedSetEntityId(-1);
@@ -4708,8 +4751,10 @@ void entity_createobj ( void )
 			entity_loop_using_negative_playanimineditor(t.tupdatee, t.obj, t.entityprofile[t.tentid].playanimineditor_name);
 		}
 
+		SpawnProbe_Mark(SPAWNSTEP_ANIMATIONS);
 		//  SetObject (  properties )
 		t.tobj=t.obj ; t.tte=t.tupdatee ; entity_prepareobj ( );
+		SpawnProbe_Mark(SPAWNSTEP_PREPARE);
 
 		// prepare correct depth mode
 		entity_preparedepth(t.tentid, t.tobj);
@@ -4722,6 +4767,7 @@ void entity_createobj ( void )
 				entity_calculateentityLODdistances ( t.tentid, t.tobj, t.entityelement[t.tupdatee].eleprof.lodmodifier );
 			}
 		}
+		SpawnProbe_Mark(SPAWNSTEP_DEPTHLOD);
 	}
 	else
 	{

@@ -3247,12 +3247,16 @@ static int LUA_GETTOP(lua_State* L)
 	 }
  }
 
+ // the last clone's time and steps (SpawnProbe_Stop), for SpawnNewEntity's log line
+ static char g_pSpawnProbeText[400] = "";
+
  int SpawnNewEntityCore(int iEntityIndex)
  {
 	#ifdef OPTICK_ENABLE
 	OPTICK_EVENT();
 	#endif
 	int iNewE = -1;
+	SpawnProbe_Start();
 	t.bSpawnCalledFromLua = true;
 	int storee = t.e;
 	int storeentid = t.entid;
@@ -3294,11 +3298,13 @@ static int LUA_GETTOP(lua_State* L)
 	t.grideleprof.throwangle = t.entityelement[iEntityIndex].eleprof.throwangle;
 	t.grideleprof.bounceqty = t.entityelement[iEntityIndex].eleprof.bounceqty;
 	t.grideleprof.explodeonhit = t.entityelement[iEntityIndex].eleprof.explodeonhit;
+	SpawnProbe_Mark(SPAWNSTEP_PROFILE);
 	
 	extern bool bNextObjectMustBeClone;
 	bNextObjectMustBeClone = true;
 	
 	entity_addentitytomap ();
+	SpawnProbe_Mark(SPAWNSTEP_ADDREST);
 	
 	bNextObjectMustBeClone = false;
 
@@ -3322,6 +3328,7 @@ static int LUA_GETTOP(lua_State* L)
 	g_bSpawningThisOneNow = true;
 	physics_prepareentityforphysics ();
 	g_bSpawningThisOneNow = false;
+	SpawnProbe_Mark(SPAWNSTEP_PHYSICS);
 	t.entityelement[t.e].lua.firsttime = 0;
 	// clones need parent health at least top begin with
 	t.entityelement[t.e].health = t.entityelement[iEntityIndex].health;
@@ -3333,6 +3340,7 @@ static int LUA_GETTOP(lua_State* L)
 	t.entid = storeentid;
 	t.gridentity = 0;
 	t.bSpawnCalledFromLua = false;
+	SpawnProbe_Stop(g_pSpawnProbeText, sizeof(g_pSpawnProbeText));
 	return iNewE;
  }
  
@@ -3347,13 +3355,15 @@ static int LUA_GETTOP(lua_State* L)
 	 int iEntityIndex = lua_tonumber(L, 1);
 	 if (iEntityIndex > 0 && LuaEntityIDValid(L, iEntityIndex, 1))
 	 {
-		 char pMsg[256];
+		 char pMsg[768];
 		 if (t.entityelement[iEntityIndex].bankindex > 0)
 		 {
 			 int iArraySizeBefore = g.entityelementmax;
 			 iNewE = SpawnNewEntityCore(iEntityIndex);
 			 vSpawnList.push_back(iNewE);
-			 sprintf(pMsg, "SpawnNewEntityCore : %d from %d (entity array %d%s)", iNewE, iEntityIndex, g.entityelementmax, g.entityelementmax != iArraySizeBefore ? ", grown" : "");
+			 // with the clone's model and the time of each step (a diagnostic)
+			 sprintf_s(pMsg, "SpawnNewEntityCore : %d from %d (entity array %d%s), %s in %s", iNewE, iEntityIndex, g.entityelementmax, g.entityelementmax != iArraySizeBefore ? ", grown" : "",
+				 t.entitybank_s[t.entityelement[iEntityIndex].bankindex].Get(), g_pSpawnProbeText);
 		 }
 		 else
 		 {
