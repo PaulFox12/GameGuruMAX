@@ -4198,6 +4198,10 @@ void game_preparelevel_finally ( void )
 	// the player's hit record starts empty on every level, and so do the grass kill boxes (SetGrassKillBox)
 	playerhit_clear();
 	GGGrass::GGGrass_ClearKillBox(-1);
+	// the first 32 scene file loads from here (the init scripts' particle effects, or the first staged ones) log their
+	// committed memory step by step (a diagnostic)
+	extern void WickedCall_ArmLoadProbe(int iLoads);
+	WickedCall_ArmLoadProbe(32);
 	lua_launchallinitscripts ( );
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );
 

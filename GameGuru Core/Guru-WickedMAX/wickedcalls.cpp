@@ -8825,6 +8825,25 @@ void WickedCall_SetExposure(float exposure)
 	master.masterrenderer.setExposure(exposure);
 }
 
+// the committed memory at each step of the next scene file loads (particle effects), one log line a load: armed for the
+// first loads of each test game, as a start that loads the game's particle pools at init committed ~9 MB a load that
+// came back only over the first game frame (a diagnostic)
+static int g_iLoadProbeLoads = 0;
+static int g_iLoadProbeSteps = 0;
+static int g_iLoadProbeKB[8];
+static int g_iLoadProbeLastKB = 0;
+
+void WickedCall_ArmLoadProbe(int iLoads)
+{
+	g_iLoadProbeLoads = iLoads;
+	g_iLoadProbeLastKB = SMEMAvailable(1);
+}
+
+static void WickedCall_LoadProbeStep(void)
+{
+	if (g_iLoadProbeLoads > 0 && g_iLoadProbeSteps < 8) g_iLoadProbeKB[g_iLoadProbeSteps++] = SMEMAvailable(1);
+}
+
 #ifdef WICKEDPARTICLESYSTEM
 uint32_t WickedCall_LoadWiSceneDirect(Scene& scene2,char* filename, bool attached, char* changename, char* changenameto)
 {
@@ -8856,6 +8875,7 @@ uint32_t WickedCall_LoadWiSceneDirect(Scene& scene2,char* filename, bool attache
 		{
 			wiResourceManager::Serialize(archive, resource_seri);
 		}
+		WickedCall_LoadProbeStep(); // the file read, its embedded resources kept
 
 		EntitySerializer seri;
 
@@ -8900,6 +8920,7 @@ uint32_t WickedCall_LoadWiSceneDirect(Scene& scene2,char* filename, bool attache
 		{
 			scene2.animation_datas.Serialize(archive, seri);
 		}
+		WickedCall_LoadProbeStep(); // the components read
 
 		//PE: create new root:
 		root = CreateEntity();
@@ -8918,6 +8939,7 @@ uint32_t WickedCall_LoadWiSceneDirect(Scene& scene2,char* filename, bool attache
 		//PE: The root component is transformed, scene is updated:
 		scene2.transforms.GetComponent(root)->MatrixTransform(transformMatrix);
 		scene2.Update(0);
+		WickedCall_LoadProbeStep(); // the temporary scene updated
 
 		if (!attached)
 		{
@@ -8979,9 +9001,37 @@ uint32_t WickedCall_LoadWiScene(char* filename, bool attached, char* changename,
 	OPTICK_EVENT();
 #endif
 
-	Scene scene2;
-	Entity root = WickedCall_LoadWiSceneDirect(scene2, filename, attached, changename, changenameto);
-	GetScene().Merge(scene2);
+	g_iLoadProbeSteps = 0;
+	LARGE_INTEGER probeStart, probeEnd, probeFreq;
+	QueryPerformanceCounter(&probeStart);
+	WickedCall_LoadProbeStep();
+
+	Entity root;
+	{
+		Scene scene2;
+		root = WickedCall_LoadWiSceneDirect(scene2, filename, attached, changename, changenameto);
+		WickedCall_LoadProbeStep(); // the file's serializers gone (their jobs waited)
+		GetScene().Merge(scene2);
+		WickedCall_LoadProbeStep(); // merged
+	}
+	WickedCall_LoadProbeStep(); // the temporary scene freed
+
+	if (g_iLoadProbeLoads > 0 && g_iLoadProbeSteps == 7)
+	{
+		QueryPerformanceCounter(&probeEnd);
+		QueryPerformanceFrequency(&probeFreq);
+		void timestampactivity(int i, char* desc_s);
+		const int* kb = g_iLoadProbeKB;
+		const char* pName = strlen(filename) > 70 ? filename + strlen(filename) - 70 : filename;
+		char pLog[512];
+		sprintf_s(pLog, "Load probe: ...%s in %.1f ms, committed %d MB (%+.1f since the last load): read %+.1f, components %+.1f, scene update %+.1f, serializers gone %+.1f, merged %+.1f, temporary scene freed %+.1f",
+			pName, (double)(probeEnd.QuadPart - probeStart.QuadPart) * 1000.0 / (double)probeFreq.QuadPart, kb[6] / 1024,
+			(kb[0] - g_iLoadProbeLastKB) / 1024.0, (kb[1] - kb[0]) / 1024.0, (kb[2] - kb[1]) / 1024.0, (kb[3] - kb[2]) / 1024.0,
+			(kb[4] - kb[3]) / 1024.0, (kb[5] - kb[4]) / 1024.0, (kb[6] - kb[5]) / 1024.0);
+		timestampactivity(0, pLog);
+		g_iLoadProbeLastKB = kb[6];
+		g_iLoadProbeLoads--;
+	}
 	return root;
 }
 
