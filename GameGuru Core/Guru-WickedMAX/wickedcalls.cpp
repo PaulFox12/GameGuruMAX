@@ -8409,7 +8409,7 @@ void WickedCall_UpdateWaterFog(float fMinDist, float fMaxDist, float fMinAmount)
 
 static const char* g_pWickedCallProbeNames[WICKEDCALL_PROBE_COUNT] = { "pick", "pick layers", "pick wicked", "pick lookup", "decal create", "decal fade",
 	"thread pick", "thread frame", "texture load", "object add", "gpu create", "gpu map", "present",
-	"profiler queries", "profiler lock", "profiler hold", "gpu shader", "frame phase" };
+	"profiler queries", "profiler lock", "profiler hold", "gpu shader", "frame phase", "job stall" };
 static double g_dWickedCallProbeFrame[WICKEDCALL_PROBE_COUNT] = {};
 static int g_iWickedCallProbeFrameCalls[WICKEDCALL_PROBE_COUNT] = {};
 static double g_dWickedCallProbeFrameLongest[WICKEDCALL_PROBE_COUNT] = {};
@@ -8432,6 +8432,8 @@ static void WickedCall_ProbeProfilerLockWait(double dMilliseconds);
 static void WickedCall_ProbeProfilerLockHold(double dMilliseconds);
 // and the main thread's steps, its CPU ranges whether or not profiling is on ("frame phase")
 static void WickedCall_ProbeFramePhase(const char* pName, const char* pParents, double dMilliseconds);
+// and each job that queued or ran 20 ms or more, on whichever thread ran it ("job stall")
+static void WickedCall_ProbeJobStall(const WickedJobStallInfo& info);
 static struct WickedCallProbeHook
 {
 	WickedCallProbeHook()
@@ -8441,6 +8443,7 @@ static struct WickedCallProbeHook
 		g_pfnWickedProfilerLockWait = WickedCall_ProbeProfilerLockWait;
 		g_pfnWickedProfilerLockHold = WickedCall_ProbeProfilerLockHold;
 		g_pfnWickedFramePhase = WickedCall_ProbeFramePhase;
+		g_pfnWickedJobStall = WickedCall_ProbeJobStall;
 	}
 } g_WickedCallProbeHook;
 
@@ -8621,12 +8624,60 @@ static void WickedCall_ProbeFramePhase(const char* pName, const char* pParents, 
 	if (call.iFrame - slowest.iFrame > 20 || dMilliseconds > slowest.dMilliseconds) slowest = call;
 }
 
+// a job's name from its function's type name: MSVC names a lambda by the function it was written in ("class `public:
+// void __cdecl wiScene::Scene::RunHierarchyUpdateSystem(class wiJobSystem::context & __ptr64)'::`2'::<lambda_1>" is
+// "wiScene::Scene::RunHierarchyUpdateSystem lambda_1"); any other name as it is
+static void WickedCall_JobName(const char* pType, char* pOut, size_t size)
+{
+	const char* pStart = strchr(pType, '`');
+	const char* pEnd = pStart ? strchr(pStart, '(') : nullptr;
+	if (!pStart || !pEnd)
+	{
+		strncpy_s(pOut, size, pType, _TRUNCATE);
+		return;
+	}
+	const char* pFunction = pEnd;
+	while (pFunction > pStart + 1 && pFunction[-1] != ' ') pFunction--;
+	const char* pLambda = strstr(pEnd, "<lambda_");
+	const char* pLambdaEnd = pLambda ? strchr(pLambda, '>') : nullptr;
+	if (pLambda && pLambdaEnd)
+		sprintf_s(pOut, size, "%.*s %.*s", (int)(pEnd - pFunction), pFunction, (int)(pLambdaEnd - pLambda - 1), pLambda + 1);
+	else
+		sprintf_s(pOut, size, "%.*s", (int)(pEnd - pFunction), pFunction);
+}
+
+// the job stalls to log, written by the main thread at its next WickedCall_ProbeFrame (any thread may add one)
+static std::mutex g_WickedCallJobStallLock;
+static std::vector<std::string> g_WickedCallJobStallLog;
+
+static void WickedCall_ProbeJobStall(const WickedJobStallInfo& info)
+{
+	WickedCall_ProbeAddAnyThread(WICKEDCALL_PROBE_JOB_STALL, info.runMilliseconds);
+	char pName[160];
+	WickedCall_JobName(info.name ? info.name : "", pName, sizeof(pName));
+	const DWORD dwThread = GetCurrentThreadId();
+	const char* pThread = dwThread == g_dwWickedCallProbeMainThread ? "main" : (dwThread == g_dwWickedCallProbeExtraThread ? "extra" : "worker");
+	const char* pWait = info.waitingFor == nullptr ? "" : (info.waitingFor == info.context ? ", in a wait on its own context" : ", in a wait on another context");
+	WickedCallProbeSlowCall call;
+	call.dMilliseconds = info.runMilliseconds > info.queuedMilliseconds ? info.runMilliseconds : info.queuedMilliseconds;
+	call.iFrame = g_iWickedCallProbeFrameNumber.load();
+	call.dwThread = dwThread;
+	sprintf_s(call.pDetail, "%s ran %.0f ms (queued %.0f ms), %s thread%s, %u job%s, core %u to %u", pName, info.runMilliseconds,
+		info.queuedMilliseconds, pThread, pWait, info.jobs, info.jobs == 1 ? "" : "s", info.coreStart, info.coreEnd);
+	call.bFormatted = true;
+	std::lock_guard<std::mutex> lock(g_WickedCallJobStallLock);
+	if (g_WickedCallJobStallLog.size() < 64) g_WickedCallJobStallLog.push_back(std::string("Job stall: ") + call.pDetail);
+	std::lock_guard<std::mutex> lockSlow(g_WickedCallProbeSlowLock);
+	WickedCallProbeSlowCall& slowest = g_WickedCallProbeSlow[WICKEDCALL_PROBE_JOB_STALL];
+	if (call.iFrame - slowest.iFrame > 20 || call.dMilliseconds > slowest.dMilliseconds) slowest = call;
+}
+
 const char* WickedCall_ProbeDetail(const char* pName, float fMinMs)
 {
 	int iProbe = -1;
 	for (int i = 0; i < WICKEDCALL_PROBE_COUNT; i++) if (_stricmp(pName, g_pWickedCallProbeNames[i]) == 0) iProbe = i;
 	if (iProbe != WICKEDCALL_PROBE_GPU_CREATE && iProbe != WICKEDCALL_PROBE_GPU_MAP && iProbe != WICKEDCALL_PROBE_PRESENT && iProbe != WICKEDCALL_PROBE_PROFILER_HOLD
-		&& iProbe != WICKEDCALL_PROBE_GPU_SHADER && iProbe != WICKEDCALL_PROBE_FRAME_PHASE) return "";
+		&& iProbe != WICKEDCALL_PROBE_GPU_SHADER && iProbe != WICKEDCALL_PROBE_FRAME_PHASE && iProbe != WICKEDCALL_PROBE_JOB_STALL) return "";
 	double dMinMs = (fMinMs < 0) ? 50.0 : ((fMinMs < WICKEDCALL_PROBE_DETAIL_FLOOR) ? WICKEDCALL_PROBE_DETAIL_FLOOR : fMinMs);
 	std::lock_guard<std::mutex> lock(g_WickedCallProbeSlowLock);
 	WickedCallProbeSlowCall& slowest = (iProbe == WICKEDCALL_PROBE_FRAME_PHASE && fMinMs >= 0) ? g_WickedCallProbeSlowFrame : g_WickedCallProbeSlow[iProbe];
@@ -8668,6 +8719,21 @@ void WickedCall_ProbeFrame(void)
 {
 	g_dwWickedCallProbeMainThread = GetCurrentThreadId();
 	g_iWickedCallProbeFrameNumber++;
+	{
+		// the job stalls since the last frame, to the log (at most 3000 lines a session)
+		static int iJobStallLines = 0;
+		std::vector<std::string> lines;
+		{
+			std::lock_guard<std::mutex> lock(g_WickedCallJobStallLock);
+			lines.swap(g_WickedCallJobStallLog);
+		}
+		void timestampactivity(int i, char* desc_s);
+		for (std::string& line : lines)
+		{
+			if (iJobStallLines++ >= 3000) break;
+			timestampactivity(0, (char*)line.c_str());
+		}
+	}
 	for (int i = 0; i < WICKEDCALL_PROBE_COUNT; i++)
 	{
 		double dAnyLongest = g_iWickedCallProbeAnyLongestMicro[i].exchange(0) / 1000.0;
