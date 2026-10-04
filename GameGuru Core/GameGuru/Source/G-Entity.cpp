@@ -5155,6 +5155,14 @@ void entity_prepareobj ( void )
 			}
 
 		}
+
+		// .fpe noapparentcull = 1: never culled for its apparent size, as characters are, so a small light fixture stays
+		// in view from far off; the layer and frustum tests still apply
+		if (t.entityprofile[t.tentid].noapparentcull == 1)
+		{
+			sObject* pObject = g_ObjectList[t.tobj];
+			if (pObject) WickedCall_SetObjectPreventAnyApparentOcclusion(pObject, true);
+		}
 	}
 }
 
