@@ -7933,20 +7933,11 @@ void entity_addentitytomap_core ( void )
 			t.e=g.entityelementlist;
 			if ( g.entityelementlist>g.entityelementmax ) 
 			{
-				Dim ( t.storeentityelement,g.entityelementmax );
-				for ( t.e = 1 ; t.e<=  g.entityelementmax; t.e++ )
-				{
-					t.storeentityelement[t.e]=t.entityelement[t.e];
-				}
-				UnDim (  t.entityelement );
-				UnDim (  t.entityshadervar );
-				g.entityelementmax +=10;
-				Dim (  t.entityelement,g.entityelementmax );
-				Dim2(  t.entityshadervar,g.entityelementmax, g.globalselectedshadermax  );
-				for ( t.e = 1 ; t.e<=  g.entityelementmax-10; t.e++ )
-				{
-					t.entityelement[t.e]=t.storeentityelement[t.e];
-				}
+				// grown by half its size (at least 10), not by 10: every growth copies the whole array out and back
+				int iGrowBy = g.entityelementmax / 2;
+				if ( iGrowBy < 10 ) iGrowBy = 10;
+				entity_growelementarray ( g.entityelementmax + iGrowBy );
+				t.e = g.entityelementlist;
 			}
 		}
 		else
@@ -8063,6 +8054,28 @@ void entity_addentitytomap_core ( void )
 	}
 
 	t.entityelement[t.e].lua.outofrangefreeze = 0;
+}
+
+// the entity element array (and its shader values) made big enough for iNewMax elements, the elements kept. Each growth
+// copies every element out and back, 60-150 ms with ~1100 elements, so callers grow it by a lot at once
+void entity_growelementarray ( int iNewMax )
+{
+	if ( iNewMax <= g.entityelementmax ) return;
+	int iOldMax = g.entityelementmax;
+	Dim ( t.storeentityelement, iOldMax );
+	for ( int e = 1; e <= iOldMax; e++ )
+	{
+		t.storeentityelement[e] = t.entityelement[e];
+	}
+	UnDim ( t.entityelement );
+	UnDim ( t.entityshadervar );
+	g.entityelementmax = iNewMax;
+	Dim ( t.entityelement, g.entityelementmax );
+	Dim2 ( t.entityshadervar, g.entityelementmax, g.globalselectedshadermax );
+	for ( int e = 1; e <= iOldMax; e++ )
+	{
+		t.entityelement[e] = t.storeentityelement[e];
+	}
 }
 
 void entity_addentitytomap ( void )

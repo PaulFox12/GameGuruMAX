@@ -4202,6 +4202,9 @@ void game_preparelevel_finally ( void )
 	// committed memory step by step (a diagnostic)
 	extern void WickedCall_ArmLoadProbe(int iLoads);
 	WickedCall_ArmLoadProbe(32);
+	// room for 512 more entities before the scripts start spawning, so the array (copied out and back whenever it grows)
+	// rarely grows in play
+	entity_growelementarray ( g.entityelementlist + 512 );
 	lua_launchallinitscripts ( );
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );
 
