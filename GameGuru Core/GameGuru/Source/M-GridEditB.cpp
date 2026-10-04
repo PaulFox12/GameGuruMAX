@@ -8578,7 +8578,19 @@ void Wicked_Update_Visuals(void *voidvisual)
 			weather->oceanParameters.fogMinDist = visuals->WaterFogMinDist;
 			weather->oceanParameters.fogMinAmount = visuals->WaterFogMinAmount;
 
-			wiScene::GetScene().ocean = {};
+			// made again only when what its wave pattern is made from changes (wiOcean::Create; the speed, choppiness, colour
+			// and fog are read every frame): every refresh made a new sea, once per whole degree of the FOV slider
+			static wiOcean::OceanParameters lastOcean;
+			static bool bLastOcean = false;
+			const wiOcean::OceanParameters& ocean = weather->oceanParameters;
+			if (!bLastOcean || ocean.dmap_dim != lastOcean.dmap_dim || ocean.patch_length != lastOcean.patch_length
+				|| ocean.wave_amplitude != lastOcean.wave_amplitude || ocean.wind_dependency != lastOcean.wind_dependency
+				|| ocean.wind_speed != lastOcean.wind_speed || ocean.wind_dir.x != lastOcean.wind_dir.x || ocean.wind_dir.y != lastOcean.wind_dir.y)
+			{
+				wiScene::GetScene().ocean = {};
+				lastOcean = ocean;
+				bLastOcean = true;
+			}
 		}
 		else
 		{
