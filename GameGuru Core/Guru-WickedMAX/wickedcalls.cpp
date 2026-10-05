@@ -319,6 +319,22 @@ void SpawnProbe_Sub ( const char* pName );
 long long SpawnProbe_CallStart ( void );
 void SpawnProbe_CallEnd ( const char* pName, long long llStart );
 
+// GG: images whose file exists but that could not be made (a block-compressed DDS whose size isn't a multiple of 4, an old
+// 24-bit DDS), by name, with the file's size and time: one asked for again (every clone's materials ask) was read whole
+// and failed each time; now it is skipped until its file changes, or a game starts or ends
+struct sFailedImage { std::string file; uint64_t stamp; };
+static std::unordered_map<std::string, sFailedImage> g_FailedImages;
+static int g_iFailedImagesMode = -1;
+
+static uint64_t WickedCall_FileStamp(const char* pFile)
+{
+	WIN32_FILE_ATTRIBUTE_DATA data;
+	if (!GetFileAttributesExA(pFile, GetFileExInfoStandard, &data)) return 0;
+	uint64_t time = ((uint64_t)data.ftLastWriteTime.dwHighDateTime << 32) | data.ftLastWriteTime.dwLowDateTime;
+	uint64_t size = ((uint64_t)data.nFileSizeHigh << 32) | data.nFileSizeLow;
+	return (time ^ (size * 0x9E3779B97F4A7C15ull)) | 1;
+}
+
 int total_mem_from_load = 0;
 bool bCalledFromWickedLoadImage = false;
 static std::shared_ptr<wiResource> WickedCall_LoadImageUncounted(std::string pFilenameToLoadIN, eImageResType eType)
@@ -349,6 +365,20 @@ static std::shared_ptr<wiResource> WickedCall_LoadImageUncounted(std::string pFi
 	}
 	else
 	{
+		// one that failed before is skipped while its file is unchanged (forgotten when a game starts or ends)
+		extern int tgamesetismapeditormode;
+		if (g_iFailedImagesMode != tgamesetismapeditormode)
+		{
+			g_FailedImages.clear();
+			g_iFailedImagesMode = tgamesetismapeditormode;
+		}
+		auto failed = g_FailedImages.find(pFullRelativeLocationFilename);
+		if (failed != g_FailedImages.end())
+		{
+			if (WickedCall_FileStamp(failed->second.file.c_str()) == failed->second.stamp) return NULL;
+			g_FailedImages.erase(failed);
+		}
+
 		// quickly reject nonesense filenames
 		char pRealFilenameToLoad[MAX_PATH];
 		strcpy(pRealFilenameToLoad, pFilenameToLoad.c_str());
@@ -433,6 +463,8 @@ static std::shared_ptr<wiResource> WickedCall_LoadImageUncounted(std::string pFi
 			pFilenameToLoad[pFilenameToLoad.length() - 3] = VirtualFilename[strlen(VirtualFilename) - 3];
 		}
 		bCalledFromWickedLoadImage = false;
+		char StampFilename[_MAX_PATH];
+		strcpy(StampFilename, VirtualFilename);
 		g_pGlob->Decrypt(VirtualFilename);
 		bDecrypted = true;
 
@@ -470,7 +502,16 @@ static std::shared_ptr<wiResource> WickedCall_LoadImageUncounted(std::string pFi
 			}
 			else
 			{
-				// image failed to load - no need to add to list
+				// image failed to load - no need to add to list, but remembered so it isn't read again for nothing
+				uint64_t stamp = WickedCall_FileStamp(StampFilename);
+				if (stamp != 0)
+				{
+					g_FailedImages[pFullRelativeLocationFilename] = { StampFilename, stamp };
+					char pMsg[MAX_PATH + 200];
+					sprintf_s(pMsg, "Image could not be made, not tried again until its file changes: %s (a block-compressed DDS must be a multiple of 4 in width and height; 24-bit DDS formats are not read)", StampFilename);
+					void timestampactivity(int i, char* desc_s);
+					timestampactivity(0, pMsg);
+				}
 				if (wiResourceManager::GetErrorCode() == 1)
 				{
 					if (g_bDisplayWarnings)
