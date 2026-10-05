@@ -74,4 +74,9 @@ int PhysicsQuery_StatsTop(PhysicsStatsBody* pBodies, int iMax);
 // body and the moving bodies in contact with it
 int PhysicsQuery_SleepIsland(int iObject);
 
+// for each of the given objects, the state of its moving body: 0 none, 1 moving, 2 at rest (asleep, or under its sleep
+// speeds for fStill seconds or more), 3 moving faster than fFastSpeed (units a second); one pass over the world's bodies.
+// Jolt: BodyInterface::IsActive and the body's velocities
+void PhysicsQuery_BodiesAtRest(const int* pObjects, int iCount, float fStill, float fFastSpeed, int* pStates);
+
 #endif

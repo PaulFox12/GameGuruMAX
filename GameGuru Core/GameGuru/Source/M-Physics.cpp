@@ -4,6 +4,7 @@
 
 #include "stdafx.h"
 #include "gameguru.h"
+#include "GGPhysicsQuery.h"
 
 #include "..\..\GameGuru\Imgui\imgui.h"
 #include "..\..\GameGuru\Imgui\imgui_impl_win32.h"
@@ -1249,6 +1250,43 @@ void physics_resumephysics ( void )
 
 #include "..\..\..\WICKEDREPO\WickedEngine\wiProfiler.h"
 
+// GG: a weapon a dead character drops becomes a moving box (G-Entity.cpp) that nothing removes: wedged in a wreck it
+// never stops, and keeps the wreck's whole island awake (the Lua session's runs 288 and 292: a Cygnus wreck at 53-56
+// contact points beside two dropped guns, 8-20 ms of physics a frame). Each is checked twice a second and loses its
+// body once it has been still for half a second or is asleep, or after 15 s (60 s while still falling fast); it stays
+// drawn where it lies
+struct sDroppedWeapon { int iObject; float fDropped; };
+static std::vector<sDroppedWeapon> g_DroppedWeapons;
+static float g_fDroppedWeaponsChecked = 0;
+
+void physics_trackdroppedweapon ( int iObject )
+{
+	if ( iObject <= 0 ) return;
+	for ( const sDroppedWeapon& weapon : g_DroppedWeapons ) if ( weapon.iObject == iObject ) return;
+	g_DroppedWeapons.push_back ( { iObject, timeGetSecond() } );
+}
+
+static void physics_settledroppedweapons ( void )
+{
+	if ( g_DroppedWeapons.empty() ) return;
+	const float fNow = timeGetSecond();
+	if ( fNow - g_fDroppedWeaponsChecked < 0.5f ) return;
+	g_fDroppedWeaponsChecked = fNow;
+	std::vector<int> objects, states ( g_DroppedWeapons.size() );
+	for ( const sDroppedWeapon& weapon : g_DroppedWeapons ) objects.push_back ( weapon.iObject );
+	PhysicsQuery_BodiesAtRest ( objects.data(), (int)objects.size(), 0.5f, 200.0f, states.data() );
+	for ( int i = (int)g_DroppedWeapons.size() - 1; i >= 0; i-- )
+	{
+		const float fAge = fNow - g_DroppedWeapons[i].fDropped;
+		bool bDone = states[i] == 0;
+		if ( !bDone && fAge >= 1.0f && states[i] == 2 ) bDone = true;
+		if ( !bDone && ( ( fAge >= 15.0f && states[i] != 3 ) || fAge >= 60.0f ) ) bDone = true;
+		if ( !bDone ) continue;
+		if ( states[i] != 0 ) ODEDestroyObject ( g_DroppedWeapons[i].iObject );
+		g_DroppedWeapons.erase ( g_DroppedWeapons.begin() + i );
+	}
+}
+
 void physics_loop ( void )
 {
 #ifdef OPTICK_ENABLE
@@ -1275,10 +1313,12 @@ void physics_loop ( void )
 		if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling ODEUpdate");
 		ODEUpdate ( t.tphysicsadvance_f );
 	}
+	physics_settledroppedweapons ( );
 }
 
 void physics_free ( void )
 {
+	g_DroppedWeapons.clear();
 	// special hybrid collision mode can hide static limbs, so reshow them when physics done
 	for (t.e = 1; t.e <= g.entityelementlist; t.e++)
 	{

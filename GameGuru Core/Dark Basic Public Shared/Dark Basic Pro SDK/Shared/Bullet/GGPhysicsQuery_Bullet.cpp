@@ -1,6 +1,7 @@
 // The Bullet backend of GGPhysicsQuery.h. It is the query layer's only file that includes Bullet, so a move to another
 // physics engine replaces this file alone and no script or binding changes.
 
+#include <unordered_map>
 #include "btBulletDynamicsCommon.h"
 #include "BulletCollision/CollisionDispatch/btGhostObject.h"
 #include "BulletCollision/CollisionDispatch/btCollisionObjectWrapper.h"
@@ -483,6 +484,30 @@ int PhysicsQuery_StatsTop(PhysicsStatsBody* pBodies, int iMax)
 	}
 	physicslock.unlock();
 	return iCount;
+}
+
+void PhysicsQuery_BodiesAtRest(const int* pObjects, int iCount, float fStill, float fFastSpeed, int* pStates)
+{
+	for (int i = 0; i < iCount; i++) pStates[i] = 0;
+	if (!g_dynamicsWorld || iCount <= 0) return;
+	std::unordered_map<int, int> wanted;
+	for (int i = 0; i < iCount; i++) wanted[pObjects[i]] = i;
+	physicslock.lock();
+	const btCollisionObjectArray& objects = g_dynamicsWorld->getCollisionObjectArray();
+	for (int o = 0; o < objects.size(); o++)
+	{
+		btRigidBody* pRigid = btRigidBody::upcast(objects[o]);
+		const btBroadphaseProxy* pProxy = objects[o]->getBroadphaseHandle();
+		if (!pRigid || !pProxy || pRigid->isStaticOrKinematicObject()) continue;
+		auto it = wanted.find(PhysicsQuery_ObjectNumber(pRigid, pProxy->m_collisionFilterGroup));
+		if (it == wanted.end()) continue;
+		// the world runs in units divided by gSc
+		const float fSpeed = pRigid->getLinearVelocity().length() * gSc;
+		if (!pRigid->isActive() || pRigid->getDeactivationTime() >= fStill) pStates[it->second] = 2;
+		else if (fSpeed > fFastSpeed) pStates[it->second] = 3;
+		else pStates[it->second] = 1;
+	}
+	physicslock.unlock();
 }
 
 int PhysicsQuery_SleepIsland(int iObject)

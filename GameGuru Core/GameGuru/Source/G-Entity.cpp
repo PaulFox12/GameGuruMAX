@@ -1539,6 +1539,9 @@ void entity_loop ( void )
 							{
 								ODECreateDynamicBox (t.tattobj, -1, 1);
 								ODESetLinearVelocity(t.tattobj, 0, 20.0f, 0);
+								// its body goes once it has landed (M-Physics.cpp)
+								extern void physics_trackdroppedweapon(int iObject);
+								physics_trackdroppedweapon(t.tattobj);
 							}
 						}
 					}
@@ -2986,6 +2989,9 @@ void entity_applydamage ( void )
 					if (ODEFind(t.tattobj) == 0)
 					{
 						ODECreateDynamicBox (t.tattobj, -1, 1);
+						// its body goes once it has landed (M-Physics.cpp)
+						extern void physics_trackdroppedweapon(int iObject);
+						physics_trackdroppedweapon(t.tattobj);
 					}
 				}
 
