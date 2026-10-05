@@ -3284,6 +3284,14 @@ static void spline_rowcolumns( void )
 	if ( fRowRight < fRowFieldX + 60.0f ) fRowRight = fRowFieldX + 60.0f;
 }
 
+// a group of rows under a heading, opened and closed on its own; its rows keep the heading's columns (not indented, so
+// the fields keep their width)
+static bool spline_rowgroup( const char* pLabel )
+{
+	ImGui::SetCursorPosX( fRowLabelX );
+	return ImGui::TreeNodeEx( pLabel, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_NoTreePushOnOpen );
+}
+
 // a row: its label, then the next item from the field column to the right edge
 static void spline_row( const char* pLabel )
 {
@@ -5278,65 +5286,73 @@ void spline_imgui_panel( float w )
 			{
 				sSplineRoad& r = s.road;
 				bool bChanged = false;
-				bChanged |= spline_rowmetres( "Width", "##splineroadwidth", &r.width, 2.0f, 40.0f );
-				bChanged |= spline_rowmetres( "Shoulders", "##splineroadshoulder", &r.shoulder, 0.0f, 30.0f );
-				bChanged |= spline_rowmetres( "Smoothing", "##splineroadsmoothing", &r.smoothing, 0.0f, 200.0f, "%.0f m" );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The road's height is averaged over this length, so it rides over bumps" );
-				spline_row( "Max Grade" );
-				bChanged |= ImGui::SliderFloat( "##splineroadgrade", &r.maxGrade, 1.0f, 40.0f, "%.0f %%" );
-				bChanged |= spline_rowmetres( "Crown", "##splineroadcrown", &r.crown, 0.0f, 0.5f, "%.2f m" );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How far the centre stands above the edges, so the road sheds water" );
-				spline_rowtexture( "Road Texture", "##splineroadtexture", &r.material, w );
-				spline_rowtexture( "Shoulder Texture", "##splineroadedgetexture", &r.edgeMaterial, w );
-				bChanged |= spline_rowmetres( "Clear Grass", "##splineroadgrass", &r.grassMargin, 0.0f, 20.0f );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Grass is cleared this far past the edge of the road" );
-				bChanged |= spline_rowmetres( "Clear Trees", "##splineroadtrees", &r.treeMargin, 0.0f, 30.0f );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Trees are hidden this far past the edge of the road" );
-
-				// the painted lines, drawn into the terrain (no Apply needed)
-				const char* centres[] = { "None", "Dashed", "Solid", "Double Solid", "Solid and Dashed" };
-				const char* colours[] = { "White", "Yellow" };
-				spline_row( "Centre Line" );
-				bChanged |= ImGui::Combo( "##splinemarkcentre", &r.markCentre, centres, 5 );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The painted line down the middle. Solid and Dashed: solid on the left as seen from the first node, dashed on the right (overtaking from the right only)" );
-				if ( r.markCentre != SPLINE_MARK_NONE )
+				if ( spline_rowgroup( "Shape##splineroadshape" ) )
 				{
-					spline_row( "Centre Colour" );
-					bChanged |= ImGui::Combo( "##splinemarkcentrecolour", &r.markCentreYellow, colours, 2 );
+					bChanged |= spline_rowmetres( "Width", "##splineroadwidth", &r.width, 2.0f, 40.0f );
+					bChanged |= spline_rowmetres( "Shoulders", "##splineroadshoulder", &r.shoulder, 0.0f, 30.0f );
+					bChanged |= spline_rowmetres( "Smoothing", "##splineroadsmoothing", &r.smoothing, 0.0f, 200.0f, "%.0f m" );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The road's height is averaged over this length, so it rides over bumps" );
+					spline_row( "Max Grade" );
+					bChanged |= ImGui::SliderFloat( "##splineroadgrade", &r.maxGrade, 1.0f, 40.0f, "%.0f %%" );
+					bChanged |= spline_rowmetres( "Crown", "##splineroadcrown", &r.crown, 0.0f, 0.5f, "%.2f m" );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How far the centre stands above the edges, so the road sheds water" );
 				}
-				spline_row( "Lanes Each Way" );
-				bChanged |= ImGui::SliderInt( "##splinemarklanes", &r.markLanes, 1, 4 );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Dashed lines between the lanes, the road's width split evenly between them" );
-				bool bEdges = r.markEdges != 0;
-				ImGui::SetCursorPosX( fRowFieldX );
-				if ( ImGui::Checkbox( "Edge Lines##splinemarkedges", &bEdges ) ) { r.markEdges = bEdges ? 1 : 0; bChanged = true; }
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Solid lines along both edges of the road" );
-				if ( r.markEdges )
+				if ( spline_rowgroup( "Surface##splineroadsurface" ) )
 				{
-					spline_row( "Edge Colour" );
-					bChanged |= ImGui::Combo( "##splinemarkedgecolour", &r.markEdgeYellow, colours, 2 );
-					bChanged |= spline_rowmetres( "Edge Inset", "##splinemarkedgeinset", &r.markEdgeInset, 0.0f, 1.0f, "%.2f m" );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The edge lines this far in from the edge of the road" );
-					bChanged |= spline_rowmetres( "Edge Line Width", "##splinemarkedgewidth", &r.markEdgeWidth, 0.05f, 0.5f, "%.2f m" );
+					spline_rowtexture( "Road Texture", "##splineroadtexture", &r.material, w );
+					spline_rowtexture( "Shoulder Texture", "##splineroadedgetexture", &r.edgeMaterial, w );
+					bChanged |= spline_rowmetres( "Clear Grass", "##splineroadgrass", &r.grassMargin, 0.0f, 20.0f );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Grass is cleared this far past the edge of the road" );
+					bChanged |= spline_rowmetres( "Clear Trees", "##splineroadtrees", &r.treeMargin, 0.0f, 30.0f );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Trees are hidden this far past the edge of the road" );
 				}
-				if ( r.markCentre != SPLINE_MARK_NONE || r.markLanes > 1 || r.markEdges )
+				if ( spline_rowgroup( "Markings##splineroadmarkings" ) )
 				{
-					if ( r.markCentre != SPLINE_MARK_NONE || r.markLanes > 1 ) bChanged |= spline_rowmetres( "Line Width", "##splinemarkwidth", &r.markLineWidth, 0.05f, 0.3f, "%.2f m" );
-					bChanged |= spline_rowmetres( "Dash", "##splinemarkdash", &r.markDash, 0.5f, 12.0f );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The length of a dash in a dashed line" );
-					bChanged |= spline_rowmetres( "Gap", "##splinemarkgap", &r.markGap, 0.5f, 24.0f );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The gap after each dash" );
-					bChanged |= spline_rowmetres( "Solid on Bends", "##splinemarkbends", &r.markBendRadius, 0.0f, 500.0f, "%.0f m" );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "A dashed centre line goes solid where the road bends tighter than this radius (and 15 m either side), with warning dashes before and after; 0 never" );
-					bChanged |= spline_rowmetres( "Solid on Crests", "##splinemarkcrests", &r.markCrestSight, 0.0f, 400.0f, "%.0f m" );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "A dashed centre line goes solid where a driver can't see this far ahead over a crest (an oncoming car, eye and roof 1.1 m up), with warning dashes before and after; 0 never" );
-					spline_row( "Wear" );
-					bChanged |= ImGui::SliderFloat( "##splinemarkwear", &r.markWear, 0.0f, 1.0f, "%.2f" );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "0 fresh paint; higher wears the lines away in patches (old country roads)" );
-					const char* junctions[] = { "Continue", "Stop", "Guide Dashes" };
-					spline_row( "At Junctions" );
-					bChanged |= ImGui::Combo( "##splinemarkjunctions", &r.markJunctions, junctions, 3 );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Its lines where another road crosses or joins it: run on, stop, or cross as short guide dashes.\nAt a T junction only the edge line breaks across the side road's mouth; at a crossroads every line does.\nA road lower in the list always stops at the edge of one higher up." );
+					// the painted lines, drawn into the terrain (no Apply needed)
+					const char* centres[] = { "None", "Dashed", "Solid", "Double Solid", "Solid and Dashed" };
+					const char* colours[] = { "White", "Yellow" };
+					spline_row( "Centre Line" );
+					bChanged |= ImGui::Combo( "##splinemarkcentre", &r.markCentre, centres, 5 );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The painted line down the middle. Solid and Dashed: solid on the left as seen from the first node, dashed on the right (overtaking from the right only)" );
+					if ( r.markCentre != SPLINE_MARK_NONE )
+					{
+						spline_row( "Centre Colour" );
+						bChanged |= ImGui::Combo( "##splinemarkcentrecolour", &r.markCentreYellow, colours, 2 );
+					}
+					spline_row( "Lanes Each Way" );
+					bChanged |= ImGui::SliderInt( "##splinemarklanes", &r.markLanes, 1, 4 );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Dashed lines between the lanes, the road's width split evenly between them" );
+					bool bEdges = r.markEdges != 0;
+					ImGui::SetCursorPosX( fRowFieldX );
+					if ( ImGui::Checkbox( "Edge Lines##splinemarkedges", &bEdges ) ) { r.markEdges = bEdges ? 1 : 0; bChanged = true; }
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Solid lines along both edges of the road" );
+					if ( r.markEdges )
+					{
+						spline_row( "Edge Colour" );
+						bChanged |= ImGui::Combo( "##splinemarkedgecolour", &r.markEdgeYellow, colours, 2 );
+						bChanged |= spline_rowmetres( "Edge Inset", "##splinemarkedgeinset", &r.markEdgeInset, 0.0f, 1.0f, "%.2f m" );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The edge lines this far in from the edge of the road" );
+						bChanged |= spline_rowmetres( "Edge Line Width", "##splinemarkedgewidth", &r.markEdgeWidth, 0.05f, 0.5f, "%.2f m" );
+					}
+					if ( r.markCentre != SPLINE_MARK_NONE || r.markLanes > 1 || r.markEdges )
+					{
+						if ( r.markCentre != SPLINE_MARK_NONE || r.markLanes > 1 ) bChanged |= spline_rowmetres( "Line Width", "##splinemarkwidth", &r.markLineWidth, 0.05f, 0.3f, "%.2f m" );
+						bChanged |= spline_rowmetres( "Dash", "##splinemarkdash", &r.markDash, 0.5f, 12.0f );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The length of a dash in a dashed line" );
+						bChanged |= spline_rowmetres( "Gap", "##splinemarkgap", &r.markGap, 0.5f, 24.0f );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The gap after each dash" );
+						bChanged |= spline_rowmetres( "Solid on Bends", "##splinemarkbends", &r.markBendRadius, 0.0f, 500.0f, "%.0f m" );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "A dashed centre line goes solid where the road bends tighter than this radius (and 15 m either side), with warning dashes before and after; 0 never" );
+						bChanged |= spline_rowmetres( "Solid on Crests", "##splinemarkcrests", &r.markCrestSight, 0.0f, 400.0f, "%.0f m" );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "A dashed centre line goes solid where a driver can't see this far ahead over a crest (an oncoming car, eye and roof 1.1 m up), with warning dashes before and after; 0 never" );
+						spline_row( "Wear" );
+						bChanged |= ImGui::SliderFloat( "##splinemarkwear", &r.markWear, 0.0f, 1.0f, "%.2f" );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "0 fresh paint; higher wears the lines away in patches (old country roads)" );
+						const char* junctions[] = { "Continue", "Stop", "Guide Dashes" };
+						spline_row( "At Junctions" );
+						bChanged |= ImGui::Combo( "##splinemarkjunctions", &r.markJunctions, junctions, 3 );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Its lines where another road crosses or joins it: run on, stop, or cross as short guide dashes.\nAt a T junction only the edge line breaks across the side road's mouth; at a crossroads every line does.\nA road lower in the list always stops at the edge of one higher up." );
+					}
 				}
 				if ( bChanged ) spline_modified();
 				spline_rowbake( s, &r.autoApply, "Road", w );
@@ -5345,123 +5361,134 @@ void spline_imgui_panel( float w )
 			{
 				sSplineRiver& v = s.river;
 				bool bChanged = false;
-				bChanged |= spline_rowmetres( "Bed Width", "##splineriverbed", &v.bedWidth, 1.0f, 80.0f );
-				bChanged |= spline_rowmetres( "Depth", "##splineriverdepth", &v.depth, 0.5f, 30.0f );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How far the bed lies below the averaged ground" );
-				bChanged |= spline_rowmetres( "Banks", "##splineriverbanks", &v.banks, 0.0f, 50.0f );
-				bChanged |= spline_rowmetres( "Smoothing", "##splineriversmoothing", &v.smoothing, 0.0f, 200.0f, "%.0f m" );
-				bool bDownhill = v.downhill != 0;
-				ImGui::SetCursorPosX( fRowFieldX );
-				if ( ImGui::Checkbox( "Downhill Only##splineriverdownhill", &bDownhill ) ) { v.downhill = bDownhill ? 1 : 0; bChanged = true; }
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The bed never rises from the first node to the last: draw from the source to the mouth" );
-				spline_rowtexture( "Bed Texture", "##splineriverbedtexture", &v.bedMaterial, w );
-				spline_rowtexture( "Bank Texture", "##splineriverbanktexture", &v.bankMaterial, w );
-				bChanged |= spline_rowmetres( "Clear Grass", "##splinerivergrass", &v.grassMargin, 0.0f, 30.0f );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Grass is cleared this far past the edge of the bed" );
-				bChanged |= spline_rowmetres( "Clear Trees", "##splinerivertrees", &v.treeMargin, 0.0f, 30.0f );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Trees are hidden this far past the edge of the bed" );
-				bChanged |= spline_rowmetres( "Water Depth", "##splineriverwaterdepth", &v.waterDepth, 0.0f, std::max( 0.5f, v.depth / SPLINE_UNITS_PER_M ) );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How deep the river's water is above its bed (0: a dry channel)" );
-				bChanged |= spline_rowmetres( "Wade Depth", "##splineriverwadedepth", &v.wadeDepth, 0.0f, 2.0f );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Characters walk through the river where its water is no deeper than this (the navmesh, for paths): a shallow river is crossed, a deep one only along its edges; 0 none of it" );
-				bool bRaise = v.raiseBanks != 0;
-				ImGui::SetCursorPosX( fRowFieldX );
-				if ( ImGui::Checkbox( "Raise Low Banks##splineriverraise", &bRaise ) ) { v.raiseBanks = bRaise ? 1 : 0; bChanged = true; }
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Where the ground beside the river is lower than its water (a dip it crosses, a shallow bank), raise a bank to hold the water; off, the water is lowered or left out there" );
-				spline_row( "Rapids" );
-				bChanged |= ImGui::SliderFloat( "##splineriverrapids", &v.rapids, 0.0f, 2.0f, "%.2f" );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "White water where the river's slope changes sharply (the top and the foot of a steep run), and a little along a steep run; 0 none" );
-				spline_row( "Bank Foam" );
-				bChanged |= ImGui::SliderFloat( "##splineriverbankfoam", &v.foam, 0.0f, 1.0f, "%.2f" );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Broken foam where the water meets the banks; 0 none" );
-				bool bCalm = v.calmEnd != 0;
-				ImGui::SetCursorPosX( fRowFieldX );
-				if ( ImGui::Checkbox( "Calm River End##splinerivercalm", &bCalm ) ) { v.calmEnd = bCalm ? 1 : 0; bChanged = true; }
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The rapids fade out over the last 40 m before the river's last node (into a lake); they always fade before the sea" );
-				spline_row( "Steep Flow Speed" );
-				bChanged |= ImGui::SliderFloat( "##splineriversteepflow", &v.steepFlow, 0.0f, 4.0f, "%.2f" );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How much faster the water runs where the river is steep; 0 the same everywhere" );
-				// planting along the banks, baked with the river
-				spline_row( "Bank Grass" );
-				if ( ImGui::BeginCombo( "##splineriverbankgrass", v.plantGrass > 0 ? GGGrass::GGGrass_GetTextureShortName( 0, (uint32_t)(v.plantGrass - 1) ) : "None" ) )
+				if ( spline_rowgroup( "Channel##splineriverchannel" ) )
 				{
-					if ( ImGui::Selectable( "None##bankgrassnone", v.plantGrass == 0 ) ) { v.plantGrass = 0; bChanged = true; }
-					for ( uint32_t g = 0; g < GGGrass::GGGrass_GetNumSelectableTypes(); g++ )
+					bChanged |= spline_rowmetres( "Bed Width", "##splineriverbed", &v.bedWidth, 1.0f, 80.0f );
+					bChanged |= spline_rowmetres( "Depth", "##splineriverdepth", &v.depth, 0.5f, 30.0f );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How far the bed lies below the averaged ground" );
+					bChanged |= spline_rowmetres( "Banks", "##splineriverbanks", &v.banks, 0.0f, 50.0f );
+					bChanged |= spline_rowmetres( "Smoothing", "##splineriversmoothing", &v.smoothing, 0.0f, 200.0f, "%.0f m" );
+					bool bDownhill = v.downhill != 0;
+					ImGui::SetCursorPosX( fRowFieldX );
+					if ( ImGui::Checkbox( "Downhill Only##splineriverdownhill", &bDownhill ) ) { v.downhill = bDownhill ? 1 : 0; bChanged = true; }
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The bed never rises from the first node to the last: draw from the source to the mouth" );
+				}
+				if ( spline_rowgroup( "Surface##splineriversurface" ) )
+				{
+					spline_rowtexture( "Bed Texture", "##splineriverbedtexture", &v.bedMaterial, w );
+					spline_rowtexture( "Bank Texture", "##splineriverbanktexture", &v.bankMaterial, w );
+					bChanged |= spline_rowmetres( "Clear Grass", "##splinerivergrass", &v.grassMargin, 0.0f, 30.0f );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Grass is cleared this far past the edge of the bed" );
+					bChanged |= spline_rowmetres( "Clear Trees", "##splinerivertrees", &v.treeMargin, 0.0f, 30.0f );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Trees are hidden this far past the edge of the bed" );
+				}
+				if ( spline_rowgroup( "Water##splineriverwater" ) )
+				{
+					bChanged |= spline_rowmetres( "Water Depth", "##splineriverwaterdepth", &v.waterDepth, 0.0f, std::max( 0.5f, v.depth / SPLINE_UNITS_PER_M ) );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How deep the river's water is above its bed (0: a dry channel)" );
+					bChanged |= spline_rowmetres( "Wade Depth", "##splineriverwadedepth", &v.wadeDepth, 0.0f, 2.0f );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Characters walk through the river where its water is no deeper than this (the navmesh, for paths): a shallow river is crossed, a deep one only along its edges; 0 none of it" );
+					bool bRaise = v.raiseBanks != 0;
+					ImGui::SetCursorPosX( fRowFieldX );
+					if ( ImGui::Checkbox( "Raise Low Banks##splineriverraise", &bRaise ) ) { v.raiseBanks = bRaise ? 1 : 0; bChanged = true; }
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Where the ground beside the river is lower than its water (a dip it crosses, a shallow bank), raise a bank to hold the water; off, the water is lowered or left out there" );
+					spline_row( "Rapids" );
+					bChanged |= ImGui::SliderFloat( "##splineriverrapids", &v.rapids, 0.0f, 2.0f, "%.2f" );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "White water where the river's slope changes sharply (the top and the foot of a steep run), and a little along a steep run; 0 none" );
+					spline_row( "Bank Foam" );
+					bChanged |= ImGui::SliderFloat( "##splineriverbankfoam", &v.foam, 0.0f, 1.0f, "%.2f" );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Broken foam where the water meets the banks; 0 none" );
+					bool bCalm = v.calmEnd != 0;
+					ImGui::SetCursorPosX( fRowFieldX );
+					if ( ImGui::Checkbox( "Calm River End##splinerivercalm", &bCalm ) ) { v.calmEnd = bCalm ? 1 : 0; bChanged = true; }
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The rapids fade out over the last 40 m before the river's last node (into a lake); they always fade before the sea" );
+					spline_row( "Steep Flow Speed" );
+					bChanged |= ImGui::SliderFloat( "##splineriversteepflow", &v.steepFlow, 0.0f, 4.0f, "%.2f" );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How much faster the water runs where the river is steep; 0 the same everywhere" );
+					bool bMainLook = v.mainLook != 0;
+					ImGui::SetCursorPosX( fRowFieldX );
+					if ( ImGui::Checkbox( "Use the Main Water's Look##splinerivermainlook", &bMainLook ) )
 					{
-						char label[ 64 ];
-						sprintf_s( label, 64, "%s##bankgrass%u", GGGrass::GGGrass_GetTextureShortName( 0, g ), g );
-						if ( ImGui::Selectable( label, v.plantGrass == (int)g + 1 ) ) { v.plantGrass = (int)g + 1; bChanged = true; }
+						if ( !bMainLook )
+						{
+							// start from the main water's look
+							WickedCallWaterLook look = spline_waterlook( v );
+							v.colour[0] = look.r; v.colour[1] = look.g; v.colour[2] = look.b;
+							v.clarity = 1.0f - look.fogMinAmount; v.seeDepth = look.fogMax;
+							v.flow = look.speed; v.waves = look.distortion; v.foam = 1.0f; v.ripples = 1.0f;
+						}
+						v.mainLook = bMainLook ? 1 : 0;
+						bChanged = true;
 					}
-					ImGui::EndCombo();
-				}
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Grass planted along both banks (reeds at the water's edge), as the grass brush paints it; None leaves the banks as they are" );
-				if ( v.plantGrass > 0 )
-				{
-					bChanged |= spline_rowmetres( "Grass From", "##splineriverbankgrassfrom", &v.plantGrassFrom, -10.0f, 20.0f );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Where the band of grass starts, past the edge of the bed (below 0: into the shallows)" );
-					bChanged |= spline_rowmetres( "Grass To", "##splineriverbankgrassto", &v.plantGrassTo, -5.0f, 40.0f );
-					spline_row( "Grass Cover" );
-					bChanged |= ImGui::SliderFloat( "##splineriverbankgrasscover", &v.plantGrassCover, 0.05f, 1.0f, "%.2f" );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How much of the band the grass covers, in patches" );
-				}
-				int treeTypes = 0;
-				for ( uint32_t t = 0; t < 32; t++ ) treeTypes += ((v.plantTreeTypesLow >> t) & 1) + ((v.plantTreeTypesHigh >> t) & 1);
-				spline_row( "Bank Trees" );
-				if ( treeTypes ) ImGui::Text( "%d type%s", treeTypes, treeTypes == 1 ? "" : "s" );
-				else ImGui::TextUnformatted( "None" );
-				ImGui::SetCursorPosX( fRowFieldX );
-				if ( ImGui::StyleButton( "Take the Tree Brush's Types##splineriverbanktrees", ImVec2( 0, 0 ) ) )
-				{
-					const uint64_t brush = GGTrees::ggtrees_global_params.paint_tree_bitfield;
-					v.plantTreeTypesLow = (uint32_t)(brush & 0xFFFFFFFFu);
-					v.plantTreeTypesHigh = (uint32_t)(brush >> 32);
-					v.plantTreeScaleLow = GGTrees::ggtrees_global_params.paint_scale_random_low;
-					v.plantTreeScaleHigh = GGTrees::ggtrees_global_params.paint_scale_random_high;
-					bChanged = true;
-				}
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Trees along both banks of the types (and scales) picked in the tree brush (Trees, Paint) now" );
-				if ( treeTypes )
-				{
-					ImGui::SameLine();
-					if ( ImGui::StyleButton( "No Trees##splineriverbanktreesnone", ImVec2( 0, 0 ) ) ) { v.plantTreeTypesLow = v.plantTreeTypesHigh = 0; bChanged = true; }
-					bChanged |= spline_rowmetres( "Tree Spacing", "##splineriverbanktreespacing", &v.plantTreeSpacing, 2.0f, 60.0f );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "About how far apart the trees are along each bank" );
-					bChanged |= spline_rowmetres( "Trees From", "##splineriverbanktreesfrom", &v.plantTreeFrom, 0.0f, 30.0f );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The trees stand at random between these distances past the edge of the bed (none in the water)" );
-					bChanged |= spline_rowmetres( "Trees To", "##splineriverbanktreesto", &v.plantTreeTo, 0.5f, 60.0f );
-				}
-
-				bool bMainLook = v.mainLook != 0;
-				ImGui::SetCursorPosX( fRowFieldX );
-				if ( ImGui::Checkbox( "Use the Main Water's Look##splinerivermainlook", &bMainLook ) )
-				{
-					if ( !bMainLook )
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The river's water takes its colour, flow and waves from the main water; untick to set them here" );
+					if ( !v.mainLook )
 					{
-						// start from the main water's look
-						WickedCallWaterLook look = spline_waterlook( v );
-						v.colour[0] = look.r; v.colour[1] = look.g; v.colour[2] = look.b;
-						v.clarity = 1.0f - look.fogMinAmount; v.seeDepth = look.fogMax;
-						v.flow = look.speed; v.waves = look.distortion; v.foam = 1.0f; v.ripples = 1.0f;
+						spline_row( "Water Colour" );
+						bChanged |= ImGui::ColorEdit3( "##splineriverwatercolour", v.colour, ImGuiColorEditFlags_NoInputs );
+						spline_row( "Clarity" );
+						bChanged |= ImGui::SliderFloat( "##splineriverclarity", &v.clarity, 0.0f, 1.0f, "%.2f" );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How much of the river bed shows through where the water is shallow" );
+						bChanged |= spline_rowmetres( "See Depth", "##splineriverseedepth", &v.seeDepth, 0.5f, 400.0f, "%.1f m" );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How deep the water gets before its colour hides the bed" );
+						spline_row( "Flow Speed" );
+						bChanged |= ImGui::SliderFloat( "##splineriverflow", &v.flow, 0.0f, 4.0f, "%.2f" );
+						spline_row( "Waves" );
+						bChanged |= ImGui::SliderFloat( "##splineriverwaves", &v.waves, 0.0f, 4.0f, "%.2f" );
+						spline_row( "Ripple Size" );
+						bChanged |= ImGui::SliderFloat( "##splineriverripples", &v.ripples, 0.25f, 4.0f, "%.2f" );
 					}
-					v.mainLook = bMainLook ? 1 : 0;
-					bChanged = true;
 				}
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The river's water takes its colour, flow and waves from the main water; untick to set them here" );
-				if ( !v.mainLook )
+				if ( spline_rowgroup( "Planting##splineriverplanting" ) )
 				{
-					spline_row( "Water Colour" );
-					bChanged |= ImGui::ColorEdit3( "##splineriverwatercolour", v.colour, ImGuiColorEditFlags_NoInputs );
-					spline_row( "Clarity" );
-					bChanged |= ImGui::SliderFloat( "##splineriverclarity", &v.clarity, 0.0f, 1.0f, "%.2f" );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How much of the river bed shows through where the water is shallow" );
-					bChanged |= spline_rowmetres( "See Depth", "##splineriverseedepth", &v.seeDepth, 0.5f, 400.0f, "%.1f m" );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How deep the water gets before its colour hides the bed" );
-					spline_row( "Flow Speed" );
-					bChanged |= ImGui::SliderFloat( "##splineriverflow", &v.flow, 0.0f, 4.0f, "%.2f" );
-					spline_row( "Waves" );
-					bChanged |= ImGui::SliderFloat( "##splineriverwaves", &v.waves, 0.0f, 4.0f, "%.2f" );
-					spline_row( "Ripple Size" );
-					bChanged |= ImGui::SliderFloat( "##splineriverripples", &v.ripples, 0.25f, 4.0f, "%.2f" );
+					// planting along the banks, baked with the river
+					spline_row( "Bank Grass" );
+					if ( ImGui::BeginCombo( "##splineriverbankgrass", v.plantGrass > 0 ? GGGrass::GGGrass_GetTextureShortName( 0, (uint32_t)(v.plantGrass - 1) ) : "None" ) )
+					{
+						if ( ImGui::Selectable( "None##bankgrassnone", v.plantGrass == 0 ) ) { v.plantGrass = 0; bChanged = true; }
+						for ( uint32_t g = 0; g < GGGrass::GGGrass_GetNumSelectableTypes(); g++ )
+						{
+							char label[ 64 ];
+							sprintf_s( label, 64, "%s##bankgrass%u", GGGrass::GGGrass_GetTextureShortName( 0, g ), g );
+							if ( ImGui::Selectable( label, v.plantGrass == (int)g + 1 ) ) { v.plantGrass = (int)g + 1; bChanged = true; }
+						}
+						ImGui::EndCombo();
+					}
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Grass planted along both banks (reeds at the water's edge), as the grass brush paints it; None leaves the banks as they are" );
+					if ( v.plantGrass > 0 )
+					{
+						bChanged |= spline_rowmetres( "Grass From", "##splineriverbankgrassfrom", &v.plantGrassFrom, -10.0f, 20.0f );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Where the band of grass starts, past the edge of the bed (below 0: into the shallows)" );
+						bChanged |= spline_rowmetres( "Grass To", "##splineriverbankgrassto", &v.plantGrassTo, -5.0f, 40.0f );
+						spline_row( "Grass Cover" );
+						bChanged |= ImGui::SliderFloat( "##splineriverbankgrasscover", &v.plantGrassCover, 0.05f, 1.0f, "%.2f" );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How much of the band the grass covers, in patches" );
+					}
+					int treeTypes = 0;
+					for ( uint32_t t = 0; t < 32; t++ ) treeTypes += ((v.plantTreeTypesLow >> t) & 1) + ((v.plantTreeTypesHigh >> t) & 1);
+					spline_row( "Bank Trees" );
+					if ( treeTypes ) ImGui::Text( "%d type%s", treeTypes, treeTypes == 1 ? "" : "s" );
+					else ImGui::TextUnformatted( "None" );
+					ImGui::SetCursorPosX( fRowFieldX );
+					if ( ImGui::StyleButton( "Take the Tree Brush's Types##splineriverbanktrees", ImVec2( 0, 0 ) ) )
+					{
+						const uint64_t brush = GGTrees::ggtrees_global_params.paint_tree_bitfield;
+						v.plantTreeTypesLow = (uint32_t)(brush & 0xFFFFFFFFu);
+						v.plantTreeTypesHigh = (uint32_t)(brush >> 32);
+						v.plantTreeScaleLow = GGTrees::ggtrees_global_params.paint_scale_random_low;
+						v.plantTreeScaleHigh = GGTrees::ggtrees_global_params.paint_scale_random_high;
+						bChanged = true;
+					}
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Trees along both banks of the types (and scales) picked in the tree brush (Trees, Paint) now" );
+					if ( treeTypes )
+					{
+						ImGui::SameLine();
+						if ( ImGui::StyleButton( "No Trees##splineriverbanktreesnone", ImVec2( 0, 0 ) ) ) { v.plantTreeTypesLow = v.plantTreeTypesHigh = 0; bChanged = true; }
+						bChanged |= spline_rowmetres( "Tree Spacing", "##splineriverbanktreespacing", &v.plantTreeSpacing, 2.0f, 60.0f );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "About how far apart the trees are along each bank" );
+						bChanged |= spline_rowmetres( "Trees From", "##splineriverbanktreesfrom", &v.plantTreeFrom, 0.0f, 30.0f );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The trees stand at random between these distances past the edge of the bed (none in the water)" );
+						bChanged |= spline_rowmetres( "Trees To", "##splineriverbanktreesto", &v.plantTreeTo, 0.5f, 60.0f );
+					}
 				}
 				if ( bChanged ) spline_modified();
 				spline_rowbake( s, &v.autoApply, "River", w );
