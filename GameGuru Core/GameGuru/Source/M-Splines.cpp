@@ -5015,6 +5015,166 @@ void spline_imgui_panel( float w )
 			fRowRight = ImGui::GetWindowContentRegionMax().x - 10.0f;
 			if ( fRowRight < fRowFieldX + 60.0f ) fRowRight = fRowFieldX + 60.0f;
 
+			// what is picked on the spline comes first: a node, or else the segment between two nodes (clicked on its curve)
+			if ( g_iSplineNodeSelected >= 0 )
+			{
+				sSplineNode& node = s.nodes[ g_iSplineNodeSelected ];
+				ImGui::Separator();
+				ImGui::Text( "Node %d of %d", g_iSplineNodeSelected + 1, (int)s.nodes.size() );
+				// the selected node's position typed, in world units (as Lua and the logs give positions). It stays on the
+				// ground, and other splines' nodes at its junction move with it; the bake waits until the field is left
+				float x = node.x, z = node.z;
+				spline_row( "Node X" );
+				bool bMoved = ImGui::InputFloat( "##splinenodex", &x, 0.0f, 0.0f, "%.1f" );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The selected node's X position, in world units" );
+				spline_row( "Node Z" );
+				bMoved |= ImGui::InputFloat( "##splinenodez", &z, 0.0f, 0.0f, "%.1f" );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The selected node's Z position, in world units" );
+				if ( bMoved )
+				{
+					spline_movenode( g_iSplineSelected, g_iSplineNodeSelected, x, spline_groundy( x, z ), z );
+					spline_modified();
+				}
+				if ( s.kind == SPLINE_KIND_ROAD ? !s.road.autoApply : (s.kind == SPLINE_KIND_RIVER && !s.river.autoApply) )
+				{
+					// Update as I Edit is off (in the spline's settings): a moved node is baked by Apply
+					ImGui::SetCursorPosX( fRowFieldX );
+					if ( ImGui::StyleButton( "Apply##splineapplynode", ImVec2( w * 0.45f, 0 ) ) ) iApplySpline = g_iSplineSelected;
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Bake the spline into the terrain now (Update as I Edit is off in its settings)" );
+				}
+				if ( node.junction )
+				{
+					int others = -1;
+					for ( sSpline& other : g_Splines )
+						for ( sSplineNode& n : other.nodes )
+							if ( n.junction == node.junction ) others++;
+					ImGui::Text( "Joined with %d other node%s", others, others == 1 ? "" : "s" );
+					if ( ImGui::StyleButton( "Detach##splinedetach", ImVec2( w * 0.45f, 0 ) ) )
+					{
+						node.junction = 0;
+						spline_cleanjunctions();
+						spline_modified();
+					}
+					// an end joined to another spline's end can become one spline through that point
+					if ( spline_isend( s, g_iSplineNodeSelected ) )
+					{
+						for ( int sj = 0; sj < (int)g_Splines.size(); sj++ )
+						{
+							if ( sj == g_iSplineSelected ) continue;
+							const sSpline& other = g_Splines[ sj ];
+							for ( int nj = 0; nj < (int)other.nodes.size(); nj++ )
+							{
+								if ( other.nodes[ nj ].junction != node.junction || !spline_isend( other, nj ) ) continue;
+								char label[ 128 ];
+								sprintf_s( label, 128, "Merge with %s##splinemerge%d", other.name, other.id );
+								if ( ImGui::StyleButton( label, ImVec2( w * 0.92f, 0 ) ) )
+								{
+									spline_merge( g_iSplineSelected, g_iSplineNodeSelected, sj, nj, true );
+									sj = (int)g_Splines.size();
+									break;
+								}
+							}
+						}
+					}
+				}
+				if ( g_iSplineSelected >= 0 && g_iSplineNodeSelected >= 0 && spline_isend( g_Splines[ g_iSplineSelected ], g_iSplineNodeSelected ) )
+				{
+					if ( ImGui::StyleButton( bConnectMode ? "Click another spline's end...##splineconnect" : "Connect to Another End##splineconnect", ImVec2( w * 0.92f, 0 ) ) )
+					{
+						bConnectMode = !bConnectMode;
+						g_bSplineEditMode = true;
+					}
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Join this end to another spline's end with a new segment between them, making one spline" );
+				}
+				if ( g_iSplineSelected >= 0 && g_iSplineNodeSelected >= 0 )
+				{
+					sSpline& sel = g_Splines[ g_iSplineSelected ];
+					const bool bNodeBezier = spline_handleshown( sel, g_iSplineNodeSelected, 1 ) || spline_handleshown( sel, g_iSplineNodeSelected, 2 );
+					if ( bNodeBezier && ImGui::StyleButton( "Smooth Handles##splinesmoothhandles", ImVec2( w * 0.45f, 0 ) ) )
+					{
+						sSpline smooth = sel;
+						smooth.curve = SPLINE_CURVE_SMOOTH;
+						for ( sSplineNode& sn : smooth.nodes ) sn.segCurve = -1;
+						sSplineNode& n = sel.nodes[ g_iSplineNodeSelected ];
+						spline_handles( smooth, g_iSplineNodeSelected, &n.inX, &n.inZ, &n.outX, &n.outZ );
+						n.flags &= ~SPLINE_NODE_BROKEN;
+						spline_modified();
+					}
+					if ( bNodeBezier ) ImGui::SameLine();
+					if ( ImGui::StyleButton( "Delete Node##splinedeletenode", ImVec2( w * 0.45f, 0 ) ) )
+					{
+						spline_deletenode( g_iSplineSelected, g_iSplineNodeSelected );
+					}
+				}
+			}
+			else if ( g_iSplineSegSelected >= 0 && g_iSplineSegSelected < (int)s.nodes.size() )
+			{
+				// the picked segment's own curve (a Bezier one starts from the shape it has now) and markings, and splitting it
+				ImGui::Separator();
+				ImGui::Text( "Segment %d of %d", g_iSplineSegSelected + 1, spline_segments( s ) );
+				const char* segCurves[] = { "As the Spline", "Straight", "Smooth", "Bezier" };
+				int segCurve = s.nodes[ g_iSplineSegSelected ].segCurve + 1;
+				spline_row( "Segment Curve" );
+				if ( ImGui::Combo( "##splinesegcurve", &segCurve, segCurves, 4 ) && segCurve - 1 != s.nodes[ g_iSplineSegSelected ].segCurve )
+				{
+					const int seg = g_iSplineSegSelected;
+					const int ib = spline_wrap( s, seg + 1 );
+					float c[8];
+					spline_controls( s, seg, c );
+					s.nodes[ seg ].segCurve = segCurve - 1;
+					if ( spline_segcurve( s, seg ) == SPLINE_CURVE_BEZIER )
+					{
+						s.nodes[ seg ].outX = c[2] - c[0]; s.nodes[ seg ].outZ = c[3] - c[1];
+						s.nodes[ ib ].inX = c[4] - c[6]; s.nodes[ ib ].inZ = c[5] - c[7];
+					}
+					spline_modified();
+				}
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The curve of the highlighted segment alone; the rest keep the spline's Curve" );
+				if ( s.kind == SPLINE_KIND_ROAD )
+				{
+					const char* segMarks[] = { "As the Road", "None", "Centre Solid", "Centre Dashed" };
+					int segMark = s.nodes[ g_iSplineSegSelected ].segMark + 1;
+					spline_row( "Segment Markings" );
+					if ( ImGui::Combo( "##splinesegmark", &segMark, segMarks, 4 ) && segMark - 1 != s.nodes[ g_iSplineSegSelected ].segMark )
+					{
+						s.nodes[ g_iSplineSegSelected ].segMark = segMark - 1;
+						spline_modified();
+					}
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The highlighted segment's own markings: none (a village street), or its centre line solid (a bridge, a crest) or dashed" );
+				}
+				spline_row( "Pieces" );
+				ImGui::SliderInt( "##splinesegpieces", &g_iSplinePieces, 2, 8 );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How many pieces Subdivide Segment splits the segment into" );
+				if ( ImGui::StyleButton( "Subdivide Segment##splinesubdivideseg", ImVec2( w * 0.45f, 0 ) ) )
+				{
+					spline_subdividesegment( g_iSplineSelected, g_iSplineSegSelected, g_iSplinePieces );
+					g_iSplineNodeSelected = -1;
+					g_iSplineSegSelected = -1;
+				}
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Split the highlighted segment between its two nodes" );
+			}
+		}
+
+		// the whole spline's settings follow (a merge above may have changed which spline is selected). They fold away when a
+		// node or segment is picked, so what is being edited stays at the top, and open again when nothing is
+		static bool bSplinePickedLast = false;
+		bool bSettingsOpen = false;
+		if ( g_iSplineSelected >= 0 )
+		{
+			const sSpline& s = g_Splines[ g_iSplineSelected ];
+			char label[ 96 ];
+			sprintf_s( label, 96, "Spline Settings: %d nodes, %.0f m###splinesettings", (int)s.nodes.size(), spline_length( s ) / 39.37f );
+			ImGui::Separator();
+			ImGui::SetCursorPosX( fRowLabelX );
+			const bool bPicked = g_iSplineNodeSelected >= 0 || g_iSplineSegSelected >= 0;
+			if ( bPicked != bSplinePickedLast ) ImGui::SetNextItemOpen( !bPicked, ImGuiCond_Always );
+			bSplinePickedLast = bPicked;
+			bSettingsOpen = ImGui::TreeNodeEx( label, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_NoTreePushOnOpen );
+			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The whole spline's settings. They fold away while a node or segment is picked (click the spline in the list to drop it) and open again when nothing is" );
+		}
+		if ( g_iSplineSelected >= 0 && bSettingsOpen )
+		{
+			sSpline& s = g_Splines[ g_iSplineSelected ];
 			spline_row( "Name" );
 			if ( ImGui::InputText( "##splinename", s.name, 64 ) ) spline_modified();
 			const char* curves[] = { "Straight", "Smooth", "Bezier" };
@@ -5024,6 +5184,30 @@ void spline_imgui_panel( float w )
 			{
 				if ( curve == SPLINE_CURVE_BEZIER ) spline_seedhandles( s, s.curve );
 				s.curve = curve;
+				spline_modified();
+			}
+			bool bClosed = s.closed != 0;
+			if ( ImGui::Checkbox( "Closed Loop##splineclosed", &bClosed ) && s.nodes.size() > 2 )
+			{
+				s.closed = bClosed ? 1 : 0;
+				spline_modified();
+			}
+			spline_row( "Pieces" );
+			ImGui::SliderInt( "##splinepieces", &g_iSplinePieces, 2, 8 );
+			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How many pieces Subdivide All splits each segment into" );
+			if ( ImGui::StyleButton( "Subdivide All##splinesubdivide", ImVec2( w * 0.45f, 0 ) ) )
+			{
+				for ( int seg = spline_segments( s ) - 1; seg >= 0; seg-- ) spline_subdividesegment( g_iSplineSelected, seg, g_iSplinePieces );
+				g_iSplineNodeSelected = -1;
+				g_iSplineSegSelected = -1;
+			}
+			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Split every segment of the spline" );
+			ImGui::SameLine();
+			if ( ImGui::StyleButton( "Reverse##splinereverse", ImVec2( w * 0.45f, 0 ) ) )
+			{
+				spline_reverse( s );
+				g_iSplineNodeSelected = -1;
+				g_iSplineSegSelected = -1;
 				spline_modified();
 			}
 			const char* kinds[] = { "Line only", "Road", "River" };
@@ -5233,161 +5417,6 @@ void spline_imgui_panel( float w )
 					ImGui::TextWrapped( "Sea: %.0f%% of the bed is below the level's water line (%.1f m).", s.wetFraction * 100.0f, t.terrain.waterliney_f / SPLINE_UNITS_PER_M );
 					if ( s.waterEntity && s.waterLowered > 0.005f )
 						ImGui::TextWrapped( "The water is lowered along %.0f%% of the river, where a bank is lower than the water: deepen the river or lower Water Depth.", s.waterLowered * 100.0f );
-				}
-			}
-			if ( g_iSplineNodeSelected >= 0 && g_iSplineNodeSelected < (int)s.nodes.size() )
-			{
-				// the selected node's position typed, in world units (as Lua and the logs give positions). It stays on the
-				// ground, and other splines' nodes at its junction move with it; the bake waits until the field is left
-				const sSplineNode& node = s.nodes[ g_iSplineNodeSelected ];
-				float x = node.x, z = node.z;
-				spline_row( "Node X" );
-				bool bMoved = ImGui::InputFloat( "##splinenodex", &x, 0.0f, 0.0f, "%.1f" );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The selected node's X position, in world units" );
-				spline_row( "Node Z" );
-				bMoved |= ImGui::InputFloat( "##splinenodez", &z, 0.0f, 0.0f, "%.1f" );
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The selected node's Z position, in world units" );
-				if ( bMoved )
-				{
-					spline_movenode( g_iSplineSelected, g_iSplineNodeSelected, x, spline_groundy( x, z ), z );
-					spline_modified();
-				}
-			}
-			bool bClosed = s.closed != 0;
-			if ( ImGui::Checkbox( "Closed Loop##splineclosed", &bClosed ) && s.nodes.size() > 2 )
-			{
-				s.closed = bClosed ? 1 : 0;
-				spline_modified();
-			}
-			spline_row( "Pieces" );
-			ImGui::SliderInt( "##splinepieces", &g_iSplinePieces, 2, 8 );
-			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How many pieces Subdivide splits each segment into" );
-			if ( ImGui::StyleButton( "Subdivide All##splinesubdivide", ImVec2( w * 0.45f, 0 ) ) )
-			{
-				for ( int seg = spline_segments( s ) - 1; seg >= 0; seg-- ) spline_subdividesegment( g_iSplineSelected, seg, g_iSplinePieces );
-				g_iSplineNodeSelected = -1;
-				g_iSplineSegSelected = -1;
-			}
-			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Split every segment of the spline" );
-			ImGui::SameLine();
-			if ( ImGui::StyleButton( "Subdivide Segment##splinesubdivideseg", ImVec2( w * 0.45f, 0 ) ) && g_iSplineSegSelected >= 0 )
-			{
-				spline_subdividesegment( g_iSplineSelected, g_iSplineSegSelected, g_iSplinePieces );
-				g_iSplineNodeSelected = -1;
-				g_iSplineSegSelected = -1;
-			}
-			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", g_iSplineSegSelected >= 0 ? "Split the highlighted segment between its two nodes" : "Click the spline's curve first to pick the segment between two nodes" );
-			if ( g_iSplineSegSelected >= 0 && g_iSplineSegSelected < (int)s.nodes.size() )
-			{
-				// the picked segment's own curve; a Bezier one starts from the shape it has now
-				const char* segCurves[] = { "As the Spline", "Straight", "Smooth", "Bezier" };
-				int segCurve = s.nodes[ g_iSplineSegSelected ].segCurve + 1;
-				spline_row( "Segment Curve" );
-				if ( ImGui::Combo( "##splinesegcurve", &segCurve, segCurves, 4 ) && segCurve - 1 != s.nodes[ g_iSplineSegSelected ].segCurve )
-				{
-					const int seg = g_iSplineSegSelected;
-					const int ib = spline_wrap( s, seg + 1 );
-					float c[8];
-					spline_controls( s, seg, c );
-					s.nodes[ seg ].segCurve = segCurve - 1;
-					if ( spline_segcurve( s, seg ) == SPLINE_CURVE_BEZIER )
-					{
-						s.nodes[ seg ].outX = c[2] - c[0]; s.nodes[ seg ].outZ = c[3] - c[1];
-						s.nodes[ ib ].inX = c[4] - c[6]; s.nodes[ ib ].inZ = c[5] - c[7];
-					}
-					spline_modified();
-				}
-				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The curve of the highlighted segment alone; the rest keep the spline's Curve" );
-				if ( s.kind == SPLINE_KIND_ROAD )
-				{
-					const char* segMarks[] = { "As the Road", "None", "Centre Solid", "Centre Dashed" };
-					int segMark = s.nodes[ g_iSplineSegSelected ].segMark + 1;
-					spline_row( "Segment Markings" );
-					if ( ImGui::Combo( "##splinesegmark", &segMark, segMarks, 4 ) && segMark - 1 != s.nodes[ g_iSplineSegSelected ].segMark )
-					{
-						s.nodes[ g_iSplineSegSelected ].segMark = segMark - 1;
-						spline_modified();
-					}
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The highlighted segment's own markings: none (a village street), or its centre line solid (a bridge, a crest) or dashed" );
-				}
-			}
-			if ( ImGui::StyleButton( "Reverse##splinereverse", ImVec2( w * 0.45f, 0 ) ) )
-			{
-				spline_reverse( s );
-				g_iSplineNodeSelected = -1;
-				g_iSplineSegSelected = -1;
-				spline_modified();
-			}
-			ImGui::Text( "%d nodes, %.0f m", (int)s.nodes.size(), spline_length( s ) / 39.37f );
-
-			if ( g_iSplineNodeSelected >= 0 )
-			{
-				sSplineNode& node = s.nodes[ g_iSplineNodeSelected ];
-				ImGui::Separator();
-				ImGui::Text( "Node %d of %d", g_iSplineNodeSelected + 1, (int)s.nodes.size() );
-				if ( node.junction )
-				{
-					int others = -1;
-					for ( sSpline& other : g_Splines )
-						for ( sSplineNode& n : other.nodes )
-							if ( n.junction == node.junction ) others++;
-					ImGui::Text( "Joined with %d other node%s", others, others == 1 ? "" : "s" );
-					if ( ImGui::StyleButton( "Detach##splinedetach", ImVec2( w * 0.45f, 0 ) ) )
-					{
-						node.junction = 0;
-						spline_cleanjunctions();
-						spline_modified();
-					}
-					// an end joined to another spline's end can become one spline through that point
-					if ( spline_isend( s, g_iSplineNodeSelected ) )
-					{
-						for ( int sj = 0; sj < (int)g_Splines.size(); sj++ )
-						{
-							if ( sj == g_iSplineSelected ) continue;
-							const sSpline& other = g_Splines[ sj ];
-							for ( int nj = 0; nj < (int)other.nodes.size(); nj++ )
-							{
-								if ( other.nodes[ nj ].junction != node.junction || !spline_isend( other, nj ) ) continue;
-								char label[ 128 ];
-								sprintf_s( label, 128, "Merge with %s##splinemerge%d", other.name, other.id );
-								if ( ImGui::StyleButton( label, ImVec2( w * 0.92f, 0 ) ) )
-								{
-									spline_merge( g_iSplineSelected, g_iSplineNodeSelected, sj, nj, true );
-									sj = (int)g_Splines.size();
-									break;
-								}
-							}
-						}
-					}
-				}
-				if ( g_iSplineSelected >= 0 && g_iSplineNodeSelected >= 0 && spline_isend( g_Splines[ g_iSplineSelected ], g_iSplineNodeSelected ) )
-				{
-					if ( ImGui::StyleButton( bConnectMode ? "Click another spline's end...##splineconnect" : "Connect to Another End##splineconnect", ImVec2( w * 0.92f, 0 ) ) )
-					{
-						bConnectMode = !bConnectMode;
-						g_bSplineEditMode = true;
-					}
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Join this end to another spline's end with a new segment between them, making one spline" );
-				}
-				if ( g_iSplineSelected >= 0 && g_iSplineNodeSelected >= 0 )
-				{
-					sSpline& sel = g_Splines[ g_iSplineSelected ];
-					const bool bNodeBezier = spline_handleshown( sel, g_iSplineNodeSelected, 1 ) || spline_handleshown( sel, g_iSplineNodeSelected, 2 );
-					if ( bNodeBezier && ImGui::StyleButton( "Smooth Handles##splinesmoothhandles", ImVec2( w * 0.45f, 0 ) ) )
-					{
-						sSpline smooth = sel;
-						smooth.curve = SPLINE_CURVE_SMOOTH;
-						for ( sSplineNode& sn : smooth.nodes ) sn.segCurve = -1;
-						sSplineNode& n = sel.nodes[ g_iSplineNodeSelected ];
-						spline_handles( smooth, g_iSplineNodeSelected, &n.inX, &n.inZ, &n.outX, &n.outZ );
-						n.flags &= ~SPLINE_NODE_BROKEN;
-						spline_modified();
-					}
-					if ( bNodeBezier ) ImGui::SameLine();
-					if ( ImGui::StyleButton( "Delete Node##splinedeletenode", ImVec2( w * 0.45f, 0 ) ) )
-					{
-						spline_deletenode( g_iSplineSelected, g_iSplineNodeSelected );
-					}
 				}
 			}
 		}
