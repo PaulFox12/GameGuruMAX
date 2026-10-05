@@ -70,9 +70,11 @@ int PhysicsQuery_StatsTop(PhysicsStatsBody* pBodies, int iMax);
 // others), their velocities zeroed: a body put to sleep alone is woken again at the next step while any body in its
 // island is awake. They wake as any sleeping body does (a force, a velocity set, an awake body touching them). How many
 // bodies slept; 0 when the object has no moving body, or its island holds a character capsule, a body kept awake or a
-// body still moving (faster than twice its sleep speeds: try again later). Jolt: BodyInterface::DeactivateBody on the
+// body still moving (faster than twice its sleep speeds: try again later). With iForce 1 the other bodies of the island
+// may move up to ten times their sleep speeds (one rocking where it is wedged, a dropped gun in a wreck, keeps a still
+// wreck's island awake for ever); the object's own body still needs twice. Jolt: BodyInterface::DeactivateBody on the
 // body and the moving bodies in contact with it
-int PhysicsQuery_SleepIsland(int iObject);
+int PhysicsQuery_SleepIsland(int iObject, int iForce = 0);
 
 // for each of the given objects, the state of its moving body: 0 none, 1 moving, 2 at rest (asleep, or under its sleep
 // speeds for fStill seconds or more), 3 moving faster than fFastSpeed (units a second); one pass over the world's bodies.

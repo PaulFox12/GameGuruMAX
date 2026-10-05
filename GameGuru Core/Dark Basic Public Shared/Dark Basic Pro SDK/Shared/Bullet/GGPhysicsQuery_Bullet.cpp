@@ -510,7 +510,7 @@ void PhysicsQuery_BodiesAtRest(const int* pObjects, int iCount, float fStill, fl
 	physicslock.unlock();
 }
 
-int PhysicsQuery_SleepIsland(int iObject)
+int PhysicsQuery_SleepIsland(int iObject, int iForce)
 {
 	if (!g_dynamicsWorld || iObject <= 0) return 0;
 	physicslock.lock();
@@ -543,8 +543,9 @@ int PhysicsQuery_SleepIsland(int iObject)
 		const btBroadphaseProxy* pProxy = pRigid->getBroadphaseHandle();
 		if (pProxy && (pProxy->m_collisionFilterGroup & PHYSICS_LAYER_CHARACTER)) bCanSleep = false;
 		if (pRigid->getActivationState() == DISABLE_DEACTIVATION || pRigid->getActivationState() == DISABLE_SIMULATION) bCanSleep = false;
-		if (pRigid->getLinearVelocity().length() > pRigid->getLinearSleepingThreshold() * 2) bCanSleep = false;
-		if (pRigid->getAngularVelocity().length() > pRigid->getAngularSleepingThreshold() * 2) bCanSleep = false;
+		const btScalar fTimes = (iForce == 1 && pRigid != pBody) ? 10 : 2;
+		if (pRigid->getLinearVelocity().length() > pRigid->getLinearSleepingThreshold() * fTimes) bCanSleep = false;
+		if (pRigid->getAngularVelocity().length() > pRigid->getAngularSleepingThreshold() * fTimes) bCanSleep = false;
 		island.push_back(pRigid);
 	}
 	int iCount = 0;

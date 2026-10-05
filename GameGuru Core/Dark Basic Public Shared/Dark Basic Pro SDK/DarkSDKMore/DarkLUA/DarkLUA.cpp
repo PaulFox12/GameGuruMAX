@@ -3574,7 +3574,8 @@ static int LUA_GETTOP(lua_State* L)
 	if ( !LuaEntityIDValid ( L, iEntityIndex, 1 ) ) return 0;
 	int iSlept = 0;
 	int iObjectNumber = t.entityelement[iEntityIndex].obj;
-	if ( iObjectNumber > 0 ) iSlept = PhysicsQuery_SleepIsland ( iObjectNumber );
+	int iForce = ( n >= 2 ) ? (int)lua_tointeger(L, 2) : 0;
+	if ( iObjectNumber > 0 ) iSlept = PhysicsQuery_SleepIsland ( iObjectNumber, iForce );
 	lua_pushinteger ( L, iSlept );
 	return 1;
  }
