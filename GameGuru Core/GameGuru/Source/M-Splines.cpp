@@ -3235,6 +3235,15 @@ bool spline_librarypicking( void )
 
 static float fRowLabelX = 0, fRowFieldX = 0, fRowRight = 0;
 
+// the rows' columns from where the cursor is now (under a heading, indented with it)
+static void spline_rowcolumns( void )
+{
+	fRowLabelX = ImGui::GetCursorPosX();
+	fRowFieldX = fRowLabelX + ImGui::CalcTextSize( "Steep Flow Speed" ).x + 12.0f;
+	fRowRight = ImGui::GetWindowContentRegionMax().x - 10.0f;
+	if ( fRowRight < fRowFieldX + 60.0f ) fRowRight = fRowFieldX + 60.0f;
+}
+
 // a row: its label, then the next item from the field column to the right edge
 static void spline_row( const char* pLabel )
 {
@@ -3361,9 +3370,10 @@ static void spline_rowtexture( const char* pLabel, const char* pId, int* pSlot, 
 // the placement layers of a road or a river
 static void spline_rowlayers( sSpline& s, float w )
 {
-	ImGui::SetCursorPosX( fRowLabelX );
-	if ( !ImGui::TreeNodeEx( "Placement Layers##splinelayers", ImGuiTreeNodeFlags_DefaultOpen ) ) return;
+	const bool bOpen = ImGui::TreeNodeEx( "Layers##splinelayers", ImGuiTreeNodeFlags_DefaultOpen );
 	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Entities placed along it at a spacing: streetlights, rocks, posts, anything. Placed again when it changes; one you move by hand stays" );
+	if ( !bOpen ) return;
+	spline_rowcolumns();
 	int remove = -1;
 	for ( int li = 0; li < (int)s.layers.size(); li++ )
 	{
@@ -5010,10 +5020,7 @@ void spline_imgui_panel( float w )
 		if ( g_iSplineSelected >= 0 )
 		{
 			sSpline& s = g_Splines[ g_iSplineSelected ];
-			fRowLabelX = ImGui::GetCursorPosX();
-			fRowFieldX = fRowLabelX + ImGui::CalcTextSize( "Steep Flow Speed" ).x + 12.0f;
-			fRowRight = ImGui::GetWindowContentRegionMax().x - 10.0f;
-			if ( fRowRight < fRowFieldX + 60.0f ) fRowRight = fRowFieldX + 60.0f;
+			spline_rowcolumns();
 
 			// what is picked on the spline comes first: a node, or else the segment between two nodes (clicked on its curve)
 			if ( g_iSplineNodeSelected >= 0 )
@@ -5169,57 +5176,65 @@ void spline_imgui_panel( float w )
 			const bool bPicked = g_iSplineNodeSelected >= 0 || g_iSplineSegSelected >= 0;
 			if ( bPicked != bSplinePickedLast ) ImGui::SetNextItemOpen( !bPicked, ImGuiCond_Always );
 			bSplinePickedLast = bPicked;
-			bSettingsOpen = ImGui::TreeNodeEx( label, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_NoTreePushOnOpen );
+			bSettingsOpen = ImGui::TreeNodeEx( label, ImGuiTreeNodeFlags_DefaultOpen );
 			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The whole spline's settings. They fold away while a node or segment is picked (click the spline in the list to drop it) and open again when nothing is" );
 		}
 		if ( g_iSplineSelected >= 0 && bSettingsOpen )
 		{
+			// in two parts, each opened and closed on its own: its design (its shape, what it is, how it is baked) and the
+			// entities placed along it
 			sSpline& s = g_Splines[ g_iSplineSelected ];
-			spline_row( "Name" );
-			if ( ImGui::InputText( "##splinename", s.name, 64 ) ) spline_modified();
-			const char* curves[] = { "Straight", "Smooth", "Bezier" };
-			int curve = s.curve;
-			spline_row( "Curve" );
-			if ( ImGui::Combo( "##splinecurve", &curve, curves, 3 ) && curve != s.curve )
+			const bool bDesignOpen = ImGui::TreeNodeEx( "Design##splinedesign", ImGuiTreeNodeFlags_DefaultOpen );
+			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Its shape, what it is (a road or a river) and how it is baked into the terrain" );
+			if ( bDesignOpen )
 			{
-				if ( curve == SPLINE_CURVE_BEZIER ) spline_seedhandles( s, s.curve );
-				s.curve = curve;
-				spline_modified();
+				spline_rowcolumns();
+				spline_row( "Name" );
+				if ( ImGui::InputText( "##splinename", s.name, 64 ) ) spline_modified();
+				const char* curves[] = { "Straight", "Smooth", "Bezier" };
+				int curve = s.curve;
+				spline_row( "Curve" );
+				if ( ImGui::Combo( "##splinecurve", &curve, curves, 3 ) && curve != s.curve )
+				{
+					if ( curve == SPLINE_CURVE_BEZIER ) spline_seedhandles( s, s.curve );
+					s.curve = curve;
+					spline_modified();
+				}
+				bool bClosed = s.closed != 0;
+				if ( ImGui::Checkbox( "Closed Loop##splineclosed", &bClosed ) && s.nodes.size() > 2 )
+				{
+					s.closed = bClosed ? 1 : 0;
+					spline_modified();
+				}
+				spline_row( "Pieces" );
+				ImGui::SliderInt( "##splinepieces", &g_iSplinePieces, 2, 8 );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How many pieces Subdivide All splits each segment into" );
+				if ( ImGui::StyleButton( "Subdivide All##splinesubdivide", ImVec2( w * 0.45f, 0 ) ) )
+				{
+					for ( int seg = spline_segments( s ) - 1; seg >= 0; seg-- ) spline_subdividesegment( g_iSplineSelected, seg, g_iSplinePieces );
+					g_iSplineNodeSelected = -1;
+					g_iSplineSegSelected = -1;
+				}
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Split every segment of the spline" );
+				ImGui::SameLine();
+				if ( ImGui::StyleButton( "Reverse##splinereverse", ImVec2( w * 0.45f, 0 ) ) )
+				{
+					spline_reverse( s );
+					g_iSplineNodeSelected = -1;
+					g_iSplineSegSelected = -1;
+					spline_modified();
+				}
+				const char* kinds[] = { "Line only", "Road", "River" };
+				spline_row( "Type" );
+				if ( ImGui::Combo( "##splinekind", &s.kind, kinds, 3 ) )
+				{
+					s.preset[0] = 0;
+					spline_modified();
+				}
+				if ( s.kind == SPLINE_KIND_ROAD || s.kind == SPLINE_KIND_RIVER ) spline_rowpreset( s );
 			}
-			bool bClosed = s.closed != 0;
-			if ( ImGui::Checkbox( "Closed Loop##splineclosed", &bClosed ) && s.nodes.size() > 2 )
-			{
-				s.closed = bClosed ? 1 : 0;
-				spline_modified();
-			}
-			spline_row( "Pieces" );
-			ImGui::SliderInt( "##splinepieces", &g_iSplinePieces, 2, 8 );
-			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How many pieces Subdivide All splits each segment into" );
-			if ( ImGui::StyleButton( "Subdivide All##splinesubdivide", ImVec2( w * 0.45f, 0 ) ) )
-			{
-				for ( int seg = spline_segments( s ) - 1; seg >= 0; seg-- ) spline_subdividesegment( g_iSplineSelected, seg, g_iSplinePieces );
-				g_iSplineNodeSelected = -1;
-				g_iSplineSegSelected = -1;
-			}
-			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Split every segment of the spline" );
-			ImGui::SameLine();
-			if ( ImGui::StyleButton( "Reverse##splinereverse", ImVec2( w * 0.45f, 0 ) ) )
-			{
-				spline_reverse( s );
-				g_iSplineNodeSelected = -1;
-				g_iSplineSegSelected = -1;
-				spline_modified();
-			}
-			const char* kinds[] = { "Line only", "Road", "River" };
-			spline_row( "Type" );
-			if ( ImGui::Combo( "##splinekind", &s.kind, kinds, 3 ) )
-			{
-				s.preset[0] = 0;
-				spline_modified();
-			}
-			if ( s.kind == SPLINE_KIND_ROAD || s.kind == SPLINE_KIND_RIVER ) spline_rowpreset( s );
 
-			if ( s.kind == SPLINE_KIND_ROAD )
+			if ( bDesignOpen && s.kind == SPLINE_KIND_ROAD )
 			{
 				sSplineRoad& r = s.road;
 				bool bChanged = false;
@@ -5285,9 +5300,8 @@ void spline_imgui_panel( float w )
 				}
 				if ( bChanged ) spline_modified();
 				spline_rowbake( s, &r.autoApply, "Road", w );
-				spline_rowlayers( s, w );
 			}
-			else if ( s.kind == SPLINE_KIND_RIVER )
+			else if ( bDesignOpen && s.kind == SPLINE_KIND_RIVER )
 			{
 				sSplineRiver& v = s.river;
 				bool bChanged = false;
@@ -5411,7 +5425,6 @@ void spline_imgui_panel( float w )
 				}
 				if ( bChanged ) spline_modified();
 				spline_rowbake( s, &v.autoApply, "River", w );
-				spline_rowlayers( s, w );
 				if ( s.wetFraction >= 0.0f && !s.baked.empty() )
 				{
 					ImGui::TextWrapped( "Sea: %.0f%% of the bed is below the level's water line (%.1f m).", s.wetFraction * 100.0f, t.terrain.waterliney_f / SPLINE_UNITS_PER_M );
@@ -5419,6 +5432,9 @@ void spline_imgui_panel( float w )
 						ImGui::TextWrapped( "The water is lowered along %.0f%% of the river, where a bank is lower than the water: deepen the river or lower Water Depth.", s.waterLowered * 100.0f );
 				}
 			}
+			if ( bDesignOpen ) ImGui::TreePop();
+			if ( s.kind == SPLINE_KIND_ROAD || s.kind == SPLINE_KIND_RIVER ) spline_rowlayers( s, w );
+			ImGui::TreePop();
 		}
 		ImGui::Indent( -10 );
 	}
