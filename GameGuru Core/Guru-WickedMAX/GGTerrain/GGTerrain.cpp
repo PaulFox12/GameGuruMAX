@@ -826,6 +826,7 @@ Texture texMask;
 
 uint8_t* pMaterialMap = 0;
 Texture texMaterialMap;
+const uint32_t* (*pfnPaintKeep)( void ) = 0; // GG: the texels the paint brush leaves alone (GGTerrain_SetPaintKeep)
 
 // CPU copy of page table data, useful when shifting the page table
 //#define GGTERRAIN_PAGE_TABLE_DEPTH 32 // must be greater than max numLODLevels + max mip levels (currently 15 + 7)
@@ -9567,6 +9568,7 @@ void GGTerrain_Update_Painting( float pickX, float pickY, float pickZ )
 			}
 			#endif
 
+			const uint32_t* pKeep = pfnPaintKeep ? pfnPaintKeep() : 0;
 			for( int y = startY; y < endY; y++ )
 			{
 				for( int x = startX; x < endX; x++ )
@@ -9577,6 +9579,7 @@ void GGTerrain_Update_Painting( float pickX, float pickY, float pickZ )
 					if ( dist > radius*radius ) continue;
 				
 					uint32_t index = y * GGTERRAIN_MATERIALMAP_SIZE + x;
+					if ( pKeep && (pKeep[ index >> 5 ] & (1u << (index & 31))) ) continue;
 					pMaterialMap[ index ] = ggterrain_extra_params.paint_material;
 				}
 			}
@@ -10741,6 +10744,7 @@ uint64_t GGTerrain_GetHeightFingerprint()
 float* GGTerrain_GetHeightEditMap() { return pHeightMapEdit; }
 uint8_t* GGTerrain_GetHeightEditTypeMap() { return pHeightMapEditType; }
 uint8_t* GGTerrain_GetMaterialMap() { return pMaterialMap; }
+void GGTerrain_SetPaintKeep( const uint32_t* (*pfnKeep)( void ) ) { pfnPaintKeep = pfnKeep; }
 
 // a world height as a sculpt edit stores it (as the ramp and write sculpt modes do)
 float GGTerrain_HeightToEdit( float y )

@@ -12,6 +12,8 @@ void spline_savedata ( void );
 void spline_loaddata ( void );
 void spline_deleteall ( void );
 bool spline_librarypicking ( void );
+bool spline_paintkeep ( void );
+void spline_setpaintkeep ( bool bOn );
 void spline_updatewater ( bool bForce = false );
 void spline_updatemarkings ( void );
 void spline_editorupdate ( void );

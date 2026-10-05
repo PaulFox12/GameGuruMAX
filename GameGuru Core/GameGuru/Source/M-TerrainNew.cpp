@@ -2379,6 +2379,9 @@ void imgui_terrain_loop_v3(void)
 						gggrass_global_params.paint_material = bGrassMatchTerrain;
 					}
 					if (ImGui::IsItemHovered()) ImGui::SetTooltip("When painting, any grass will change to ensure it blends best. This option is synced with the grass tick tickbox");
+					bool bKeep = spline_paintkeep();
+					if (ImGui::Checkbox("Keep Off Roads and Rivers", &bKeep)) spline_setpaintkeep(bKeep);
+					if (ImGui::IsItemHovered()) ImGui::SetTooltip("Painting leaves the roads and rivers made with Roads and Rivers as they are.\nTo change the ground under a road, paint over it with this off and press the road's Apply: the road is baked again on top");
 				}
 
 				if (current_mode != TOOL_PAINTTEXTURE && top_current_mode != TOOL_PAINTTREE && top_current_mode != TOOL_PAINTBUSH && top_current_mode != TOOL_PAINTGRASS)

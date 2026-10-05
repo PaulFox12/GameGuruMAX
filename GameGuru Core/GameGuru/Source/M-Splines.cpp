@@ -3233,6 +3233,46 @@ bool spline_librarypicking( void )
 	return g_bLibraryPickEntity && ImGui::GetFrameCount() - g_iSplinePanelFrame <= 2;
 }
 
+// the terrain's paint brush leaving the roads and rivers alone (Paint Terrain, Keep Off Roads and Rivers): a bit for each
+// material map texel a road or river painted and still shows, made again at the start of each stroke
+static bool g_bSplinePaintKeep = false;
+static std::vector<uint32_t> g_SplinePaintKeep;
+static int g_iSplinePaintKeepFrame = -10;
+
+static const uint32_t* spline_paintkeepbits( void )
+{
+	const int frame = ImGui::GetFrameCount();
+	if ( frame - g_iSplinePaintKeepFrame > 1 )
+	{
+		// a texel painted over since its bake is the brush's again
+		g_SplinePaintKeep.assign( SPLINE_MAP_SIZE * SPLINE_MAP_SIZE / 32, 0 );
+		const uint8_t* pM = GGTerrain::GGTerrain_GetMaterialMap();
+		for ( const sSpline& s : g_Splines )
+		{
+			for ( const sSplineBakeTexel& b : s.baked )
+			{
+				if ( !(b.flags & SPLINE_TEXEL_MATERIAL) || b.x >= SPLINE_MAP_SIZE || b.z >= SPLINE_MAP_SIZE ) continue;
+				const uint32_t mIndex = b.z * SPLINE_MAP_SIZE + b.x;
+				if ( pM && pM[ mIndex ] == b.matAfter ) g_SplinePaintKeep[ mIndex >> 5 ] |= 1u << (mIndex & 31);
+			}
+		}
+	}
+	g_iSplinePaintKeepFrame = frame;
+	return g_SplinePaintKeep.data();
+}
+
+bool spline_paintkeep( void )
+{
+	return g_bSplinePaintKeep;
+}
+
+void spline_setpaintkeep( bool bOn )
+{
+	g_bSplinePaintKeep = bOn;
+	GGTerrain::GGTerrain_SetPaintKeep( bOn ? spline_paintkeepbits : nullptr );
+	if ( !bOn ) std::vector<uint32_t>().swap( g_SplinePaintKeep );
+}
+
 static float fRowLabelX = 0, fRowFieldX = 0, fRowRight = 0;
 
 // the rows' columns from where the cursor is now (under a heading, indented with it)
