@@ -8009,6 +8009,56 @@ int GetPhysicsStats(lua_State* L)
 // "asleep", "ready": still enough to sleep but its island isn't, "always": kept awake by the physics, never sleeping, "off"),
 // still (seconds under its sleep speeds; it sleeps after 2), sleepspeed and sleepspin (those speeds), island (the bodies
 // touching it, directly or through others, share it and sleep together; -1 none) }
+// the main Lua state's heap in KB (lua_loop_allentities' per-entity costs)
+int LuaHeapKB(void)
+{
+	return lua ? lua_gc(lua, LUA_GCCOUNT, 0) : 0;
+}
+
+// GetLuaEntityCosts(): the entities' turns in the engine's Lua loop over the last second (lua_getentitycosts), nil
+// until the first second is over
+int GetLuaEntityCosts(lua_State* L)
+{
+	sLuaEntityCosts costs;
+	if (!lua_getentitycosts(&costs))
+	{
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_createtable(L, 0, 14);
+	lua_pushnumber(L, costs.dWindowMs); lua_setfield(L, -2, "window");
+	lua_pushinteger(L, costs.iFrames); lua_setfield(L, -2, "frames");
+	lua_pushnumber(L, costs.dTotal); lua_setfield(L, -2, "total");
+	lua_pushnumber(L, costs.dRow); lua_setfield(L, -2, "row");
+	lua_pushnumber(L, costs.dMain); lua_setfield(L, -2, "main");
+	lua_pushnumber(L, costs.dKey); lua_setfield(L, -2, "key");
+	lua_pushinteger(L, costs.iTurns); lua_setfield(L, -2, "turns");
+	lua_pushinteger(L, costs.iRows); lua_setfield(L, -2, "rows");
+	lua_pushinteger(L, costs.iMains); lua_setfield(L, -2, "mains");
+	lua_pushinteger(L, costs.iKeyScans); lua_setfield(L, -2, "keyscans");
+	lua_pushinteger(L, costs.iKeyScannersMax); lua_setfield(L, -2, "keymax");
+	lua_pushinteger(L, costs.iGC); lua_setfield(L, -2, "gc");
+	lua_createtable(L, costs.iTop, 0);
+	for (int i = 0; i < costs.iTop; i++)
+	{
+		const sLuaEntityCostTop& entity = costs.top[i];
+		const bool bValid = entity.e > 0 && entity.e < (int)t.entityelement.size();
+		lua_createtable(L, 0, 9);
+		lua_pushinteger(L, entity.e); lua_setfield(L, -2, "e");
+		lua_pushnumber(L, entity.dTotal); lua_setfield(L, -2, "ms");
+		lua_pushnumber(L, entity.dRow); lua_setfield(L, -2, "row");
+		lua_pushnumber(L, entity.dMain); lua_setfield(L, -2, "main");
+		lua_pushnumber(L, entity.dKey); lua_setfield(L, -2, "key");
+		lua_pushinteger(L, entity.iGC); lua_setfield(L, -2, "gc");
+		lua_pushstring(L, bValid ? t.entityelement[entity.e].eleprof.aimainname_s.Get() : ""); lua_setfield(L, -2, "script");
+		lua_pushinteger(L, bValid ? t.entityelement[entity.e].eleprof.phyalways : 0); lua_setfield(L, -2, "phyalways");
+		lua_pushnumber(L, bValid ? t.entityelement[entity.e].plrdist : 0); lua_setfield(L, -2, "plrdist");
+		lua_rawseti(L, -2, i + 1);
+	}
+	lua_setfield(L, -2, "top");
+	return 1;
+}
+
 int GetPhysicsStatsTop(lua_State* L)
 {
 	int iMax = 5;
@@ -16776,6 +16826,7 @@ void addFunctions()
 	lua_register(lua, "PhysicsOverlapBox", PhysicsOverlapBox);
 	lua_register(lua, "GetPhysicsStats", GetPhysicsStats);
 	lua_register(lua, "GetPhysicsStatsTop", GetPhysicsStatsTop);
+	lua_register(lua, "GetLuaEntityCosts", GetLuaEntityCosts);
 	lua_register(lua, "GetPhysicsBodyPose", GetPhysicsBodyPose);
 	lua_register(lua, "SetObjectDamping",        SetObjectDamping );
 	lua_register(lua, "SetHingeLimits",          SetHingeLimits );

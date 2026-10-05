@@ -839,6 +839,135 @@ uint32_t LuaFrameCount2 = 0;
 
 int g_iViewPlayingSounds = 0;
 
+// GG: each entity's turn in lua_loop_allentities, timed (the Lua session's per-entity cost question, 2026-10-05): its row
+// refresh (UpdateEntityRT), its main call and its USE KEY scan, summed per entity over windows of a second, and a turn in
+// which the Lua heap shrank by 1 MB or more counted as a collection step inside it. GetLuaEntityCosts hands Lua the last
+// window; the slow-frame probe names each frame's three dearest turns (lua_lastframeentitycosts)
+static std::vector<sLuaEntityCostTop> g_LuaCostWindow;
+static sLuaEntityCosts g_LuaCostSum, g_LuaCostLast;
+static bool g_bLuaCostLast = false;
+static LONGLONG g_llLuaCostWindowStart = 0;
+static int g_iLuaCostKeyScannersFrame = 0;
+static sLuaEntityCostTop g_LuaCostFrameTop[3], g_LuaCostLastFrameTop[3];
+int LuaHeapKB ( void ); // DarkLUA.cpp
+
+static LONGLONG LuaCost_Ticks ( void )
+{
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	return now.QuadPart;
+}
+
+static double LuaCost_Ms ( LONGLONG llFrom, LONGLONG llTo )
+{
+	static double dTicksPerMs = 0;
+	if (dTicksPerMs == 0)
+	{
+		LARGE_INTEGER freq;
+		QueryPerformanceFrequency(&freq);
+		dTicksPerMs = (double)freq.QuadPart / 1000.0;
+	}
+	return (double)(llTo - llFrom) / dTicksPerMs;
+}
+
+static void LuaCost_BeginFrame ( void )
+{
+	for (int i = 0; i < 3; i++) g_LuaCostFrameTop[i] = sLuaEntityCostTop();
+	g_iLuaCostKeyScannersFrame = 0;
+	if (g_llLuaCostWindowStart == 0) g_llLuaCostWindowStart = LuaCost_Ticks();
+}
+
+static void LuaCost_EndTurn ( int e, LONGLONG llStart, int iHeapStartKB, double dRow, double dMain, double dKey )
+{
+	sLuaEntityCostTop turn;
+	turn.e = e;
+	turn.dTotal = LuaCost_Ms(llStart, LuaCost_Ticks());
+	turn.dRow = dRow;
+	turn.dMain = dMain;
+	turn.dKey = dKey;
+	turn.iGC = (LuaHeapKB() <= iHeapStartKB - 1024) ? 1 : 0;
+	if ((int)g_LuaCostWindow.size() <= e) g_LuaCostWindow.resize(e + 256);
+	sLuaEntityCostTop& sum = g_LuaCostWindow[e];
+	sum.e = e;
+	sum.dTotal += turn.dTotal;
+	sum.dRow += dRow;
+	sum.dMain += dMain;
+	sum.dKey += dKey;
+	sum.iGC += turn.iGC;
+	g_LuaCostSum.dTotal += turn.dTotal;
+	g_LuaCostSum.dRow += dRow;
+	g_LuaCostSum.dMain += dMain;
+	g_LuaCostSum.dKey += dKey;
+	g_LuaCostSum.iTurns++;
+	g_LuaCostSum.iGC += turn.iGC;
+	for (int i = 0; i < 3; i++)
+	{
+		if (turn.dTotal <= g_LuaCostFrameTop[i].dTotal) continue;
+		for (int j = 2; j > i; j--) g_LuaCostFrameTop[j] = g_LuaCostFrameTop[j - 1];
+		g_LuaCostFrameTop[i] = turn;
+		break;
+	}
+}
+
+static void LuaCost_EndFrame ( void )
+{
+	for (int i = 0; i < 3; i++) g_LuaCostLastFrameTop[i] = g_LuaCostFrameTop[i];
+	g_LuaCostSum.iFrames++;
+	if (g_iLuaCostKeyScannersFrame > g_LuaCostSum.iKeyScannersMax) g_LuaCostSum.iKeyScannersMax = g_iLuaCostKeyScannersFrame;
+	LONGLONG llNow = LuaCost_Ticks();
+	double dWindow = LuaCost_Ms(g_llLuaCostWindowStart, llNow);
+	if (dWindow < 1000.0) return;
+
+	// the window's ten dearest entities, dearest first
+	g_LuaCostSum.dWindowMs = dWindow;
+	g_LuaCostSum.iTop = 0;
+	for (const sLuaEntityCostTop& entity : g_LuaCostWindow)
+	{
+		if (entity.dTotal <= 0) continue;
+		int i = g_LuaCostSum.iTop;
+		if (i == LUAENTITYCOST_TOP && entity.dTotal <= g_LuaCostSum.top[i - 1].dTotal) continue;
+		if (i < LUAENTITYCOST_TOP) g_LuaCostSum.iTop++;
+		else i = LUAENTITYCOST_TOP - 1;
+		while (i > 0 && g_LuaCostSum.top[i - 1].dTotal < entity.dTotal)
+		{
+			g_LuaCostSum.top[i] = g_LuaCostSum.top[i - 1];
+			i--;
+		}
+		g_LuaCostSum.top[i] = entity;
+	}
+	g_LuaCostLast = g_LuaCostSum;
+	g_bLuaCostLast = true;
+	g_LuaCostSum = sLuaEntityCosts();
+	for (sLuaEntityCostTop& entity : g_LuaCostWindow) entity = sLuaEntityCostTop();
+	g_llLuaCostWindowStart = llNow;
+}
+
+bool lua_getentitycosts ( sLuaEntityCosts* pCosts )
+{
+	if (!g_bLuaCostLast || pCosts == NULL) return false;
+	*pCosts = g_LuaCostLast;
+	return true;
+}
+
+// "lua: e=N script T ms, ..." for the last frame's three dearest turns of 0.5 ms or more, "(gc)" on one in which a
+// collection step ran; empty if none
+void lua_lastframeentitycosts ( char* pText, int iSize )
+{
+	if (pText == NULL || iSize < 64) return;
+	pText[0] = 0;
+	int iLen = 0;
+	for (int i = 0; i < 3; i++)
+	{
+		const sLuaEntityCostTop& turn = g_LuaCostLastFrameTop[i];
+		if (turn.dTotal < 0.5 || turn.e <= 0 || turn.e >= (int)t.entityelement.size()) break;
+		const char* pScript = t.entityelement[turn.e].eleprof.aimainname_s.Get();
+		int iWrote = _snprintf_s(pText + iLen, iSize - iLen, _TRUNCATE, "%s e=%d %s %.1f ms%s", i ? "," : "lua:", turn.e,
+			(pScript && pScript[0]) ? pScript : "(no script)", turn.dTotal, turn.iGC ? " (gc)" : "");
+		if (iWrote < 0) break;
+		iLen += iWrote;
+	}
+}
+
 void lua_loop_allentities ( void )
 {
 #ifdef OPTICK_ENABLE
@@ -846,6 +975,7 @@ void lua_loop_allentities ( void )
 #endif
 
 	LuaFrameCount++;
+	LuaCost_BeginFrame();
 
 	bool bMarkerCount = false;
 	// Go through all entities with active LUA scripts
@@ -896,6 +1026,10 @@ void lua_loop_allentities ( void )
 			
 			// start performance measure
 			if (t.e < TABLEOFPERFORMANCEMAX) g_tableofperformancetimers[t.e] = PerformanceTimer();
+			// and this turn's own parts: the row refresh, the main call and the USE KEY scan (GetLuaEntityCosts)
+			LONGLONG llCostStart = LuaCost_Ticks();
+			int iCostHeapStartKB = LuaHeapKB();
+			double dCostRow = 0, dCostMain = 0, dCostKey = 0;
 
 			// Update entity coordinates with real object coordinates
 			t.tfrm=0 ; t.tobj=t.entityelement[t.e].obj;
@@ -967,7 +1101,9 @@ void lua_loop_allentities ( void )
 					}
 				}
 
-				// Detect if USE KEY field entity has been collected
+				// Detect if USE KEY field entity has been collected (an uncollected key is looked for again every frame)
+				const bool bCostKeyScan = t.entityelement[t.e].lua.haskey == 0 && Len(t.entityelement[t.e].eleprof.usekey_s.Get()) > 0;
+				LONGLONG llCostKeyStart = LuaCost_Ticks();
 				if ( t.entityelement[t.e].lua.haskey == 0 )
 				{
 					//  check if demilited key
@@ -1039,6 +1175,12 @@ void lua_loop_allentities ( void )
 						t.entityelement[t.e].lua.haskey = -1;
 						t.entityelement[t.e].lua.flagschanged = 1;
 					}
+				}
+				if (bCostKeyScan)
+				{
+					dCostKey = LuaCost_Ms(llCostKeyStart, LuaCost_Ticks());
+					g_LuaCostSum.iKeyScans++;
+					g_iLuaCostKeyScannersFrame++;
 				}
 
 				// Detect when entity object animation over
@@ -1148,6 +1290,7 @@ void lua_loop_allentities ( void )
 						// do not refresh activated and animating as these are set INSIDE LUA!!
 						if ( t.entityelement[t.e].staticflag == 0 && t.entityelement[t.e].lua.firsttime == 2 )
 						{
+							LONGLONG llCostRowStart = LuaCost_Ticks();
 							LuaSetFunction("UpdateEntityRT", 21, 0);
 							LuaPushInt (  t.e );
 							LuaPushInt (  t.tobj );
@@ -1203,6 +1346,8 @@ void lua_loop_allentities ( void )
 							LuaPushInt ( t.entityelement[t.e].detectedlimbhit );
 							LuaCall (  );
 							t.entityelement[t.e].lua.flagschanged=0;
+							dCostRow = LuaCost_Ms(llCostRowStart, LuaCost_Ticks());
+							g_LuaCostSum.iRows++;
 						}
 					}
 
@@ -1234,6 +1379,7 @@ void lua_loop_allentities ( void )
 							// can call LUA main function
 							if (bCanSkipNow == false )
 							{
+								LONGLONG llCostMainStart = LuaCost_Ticks();
 								if ( t.entityelement[t.e].eleprof.aipreexit >= 1 )
 								{
 									if ( t.entityelement[t.e].eleprof.aipreexit == 1 )
@@ -1256,6 +1402,8 @@ void lua_loop_allentities ( void )
 									LuaPushInt (t.e); 
 									LuaCall ();
 								}
+								dCostMain = LuaCost_Ms(llCostMainStart, LuaCost_Ticks());
+								g_LuaCostSum.iMains++;
 							}
 						}
 					}
@@ -1283,8 +1431,10 @@ void lua_loop_allentities ( void )
 					}
 				}
 			}
+			LuaCost_EndTurn(t.e, llCostStart, iCostHeapStartKB, dCostRow, dCostMain, dCostKey);
 		}
 	}
+	LuaCost_EndFrame();
 
 	// view LUA logic performance per entity
 	if ( g_iViewPerformanceTimers == 1 )
