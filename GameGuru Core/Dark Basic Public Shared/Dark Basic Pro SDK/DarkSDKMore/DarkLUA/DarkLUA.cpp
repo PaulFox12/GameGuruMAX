@@ -3249,6 +3249,9 @@ static int LUA_GETTOP(lua_State* L)
 
  // the last clone's time and steps (SpawnProbe_Stop), for SpawnNewEntity's log line
  static char g_pSpawnProbeText[1024] = "";
+ // SpawnNewEntity(e, 1): the clone gets no physics body now; its first CollisionOn makes one (usingphysicsnow stays 0).
+ // A clone the script turns collision off for at once (an AI helicopter) skipped a body made and thrown away
+ static bool g_bSpawnWithoutBody = false;
 
  int SpawnNewEntityCore(int iEntityIndex)
  {
@@ -3324,10 +3327,13 @@ static int LUA_GETTOP(lua_State* L)
 	// clones always show at start
 	t.entityelement[t.e].eleprof.spawnatstart = 1;
 	iNewE = t.e;
-	extern bool g_bSpawningThisOneNow;
-	g_bSpawningThisOneNow = true;
-	physics_prepareentityforphysics ();
-	g_bSpawningThisOneNow = false;
+	if (!g_bSpawnWithoutBody)
+	{
+		extern bool g_bSpawningThisOneNow;
+		g_bSpawningThisOneNow = true;
+		physics_prepareentityforphysics ();
+		g_bSpawningThisOneNow = false;
+	}
 	SpawnProbe_Mark(SPAWNSTEP_PHYSICS);
 	t.entityelement[t.e].lua.firsttime = 0;
 	// clones need parent health at least top begin with
@@ -3359,11 +3365,14 @@ static int LUA_GETTOP(lua_State* L)
 		 if (t.entityelement[iEntityIndex].bankindex > 0)
 		 {
 			 int iArraySizeBefore = g.entityelementmax;
+			 g_bSpawnWithoutBody = n >= 2 && lua_tointeger(L, 2) == 1;
 			 iNewE = SpawnNewEntityCore(iEntityIndex);
 			 vSpawnList.push_back(iNewE);
 			 // with the clone's model and the time of each step (a diagnostic)
-			 sprintf_s(pMsg, "SpawnNewEntityCore : %d from %d (entity array %d%s), %s in %s", iNewE, iEntityIndex, g.entityelementmax, g.entityelementmax != iArraySizeBefore ? ", grown" : "",
+			 sprintf_s(pMsg, "SpawnNewEntityCore : %d from %d (entity array %d%s%s), %s in %s", iNewE, iEntityIndex, g.entityelementmax, g.entityelementmax != iArraySizeBefore ? ", grown" : "",
+				 g_bSpawnWithoutBody ? ", no body" : "",
 				 t.entitybank_s[t.entityelement[iEntityIndex].bankindex].Get(), g_pSpawnProbeText);
+			 g_bSpawnWithoutBody = false;
 		 }
 		 else
 		 {

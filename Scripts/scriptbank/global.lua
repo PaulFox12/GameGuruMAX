@@ -1575,7 +1575,7 @@ GetObjectAnimationFinished : flag = GetObjectAnimationFinished ( e, shaveendfram
 Entity Creation and Destruction
 -------------------------------
 CreateEntityIfNotPresent : CreateEntityIfNotPresent ( e ) -- ensures this entity element index is available by the level
-SpawnNewEntity : newe = SpawnNewEntity ( currente ) -- will create a new entity by copying the entity specified by currente
+SpawnNewEntity : newe = SpawnNewEntity ( currente [, nobody] ) -- will create a new entity by copying the entity specified by currente; with nobody 1 the copy gets no physics body until its first CollisionOn (for one whose collision is turned off at once; the stock exe ignores nobody and makes the body)
 DeleteNewEntity : DeleteNewEntity ( e ) -- will delete any entity specified by e newly created during the level, but no original ones
 
 Other Things
