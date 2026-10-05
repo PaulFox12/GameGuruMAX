@@ -5425,9 +5425,17 @@ void ImageCreateSurfaceTextureChannels(LPSTR pSurfaceToSave, LPSTR pAO, LPSTR pG
 	}
 }
 
+// the spawn probe (G-Entity.cpp): named slices of a probed spawn's time, and calls counted in it
+void SpawnProbe_Sub ( const char* pName );
+long long SpawnProbe_CallStart ( void );
+void SpawnProbe_CallEnd ( const char* pName, long long llStart );
+
+// a probed spawn counts the surface maps it makes
 void ImageCreateSurfaceTexture(LPSTR pSurfaceToSave, LPSTR pAO, LPSTR pGloss, LPSTR pMetalness )
 {
+	long long llProbe = SpawnProbe_CallStart();
 	ImageCreateSurfaceTextureChannels(pSurfaceToSave, pAO, pGloss, pMetalness, 0, 0, 0, 0);
+	SpawnProbe_CallEnd("surface maps made", llProbe);
 }
 
 void ImageCreateNormalTextureInvertedGreen(LPSTR pSurfaceToSave, LPSTR pAO, LPSTR pGloss, LPSTR pMetalness, int iO, int iG, int iM, int iA)

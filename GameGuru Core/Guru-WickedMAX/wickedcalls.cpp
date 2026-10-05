@@ -314,9 +314,14 @@ void WickedCall_AddImageToList(std::shared_ptr<wiResource> image, eImageResType 
 		g_imageList.push_back(newImage);
 }
 
+// the spawn probe (G-Entity.cpp): named slices of a probed spawn's time, and calls counted in it
+void SpawnProbe_Sub ( const char* pName );
+long long SpawnProbe_CallStart ( void );
+void SpawnProbe_CallEnd ( const char* pName, long long llStart );
+
 int total_mem_from_load = 0;
 bool bCalledFromWickedLoadImage = false;
-std::shared_ptr<wiResource> WickedCall_LoadImage(std::string pFilenameToLoadIN, eImageResType eType)
+static std::shared_ptr<wiResource> WickedCall_LoadImageUncounted(std::string pFilenameToLoadIN, eImageResType eType)
 {
 	//PE: Prevent dublicate textures even if using different names.
 	//PE: Scan all our images and make a text file including filename+CRC64 of the file.
@@ -486,6 +491,15 @@ std::shared_ptr<wiResource> WickedCall_LoadImage(std::string pFilenameToLoadIN, 
 	}
 
 	// return new or existing image resource
+	return image;
+}
+
+// a probed spawn counts its image loads
+std::shared_ptr<wiResource> WickedCall_LoadImage(std::string pFilenameToLoadIN, eImageResType eType)
+{
+	long long llProbe = SpawnProbe_CallStart();
+	std::shared_ptr<wiResource> image = WickedCall_LoadImageUncounted(pFilenameToLoadIN, eType);
+	SpawnProbe_CallEnd("image loads", llProbe);
 	return image;
 }
 
@@ -1426,6 +1440,7 @@ void WickedCall_AddObject ( sObject* pObject )
 			if (pObject->ppMeshList[iM])
 				pObject->ppMeshList[iM]->wickedmaterialindex = materialEntity;
 	}
+	SpawnProbe_Sub("wicked: materials");
 
 	// if object has bones (animation), then need an armature - done inside LoadNode
 	// but need to reset wickedarmatureindex IDs as this scene is a temporarly one, to be merged at the end
@@ -1439,6 +1454,7 @@ void WickedCall_AddObject ( sObject* pObject )
 	state.storeMasterRootEntityIndex = rootEntity;
 	sFrame* pRootFrame = pObject->pFrame;
 	WickedCall_LoadNode ( pRootFrame, rootEntity, rootEntity, state );
+	SpawnProbe_Sub("wicked: nodes and meshes");
 	
 
 	for (int iM = 0; iM < pObject->iMeshCount; iM++)
@@ -1491,6 +1507,7 @@ void WickedCall_AddObject ( sObject* pObject )
 		}
 	}
 
+	SpawnProbe_Sub("wicked: mesh settings");
 
 	// Create armature-bone mappings (connect armature bone collection to frame entities created in LoadNode)
 	for (int iM = 0; iM < pObject->iMeshCount; iM++)
@@ -1540,6 +1557,7 @@ void WickedCall_AddObject ( sObject* pObject )
 			}
 		}
 	}
+	SpawnProbe_Sub("wicked: armatures");
 
 	// Create animations (from animation data stored in DBO)
 	WickedLoaderState* pCopyLoaderState = new WickedLoaderState;
@@ -1550,6 +1568,7 @@ void WickedCall_AddObject ( sObject* pObject )
 
 	//int objectindex = state.entityMap[pObject->pFrame->iID];
 	WickedCall_RefreshObjectAnimations(pObject, (void*)pCopyLoaderState);
+	SpawnProbe_Sub("wicked: animations");
 
 	// trigger an update to the root entity transform
 	wiScene::TransformComponent* pATransform = pScene->transforms.GetComponent(rootEntity);

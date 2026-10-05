@@ -934,6 +934,11 @@ DARKSDK_DLL bool CreateModelFromCustom( int iID, void* m_pData )
 	return true;
 }
 
+// the spawn probe (G-Entity.cpp): named slices of a probed spawn's time, and calls counted in it
+void SpawnProbe_Sub ( const char* pName );
+long long SpawnProbe_CallStart ( void );
+void SpawnProbe_CallEnd ( const char* pName, long long llStart );
+
 DARKSDK_DLL bool SetNewObjectFinalProperties ( int iID, float fRadius )
 {
 	// setup new object and introduce to buffers
@@ -1099,6 +1104,7 @@ DARKSDK_DLL bool SetNewObjectFinalProperties ( int iID, float fRadius )
 		}
 	}
 
+	SpawnProbe_Sub("final properties: bones and bounds");
 	extern int iCurrentObjectID;
 	iCurrentObjectID = iID;
 	//PE: Mark mesh'es that need to be ignored by wicked. to reduce wicked objects count.
@@ -1107,6 +1113,7 @@ DARKSDK_DLL bool SetNewObjectFinalProperties ( int iID, float fRadius )
 
 	AddObjectToObjectListRef(iID);
 	m_ObjectManager.ReplaceAllFlaggedObjectsInBuffers();
+	SpawnProbe_Sub("final properties: wicked objects");
 	#endif
 	iCurrentObjectID = 0;
 	// okay

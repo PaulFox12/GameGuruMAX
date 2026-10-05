@@ -3248,7 +3248,7 @@ static int LUA_GETTOP(lua_State* L)
  }
 
  // the last clone's time and steps (SpawnProbe_Stop), for SpawnNewEntity's log line
- static char g_pSpawnProbeText[400] = "";
+ static char g_pSpawnProbeText[1024] = "";
 
  int SpawnNewEntityCore(int iEntityIndex)
  {
@@ -3355,7 +3355,7 @@ static int LUA_GETTOP(lua_State* L)
 	 int iEntityIndex = lua_tonumber(L, 1);
 	 if (iEntityIndex > 0 && LuaEntityIDValid(L, iEntityIndex, 1))
 	 {
-		 char pMsg[768];
+		 char pMsg[1536];
 		 if (t.entityelement[iEntityIndex].bankindex > 0)
 		 {
 			 int iArraySizeBefore = g.entityelementmax;

@@ -693,6 +693,7 @@ void physics_prepareentityforphysics ( void )
 				}
 			}
 		}
+		SpawnProbe_Sub("physics: limbs");
 
 		// now use collisionindex
 		t.tnophysics=0;

@@ -99,3 +99,9 @@ enum { SPAWNSTEP_PROFILE, SPAWNSTEP_ADDCORE, SPAWNSTEP_BEFORECLONE, SPAWNSTEP_CL
 void SpawnProbe_Start ( void );
 void SpawnProbe_Mark ( int iStep );
 void SpawnProbe_Stop ( char* pText, int iSize );
+// finer timing in a probed spawn: a named slice (the time since the last mark or slice, shown in the step whose mark
+// comes next; a name repeated adds up, with a count) and named calls counted and timed wherever they happen (file
+// checks, image loads); all do nothing outside a probed spawn or off the spawning thread
+void SpawnProbe_Sub ( const char* pName );
+long long SpawnProbe_CallStart ( void );
+void SpawnProbe_CallEnd ( const char* pName, long long llStart );

@@ -4468,43 +4468,138 @@ void entity_converttoinstance ( void )
 
 // a clone's steps timed from SpawnProbe_Start to SpawnProbe_Stop (SpawnNewEntityCore); marks outside a spawn do nothing
 static bool g_bSpawnProbeActive = false;
+static DWORD g_dwSpawnProbeThread = 0;
 static LARGE_INTEGER g_SpawnProbeStart, g_SpawnProbeLast;
 static double g_dSpawnProbeMs[SPAWNSTEP_COUNT];
+
+// the named slices (SpawnProbe_Sub), each given to the step whose mark follows it, and the counted calls
+#define SPAWNPROBE_SLICES 32
+#define SPAWNPROBE_CALLS 8
+struct sSpawnProbeNamed { const char* pName; int iStep; int iCount; double dMs; };
+static sSpawnProbeNamed g_SpawnProbeSlice[SPAWNPROBE_SLICES];
+static int g_iSpawnProbeSlices = 0;
+static sSpawnProbeNamed g_SpawnProbeCall[SPAWNPROBE_CALLS];
+static int g_iSpawnProbeCalls = 0;
+static int g_iSpawnProbeCallDepth = 0;
+
+static bool SpawnProbe_Here ( void )
+{
+	return g_bSpawnProbeActive && GetCurrentThreadId() == g_dwSpawnProbeThread;
+}
+
+static double SpawnProbe_MsSince ( LONGLONG llFrom, LARGE_INTEGER* pNow )
+{
+	LARGE_INTEGER now, freq;
+	QueryPerformanceCounter(&now);
+	QueryPerformanceFrequency(&freq);
+	if (pNow) *pNow = now;
+	return (double)(now.QuadPart - llFrom) * 1000.0 / (double)freq.QuadPart;
+}
 
 void SpawnProbe_Start ( void )
 {
 	QueryPerformanceCounter(&g_SpawnProbeStart);
 	g_SpawnProbeLast = g_SpawnProbeStart;
 	for (int i = 0; i < SPAWNSTEP_COUNT; i++) g_dSpawnProbeMs[i] = 0;
+	g_iSpawnProbeSlices = 0;
+	g_iSpawnProbeCalls = 0;
+	g_iSpawnProbeCallDepth = 0;
+	g_dwSpawnProbeThread = GetCurrentThreadId();
 	g_bSpawnProbeActive = true;
 }
 
 void SpawnProbe_Mark ( int iStep )
 {
-	if (!g_bSpawnProbeActive || iStep < 0 || iStep >= SPAWNSTEP_COUNT) return;
-	LARGE_INTEGER now, freq;
-	QueryPerformanceCounter(&now);
-	QueryPerformanceFrequency(&freq);
-	g_dSpawnProbeMs[iStep] += (double)(now.QuadPart - g_SpawnProbeLast.QuadPart) * 1000.0 / (double)freq.QuadPart;
-	g_SpawnProbeLast = now;
+	if (!SpawnProbe_Here() || iStep < 0 || iStep >= SPAWNSTEP_COUNT) return;
+	g_dSpawnProbeMs[iStep] += SpawnProbe_MsSince(g_SpawnProbeLast.QuadPart, &g_SpawnProbeLast);
+	// the slices since the last mark are part of this step
+	for (int i = 0; i < g_iSpawnProbeSlices; i++)
+	{
+		if (g_SpawnProbeSlice[i].iStep >= 0) continue;
+		g_SpawnProbeSlice[i].iStep = iStep;
+		g_dSpawnProbeMs[iStep] += g_SpawnProbeSlice[i].dMs;
+	}
 }
 
-// "N ms: profile a, add core b, ..." for the steps of 0.05 ms or more, in order
+void SpawnProbe_Sub ( const char* pName )
+{
+	if (!SpawnProbe_Here() || !pName) return;
+	int i = 0;
+	while (i < g_iSpawnProbeSlices && (g_SpawnProbeSlice[i].iStep >= 0 || strcmp(g_SpawnProbeSlice[i].pName, pName) != 0)) i++;
+	if (i == g_iSpawnProbeSlices)
+	{
+		if (i == SPAWNPROBE_SLICES) return; // no room: the time stays with the step
+		g_SpawnProbeSlice[i].pName = pName;
+		g_SpawnProbeSlice[i].iStep = -1;
+		g_SpawnProbeSlice[i].iCount = 0;
+		g_SpawnProbeSlice[i].dMs = 0;
+		g_iSpawnProbeSlices++;
+	}
+	g_SpawnProbeSlice[i].dMs += SpawnProbe_MsSince(g_SpawnProbeLast.QuadPart, &g_SpawnProbeLast);
+	g_SpawnProbeSlice[i].iCount++;
+}
+
+// a counted call inside another (an image load's own file checks) counts as part of the outer one
+long long SpawnProbe_CallStart ( void )
+{
+	if (!SpawnProbe_Here()) return 0;
+	if (g_iSpawnProbeCallDepth++ > 0) return 0;
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	return now.QuadPart;
+}
+
+void SpawnProbe_CallEnd ( const char* pName, long long llStart )
+{
+	if (!SpawnProbe_Here() || g_iSpawnProbeCallDepth <= 0) return;
+	g_iSpawnProbeCallDepth--;
+	if (llStart == 0 || !pName) return;
+	int i = 0;
+	while (i < g_iSpawnProbeCalls && strcmp(g_SpawnProbeCall[i].pName, pName) != 0) i++;
+	if (i == g_iSpawnProbeCalls)
+	{
+		if (i == SPAWNPROBE_CALLS) return;
+		g_SpawnProbeCall[i].pName = pName;
+		g_SpawnProbeCall[i].iStep = -1;
+		g_SpawnProbeCall[i].iCount = 0;
+		g_SpawnProbeCall[i].dMs = 0;
+		g_iSpawnProbeCalls++;
+	}
+	g_SpawnProbeCall[i].dMs += SpawnProbe_MsSince(llStart, NULL);
+	g_SpawnProbeCall[i].iCount++;
+}
+
+// "N ms: profile a, add core b [slice c, slice x2 d], ...; file checks n in e ms" for the steps and slices of 0.05 ms or
+// more, in order, then the counted calls
 void SpawnProbe_Stop ( char* pText, int iSize )
 {
 	static const char* pNames[SPAWNSTEP_COUNT] = { "profile", "add core", "before the clone", "clone", "animations and shadows",
 		"prepare (materials)", "depth and LOD", "position", "lights", "emitter", "flatten", "add rest", "physics" };
-	LARGE_INTEGER now, freq;
-	QueryPerformanceCounter(&now);
-	QueryPerformanceFrequency(&freq);
 	g_bSpawnProbeActive = false;
-	int iLen = sprintf_s(pText, iSize, "%.1f ms:", (double)(now.QuadPart - g_SpawnProbeStart.QuadPart) * 1000.0 / (double)freq.QuadPart);
+	int iLen = sprintf_s(pText, iSize, "%.1f ms:", SpawnProbe_MsSince(g_SpawnProbeStart.QuadPart, NULL));
 	for (int i = 0; i < SPAWNSTEP_COUNT && iLen > 0 && iLen < iSize - 40; i++)
 	{
 		if (g_dSpawnProbeMs[i] < 0.05) continue;
-		iLen += sprintf_s(pText + iLen, iSize - iLen, " %s %.1f,", pNames[i], g_dSpawnProbeMs[i]);
+		iLen += sprintf_s(pText + iLen, iSize - iLen, " %s %.1f", pNames[i], g_dSpawnProbeMs[i]);
+		const char* pOpen = " [";
+		for (int s = 0; s < g_iSpawnProbeSlices && iLen > 0 && iLen < iSize - 80; s++)
+		{
+			const sSpawnProbeNamed& slice = g_SpawnProbeSlice[s];
+			if (slice.iStep != i || slice.dMs < 0.05) continue;
+			if (slice.iCount > 1) iLen += sprintf_s(pText + iLen, iSize - iLen, "%s%s x%d %.1f", pOpen, slice.pName, slice.iCount, slice.dMs);
+			else iLen += sprintf_s(pText + iLen, iSize - iLen, "%s%s %.1f", pOpen, slice.pName, slice.dMs);
+			pOpen = ", ";
+		}
+		if (pOpen[0] == ',' && iLen > 0) iLen += sprintf_s(pText + iLen, iSize - iLen, "]");
+		if (iLen > 0) iLen += sprintf_s(pText + iLen, iSize - iLen, ",");
 	}
-	if (iLen > 0 && pText[iLen - 1] == ',') pText[iLen - 1] = 0;
+	if (iLen > 0 && pText[iLen - 1] == ',') pText[--iLen] = 0;
+	const char* pSep = "; ";
+	for (int c = 0; c < g_iSpawnProbeCalls && iLen > 0 && iLen < iSize - 80; c++)
+	{
+		iLen += sprintf_s(pText + iLen, iSize - iLen, "%s%s %d in %.1f ms", pSep, g_SpawnProbeCall[c].pName, g_SpawnProbeCall[c].iCount, g_SpawnProbeCall[c].dMs);
+		pSep = ", ";
+	}
 }
 
 void entity_createobj ( void )
@@ -4897,6 +4992,7 @@ void entity_applymaterial ( int tentid, int tte, int tobj )
 				{
 					// from WE materials
 					WickedCall_TextureMesh(pMesh);
+					SpawnProbe_Sub("texture mesh");
 
 					// and must restore mesh transparency flag
 					bool bTransparent = WickedGetTransparent();
@@ -4913,6 +5009,7 @@ void entity_applymaterial ( int tentid, int tte, int tobj )
 		if (pObject)
 		{
 			WickedCall_TextureObject(pObject, NULL);
+			SpawnProbe_Sub("texture object");
 		}
 	}
 }
@@ -4992,6 +5089,7 @@ void entity_prepareobj ( void )
 
 		// specific object mask settings
 		if ( t.tte > 0 ) visuals_updatespecificobjectmasks ( t.tte, t.tobj );
+		SpawnProbe_Sub("masks");
 
 		//  object properties
 		if ( 0)//t.entityprofile[t.tentid].ismarker != 0 && t.entityprofile[t.tentid].ismarker != 11 )
@@ -5051,6 +5149,7 @@ void entity_prepareobj ( void )
 				}
 			}
 		}
+		SpawnProbe_Sub("cull");
 
 		//  object animation
 		entity_resettodefaultanimation ( );
@@ -5062,6 +5161,7 @@ void entity_prepareobj ( void )
 			FixObjectPivot (  t.tobj );
 		}
 		if (  t.entityprofile[t.tentid].scale != 0  )  ScaleObject (  t.tobj,t.entityprofile[t.tentid].scale,t.entityprofile[t.tentid].scale,t.entityprofile[t.tentid].scale );
+		SpawnProbe_Sub("animation and scale");
 
 		// 091115 - after scaling, ensure LOD is a reflection of overall object size (so LARGE buildings not instantly go to LOD2)
 		if (  t.entityprofile[t.tentid].ismarker == 0 ) 
@@ -5073,13 +5173,17 @@ void entity_prepareobj ( void )
 				entity_calculateentityLODdistances ( t.tentid, t.tobj, 0 );
 			}
 		}
+		SpawnProbe_Sub("lod distances");
 
 		// no collision and full alpha multiplier
 		SetObjectCollisionOff ( t.tobj );
+		SpawnProbe_Sub("collision off");
 		entity_applymaterial ( t.tentid, t.tte, t.tobj );
+		SpawnProbe_Sub("apply material");
 
 		// handle zdepth mode of this entity
 		entity_preparedepth(t.tentid, t.tobj);
+		SpawnProbe_Sub("depth");
 
 		// apply the scrolls cale uv data values for the shader use later on
 		if ( t.entityprofile[t.tentid].uvscrollu != 0.0f 
@@ -5121,6 +5225,7 @@ void entity_prepareobj ( void )
 			void SetupDecalObject(int obj, int elementID);
 			SetupDecalObject(t.tobj, t.tte);
 		}
+		SpawnProbe_Sub("art flags and effect");
 
 
 		if (t.entityprofile[t.tentid].ismarker == 0)
@@ -5134,6 +5239,7 @@ void entity_prepareobj ( void )
 					entity_autoFlattenWhenAdded(t.tte, t.tobj);
 			}
 		}
+		SpawnProbe_Sub("flatten");
 		if (t.entityprofile[t.tentid].ismarker == 2)
 		{
 			entity_updatelightobj(t.tte, t.tobj);
