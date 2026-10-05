@@ -5235,6 +5235,24 @@ void spline_imgui_panel( float w )
 						ImGui::TextWrapped( "The water is lowered along %.0f%% of the river, where a bank is lower than the water: deepen the river or lower Water Depth.", s.waterLowered * 100.0f );
 				}
 			}
+			if ( g_iSplineNodeSelected >= 0 && g_iSplineNodeSelected < (int)s.nodes.size() )
+			{
+				// the selected node's position typed, in world units (as Lua and the logs give positions). It stays on the
+				// ground, and other splines' nodes at its junction move with it; the bake waits until the field is left
+				const sSplineNode& node = s.nodes[ g_iSplineNodeSelected ];
+				float x = node.x, z = node.z;
+				spline_row( "Node X" );
+				bool bMoved = ImGui::InputFloat( "##splinenodex", &x, 0.0f, 0.0f, "%.1f" );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The selected node's X position, in world units" );
+				spline_row( "Node Z" );
+				bMoved |= ImGui::InputFloat( "##splinenodez", &z, 0.0f, 0.0f, "%.1f" );
+				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The selected node's Z position, in world units" );
+				if ( bMoved )
+				{
+					spline_movenode( g_iSplineSelected, g_iSplineNodeSelected, x, spline_groundy( x, z ), z );
+					spline_modified();
+				}
+			}
 			bool bClosed = s.closed != 0;
 			if ( ImGui::Checkbox( "Closed Loop##splineclosed", &bClosed ) && s.nodes.size() > 2 )
 			{
