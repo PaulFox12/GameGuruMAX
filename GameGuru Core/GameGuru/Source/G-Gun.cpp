@@ -4734,8 +4734,25 @@ void gun_soundcontrol ( void )
 	}
 }
 
+// GG: what the HUD's smoke and brass objects were last set up with: switching to a gun that uses the same ones keeps
+// them, where every switch textured the 10 smoke objects again and deleted and made the 15 brass objects again
+// (ChangePlayerWeaponID 9-21 ms a call, the Lua session's runs 283-293). gun_create_hud makes the objects, so it
+// forgets the record
+static int g_iGunSmokeImageMade = -1;
+static int g_iGunBrassMasterMade = -1;
+static sObject* g_pGunBrassMasterMade = NULL;
+
+static bool gun_hudobjectsexist ( int iFirst, int iLast )
+{
+	for ( int o = iFirst; o <= iLast; o++ ) if ( ObjectExist ( g.hudbankoffset + o ) == 0 ) return false;
+	return true;
+}
+
 void gun_create_hud ( void )
 {
+	g_iGunSmokeImageMade = -1;
+	g_iGunBrassMasterMade = -1;
+	g_pGunBrassMasterMade = NULL;
 	// Only create if not already exist
 	if ( ObjectExist(g.hudbankoffset+2) == 0 ) 
 	{
@@ -4937,9 +4954,10 @@ void gun_selectandorload ( void )
 		ScaleObject (  g.hudbankoffset+32,0,0,0 );
 	}
 
-	//  Setup gun with smoke images
-	if (  t.gun[t.gunid].settings.smokelimb != -1 ) 
+	//  Setup gun with smoke images (kept when the last gun set them up with the same image)
+	if (  t.gun[t.gunid].settings.smokelimb != -1 && ( g.firemodes[t.gunid][g.firemode].settings.smokeimg != g_iGunSmokeImageMade || !gun_hudobjectsexist ( 21, 30 ) ) ) 
 	{
+		g_iGunSmokeImageMade = g.firemodes[t.gunid][g.firemode].settings.smokeimg;
 		for ( t.o = 21 ; t.o<=  30; t.o++ )
 		{
 			t.obj=g.hudbankoffset+t.o;
@@ -4963,9 +4981,15 @@ void gun_selectandorload ( void )
 
 	WickedCall_PresetObjectPutInEmissive(0);
 
-	// Setup gun with brass models
-	if ( t.gun[t.gunid].settings.brasslimb != -1 ) 
+	// Setup gun with brass models (kept when the last gun made them from the same brass model, still loaded; gun_free has
+	// hidden them and taken their physics away)
+	int iBrassMaster = g.firemodes[t.gunid][g.firemode].settings.brassobjmaster;
+	sObject* pBrassMaster = ( iBrassMaster > 0 && ObjectExist ( iBrassMaster ) == 1 ) ? GetObjectData ( iBrassMaster ) : NULL;
+	bool bBrassMade = iBrassMaster == g_iGunBrassMasterMade && pBrassMaster == g_pGunBrassMasterMade && gun_hudobjectsexist ( 6, 20 );
+	if ( t.gun[t.gunid].settings.brasslimb != -1 && !bBrassMade ) 
 	{
+		g_iGunBrassMasterMade = iBrassMaster;
+		g_pGunBrassMasterMade = pBrassMaster;
 		extern bool bBlockSceneUpdate;
 		bBlockSceneUpdate = true;
 
