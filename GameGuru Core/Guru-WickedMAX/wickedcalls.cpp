@@ -8604,8 +8604,72 @@ static void WickedCall_ProbeRecordSlow(int iProbe, double dMilliseconds, const c
 	if (call.iFrame - slowest.iFrame > 20 || dMilliseconds > slowest.dMilliseconds) slowest = call;
 }
 
+// the frame costs since the last WickedCall_GetFrameCosts: each step's own time by name, and the submits' split (the
+// presents of a frame added up until its "Submit" step, which holds them, ends)
+struct WickedCallFrameCostStep
+{
+	std::string name;
+	double dMilliseconds = 0;
+};
+static std::unordered_map<uint64_t, WickedCallFrameCostStep> g_WickedCallFrameCostSteps;
+static WickedCallFrameCosts g_WickedCallFrameCosts;
+static double g_dWickedCallFrameCostsSince = 0;
+static std::atomic<int64_t> g_iWickedCallPresentMicro{ 0 };
+
+static void WickedCall_FrameCostStep(const char* pName, double dMilliseconds)
+{
+	if (g_dWickedCallFrameCostsSince == 0) g_dWickedCallFrameCostsSince = WickedCall_ProbeNow();
+	uint64_t key = 14695981039346656037ULL;
+	for (const char* p = pName; *p; p++) key = (key ^ (uint8_t)*p) * 1099511628211ULL;
+	WickedCallFrameCostStep& step = g_WickedCallFrameCostSteps[key];
+	if (step.name.empty()) step.name = pName;
+	step.dMilliseconds += dMilliseconds;
+	WickedCallFrameCosts& costs = g_WickedCallFrameCosts;
+	if (strcmp(pName, "outside ranges") == 0)
+	{
+		// a frame's start: a present since the last submit was outside the frame (a loading screen's)
+		costs.iFrames++;
+		g_iWickedCallPresentMicro.store(0);
+	}
+	else if (strcmp(pName, "Submit") == 0)
+	{
+		double dPresent = (double)g_iWickedCallPresentMicro.exchange(0) / 1000.0;
+		if (dPresent > dMilliseconds) dPresent = dMilliseconds;
+		const double dExecute = dMilliseconds - dPresent;
+		costs.iSubmits++;
+		costs.dSubmit += dMilliseconds;
+		costs.dPresent += dPresent;
+		costs.dExecute += dExecute;
+		if (dMilliseconds > costs.dSubmitMax) costs.dSubmitMax = dMilliseconds;
+		if (dPresent > costs.dPresentMax) costs.dPresentMax = dPresent;
+		if (dExecute > costs.dExecuteMax) costs.dExecuteMax = dExecute;
+	}
+}
+
+bool WickedCall_GetFrameCosts(WickedCallFrameCosts* pCosts)
+{
+	WickedCallFrameCosts& costs = g_WickedCallFrameCosts;
+	if (!pCosts || costs.iFrames == 0) return false;
+	const double dNow = WickedCall_ProbeNow();
+	*pCosts = costs;
+	pCosts->dWindowMs = dNow - g_dWickedCallFrameCostsSince;
+	extern bool g_bNoVSync;
+	pCosts->bVSync = master.swapChain.desc.vsync && !g_bNoVSync;
+	pCosts->steps.clear();
+	for (auto& it : g_WickedCallFrameCostSteps)
+	{
+		if (it.second.dMilliseconds <= 0) continue;
+		pCosts->steps.push_back(std::make_pair(it.second.name, it.second.dMilliseconds));
+		it.second.dMilliseconds = 0;
+	}
+	costs = WickedCallFrameCosts();
+	g_dWickedCallFrameCostsSince = dNow;
+	return true;
+}
+
 static void WickedCall_ProbeDeviceCall(double dMilliseconds, const WickedDeviceCallInfo& info)
 {
+	if (info.call == 2) g_iWickedCallPresentMicro += (int64_t)(dMilliseconds * 1000.0);
 	int iProbe = WICKEDCALL_PROBE_PRESENT;
 	if (info.call == 0) iProbe = WICKEDCALL_PROBE_GPU_CREATE;
 	else if (info.call == 1) iProbe = WICKEDCALL_PROBE_GPU_MAP;
@@ -8703,6 +8767,7 @@ static void WickedCall_ProbeFrameStep(const char* pName, const char* pParents, d
 
 static void WickedCall_ProbeFramePhase(const char* pName, const char* pParents, double dMilliseconds)
 {
+	WickedCall_FrameCostStep(pName, dMilliseconds);
 	WickedCall_ProbeAdd(WICKEDCALL_PROBE_FRAME_PHASE, dMilliseconds);
 	WickedCall_ProbeFrameStep(pName, pParents, dMilliseconds);
 	if (dMilliseconds >= 1000.0)

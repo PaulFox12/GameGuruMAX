@@ -324,6 +324,21 @@ bool WickedCall_ProbeGet(const char* pName, float* pMilliseconds, float* pCalls,
 // fMinMs: the least it reports (at least 10); below 0, 50 and, for "frame phase", the slowest step rather than the slowest
 // frame with its three longest steps
 const char* WickedCall_ProbeDetail(const char* pName, float fMinMs = -1.0f);
+// the frames since the last call (GetFrameCosts in Lua; main thread), false if none: each main thread step's own time, a
+// range's without the ranges inside it ("CPU Frame" its time outside them all, "outside ranges" the time between frames
+// outside any), and each frame's submit split into its presents (waiting for vsync, or for the GPU when it is behind) and
+// the rest (the frame's command lists finished and executed); milliseconds summed, and the most in one frame
+struct WickedCallFrameCosts
+{
+	double dWindowMs = 0;
+	int iFrames = 0;
+	int iSubmits = 0;
+	double dSubmit = 0, dPresent = 0, dExecute = 0;
+	double dSubmitMax = 0, dPresentMax = 0, dExecuteMax = 0;
+	bool bVSync = false;
+	std::vector<std::pair<std::string, double>> steps;
+};
+bool WickedCall_GetFrameCosts(WickedCallFrameCosts* pCosts);
 extern DWORD g_dwWickedCallProbeExtraThread;
 struct WickedCallProbeScope
 {

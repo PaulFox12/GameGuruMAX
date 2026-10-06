@@ -8069,6 +8069,39 @@ int GetLuaEntityCosts(lua_State* L)
 	return 1;
 }
 
+// GetFrameCosts(): the frames since the last call, nil if none (WickedCall_GetFrameCosts): window (ms), frames; the
+// submits split: submits, submit, present (in Present: vsync, or the GPU behind), execute (the rest), and submitmax,
+// presentmax, executemax the most in one frame; vsync (1 on); steps: { name = ms } each main thread step's own time summed,
+// a range's without the ranges inside it ("CPU Frame" the frame's time outside them all)
+int GetFrameCosts(lua_State* L)
+{
+	WickedCallFrameCosts costs;
+	if (!WickedCall_GetFrameCosts(&costs))
+	{
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_createtable(L, 0, 11);
+	lua_pushnumber(L, costs.dWindowMs); lua_setfield(L, -2, "window");
+	lua_pushinteger(L, costs.iFrames); lua_setfield(L, -2, "frames");
+	lua_pushinteger(L, costs.iSubmits); lua_setfield(L, -2, "submits");
+	lua_pushnumber(L, costs.dSubmit); lua_setfield(L, -2, "submit");
+	lua_pushnumber(L, costs.dPresent); lua_setfield(L, -2, "present");
+	lua_pushnumber(L, costs.dExecute); lua_setfield(L, -2, "execute");
+	lua_pushnumber(L, costs.dSubmitMax); lua_setfield(L, -2, "submitmax");
+	lua_pushnumber(L, costs.dPresentMax); lua_setfield(L, -2, "presentmax");
+	lua_pushnumber(L, costs.dExecuteMax); lua_setfield(L, -2, "executemax");
+	lua_pushinteger(L, costs.bVSync ? 1 : 0); lua_setfield(L, -2, "vsync");
+	lua_createtable(L, 0, (int)costs.steps.size());
+	for (const auto& step : costs.steps)
+	{
+		lua_pushnumber(L, step.second);
+		lua_setfield(L, -2, step.first.c_str());
+	}
+	lua_setfield(L, -2, "steps");
+	return 1;
+}
+
 int GetPhysicsStatsTop(lua_State* L)
 {
 	int iMax = 5;
@@ -16837,6 +16870,7 @@ void addFunctions()
 	lua_register(lua, "GetPhysicsStats", GetPhysicsStats);
 	lua_register(lua, "GetPhysicsStatsTop", GetPhysicsStatsTop);
 	lua_register(lua, "GetLuaEntityCosts", GetLuaEntityCosts);
+	lua_register(lua, "GetFrameCosts", GetFrameCosts);
 	lua_register(lua, "GetPhysicsBodyPose", GetPhysicsBodyPose);
 	lua_register(lua, "SetObjectDamping",        SetObjectDamping );
 	lua_register(lua, "SetHingeLimits",          SetHingeLimits );
