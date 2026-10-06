@@ -14657,6 +14657,86 @@ int GetGrassShade(lua_State* L)
 	lua_pushnumber(L, fTip);
 	return 2;
 }
+// SetGrassFadeBand(units) - the width of the dithered band past the grass distance where the cards thin out, 0 to 5000
+// (2500 as the engine has drawn it). The cards are spread over the distance plus the band, so a narrower band packs them
+// closer: with the same distance plus band, the solid grass reaches further at the same density. Every chunk is made again
+int SetGrassFadeBand(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	GGGrass_SetFadeBand((float)lua_tonumber(L, 1));
+	return 0;
+}
+// SetGrassEqualDepth(on) - 1: the grass colour pass draws only where its prepass left a card's own depth, so its lit shader
+// runs once a pixel and not on the see-through parts of the cards; 0 (at first) as before
+int SetGrassEqualDepth(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	GGGrass_SetEqualDepth((int)lua_tointeger(L, 1));
+	return 0;
+}
+// SetGrassTightBounds(on) - 1: the grass chunks' bounds fitted to the cards, so chunks off screen are culled; 0 (at first)
+// padded 2000 units round and 4000 up as before
+int SetGrassTightBounds(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	GGGrass_SetTightBounds((int)lua_tointeger(L, 1));
+	return 0;
+}
+// SetGrassGrid(n) - the grid the 400,000 cards are spread over, 8 (at first) or 16 chunks across: 16 fits the circle drawn
+// more closely, so the same cards stand about 36% closer. Every chunk is made again
+int SetGrassGrid(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	GGGrass_SetGrid((int)lua_tointeger(L, 1));
+	return 0;
+}
+// GetGrassTuning() - { fadeband, equaldepth, tightbounds, grid } as set
+int GetGrassTuning(lua_State* L)
+{
+	float fBand = 0;
+	int iEqual = 0, iTight = 0, iGrid = 0;
+	GGGrass_GetTuning(&fBand, &iEqual, &iTight, &iGrid);
+	lua_createtable(L, 0, 4);
+	lua_pushnumber(L, fBand); lua_setfield(L, -2, "fadeband");
+	lua_pushinteger(L, iEqual); lua_setfield(L, -2, "equaldepth");
+	lua_pushinteger(L, iTight); lua_setfield(L, -2, "tightbounds");
+	lua_pushinteger(L, iGrid); lua_setfield(L, -2, "grid");
+	return 1;
+}
+namespace GGTerrain
+{
+	void GGTerrain_SetMeasure( int mode );
+	void GGTerrain_SetPrepassNearFirst( int on );
+	void GGTerrain_GetDrawStats( int* pChunks, int* pFlat, int* pTriangles );
+}
+// SetTerrainMeasure(mode) - 0 none (at first); 1 the terrain prepass draws depth only (no page requests or velocity, so the
+// terrain's pages stop following the camera: a measuring run only); 2 both terrain passes drawn into a 1 x 1 viewport, so
+// their GPU time is the geometry's alone
+int SetTerrainMeasure(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	GGTerrain::GGTerrain_SetMeasure((int)lua_tointeger(L, 1));
+	return 0;
+}
+// SetTerrainNearFirst(on) - 1 (at first): the terrain prepass draws its chunks nearest first, so near ground hides the far
+// ground's pixels sooner (the same picture); 0 in the old order
+int SetTerrainNearFirst(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	GGTerrain::GGTerrain_SetPrepassNearFirst((int)lua_tointeger(L, 1));
+	return 0;
+}
+// GetTerrainDrawStats() - the last terrain prepass: { chunks (drawn), flat (of them, heights within 0.01 units), triangles }
+int GetTerrainDrawStats(lua_State* L)
+{
+	int iChunks = 0, iFlat = 0, iTriangles = 0;
+	GGTerrain::GGTerrain_GetDrawStats(&iChunks, &iFlat, &iTriangles);
+	lua_createtable(L, 0, 3);
+	lua_pushinteger(L, iChunks); lua_setfield(L, -2, "chunks");
+	lua_pushinteger(L, iFlat); lua_setfield(L, -2, "flat");
+	lua_pushinteger(L, iTriangles); lua_setfield(L, -2, "triangles");
+	return 1;
+}
 namespace GGTerrain
 {
 	const char* GGTerrain_GetTextureSource( int slot, int kind, int* pChanged );
@@ -17831,6 +17911,14 @@ void addFunctions()
 	lua_register(lua, "GetGrassDistance", GetGrassDistance);
 	lua_register(lua, "SetGrassKillBox", SetGrassKillBox);
 	lua_register(lua, "SetGrassShade", SetGrassShade);
+	lua_register(lua, "SetGrassFadeBand", SetGrassFadeBand);
+	lua_register(lua, "SetGrassEqualDepth", SetGrassEqualDepth);
+	lua_register(lua, "SetGrassTightBounds", SetGrassTightBounds);
+	lua_register(lua, "SetGrassGrid", SetGrassGrid);
+	lua_register(lua, "GetGrassTuning", GetGrassTuning);
+	lua_register(lua, "SetTerrainMeasure", SetTerrainMeasure);
+	lua_register(lua, "SetTerrainNearFirst", SetTerrainNearFirst);
+	lua_register(lua, "GetTerrainDrawStats", GetTerrainDrawStats);
 	lua_register(lua, "GetGrassShade", GetGrassShade);
 	lua_register(lua, "GetTextureSource", GetTextureSource);
 	lua_register(lua, "GetEngineProbe", GetEngineProbe);

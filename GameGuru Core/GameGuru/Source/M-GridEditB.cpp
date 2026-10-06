@@ -8445,6 +8445,15 @@ void LuaGameVisuals_Clear(void)
 	GGGrass_ClearKillBox(-1);
 	GGGrass_SetShade(0.45f, 0.45f);
 
+	// and the grass tuning (SetGrassFadeBand, SetGrassEqualDepth, SetGrassTightBounds, SetGrassGrid) and the terrain
+	// measurements (SetTerrainMeasure, SetTerrainNearFirst) as they start
+	GGGrass::GGGrass_SetFadeBand(2500.0f);
+	GGGrass::GGGrass_SetEqualDepth(0);
+	GGGrass::GGGrass_SetTightBounds(0);
+	GGGrass::GGGrass_SetGrid(8);
+	GGTerrain::GGTerrain_SetMeasure(0);
+	GGTerrain::GGTerrain_SetPrepassNearFirst(1);
+
 	// and the trees blasts removed (SetGrassKillBox and SetProjectedDecalGrass with trees), here and at level start
 	GGTrees_RestoreKilled();
 
