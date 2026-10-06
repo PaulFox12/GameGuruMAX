@@ -42,11 +42,13 @@ namespace Tracers
     DepthStencilState depthStencilState;
 
     struct Vertex { XMFLOAT3 pos; XMFLOAT2 uv; };
+    // GG: centred across (x -0.5 to 0.5), so the streak's core runs along the shot line; from 0 to 1 it lay width/2 to
+    // one side, the side turning with the camera
     Vertex vertices[] = {
-        { XMFLOAT3(0, -0.5f, 0), XMFLOAT2(0, 1) },
-        { XMFLOAT3(1, -0.5f, 0), XMFLOAT2(1, 1) },
-        { XMFLOAT3(0,  0.5f, 0), XMFLOAT2(0, 0) },
-        { XMFLOAT3(1,  0.5f, 0), XMFLOAT2(1, 0) },
+        { XMFLOAT3(-0.5f, -0.5f, 0), XMFLOAT2(0, 1) },
+        { XMFLOAT3( 0.5f, -0.5f, 0), XMFLOAT2(1, 1) },
+        { XMFLOAT3(-0.5f,  0.5f, 0), XMFLOAT2(0, 0) },
+        { XMFLOAT3( 0.5f,  0.5f, 0), XMFLOAT2(1, 0) },
     };
     uint16_t indices[] = { 0, 1, 2, 2, 1, 3 };
 
