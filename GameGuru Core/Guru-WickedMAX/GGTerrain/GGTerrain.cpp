@@ -787,6 +787,9 @@ int ggterrain_measure = 0;
 PipelineState psoMainRequests;
 bool ggterrain_depth_only_prepass = false;
 bool ggterrain_seabed_skip = false;
+// GG: parts of the terrain's colour pass left out to time them (SetTerrainShadeMeasure): 1 the steep rock, 2 shadows, 4 all
+// lighting (lights, probes, decals), 8 the page lookup and its samples, 16 fog; 0 (in play) none
+int ggterrain_shade_measure = 0;
 ID3D11UnorderedAccessView* ggterrain_requestsUAV = nullptr;
 static bool GGTerrain_RequestsInColourPass()
 {
@@ -4682,6 +4685,11 @@ void GGTerrain_SetDepthOnlyPrepass( int on )
 void GGTerrain_SetSeabedSkip( int on )
 {
 	ggterrain_seabed_skip = on != 0;
+}
+
+void GGTerrain_SetShadeMeasure( int flags )
+{
+	ggterrain_shade_measure = flags & 31;
 }
 
 void GGTerrain_SetPrepassNearFirst( int on )
@@ -10486,6 +10494,7 @@ void GGTerrain_Update( float playerX, float playerY, float playerZ, wiGraphics::
 		terrainConstantData.terrain_seabedCut.z = fogRange;
 		terrainConstantData.terrain_seabedCut.w = bSeabedCut ? 1.0f : 0.0f;
 	}
+	terrainConstantData.terrain_shadeMeasure = (float) ggterrain_shade_measure;
 
 	wiInput::MouseState mouseState = wiInput::GetMouseState();
 	ggterrain_internal_params.mouseLeftState = mouseState.left_button_press;

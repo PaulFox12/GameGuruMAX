@@ -14720,6 +14720,7 @@ namespace GGTerrain
 	void GGTerrain_GetDrawStats( int* pChunks, int* pFlat, int* pTriangles );
 	void GGTerrain_SetDepthOnlyPrepass( int on );
 	void GGTerrain_SetSeabedSkip( int on );
+	void GGTerrain_SetShadeMeasure( int flags );
 }
 // SetTerrainMeasure(mode) - 0 none (at first); 1 the terrain prepass draws depth only (no page requests or velocity, so the
 // terrain's pages stop following the camera: a measuring run only); 2 both terrain passes drawn into a 1 x 1 viewport, so
@@ -14753,6 +14754,15 @@ int SetTerrainSeabedSkip(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
 	GGTerrain::GGTerrain_SetSeabedSkip((int)lua_tointeger(L, 1));
+	return 0;
+}
+// SetTerrainShadeMeasure(flags) - parts of the terrain's colour pass left out, to time what each costs (a measuring run only:
+// the terrain looks wrong meanwhile): 1 the steep rock, 2 shadows, 4 all lighting (lights, probes, decals), 8 the page
+// lookup and its samples (a flat colour), 16 fog; added together for several; 0 (at first) none
+int SetTerrainShadeMeasure(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	GGTerrain::GGTerrain_SetShadeMeasure((int)lua_tointeger(L, 1));
 	return 0;
 }
 // GetTerrainDrawStats() - the last terrain prepass: { chunks (drawn), flat (of them, heights within 0.01 units), triangles }
@@ -17951,6 +17961,7 @@ void addFunctions()
 	lua_register(lua, "GetTerrainDrawStats", GetTerrainDrawStats);
 	lua_register(lua, "SetTerrainDepthOnlyPrepass", SetTerrainDepthOnlyPrepass);
 	lua_register(lua, "SetTerrainSeabedSkip", SetTerrainSeabedSkip);
+	lua_register(lua, "SetTerrainShadeMeasure", SetTerrainShadeMeasure);
 	lua_register(lua, "GetGrassShade", GetGrassShade);
 	lua_register(lua, "GetTextureSource", GetTextureSource);
 	lua_register(lua, "GetEngineProbe", GetEngineProbe);

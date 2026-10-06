@@ -332,6 +332,13 @@ GBuffer main( PixelIn IN )
 	}
 
 	
+	// GG: parts left out to time them (SetTerrainShadeMeasure; 0 in play)
+	const uint shadeMeasure = (uint) terrain_shadeMeasure;
+	float4 colorMetalness = float4( 0.25, 0.22, 0.18, 0 );
+	float4 normalRoughnessAO = float4( 0.5, 0.5, 0.8, 1 );
+	[branch]
+	if ( (shadeMeasure & 8) == 0 )
+	{
 	// page table look up
 	int maxLevel = terrain_numLODLevels - 1; 
 	int detailLevel = texPageTableFinal.CalculateLevelOfDetailUnclamped( sampler1, IN.uv );
@@ -404,8 +411,9 @@ GBuffer main( PixelIn IN )
 	float2 dy = ddy( IN.uv ) * (uvScale / physTexSizeY);
 
 	// physical texture sample
-	float4 colorMetalness = texColorAndMetalness.SampleGrad( sampler1, pageUV, dx, dy );
-	float4 normalRoughnessAO = texNormalRoughnessAO.SampleGrad( sampler1, pageUV, dx, dy );
+	colorMetalness = texColorAndMetalness.SampleGrad( sampler1, pageUV, dx, dy );
+	normalRoughnessAO = texNormalRoughnessAO.SampleGrad( sampler1, pageUV, dx, dy );
+	}
 	
 	/*
 	output.g0 = float4( colorMetalness.rgb, 1 );
@@ -432,7 +440,8 @@ GBuffer main( PixelIn IN )
 	// steep rock over the page's surface
 	float3 posDX = ddx( IN.worldPos );
 	float3 posDY = ddy( IN.worldPos );
-	GGTerrainApplyRock( IN.worldPos, IN.normal, posDX, posDY, sampler1, normal, colorMetalness, normalRoughnessAO );
+	[branch]
+	if ( (shadeMeasure & 1) == 0 ) GGTerrainApplyRock( IN.worldPos, IN.normal, posDX, posDY, sampler1, normal, colorMetalness, normalRoughnessAO );
 
 	// WickedEngine PBR
 	Surface surface;
@@ -458,6 +467,7 @@ GBuffer main( PixelIn IN )
 	surface.screenUV = ScreenCoord;
 	
 	surface.update();
+	if ( shadeMeasure & 2 ) surface.receiveshadow = false;
 
 	float3 ambient = GetAmbient(surface.N);
 	//ambient = lerp(ambient, ambient * surface.sss.rgb, saturate(surface.sss.a));
@@ -493,7 +503,8 @@ GBuffer main( PixelIn IN )
 	//ForwardLighting(surface, lighting);
 	float3 envAmbient = 0;
 	decal_faceN = normalize(IN.normal);
-	TiledLighting(surface, lighting, dist, envAmbient);
+	[branch]
+	if ( (shadeMeasure & 4) == 0 ) TiledLighting(surface, lighting, dist, envAmbient);
 
 	lighting.indirect.diffuse += envAmbient;
 
@@ -501,7 +512,7 @@ GBuffer main( PixelIn IN )
 	ApplyLighting(surface, lighting, color);
 
 	//ApplyFog(dist, color);
-	if ( (terrain_flags & GGTERRAIN_SHADER_FLAG2_USE_FOG) ) 
+	if ( (terrain_flags & GGTERRAIN_SHADER_FLAG2_USE_FOG) && (shadeMeasure & 16) == 0 ) 
 	{
 		color.rgb = ApplyFogCustom( IN.worldPos, dist, color.rgb, surface.V );
 	}

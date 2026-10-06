@@ -8456,6 +8456,7 @@ void LuaGameVisuals_Clear(void)
 	GGTerrain::GGTerrain_SetPrepassNearFirst(1);
 	GGTerrain::GGTerrain_SetDepthOnlyPrepass(0);
 	GGTerrain::GGTerrain_SetSeabedSkip(0);
+	GGTerrain::GGTerrain_SetShadeMeasure(0);
 
 	// and the trees blasts removed (SetGrassKillBox and SetProjectedDecalGrass with trees), here and at level start
 	GGTrees_RestoreKilled();

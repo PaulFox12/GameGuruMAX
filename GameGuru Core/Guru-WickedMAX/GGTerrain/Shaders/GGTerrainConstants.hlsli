@@ -83,7 +83,7 @@ cbuffer TerrainCB : register( b2 )
 
 	float    terrain_rockEdgeBreakup; // the rock's edge moved by a noise in world space, and blended wider, 0 to 1
 	float    terrain_rockVariation; // the rock texture at two sizes in patches, 0 (one size) to 1
-	float    terrain_padding4;
+	float    terrain_shadeMeasure; // GG: parts of the colour pass left out to time them (SetTerrainShadeMeasure): 1 the rock, 2 shadows, 4 all lighting, 8 the page lookup, 16 fog
 	float    terrain_padding5;
 
 	// GG: the seabed the ocean's water fog hides (SetTerrainSeabedSkip): x the lowest the water's surface goes (its height

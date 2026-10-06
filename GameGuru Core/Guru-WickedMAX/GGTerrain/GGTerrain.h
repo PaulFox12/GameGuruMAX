@@ -445,6 +445,8 @@ void GGTerrain_SetPrepassNearFirst( int on );
 // ocean's water fog hides shaded flat (off at first)
 void GGTerrain_SetDepthOnlyPrepass( int on );
 void GGTerrain_SetSeabedSkip( int on );
+// GG: parts of the colour pass left out to time them: 1 the rock, 2 shadows, 4 all lighting, 8 the page lookup, 16 fog
+void GGTerrain_SetShadeMeasure( int flags );
 void GGTerrain_GetDrawStats( int* pChunks, int* pFlat, int* pTriangles );
 } // namespace GGTerrain
 
