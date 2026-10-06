@@ -14690,17 +14690,27 @@ int SetGrassGrid(lua_State* L)
 	GGGrass_SetGrid((int)lua_tointeger(L, 1));
 	return 0;
 }
-// GetGrassTuning() - { fadeband, equaldepth, tightbounds, grid } as set
+// SetGrassBudget(cards) - the grass cards spread over the grid, 50,000 to 800,000 (400,000 at first): twice the cards over
+// the same distance plus band is twice as dense. Room for the most is made at the start, so this makes no buffer; every
+// chunk is made again, a few a frame
+int SetGrassBudget(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	GGGrass_SetBudget((int)lua_tointeger(L, 1));
+	return 0;
+}
+// GetGrassTuning() - { fadeband, equaldepth, tightbounds, grid, cards } as set
 int GetGrassTuning(lua_State* L)
 {
 	float fBand = 0;
-	int iEqual = 0, iTight = 0, iGrid = 0;
-	GGGrass_GetTuning(&fBand, &iEqual, &iTight, &iGrid);
-	lua_createtable(L, 0, 4);
+	int iEqual = 0, iTight = 0, iGrid = 0, iCards = 0;
+	GGGrass_GetTuning(&fBand, &iEqual, &iTight, &iGrid, &iCards);
+	lua_createtable(L, 0, 5);
 	lua_pushnumber(L, fBand); lua_setfield(L, -2, "fadeband");
 	lua_pushinteger(L, iEqual); lua_setfield(L, -2, "equaldepth");
 	lua_pushinteger(L, iTight); lua_setfield(L, -2, "tightbounds");
 	lua_pushinteger(L, iGrid); lua_setfield(L, -2, "grid");
+	lua_pushinteger(L, iCards); lua_setfield(L, -2, "cards");
 	return 1;
 }
 namespace GGTerrain
@@ -17915,6 +17925,7 @@ void addFunctions()
 	lua_register(lua, "SetGrassEqualDepth", SetGrassEqualDepth);
 	lua_register(lua, "SetGrassTightBounds", SetGrassTightBounds);
 	lua_register(lua, "SetGrassGrid", SetGrassGrid);
+	lua_register(lua, "SetGrassBudget", SetGrassBudget);
 	lua_register(lua, "GetGrassTuning", GetGrassTuning);
 	lua_register(lua, "SetTerrainMeasure", SetTerrainMeasure);
 	lua_register(lua, "SetTerrainNearFirst", SetTerrainNearFirst);

@@ -8451,6 +8451,7 @@ void LuaGameVisuals_Clear(void)
 	GGGrass::GGGrass_SetEqualDepth(0);
 	GGGrass::GGGrass_SetTightBounds(0);
 	GGGrass::GGGrass_SetGrid(8);
+	GGGrass::GGGrass_SetBudget(400000);
 	GGTerrain::GGTerrain_SetMeasure(0);
 	GGTerrain::GGTerrain_SetPrepassNearFirst(1);
 

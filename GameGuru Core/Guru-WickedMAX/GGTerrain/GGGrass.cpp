@@ -78,7 +78,12 @@ uint16_t g_IndicesGrass[ 6 ] =
 };
 
 float grassRadius = GGGRASS_INITIAL_LOD_DIST + GGGRASS_LOD_TRANSITION;
-const uint32_t numTotalGrass = 400000;
+// GG: the cards spread over the grid, 400,000 at first (GGGrass_SetBudget, up to GGGRASS_MAX_CARDS, taken up at the next
+// GGGrass_Update); the instance pool and the chunks' buffers have room for the most from the start, so a bigger budget
+// makes no buffer
+#define GGGRASS_MAX_CARDS 800000
+uint32_t numTotalGrass = 400000;
+uint32_t gggrass_wantedCards = 400000;
 
 // GG: the grid of chunks the cards are spread over round the camera, 8 or 16 across (GGGrass_SetGrid, taken up at the next
 // GGGrass_Update): the grid reaches a chunk past the circle drawn on each side, so a finer grid wastes fewer cards in its
@@ -318,6 +323,7 @@ struct GrassChunk
 	uint32_t numValid = 0;
 	uint32_t numUploaded = 0; // the cards in its buffer, drawn
 	bool bUpload = false; // made again since its buffer was filled
+	bool bPlace = false; // placed somewhere new, its cards still to make (GGGrass_Update, a few chunks a frame)
 	float centerX;
 	float centerZ;
 	int x;
@@ -374,6 +380,7 @@ struct GrassChunk
 		if (!gggrass_initialised) return 0;
 		if ( !GGTerrain_IsReady() ) return 0;
 
+		bPlace = false;
 		minHeight = 1e9f;
 		maxHeight = -1e9f;
 		maxRootHeight = -1e9f;
@@ -487,14 +494,21 @@ struct GrassChunk
 
 		randSeedOrig = ((x & 0xFFFF) << 16) | (z & 0xFFFF);
 
-		return Update();
+		// GG: its cards made by GGGrass_Update, a few chunks a frame nearest first, rather than here: a row of chunks made
+		// at once as the grid moved held up one frame; meanwhile nothing of it is drawn, as its cards are elsewhere
+		bPlace = true;
+		bUpload = false;
+		numValid = 0;
+		numUploaded = 0;
+		return 1;
 	}
 };
 
 GrassChunk pGrassChunks[ GGGRASS_MAX_SPLIT * GGGRASS_MAX_SPLIT ];
 uint8_t pGrassGrid[ GGGRASS_MAX_SPLIT * GGGRASS_MAX_SPLIT ];
-InstanceGrass gggrass_instancePool[ numTotalGrass ];
-// GG: the chunks' buffers for each grid size, [0] 8 x 8, [1] 16 x 16, made the first time that size is used (6.4 MB each)
+InstanceGrass gggrass_instancePool[ GGGRASS_MAX_CARDS ];
+// GG: the chunks' buffers for each grid size, [0] 8 x 8, [1] 16 x 16, made the first time that size is used, with room for
+// the most cards (12.8 MB each)
 GPUBuffer gggrass_chunkBuffers[ 2 ][ GGGRASS_MAX_SPLIT * GGGRASS_MAX_SPLIT ];
 bool gggrass_chunkBuffersMade[ 2 ] = { false, false };
 
@@ -506,12 +520,13 @@ static void GGGrass_SetLayout( uint32_t split )
 	numGrassChunks = grassSplit * grassSplit;
 	numGrassPerChunk = numTotalGrass / numGrassChunks;
 	grassAreaPerChunk = grassRadius * 2 / (grassSplit-2);
+	const uint32_t room = GGGRASS_MAX_CARDS / numGrassChunks; // each chunk's room, for the most cards
 	const int layout = grassSplit == 16 ? 1 : 0;
 	if ( !gggrass_chunkBuffersMade[ layout ] )
 	{
 		GPUBufferDesc bufferDesc = {};
 		bufferDesc.Usage = USAGE_DEFAULT;
-		bufferDesc.ByteWidth = sizeof(InstanceGrass) * numGrassPerChunk;
+		bufferDesc.ByteWidth = sizeof(InstanceGrass) * room;
 		bufferDesc.BindFlags = BIND_VERTEX_BUFFER;
 		bufferDesc.CPUAccessFlags = 0;
 		bufferDesc.MiscFlags = 0;
@@ -520,11 +535,12 @@ static void GGGrass_SetLayout( uint32_t split )
 	}
 	for( uint32_t i = 0; i < numGrassChunks; i++ )
 	{
-		pGrassChunks[ i ].pInstances = &gggrass_instancePool[ i * numGrassPerChunk ];
+		pGrassChunks[ i ].pInstances = &gggrass_instancePool[ i * room ];
 		pGrassChunks[ i ].pBuffer = &gggrass_chunkBuffers[ layout ][ i ];
 		pGrassChunks[ i ].numValid = 0;
 		pGrassChunks[ i ].numUploaded = 0;
 		pGrassChunks[ i ].bUpload = false;
+		pGrassChunks[ i ].bPlace = false;
 	}
 	gggrass_wantedSplit = grassSplit;
 }
@@ -1618,12 +1634,18 @@ void GGGrass_SetGrid( int split )
 	gggrass_wantedSplit = split >= 16 ? 16 : 8;
 }
 
-void GGGrass_GetTuning( float* pBand, int* pEqual, int* pTight, int* pGrid )
+void GGGrass_SetBudget( int cards )
+{
+	gggrass_wantedCards = cards < 50000 ? 50000 : (cards > GGGRASS_MAX_CARDS ? GGGRASS_MAX_CARDS : (uint32_t)cards);
+}
+
+void GGGrass_GetTuning( float* pBand, int* pEqual, int* pTight, int* pGrid, int* pCards )
 {
 	if ( pBand ) *pBand = gggrass_fadeBand;
 	if ( pEqual ) *pEqual = gggrass_equalDepth ? 1 : 0;
 	if ( pTight ) *pTight = gggrass_tightBounds ? 1 : 0;
 	if ( pGrid ) *pGrid = (int)gggrass_wantedSplit;
+	if ( pCards ) *pCards = (int)gggrass_wantedCards;
 }
 
 void GGGrass_SetKillCircles( const float* pCircles, int count )
@@ -1932,12 +1954,14 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 	grassCameraY = camera->Eye.y;
 	grassCameraZ = camera->Eye.z;
 
-	if ( gggrass_global_params.lod_dist != gggrass_internal_params.prevLodDist || gggrass_fadeBand != gggrass_prevFadeBand || gggrass_wantedSplit != grassSplit )
+	if ( gggrass_global_params.lod_dist != gggrass_internal_params.prevLodDist || gggrass_fadeBand != gggrass_prevFadeBand || gggrass_wantedSplit != grassSplit || gggrass_wantedCards != numTotalGrass )
 	{
 		gggrass_internal_params.prevLodDist = gggrass_global_params.lod_dist;
 		gggrass_prevFadeBand = gggrass_fadeBand;
 
 		grassRadius = gggrass_global_params.lod_dist + gggrass_fadeBand;
+		numTotalGrass = gggrass_wantedCards;
+		numGrassPerChunk = numTotalGrass / numGrassChunks;
 		if ( gggrass_wantedSplit != grassSplit ) GGGrass_SetLayout( gggrass_wantedSplit );
 		grassAreaPerChunk = grassRadius * 2 / (grassSplit-2);
 
@@ -2044,6 +2068,26 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 			// something changed so adjust grass heights
 			if ( !GGGrass_UpdateInstances() ) ggterrain_extra_params.iUpdateGrass = 5;
 		}
+	}
+
+	// GG: the chunks placed somewhere new made, nearest first, until about 25,000 cards are made this frame (at least one
+	// chunk); a new row lies at the grid's far edge, past the grass drawn, so the frames it waits don't show
+	uint32_t cardsMade = 0;
+	while ( cardsMade < 25000 )
+	{
+		int iNearest = -1;
+		float fNearest = 0;
+		for( uint32_t i = 0; i < numGrassChunks; i++ )
+		{
+			if ( !pGrassChunks[ i ].bPlace ) continue;
+			float dx = pGrassChunks[ i ].centerX - grassCameraX;
+			float dz = pGrassChunks[ i ].centerZ - grassCameraZ;
+			float dist = dx*dx + dz*dz;
+			if ( iNearest < 0 || dist < fNearest ) { iNearest = (int)i; fNearest = dist; }
+		}
+		if ( iNearest < 0 ) break;
+		if ( !pGrassChunks[ iNearest ].Update() ) break; // the terrain not ready yet: the next frame
+		cardsMade += numGrassPerChunk;
 	}
 
 	// GG: the cards of the chunks made again since the last frame, into their kept buffers

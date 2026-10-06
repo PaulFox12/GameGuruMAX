@@ -95,7 +95,8 @@ namespace GGGrass
 	void GGGrass_SetEqualDepth( int on );
 	void GGGrass_SetTightBounds( int on );
 	void GGGrass_SetGrid( int split );
-	void GGGrass_GetTuning( float* pBand, int* pEqual, int* pTight, int* pGrid );
+	void GGGrass_SetBudget( int cards ); // the cards spread over the grid, 50,000 to 800,000 (400,000 at first)
+	void GGGrass_GetTuning( float* pBand, int* pEqual, int* pTight, int* pGrid, int* pCards = nullptr );
 	const char* GGGrass_GetTextureSource( int slice, int* pChanged ); // the file a grass slice was last uploaded from, "" none, 0 a bad slice; *pChanged as GGTerrain_CheckTextureSource
 }
 
