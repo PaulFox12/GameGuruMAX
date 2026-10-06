@@ -343,7 +343,10 @@ namespace Tracers
 
             const float width = tracer.width;
 
-            float lifeFraction = (gameTime - (tracer.spawnTime + t.ElapsedTime_f)) / tracer.lifeTime;
+            // GG: from the spawn time itself; a frame's elapsed time taken off it held every streak at its start for a second
+            // drawn frame (gameTime moves on after Draw), a frame behind a moving gun's muzzle, and it faded to 0 only after
+            // Update had removed it
+            float lifeFraction = (gameTime - tracer.spawnTime) / tracer.lifeTime;
             float alpha = std::clamp(1.0f - lifeFraction,0.0f, 1.0f);
 
             float max_width = tracer.max_length; // 50
