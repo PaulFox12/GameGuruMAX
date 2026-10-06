@@ -204,8 +204,13 @@ namespace Tracers
         samplerDesc.AddressU = TEXTURE_ADDRESS_WRAP;
         samplerDesc.AddressV = TEXTURE_ADDRESS_WRAP;
         samplerDesc.AddressW = TEXTURE_ADDRESS_WRAP;
-        samplerDesc.Filter = FILTER_MIN_MAG_MIP_LINEAR;
+        // GG: anisotropic, the one the streaks are drawn with: seen from low behind a streak's length is squashed into a few
+        // pixels, and trilinear took its mip from that, so the narrow core blurred across the whole width and the streak
+        // drew as a solid bar; anisotropic takes the mip from the width and samples along the length
+        samplerDesc.Filter = FILTER_ANISOTROPIC;
+        samplerDesc.MaxAnisotropy = 16;
         device->CreateSampler(&samplerDesc, &samplerTrilinearWrap);
+        samplerDesc.MaxAnisotropy = 0;
 
         samplerDesc.AddressU = TEXTURE_ADDRESS_CLAMP;
         samplerDesc.AddressV = TEXTURE_ADDRESS_CLAMP;
