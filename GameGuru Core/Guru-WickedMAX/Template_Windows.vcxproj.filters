@@ -1111,6 +1111,9 @@
     <FxCompile Include="GGTerrain\Shaders\GGTerrainVirtualPBR_PS.hlsl">
       <Filter>GGTerrain\Shaders</Filter>
     </FxCompile>
+    <FxCompile Include="GGTerrain\Shaders\GGTerrainVirtualPBR_RequestsPS.hlsl">
+      <Filter>GGTerrain\Shaders</Filter>
+    </FxCompile>
     <FxCompile Include="GGTerrain\Shaders\GGTerrainPrepassRefVS.hlsl">
       <Filter>GGTerrain\Shaders</Filter>
     </FxCompile>

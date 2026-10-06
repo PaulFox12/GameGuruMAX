@@ -441,6 +441,10 @@ const char* GGTerrain_GetTextureSource( int slot, int kind, int* pChanged );
 // nearest first (on at first), and the last prepass's chunks drawn, those flat, and its triangles
 void GGTerrain_SetMeasure( int mode );
 void GGTerrain_SetPrepassNearFirst( int on );
+// GG: the prepass drawn depth only, the main view's colour pass writing the page requests (off at first); the seabed the
+// ocean's water fog hides shaded flat (off at first)
+void GGTerrain_SetDepthOnlyPrepass( int on );
+void GGTerrain_SetSeabedSkip( int on );
 void GGTerrain_GetDrawStats( int* pChunks, int* pFlat, int* pTriangles );
 } // namespace GGTerrain
 

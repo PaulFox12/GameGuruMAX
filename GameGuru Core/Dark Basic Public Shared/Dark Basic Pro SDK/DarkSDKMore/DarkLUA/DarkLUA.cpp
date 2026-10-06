@@ -14718,6 +14718,8 @@ namespace GGTerrain
 	void GGTerrain_SetMeasure( int mode );
 	void GGTerrain_SetPrepassNearFirst( int on );
 	void GGTerrain_GetDrawStats( int* pChunks, int* pFlat, int* pTriangles );
+	void GGTerrain_SetDepthOnlyPrepass( int on );
+	void GGTerrain_SetSeabedSkip( int on );
 }
 // SetTerrainMeasure(mode) - 0 none (at first); 1 the terrain prepass draws depth only (no page requests or velocity, so the
 // terrain's pages stop following the camera: a measuring run only); 2 both terrain passes drawn into a 1 x 1 viewport, so
@@ -14734,6 +14736,23 @@ int SetTerrainNearFirst(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
 	GGTerrain::GGTerrain_SetPrepassNearFirst((int)lua_tointeger(L, 1));
+	return 0;
+}
+// SetTerrainDepthOnlyPrepass(on) - 1: the terrain prepass draws depth only (no pixel shader) and the main view's colour pass
+// writes the virtual texture's page requests instead, the same requests from the terrain seen; 0 (at first) as before.
+// Not in VR
+int SetTerrainDepthOnlyPrepass(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	GGTerrain::GGTerrain_SetDepthOnlyPrepass((int)lua_tointeger(L, 1));
+	return 0;
+}
+// SetTerrainSeabedSkip(on) - 1: seabed the ocean's water fog leaves less than 1/20,000 of is shaded flat (no texture, light or
+// rock), as nothing of it shows; 0 (at first) as before. Only with the camera above the water
+int SetTerrainSeabedSkip(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	GGTerrain::GGTerrain_SetSeabedSkip((int)lua_tointeger(L, 1));
 	return 0;
 }
 // GetTerrainDrawStats() - the last terrain prepass: { chunks (drawn), flat (of them, heights within 0.01 units), triangles }
@@ -17930,6 +17949,8 @@ void addFunctions()
 	lua_register(lua, "SetTerrainMeasure", SetTerrainMeasure);
 	lua_register(lua, "SetTerrainNearFirst", SetTerrainNearFirst);
 	lua_register(lua, "GetTerrainDrawStats", GetTerrainDrawStats);
+	lua_register(lua, "SetTerrainDepthOnlyPrepass", SetTerrainDepthOnlyPrepass);
+	lua_register(lua, "SetTerrainSeabedSkip", SetTerrainSeabedSkip);
 	lua_register(lua, "GetGrassShade", GetGrassShade);
 	lua_register(lua, "GetTextureSource", GetTextureSource);
 	lua_register(lua, "GetEngineProbe", GetEngineProbe);

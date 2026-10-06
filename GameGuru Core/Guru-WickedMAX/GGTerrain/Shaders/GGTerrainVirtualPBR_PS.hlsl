@@ -6,9 +6,16 @@ Texture2D<float> texPageTableFinal      : register( t54 );
 
 SamplerState sampler1            : register( s1 );
 
+#ifdef GGTERRAIN_WRITE_REQUESTS
+// GG: the read-back's low resolution texture, where this pass writes the page requests the prepass made before
+// (SetTerrainDepthOnlyPrepass; GGTerrainVirtualPBR_RequestsPS)
+RWTexture2D<uint> terrainPageRequests : register( u7 );
+#endif
+
 #include "GGTerrainConstants.hlsli"
 
 #include "../GGTerrainPageSettings.h"
+#include "GGTerrainPageRequestHF.hlsli"
 
 #include "PBR/brdf.hlsli"
 #include "PBR/lightingHF.hlsli"
@@ -288,9 +295,38 @@ inline void ApplyLighting(in Surface surface, in Lighting lighting, inout float4
 static const float2 virtToPageSize = float2( pageSize / physTexSizeX, pageSize / physTexSizeY );
 static const float2 texelOffset = float2( pagePaddingLeft / physTexSizeX, pagePaddingLeft / physTexSizeY );
 
+#ifdef GGTERRAIN_WRITE_REQUESTS
+[earlydepthstencil] // GG: the depth test before the shader, so only the terrain seen writes a request
+#endif
 GBuffer main( PixelIn IN )
 {
 	GBuffer output;
+
+	// GG: seabed the ocean's water fog leaves less than 1/20,000 of (SetTerrainSeabedSkip) shaded flat, as nothing of it
+	// shows. The ocean fades what lies under it by exp(-4 x (depth under the water - fog start) / fog range), its depth
+	// under the water the view depth from where the view ray enters the water to the seabed and more; this takes that view
+	// depth from the lowest the surface goes, so never more than the ocean's, and wants 2.5 fog ranges past the start
+	if ( terrain_seabedCut.w > 0 && g_xCamera_CamPos.y > terrain_seabedCut.x && IN.worldPos.y < terrain_seabedCut.x )
+	{
+		float aboveWater = (g_xCamera_CamPos.y - terrain_seabedCut.x) / (g_xCamera_CamPos.y - IN.worldPos.y);
+		float underWater = (1 - aboveWater) * IN.position.w;
+		if ( underWater > terrain_seabedCut.y + 2.5 * terrain_seabedCut.z )
+		{
+			output.g0 = float4( 0, 0, 0, 1 );
+			output.g1 = float4( 0.5, 1, 0.5, 1 ); // RGB=normal (up), A=roughness
+			return output;
+		}
+	}
+
+#ifdef GGTERRAIN_WRITE_REQUESTS
+	// GG: the page request, at the pixels the read-back samples (every terrain_readBackReduction-th, from 1)
+	{
+		uint2 pixelPos = (uint2) IN.position.xy;
+		uint reduction = terrain_readBackReduction;
+		if ( (pixelPos.x % reduction) == 1 && (pixelPos.y % reduction) == 1 )
+			terrainPageRequests[ pixelPos / reduction ] = GGTerrainPageRequest( IN.uv, IN.worldPos.xz, (uint) IN.lodLevel, pixelPos, sampler1 );
+	}
+#endif
 	
 	// page table look up
 	int maxLevel = terrain_numLODLevels - 1; 

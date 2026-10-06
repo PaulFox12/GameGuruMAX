@@ -150,6 +150,7 @@ extern TerrainEditsBB g_EditBounds;
 extern UndoRedoMemory g_TerrainUndoMem;
 extern UndoRedoMemory g_TerrainRedoMem;
 extern bool bEnableTerrainChunkCulling;
+extern int g_iActivelyUsingVRNow;
 void GGTerrain_CreateUndoRedoAction(int type, int eList, bool bUserAction = true, void* pEventData = nullptr);
 int Get_Spray_Mode_On(void);
 void DrawDot(char* text, float x, float y, float z);
@@ -780,6 +781,17 @@ PipelineState psoMainPrepassDepthOnly; // GG: the prepass without its pixel shad
 // ground's pixels hidden behind it (the same picture). The last prepass's chunks, those flat (heights within 0.01 units)
 // and its triangles, for GetTerrainDrawStats
 int ggterrain_measure = 0;
+// GG: the prepass drawn depth only, its page requests written by the main view's colour pass instead
+// (SetTerrainDepthOnlyPrepass, off at first; not in VR, whose right eye must not ask), with the colour pass's own UAV on
+// the read-back texture; and the seabed the ocean's water fog hides shaded flat (SetTerrainSeabedSkip, off at first)
+PipelineState psoMainRequests;
+bool ggterrain_depth_only_prepass = false;
+bool ggterrain_seabed_skip = false;
+ID3D11UnorderedAccessView* ggterrain_requestsUAV = nullptr;
+static bool GGTerrain_RequestsInColourPass()
+{
+	return ggterrain_depth_only_prepass && ggterrain_requestsUAV && g_iActivelyUsingVRNow == 0;
+}
 bool ggterrain_prepass_near_first = true;
 int ggterrain_stat_chunks = 0;
 int ggterrain_stat_flat = 0;
@@ -802,6 +814,7 @@ GPUBuffer terrainConstantBuffer;
 Shader shaderMainVS;
 Shader shaderMainPS;
 Shader shaderMainVirtualPS;
+Shader shaderMainVirtualRequestsPS; // GG: the colour pass writing the page requests too (ggterrain_depth_only_prepass)
 Shader shaderMainPrepassVS;
 Shader shaderMainPrepassPS;
 Shader shaderReflectionPrepassVS;
@@ -4661,6 +4674,16 @@ void GGTerrain_SetMeasure( int mode )
 	ggterrain_measure = (mode >= 0 && mode <= 2) ? mode : 0;
 }
 
+void GGTerrain_SetDepthOnlyPrepass( int on )
+{
+	ggterrain_depth_only_prepass = on != 0;
+}
+
+void GGTerrain_SetSeabedSkip( int on )
+{
+	ggterrain_seabed_skip = on != 0;
+}
+
 void GGTerrain_SetPrepassNearFirst( int on )
 {
 	ggterrain_prepass_near_first = on != 0;
@@ -6864,6 +6887,7 @@ int GGTerrain_Init( wiGraphics::CommandList cmd )
 
 	wiRenderer::LoadShader( VS, shaderMainVS, "GGTerrainVS.cso" );
 	wiRenderer::LoadShader( PS, shaderMainVirtualPS, "GGTerrainVirtualPBR_PS.cso" );
+	wiRenderer::LoadShader( PS, shaderMainVirtualRequestsPS, "GGTerrainVirtualPBR_RequestsPS.cso" );
 
 	wiRenderer::LoadShader( VS, shaderMainPrepassVS, "GGTerrainPrepassVS.cso" );
 	wiRenderer::LoadShader( PS, shaderMainPrepassPS, "GGTerrainPrepassPS.cso" );
@@ -7380,6 +7404,9 @@ int GGTerrain_Init( wiGraphics::CommandList cmd )
 	desc.bs = &blendStateOpaque;
 	depthStateOpaque.DepthWriteMask = DEPTH_WRITE_MASK_ZERO;
 	device->CreatePipelineState( &desc, &psoMain );
+	desc.ps = &shaderMainVirtualRequestsPS;
+	device->CreatePipelineState( &desc, &psoMainRequests );
+	desc.ps = &shaderMainVirtualPS;
 
 	rastState.FillMode = FILL_WIREFRAME;
 	depthStateOpaque.DepthWriteMask = DEPTH_WRITE_MASK_ALL;
@@ -7793,6 +7820,22 @@ void GGTerrain_WindowResized()
 	uint32_t renderHeight = screenHeight / ggterrain_local_render_params2.readBackTextureReduction;
 
 	GGTerrain_CreateComputeTexture( renderWidth, renderHeight, FORMAT_R32_UINT, &texReadBackCompute );
+	// GG: the colour pass's own UAV on it, to write the page requests into (ggterrain_depth_only_prepass)
+	if ( ggterrain_requestsUAV ) { ggterrain_requestsUAV->Release(); ggterrain_requestsUAV = nullptr; }
+	{
+		ID3D11ShaderResourceView* pSRV = (ID3D11ShaderResourceView*) wiRenderer::GetDevice()->MaterialGetSRV( &texReadBackCompute );
+		ID3D11Device* pDevice = (ID3D11Device*) wiRenderer::GetDevice()->GetDeviceForIMGUI();
+		if ( pSRV && pDevice )
+		{
+			ID3D11Resource* pResource = nullptr;
+			pSRV->GetResource( &pResource );
+			if ( pResource )
+			{
+				pDevice->CreateUnorderedAccessView( pResource, nullptr, &ggterrain_requestsUAV );
+				pResource->Release();
+			}
+		}
+	}
 
 	for( uint32_t i = 0; i < NUM_READ_BACK_TEXTURES; i++ )
 	{
@@ -10432,6 +10475,17 @@ void GGTerrain_Update( float playerX, float playerY, float playerZ, wiGraphics::
 	terrainConstantData.terrain_rockScale = 1.0f / rockTileSize;
 	terrainConstantData.terrain_rockEdgeBreakup = ggterrain_local_render_params3.rockEdgeBreakup;
 	terrainConstantData.terrain_rockVariation = ggterrain_local_render_params3.rockVariation;
+	// GG: the seabed the ocean's water fog hides (SetTerrainSeabedSkip): the lowest the water's surface goes, its fog's start
+	// and range, on when asked for and the ocean is drawn with a fog range
+	{
+		const wiScene::WeatherComponent& seaWeather = wiScene::GetScene().weather;
+		const float fogRange = seaWeather.oceanParameters.fogMaxDist - seaWeather.oceanParameters.fogMinDist;
+		const bool bSeabedCut = ggterrain_seabed_skip && seaWeather.IsOceanEnabled() && fogRange > 0;
+		terrainConstantData.terrain_seabedCut.x = seaWeather.oceanParameters.waterHeight - seaWeather.oceanParameters.wave_amplitude;
+		terrainConstantData.terrain_seabedCut.y = seaWeather.oceanParameters.fogMinDist;
+		terrainConstantData.terrain_seabedCut.z = fogRange;
+		terrainConstantData.terrain_seabedCut.w = bSeabedCut ? 1.0f : 0.0f;
+	}
 
 	wiInput::MouseState mouseState = wiInput::GetMouseState();
 	ggterrain_internal_params.mouseLeftState = mouseState.left_button_press;
@@ -11106,32 +11160,10 @@ int GGTerrain_GetMaterialIndex( float x, float z )
 	return ggterrain_local_render_params.baseLayerMaterial & 0xFF;
 }
 
-extern "C" void GGTerrain_VirtualTexReadBack(Texture texReadBack, uint32_t sampleCount, wiGraphics::CommandList cmd)
+// the read-back texture copied out for the CPU, a few frames later (GGTerrain_VirtualTexReadBack, or after the colour pass
+// when it writes the requests)
+static void GGTerrain_QueueReadBack( GraphicsDevice* device, CommandList cmd )
 {
-	if (!ggterrain_update_enabled) return;
-	if (!ggterrain_initialised) return;
-	if (!ggterrain_draw_enabled) return;
-
-	GraphicsDevice* device = wiRenderer::GetDevice();
-
-	device->EventBegin("VirtTexReadBackDownSample", cmd);
-	auto range = wiProfiler::BeginRangeGPU("Terrain Read Back Downsample", cmd);
-
-	device->BindResource(CS, &texReadBack, 50, cmd);
-	device->BindUAV(CS, &texReadBackCompute, 0, cmd);
-
-	const TextureDesc& desc = texReadBackCompute.GetDesc();
-
-	if (sampleCount > 1) device->BindComputeShader(&shaderReadBackMSCS, cmd);
-	else device->BindComputeShader(&shaderReadBackCS, cmd);
-
-	device->BindConstantBuffer(CS, &terrainConstantBuffer, 2, cmd);
-
-	device->Dispatch((desc.Width + 7) / 8, (desc.Height + 7) / 8, 1, cmd);
-
-	device->UnbindResources(50, 1, cmd);
-	device->UnbindUAVs(0, 1, cmd);
-
 	#ifdef RESTOREDEC2025TERRAINSYSTEM
 	device->CopyResource(&texReadBackStaging[currReadBackTex], &texReadBackCompute, cmd);
 	readBackSeq[currReadBackTex] = readBackNextSeq++;
@@ -11162,6 +11194,45 @@ extern "C" void GGTerrain_VirtualTexReadBack(Texture texReadBack, uint32_t sampl
 
 	g_lastQueuedReadbackIndex.store(slot, std::memory_order_release);
 	#endif
+}
+
+extern "C" void GGTerrain_VirtualTexReadBack(Texture texReadBack, uint32_t sampleCount, wiGraphics::CommandList cmd)
+{
+	if (!ggterrain_update_enabled) return;
+	if (!ggterrain_initialised) return;
+	if (!ggterrain_draw_enabled) return;
+
+	// GG: with the colour pass writing the requests (a depth only prepass), the read-back texture is only cleared here,
+	// and copied out after the colour pass (GGTerrain_Draw)
+	if ( GGTerrain_RequestsInColourPass() )
+	{
+		ID3D11DeviceContext* pClearContext = (ID3D11DeviceContext*) wiRenderer::GetDevice()->GetDeviceContext( cmd );
+		const UINT zeros[ 4 ] = { 0, 0, 0, 0 };
+		if ( pClearContext ) pClearContext->ClearUnorderedAccessViewUint( ggterrain_requestsUAV, zeros );
+		return;
+	}
+
+	GraphicsDevice* device = wiRenderer::GetDevice();
+
+	device->EventBegin("VirtTexReadBackDownSample", cmd);
+	auto range = wiProfiler::BeginRangeGPU("Terrain Read Back Downsample", cmd);
+
+	device->BindResource(CS, &texReadBack, 50, cmd);
+	device->BindUAV(CS, &texReadBackCompute, 0, cmd);
+
+	const TextureDesc& desc = texReadBackCompute.GetDesc();
+
+	if (sampleCount > 1) device->BindComputeShader(&shaderReadBackMSCS, cmd);
+	else device->BindComputeShader(&shaderReadBackCS, cmd);
+
+	device->BindConstantBuffer(CS, &terrainConstantBuffer, 2, cmd);
+
+	device->Dispatch((desc.Width + 7) / 8, (desc.Height + 7) / 8, 1, cmd);
+
+	device->UnbindResources(50, 1, cmd);
+	device->UnbindUAVs(0, 1, cmd);
+
+	GGTerrain_QueueReadBack( device, cmd );
 
 	wiProfiler::EndRange(range);
 	device->EventEnd(cmd);
@@ -11211,7 +11282,7 @@ extern "C" void GGTerrain_Draw_Prepass( const Frustum* frustum, CommandList cmd 
 	GraphicsDevice* device = wiRenderer::GetDevice();
 	device->EventBegin("GGTerrain Prepass Draw", cmd);
 		
-	device->BindPipelineState( ggterrain_measure == 1 ? &psoMainPrepassDepthOnly : &psoMainPrepass, cmd );
+	device->BindPipelineState( (ggterrain_measure == 1 || GGTerrain_RequestsInColourPass()) ? &psoMainPrepassDepthOnly : &psoMainPrepass, cmd );
 
 	int bindSlot = 2;
 	device->BindConstantBuffer( VS, &terrainConstantBuffer, bindSlot, cmd );
@@ -11551,8 +11622,10 @@ extern "C" void GGTerrain_Draw( const Frustum* frustum, int mode, CommandList cm
 	GraphicsDevice* device = wiRenderer::GetDevice();
 	device->EventBegin("GGTerrain Draw", cmd);
 		
+	// GG: the main view's colour pass writes the page requests when the prepass draws depth only
+	const bool bWriteRequests = mode == 0 && !ggterrain_render_wireframe && ggterrain_update_enabled && GGTerrain_RequestsInColourPass();
 	if ( ggterrain_render_wireframe ) device->BindPipelineState( &psoMainWire, cmd );
-	else device->BindPipelineState( &psoMain, cmd );
+	else device->BindPipelineState( bWriteRequests ? &psoMainRequests : &psoMain, cmd );
 
 	int bindSlot = 2;
 	device->BindConstantBuffer( VS, &terrainConstantBuffer, bindSlot, cmd );
@@ -11599,6 +11672,12 @@ extern "C" void GGTerrain_Draw( const Frustum* frustum, int mode, CommandList cm
 		D3D11_VIEWPORT tiny = { 0, 0, 1, 1, 0, 1 };
 		pContext->RSSetViewports( 1, &tiny );
 	}
+	// GG: the read-back texture as UAV 7 (after the pass's two render targets) while the chunks draw
+	if ( bWriteRequests && pContext )
+	{
+		ID3D11UnorderedAccessView* pUAV = ggterrain_requestsUAV;
+		pContext->OMSetRenderTargetsAndUnorderedAccessViews( D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL, nullptr, nullptr, 7, 1, &pUAV, nullptr );
+	}
 
 	//PE: Chunks should do a quick bounding box occlusion check.
 	for( uint32_t lod = lowestLevel; lod < numLODLevels; lod++ )
@@ -11628,6 +11707,12 @@ extern "C" void GGTerrain_Draw( const Frustum* frustum, int mode, CommandList cm
 		}
 	}
 	if ( bTinyViewport ) pContext->RSSetViewports( numViewports, viewports );
+	if ( bWriteRequests && pContext )
+	{
+		ID3D11UnorderedAccessView* pNoUAV = nullptr;
+		pContext->OMSetRenderTargetsAndUnorderedAccessViews( D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL, nullptr, nullptr, 7, 1, &pNoUAV, nullptr );
+		GGTerrain_QueueReadBack( device, cmd );
+	}
 
 	device->EventEnd(cmd);
 

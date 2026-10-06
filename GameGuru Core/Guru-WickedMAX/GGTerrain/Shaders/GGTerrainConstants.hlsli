@@ -85,6 +85,10 @@ cbuffer TerrainCB : register( b2 )
 	float    terrain_rockVariation; // the rock texture at two sizes in patches, 0 (one size) to 1
 	float    terrain_padding4;
 	float    terrain_padding5;
+
+	// GG: the seabed the ocean's water fog hides (SetTerrainSeabedSkip): x the lowest the water's surface goes (its height
+	// less the wave amplitude), y its fog's start, z its fog's range, in units; w 1 when on
+	float4   terrain_seabedCut;
 };
 
 #endif // GGTERRAIN_CONSTANTS_FULL_DECL
