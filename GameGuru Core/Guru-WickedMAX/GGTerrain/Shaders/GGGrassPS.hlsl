@@ -201,7 +201,7 @@ GBuffer main( PixelIn IN )
 	surface.V = g_xCamera_CamPos - surface.P;
 	float sqrDist = dot( surface.V, surface.V );
 	float noise = texNoise.Sample( samplerTrilinearWrap, IN.uvNoise );
-	float limit = noise * GGGRASS_LOD_TRANSITION + grass_lodDist;
+	float limit = noise * grass_fadeBand + grass_lodDist; // GG: the band set (SetGrassFadeBand), 2500 at first
 	if( sqrDist > limit*limit ) discard;
 
 	float4 baseColor = texGrass.Sample( samplerTrilinearClamp, float3(IN.uv, grassType) );

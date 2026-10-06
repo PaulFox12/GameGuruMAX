@@ -51,7 +51,7 @@ cbuffer GrassCB : register( b2 )
 	uint grass_killbox_count;
 	float grass_shadeRoot; // a blade's light at its root and at its tip (SetGrassShade), 0.45 both as the engine has drawn it
 	float grass_shadeTip;
-	float grass_killbox_pad3;
+	float grass_fadeBand; // the dithered band past grass_lodDist where the cards thin out (SetGrassFadeBand), units
 	float4 grass_killbox_centre[ GGGRASS_MAX_KILLSHAPES ]; // xyz: world centre, w: cos of the box's yaw
 	float4 grass_killbox_half[ GGGRASS_MAX_KILLSHAPES ]; // xyz: half size along the box's own axes, w: sin of its yaw; x below 0 is a circle of radius -x
 };
@@ -93,6 +93,36 @@ cbuffer GrassCB : register( b2 )
 			if ( all( abs( local ) <= grass_killbox_half[ i ].xyz ) ) return true;
 		}
 		return false;
+	}
+#endif
+
+#ifndef __cplusplus
+	// a card vertex's world position, worked out the same way in the prepass and the colour pass to the last bit (precise),
+	// as the colour pass may draw only where the prepass's depth is equal (SetGrassEqualDepth); posOrig gets the card's size
+	// before it is turned. position: the card corner (x -0.5 to 0.5, y 0 root to 1 tip), offset: the card's root
+	float4 GrassCardWorldPos( float2 position, float3 offset, uint data, uint instanceID, out float4 posOrig )
+	{
+		uint grassType = GetGrassType( data );
+		uint index = GetGrassVariation( data );
+
+		precise float4 size = float4( position * grass_scale, 0, 0 );
+		size.x *= grass_type[ grassType ].scaleFactor;
+		size.y *= (instanceID & 0x0F) * 0.02 + 0.8;
+		posOrig = size;
+
+		float2x2 rotMat = { grass_rotMat[ index ].x, grass_rotMat[ index ].y, grass_rotMat[ index ].z, grass_rotMat[ index ].w };
+
+		precise float4 pos;
+		pos.xz = size.xz;
+		pos.x += grass_type[ index ].cosTime * position.y * 2;
+		pos.xz = mul( rotMat, pos.xz );
+		pos.y = size.y;
+		pos.w = 1;
+
+		pos.xyz += offset;
+		pos.xyz += GrassWindOffset( offset.xz, position.y, size.y );
+		if ( GrassInKillBox( offset ) ) pos.xyz = offset; // inside a kill box: the whole blade at its root, so nothing is drawn
+		return pos;
 	}
 #endif
 

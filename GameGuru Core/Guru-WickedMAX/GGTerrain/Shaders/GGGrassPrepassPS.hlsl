@@ -35,7 +35,7 @@ Output main( PixelIn IN )
 	float sqrDist = dot( view, view );
 
 	float noise = texNoise.Sample( samplerTrilinearWrap, IN.uvNoise );
-	float limit = noise * GGGRASS_LOD_TRANSITION + grass_lodDist;
+	float limit = noise * grass_fadeBand + grass_lodDist; // GG: the band set (SetGrassFadeBand), 2500 at first
 	if( sqrDist > limit*limit ) discard;
 
 	float alpha = texGrass.Sample( samplerTrilinearClamp, float3(IN.uv, grassType) ).a;

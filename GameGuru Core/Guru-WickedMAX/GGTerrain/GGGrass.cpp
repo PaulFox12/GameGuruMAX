@@ -80,14 +80,27 @@ uint16_t g_IndicesGrass[ 6 ] =
 float grassRadius = GGGRASS_INITIAL_LOD_DIST + GGGRASS_LOD_TRANSITION;
 const uint32_t numTotalGrass = 400000;
 
-const uint32_t grassSplit = 8;
-#if (grassSplit % 2) != 0
-	#error grassSplit must be even
-#endif
-
-const uint32_t numGrassChunks = grassSplit * grassSplit;
-const uint32_t numGrassPerChunk = numTotalGrass / numGrassChunks;
+// GG: the grid of chunks the cards are spread over round the camera, 8 or 16 across (GGGrass_SetGrid, taken up at the next
+// GGGrass_Update): the grid reaches a chunk past the circle drawn on each side, so a finer grid wastes fewer cards in its
+// corners and the same cards stand about 36% closer
+#define GGGRASS_MAX_SPLIT 16
+uint32_t grassSplit = 8;
+uint32_t gggrass_wantedSplit = 8;
+uint32_t numGrassChunks = grassSplit * grassSplit;
+uint32_t numGrassPerChunk = numTotalGrass / numGrassChunks;
 float grassAreaPerChunk = grassRadius * 2 / (grassSplit-2);
+
+// GG: the width of the dithered band past the draw distance where the cards thin out (GGGrass_SetFadeBand), units; the
+// cards are spread over the distance plus the band, so a narrower band packs them closer
+float gggrass_fadeBand = GGGRASS_LOD_TRANSITION;
+float gggrass_prevFadeBand = GGGRASS_LOD_TRANSITION;
+// GG: the colour pass draws only where the prepass left a card's own depth (GGGrass_SetEqualDepth), so its lit shader runs
+// once a pixel and not on the see-through part of a card in front of the ground
+bool gggrass_equalDepth = false;
+// GG: chunk bounds fitted to the cards (GGGrass_SetTightBounds) rather than padded 2000 units round and 4000 up, so chunks
+// off screen are culled
+bool gggrass_tightBounds = false;
+float gggrass_boundsWind = 0; // the foliage sway amount the tight bounds allow for (GGGrass_Update)
 
 int gggrass_defer_instance_updates = 0; // see GGGrass_DeferInstanceUpdates
 bool gggrass_instance_update_pending = false;
@@ -297,11 +310,14 @@ uint32_t GGGrass_GetBladeGrass( float x, float z, float chunkX, float chunkZ, in
 
 struct GrassChunk
 {
-	InstanceGrass pInstances[ numGrassPerChunk ];
+	InstanceGrass* pInstances = nullptr; // its share of gggrass_instancePool (GGGrass_SetLayout)
 	float minHeight = 0;
 	float maxHeight = 0;
-	GPUBuffer bufferInstances;
+	float maxRootHeight = 0;
+	GPUBuffer* pBuffer = nullptr; // kept, with room for all its cards (GGGrass_SetLayout)
 	uint32_t numValid = 0;
+	uint32_t numUploaded = 0; // the cards in its buffer, drawn
+	bool bUpload = false; // made again since its buffer was filled
 	float centerX;
 	float centerZ;
 	int x;
@@ -331,13 +347,25 @@ struct GrassChunk
 
 		float halfWidth = grassAreaPerChunk / 2;
 		float grassWidth = 50.0f * GGGRASS_SCALE;
+		float minY = minHeight;
+		float maxY = maxHeight;
+		if ( gggrass_tightBounds )
+		{
+			// GG: a card is at most 0.7 x the grass scale to its side (half its 1.4 widest width, turned) and 1.1 x high; the
+			// wind (GrassWindOffset) leans its tip up to the sway amount x its height across and drops it 0.5 x lean^2 / height
+			float scale = gggrass_global_params.grass_scale;
+			float wind = gggrass_boundsWind;
+			grassWidth = scale * (0.7f + 1.1f * wind) + 10.0f;
+			minY = minHeight - 0.55f * wind * wind * scale - 10.0f;
+			maxY = maxRootHeight + 1.1f * scale + 10.0f;
+		}
 
 		aabb->_min.x = centerX - halfWidth - grassWidth;
-		aabb->_min.y = minHeight;
+		aabb->_min.y = minY;
 		aabb->_min.z = centerZ - halfWidth - grassWidth;
 
 		aabb->_max.x = centerX + halfWidth + grassWidth;
-		aabb->_max.y = maxHeight;
+		aabb->_max.y = maxY;
 		aabb->_max.z = centerZ + halfWidth + grassWidth;
 	}
 
@@ -348,10 +376,11 @@ struct GrassChunk
 
 		minHeight = 1e9f;
 		maxHeight = -1e9f;
+		maxRootHeight = -1e9f;
 		numValid = 0;
 		randSeed = randSeedOrig;
 		int iNumClearAreas = -2; // the flat areas near this chunk, gathered at its first edge cell (GGGrass_GetBladeGrass)
-		for( int i = 0; i < numGrassPerChunk; i++ )
+		for( int i = 0; i < (int)numGrassPerChunk; i++ )
 		{
 			InstanceGrass* pInstance = &pInstances[ i ];
 			
@@ -424,6 +453,7 @@ struct GrassChunk
 			if ( pInstance->IsVisible() ) 
 			{
 				if ( pInstance->y < minHeight ) minHeight = pInstance->y;
+				if ( pInstance->y > maxRootHeight ) maxRootHeight = pInstance->y;
 				float grassHeight = 100 * GGGRASS_SCALE;
 				if ( pInstance->y + grassHeight > maxHeight ) maxHeight = pInstance->y + grassHeight;
 
@@ -438,17 +468,9 @@ struct GrassChunk
 			}
 		}
 
-		if ( numValid > 0 )
-		{
-			GPUBufferDesc bufferDesc = {};
-			SubresourceData data = {};
-			data.pSysMem = pInstances;
-			bufferDesc.ByteWidth = sizeof(InstanceGrass) * numValid;
-			bufferDesc.BindFlags = BIND_VERTEX_BUFFER;
-			bufferDesc.CPUAccessFlags = 0;
-			bufferDesc.MiscFlags = 0;
-			wiRenderer::GetDevice()->CreateBuffer( &bufferDesc, &data, &bufferInstances );
-		}
+		// GG: the cards go into the chunk's kept buffer at the next GGGrass_Update (a buffer made here each time cost a
+		// buffer creation for every chunk made again as the grid followed the camera)
+		bUpload = true;
 
 		return 1;
 	}
@@ -469,8 +491,43 @@ struct GrassChunk
 	}
 };
 
-GrassChunk pGrassChunks[ numGrassChunks ];
-uint8_t pGrassGrid[ numGrassChunks ];
+GrassChunk pGrassChunks[ GGGRASS_MAX_SPLIT * GGGRASS_MAX_SPLIT ];
+uint8_t pGrassGrid[ GGGRASS_MAX_SPLIT * GGGRASS_MAX_SPLIT ];
+InstanceGrass gggrass_instancePool[ numTotalGrass ];
+// GG: the chunks' buffers for each grid size, [0] 8 x 8, [1] 16 x 16, made the first time that size is used (6.4 MB each)
+GPUBuffer gggrass_chunkBuffers[ 2 ][ GGGRASS_MAX_SPLIT * GGGRASS_MAX_SPLIT ];
+bool gggrass_chunkBuffersMade[ 2 ] = { false, false };
+
+// GG: the grid of the given size (8 or 16 across) taken up: each chunk's share of the cards and its kept buffer, made the
+// first time that size is used; the caller places the chunks, which makes them again
+static void GGGrass_SetLayout( uint32_t split )
+{
+	grassSplit = split == 16 ? 16 : 8;
+	numGrassChunks = grassSplit * grassSplit;
+	numGrassPerChunk = numTotalGrass / numGrassChunks;
+	grassAreaPerChunk = grassRadius * 2 / (grassSplit-2);
+	const int layout = grassSplit == 16 ? 1 : 0;
+	if ( !gggrass_chunkBuffersMade[ layout ] )
+	{
+		GPUBufferDesc bufferDesc = {};
+		bufferDesc.Usage = USAGE_DEFAULT;
+		bufferDesc.ByteWidth = sizeof(InstanceGrass) * numGrassPerChunk;
+		bufferDesc.BindFlags = BIND_VERTEX_BUFFER;
+		bufferDesc.CPUAccessFlags = 0;
+		bufferDesc.MiscFlags = 0;
+		for( uint32_t i = 0; i < numGrassChunks; i++ ) wiRenderer::GetDevice()->CreateBuffer( &bufferDesc, nullptr, &gggrass_chunkBuffers[ layout ][ i ] );
+		gggrass_chunkBuffersMade[ layout ] = true;
+	}
+	for( uint32_t i = 0; i < numGrassChunks; i++ )
+	{
+		pGrassChunks[ i ].pInstances = &gggrass_instancePool[ i * numGrassPerChunk ];
+		pGrassChunks[ i ].pBuffer = &gggrass_chunkBuffers[ layout ][ i ];
+		pGrassChunks[ i ].numValid = 0;
+		pGrassChunks[ i ].numUploaded = 0;
+		pGrassChunks[ i ].bUpload = false;
+	}
+	gggrass_wantedSplit = grassSplit;
+}
 uint8_t* pGrassMap = 0;
 uint32_t* pGrassEdgeMap = 0; // one bit per grass-map cell that a flat area only partly covers, see GGGrass_GetBladeGrass
 Texture texGrassMap;
@@ -484,6 +541,7 @@ GPUBuffer bufferGrassIndices;
 Shader shaderGrassVS;
 Shader shaderGrassPS;
 PipelineState psoGrass;
+PipelineState psoGrassEqual; // GG: the colour pass testing for the prepass's depth exactly (gggrass_equalDepth)
 
 Shader shaderGrassPrepassVS;
 Shader shaderGrassPrepassPS;
@@ -865,6 +923,7 @@ void GGGrass_Init()
 	memset( pGrassEdgeMap, 0, (GGGRASS_MAP_SIZE * GGGRASS_MAP_SIZE) / 8 );
 
 	//GGGrass_CreateEmptyTexture( 4096, 4096, 1, 1, FORMAT_R8_UNORM, &texGrassMap );
+	GGGrass_SetLayout( grassSplit );
 	
 	for( uint32_t i = 0; i < numGrassChunks; i++ )
 	{
@@ -930,6 +989,9 @@ void GGGrass_Init()
 	desc.bs = &blendStateOpaque;
 	depthStateOpaque.DepthWriteMask = DEPTH_WRITE_MASK_ZERO;
 	device->CreatePipelineState( &desc, &psoGrass );
+	depthStateOpaque.DepthFunc = COMPARISON_EQUAL;
+	device->CreatePipelineState( &desc, &psoGrassEqual );
+	depthStateOpaque.DepthFunc = COMPARISON_GREATER_EQUAL;
 
 	// prepass pipeline state
 	desc.vs = &shaderGrassPrepassVS;
@@ -1533,6 +1595,37 @@ void GGGrass_GetShade( float* pRoot, float* pTip )
 
 // replaces the engine's kill circles, count of them as x, y, z, radius; a blade whose root is within the radius on x and z
 // and within the radius above or below is not drawn. Count 0 clears them
+// GG: the grass's tuning, each taken up at the next GGGrass_Update: the fade band past the draw distance (0 to 5000 units,
+// 2500 as the engine has drawn it), the colour pass's exact depth test, the chunk bounds fitted to the cards, the grid
+// size (8 or 16 across); a band or grid change makes every chunk again
+void GGGrass_SetFadeBand( float band )
+{
+	gggrass_fadeBand = band < 0 ? 0 : (band > 5000 ? 5000 : band);
+}
+
+void GGGrass_SetEqualDepth( int on )
+{
+	gggrass_equalDepth = on != 0;
+}
+
+void GGGrass_SetTightBounds( int on )
+{
+	gggrass_tightBounds = on != 0;
+}
+
+void GGGrass_SetGrid( int split )
+{
+	gggrass_wantedSplit = split >= 16 ? 16 : 8;
+}
+
+void GGGrass_GetTuning( float* pBand, int* pEqual, int* pTight, int* pGrid )
+{
+	if ( pBand ) *pBand = gggrass_fadeBand;
+	if ( pEqual ) *pEqual = gggrass_equalDepth ? 1 : 0;
+	if ( pTight ) *pTight = gggrass_tightBounds ? 1 : 0;
+	if ( pGrid ) *pGrid = (int)gggrass_wantedSplit;
+}
+
 void GGGrass_SetKillCircles( const float* pCircles, int count )
 {
 	gggrass_killcircles.resize( count > 0 ? count : 0 );
@@ -1839,11 +1932,13 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 	grassCameraY = camera->Eye.y;
 	grassCameraZ = camera->Eye.z;
 
-	if ( gggrass_global_params.lod_dist != gggrass_internal_params.prevLodDist )
+	if ( gggrass_global_params.lod_dist != gggrass_internal_params.prevLodDist || gggrass_fadeBand != gggrass_prevFadeBand || gggrass_wantedSplit != grassSplit )
 	{
 		gggrass_internal_params.prevLodDist = gggrass_global_params.lod_dist;
+		gggrass_prevFadeBand = gggrass_fadeBand;
 
-		grassRadius = gggrass_global_params.lod_dist + (float) GGGRASS_LOD_TRANSITION;
+		grassRadius = gggrass_global_params.lod_dist + gggrass_fadeBand;
+		if ( gggrass_wantedSplit != grassSplit ) GGGrass_SetLayout( gggrass_wantedSplit );
 		grassAreaPerChunk = grassRadius * 2 / (grassSplit-2);
 
 		for( uint32_t i = 0; i < numGrassChunks; i++ )
@@ -1910,7 +2005,7 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 			}
 		}
 
-		uint8_t newGrid[ numGrassChunks ];
+		uint8_t newGrid[ GGGRASS_MAX_SPLIT * GGGRASS_MAX_SPLIT ];
 
 		// assign new chunks
 		int halfGrid = grassSplit / 2;
@@ -1938,7 +2033,7 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 			}
 		}
 
-		memcpy( pGrassGrid, newGrid, sizeof(pGrassGrid) );
+		memcpy( pGrassGrid, newGrid, numGrassChunks );
 	}
 	
 	if ( ggterrain_extra_params.iUpdateGrass > 0 )
@@ -1949,6 +2044,16 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 			// something changed so adjust grass heights
 			if ( !GGGrass_UpdateInstances() ) ggterrain_extra_params.iUpdateGrass = 5;
 		}
+	}
+
+	// GG: the cards of the chunks made again since the last frame, into their kept buffers
+	for( uint32_t i = 0; i < numGrassChunks; i++ )
+	{
+		GrassChunk& chunk = pGrassChunks[ i ];
+		if ( !chunk.bUpload ) continue;
+		chunk.bUpload = false;
+		if ( chunk.numValid > 0 ) wiRenderer::GetDevice()->UpdateBuffer( chunk.pBuffer, chunk.pInstances, cmd, (int)(sizeof(InstanceGrass) * chunk.numValid) );
+		chunk.numUploaded = chunk.numValid;
 	}
 
 	// update shader constants buffer
@@ -1980,6 +2085,7 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 	else { fWindX = 0.7071f; fWindZ = 0.7071f; }
 	float fSwaySpeed = weather.tree_wind_speed > 0 ? weather.tree_wind_speed : weather.tree_wind * 6.0f;
 	grassConstantData.grass_wind = XMFLOAT4( fWindX, fWindZ, weather.tree_wind, fSwaySpeed );
+	gggrass_boundsWind = weather.tree_wind > 0 ? weather.tree_wind : 0;
 	grassConstantData.grass_windTime = time;
 
 	// the active kill boxes, packed to the front; each yaw goes as its cos and sin
@@ -2024,6 +2130,7 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 	}
 
 	grassConstantData.grass_lodDist = gggrass_global_params.lod_dist;
+	grassConstantData.grass_fadeBand = gggrass_fadeBand;
 	grassConstantData.grass_shadeRoot = gggrass_shadeRoot;
 	grassConstantData.grass_shadeTip = gggrass_shadeTip;
 	grassConstantData.grass_scale = gggrass_global_params.grass_scale;
@@ -2084,7 +2191,7 @@ extern "C" void GGGrass_Draw_Prepass( const Frustum* frustum, int mode, CommandL
 	for( uint32_t i = 0; i < numGrassChunks; i++ )
 	{
 		GrassChunk* pChunk = &pGrassChunks[ i ];
-		if ( pChunk->numValid == 0 ) continue;
+		if ( pChunk->numUploaded == 0 ) continue;
 
 		AABB aabb;
 		pChunk->GetBounds( &aabb );
@@ -2099,11 +2206,11 @@ extern "C" void GGGrass_Draw_Prepass( const Frustum* frustum, int mode, CommandL
 
 		if ( !frustum->CheckBoxFast( aabb ) ) continue;
 
-		const GPUBuffer* vbs[] = { &pChunk->bufferInstances };
+		const GPUBuffer* vbs[] = { pChunk->pBuffer };
 		const uint32_t strides[] = { sizeof(InstanceGrass) };
 		device->BindVertexBuffers( vbs, 1, 1, strides, 0, cmd );
 		device->BindIndexBuffer( &bufferGrassIndices, INDEXFORMAT_16BIT, 0, cmd );
-		device->DrawIndexedInstanced( 6, pChunk->numValid, 0, 0, 0, cmd );
+		device->DrawIndexedInstanced( 6, pChunk->numUploaded, 0, 0, 0, cmd );
 	}
 	
 	wiProfiler::EndRange( range );
@@ -2172,7 +2279,7 @@ extern "C" void GGGrass_Draw( const Frustum* frustum, int mode, CommandList cmd 
 	if ( mode == 0 ) range = wiProfiler::BeginRangeGPU("Opaque - Grass Low", cmd);
 	else return; //range = wiProfiler::BeginRangeGPU("Planar Reflections - Grass", cmd);
 		
-	device->BindPipelineState( &psoGrass, cmd );
+	device->BindPipelineState( gggrass_equalDepth ? &psoGrassEqual : &psoGrass, cmd );
 
 	uint32_t bindSlot = 2;
 	device->BindConstantBuffer( VS, &grassConstantBuffer, bindSlot, cmd );
@@ -2196,7 +2303,7 @@ extern "C" void GGGrass_Draw( const Frustum* frustum, int mode, CommandList cmd 
 	for( uint32_t i = 0; i < numGrassChunks; i++ )
 	{
 		GrassChunk* pChunk = &pGrassChunks[ i ];
-		if ( pChunk->numValid == 0 ) continue;
+		if ( pChunk->numUploaded == 0 ) continue;
 
 		AABB aabb;
 		pChunk->GetBounds( &aabb );
@@ -2211,11 +2318,11 @@ extern "C" void GGGrass_Draw( const Frustum* frustum, int mode, CommandList cmd 
 
 		if ( !frustum->CheckBoxFast( aabb ) ) continue;
 
-		const GPUBuffer* vbs[] = { &pChunk->bufferInstances };
+		const GPUBuffer* vbs[] = { pChunk->pBuffer };
 		const uint32_t strides[] = { sizeof(InstanceGrass) };
 		device->BindVertexBuffers( vbs, 1, 1, strides, 0, cmd );
 		device->BindIndexBuffer( &bufferGrassIndices, INDEXFORMAT_16BIT, 0, cmd );
-		device->DrawIndexedInstanced( 6, pChunk->numValid, 0, 0, 0, cmd );
+		device->DrawIndexedInstanced( 6, pChunk->numUploaded, 0, 0, 0, cmd );
 	}
 	
 	if (mode == 0) wiProfiler::EndRange( range );
