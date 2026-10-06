@@ -302,6 +302,19 @@ GBuffer main( PixelIn IN )
 {
 	GBuffer output;
 
+#ifdef GGTERRAIN_WRITE_REQUESTS
+	// GG: the page request, worked out at every pixel and first of all, as its level of detail takes the uv's change to the
+	// pixel's neighbours, which a branch or return some of them skip leaves undefined (worked out only at the pixels
+	// written, the far ground asked for its finest pages and got none); written at the pixels the read-back samples (every
+	// terrain_readBackReduction-th, from 1)
+	{
+		uint2 pixelPos = (uint2) IN.position.xy;
+		uint request = GGTerrainPageRequest( IN.uv, IN.worldPos.xz, (uint) IN.lodLevel, pixelPos, sampler1 );
+		uint reduction = terrain_readBackReduction;
+		if ( (pixelPos.x % reduction) == 1 && (pixelPos.y % reduction) == 1 ) terrainPageRequests[ pixelPos / reduction ] = request;
+	}
+#endif
+
 	// GG: seabed the ocean's water fog leaves less than 1/20,000 of (SetTerrainSeabedSkip) shaded flat, as nothing of it
 	// shows. The ocean fades what lies under it by exp(-4 x (depth under the water - fog start) / fog range), its depth
 	// under the water the view depth from where the view ray enters the water to the seabed and more; this takes that view
@@ -318,15 +331,6 @@ GBuffer main( PixelIn IN )
 		}
 	}
 
-#ifdef GGTERRAIN_WRITE_REQUESTS
-	// GG: the page request, at the pixels the read-back samples (every terrain_readBackReduction-th, from 1)
-	{
-		uint2 pixelPos = (uint2) IN.position.xy;
-		uint reduction = terrain_readBackReduction;
-		if ( (pixelPos.x % reduction) == 1 && (pixelPos.y % reduction) == 1 )
-			terrainPageRequests[ pixelPos / reduction ] = GGTerrainPageRequest( IN.uv, IN.worldPos.xz, (uint) IN.lodLevel, pixelPos, sampler1 );
-	}
-#endif
 	
 	// page table look up
 	int maxLevel = terrain_numLODLevels - 1; 
