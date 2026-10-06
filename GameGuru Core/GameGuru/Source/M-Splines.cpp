@@ -2340,6 +2340,76 @@ static void spline_markings( int si, sSplineMarkings& marks )
 		return bLine;
 	};
 
+	// each piece's stretch drawn (0 to 1 along it), by line. Where the road bends tighter than a line's offset towards its
+	// side, the line runs backwards there and its two sides cross; the loop beyond the crossing is left out (the nearest
+	// crossing within 100 m either side of the bend), so the line turns a corner as the carriageway's inside edge does,
+	// or without a crossing (a road ending in the bend) just the backward stretch
+	std::vector<float> keepFrom( (size_t)slots * n, 0.0f ), keepTo( (size_t)slots * n, 1.0f );
+	{
+		std::vector<float> ax( n ), az( n ), bx( n ), bz( n ), off( n, 0.0f );
+		std::vector<char> fold( n, 0 );
+		auto crossing = [&]( int j, int k, float& u, float& v )
+		{
+			const float rx = bx[j] - ax[j], rz = bz[j] - az[j];
+			const float sx = bx[k] - ax[k], sz = bz[k] - az[k];
+			const float den = rx * sz - rz * sx;
+			if ( fabsf( den ) < 0.000001f ) return false;
+			const float qx = ax[k] - ax[j], qz = az[k] - az[j];
+			u = (qx * sz - qz * sx) / den;
+			v = (qx * rz - qz * rx) / den;
+			return u >= 0 && u <= 1 && v >= 0 && v <= 1;
+		};
+		for ( int slot = 0; slot < slots; slot++ )
+		{
+			for ( int i = 0; i < n - 1; i++ )
+			{
+				float width, dash, gap;
+				const float* colour;
+				lineAt( i, slot, off[i], width, dash, gap, colour );
+				ax[i] = c[i].x + nx[i] * off[i]; az[i] = c[i].z + nz[i] * off[i];
+				bx[i] = c[i+1].x + nx[i+1] * off[i]; bz[i] = c[i+1].z + nz[i+1] * off[i];
+			}
+			for ( int i = 1; i < n - 1; i++ )
+			{
+				float turn = atan2f( c[i+1].z - c[i].z, c[i+1].x - c[i].x ) - atan2f( c[i].z - c[i-1].z, c[i].x - c[i-1].x );
+				if ( turn > 3.14159265f ) turn -= 6.2831853f;
+				if ( turn < -3.14159265f ) turn += 6.2831853f;
+				fold[i] = off[i] * turn > (c[i+1].s - c[i-1].s) * 0.5f;
+			}
+			float* from = &keepFrom[ (size_t)slot * n ];
+			float* to = &keepTo[ (size_t)slot * n ];
+			for ( int b0 = 1; b0 < n - 1; b0++ )
+			{
+				if ( !fold[ b0 ] ) continue;
+				int b1 = b0;
+				while ( b1 + 1 < n - 1 && fold[ b1 + 1 ] ) b1++;
+				int jCut = -1, kCut = -1;
+				float uCut = 0, vCut = 0;
+				for ( int j = b0 - 1; j >= 0 && c[ b0 ].s - c[ j ].s < 3937.0f && jCut < 0; j-- )
+				{
+					for ( int k = std::max( b1, j + 2 ); k < n - 1 && c[ k + 1 ].s - c[ b1 ].s < 3937.0f; k++ )
+					{
+						float u, v;
+						if ( !crossing( j, k, u, v ) ) continue;
+						jCut = j; kCut = k; uCut = u; vCut = v;
+						break;
+					}
+				}
+				if ( jCut >= 0 )
+				{
+					to[ jCut ] = std::min( to[ jCut ], uCut );
+					for ( int i = jCut + 1; i < kCut; i++ ) { from[ i ] = 1.0f; to[ i ] = 0.0f; }
+					from[ kCut ] = std::max( from[ kCut ], vCut );
+				}
+				else
+				{
+					for ( int i = b0; i < b1; i++ ) { from[ i ] = 1.0f; to[ i ] = 0.0f; }
+				}
+				b0 = b1;
+			}
+		}
+	}
+
 	// each line's length, then its dash pattern's start: in step with a road earlier in the list joined to this one end to
 	// end (the same dash and gap), running the same way (its end on this one's start, or this one's end on its start) or
 	// meeting it head on (a dash pattern is the same both ways about the middle of a dash: dash - q continues q backwards)
@@ -2353,7 +2423,8 @@ static void spline_markings( int si, sSplineMarkings& marks )
 			lineAt( i, slot, offset, width, dash, gap, colour );
 			const float ax = c[i].x + nx[i] * offset, az = c[i].z + nz[i] * offset;
 			const float bx = c[i+1].x + nx[i+1] * offset, bz = c[i+1].z + nz[i+1] * offset;
-			lineLength[ slot ] += sqrtf( (bx - ax) * (bx - ax) + (bz - az) * (bz - az) );
+			const float kept = keepTo[ (size_t)slot * n + i ] - keepFrom[ (size_t)slot * n + i ];
+			lineLength[ slot ] += sqrtf( (bx - ax) * (bx - ax) + (bz - az) * (bz - az) ) * std::max( 0.0f, kept );
 		}
 	}
 	if ( !s.closed && period > 0 )
@@ -2414,7 +2485,8 @@ static void spline_markings( int si, sSplineMarkings& marks )
 			const float ax = c[i].x + nx[i] * offset, az = c[i].z + nz[i] * offset;
 			const float bx = c[i+1].x + nx[i+1] * offset, bz = c[i+1].z + nz[i+1] * offset;
 			const float length = sqrtf( (bx - ax) * (bx - ax) + (bz - az) * (bz - az) );
-			if ( bLine )
+			const float k0 = keepFrom[ (size_t)slot * n + i ], k1 = keepTo[ (size_t)slot * n + i ];
+			if ( bLine && k1 > k0 )
 			{
 				// a point's place: 2 on an earlier road (no line), 1 on another road with At Junctions set, 0 neither. A
 				// piece whose ends differ crosses a road's edge: cut into eighths, each by its own middle, so the line
@@ -2425,10 +2497,10 @@ static void spline_markings( int si, sSplineMarkings& marks )
 					if ( !others.empty() && spline_oncarriageway( others, x, z, 20.0f ) ) return 1;
 					return 0;
 				};
-				const int parts = place( ax, az ) == place( bx, bz ) ? 1 : 8;
+				const int parts = place( ax + (bx - ax) * k0, az + (bz - az) * k0 ) == place( ax + (bx - ax) * k1, az + (bz - az) * k1 ) ? 1 : 8;
 				for ( int part = 0; part < parts; part++ )
 				{
-					const float t0 = (float)part / parts, t1 = (float)(part + 1) / parts;
+					const float t0 = k0 + (k1 - k0) * part / parts, t1 = k0 + (k1 - k0) * (part + 1) / parts;
 					const float px0 = ax + (bx - ax) * t0, pz0 = az + (bz - az) * t0;
 					const float px1 = ax + (bx - ax) * t1, pz1 = az + (bz - az) * t1;
 					const int at = place( (px0 + px1) * 0.5f, (pz0 + pz1) * 0.5f );
@@ -2446,7 +2518,7 @@ static void spline_markings( int si, sSplineMarkings& marks )
 					piece.halfWidth = width * 0.5f;
 					piece.dash = partDash;
 					piece.gap = partGap;
-					piece.phase = phase[ slot ] + length * t0;
+					piece.phase = phase[ slot ] + length * (t0 - k0);
 					piece.r = colour[0]; piece.g = colour[1]; piece.b = colour[2];
 					piece.wear = r.markWear;
 					out.push_back( piece );
@@ -2456,7 +2528,7 @@ static void spline_markings( int si, sSplineMarkings& marks )
 					pBounds[3] = std::max( pBounds[3], std::max( pz0, pz1 ) + width );
 				}
 			}
-			phase[ slot ] += length;
+			phase[ slot ] += length * std::max( 0.0f, k1 - k0 );
 		}
 	}
 }
