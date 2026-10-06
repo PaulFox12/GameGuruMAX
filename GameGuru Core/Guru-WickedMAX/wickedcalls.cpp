@@ -8673,7 +8673,7 @@ bool WickedCall_GetFrameCosts(WickedCallFrameCosts* pCosts)
 // waited for), else that frame is left out. No locks: a span takes its place in the slot with an atomic count, and is
 // begun and ended by whichever thread records its list; the slots are read on the main thread at the submit
 #define WICKEDCALL_GPU_SLOTS 8
-#define WICKEDCALL_GPU_SPANS 64
+#define WICKEDCALL_GPU_SPANS 96
 struct WickedCallGpuSpan
 {
 	char pName[48] = "";
