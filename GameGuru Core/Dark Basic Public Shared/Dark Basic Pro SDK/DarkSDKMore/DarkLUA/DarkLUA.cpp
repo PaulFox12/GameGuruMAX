@@ -8102,6 +8102,50 @@ int GetFrameCosts(lua_State* L)
 	return 1;
 }
 
+// SetGpuTiming(on): the game's own GPU timing (WickedCall_SetGpuTiming) on (1) or off (0, as at the start), from the next
+// frame; returns whether it was on
+int SetGpuTiming(lua_State* L)
+{
+	const bool bWasOn = WickedCall_GetGpuTiming();
+	if (LUA_GETTOP(L) >= 1) WickedCall_SetGpuTiming(lua_tointeger(L, 1) != 0);
+	lua_pushinteger(L, bWasOn ? 1 : 0);
+	return 1;
+}
+
+// GetGpuFrameCosts(): the frames read back since the last call, nil if none (timing off, or none yet): frames, missed (left
+// out: not finished eight frames later, or across a GPU clock change), gpu (ms summed, each frame's first command list's
+// start to its last one's end) and gpumax (the most in one frame); lists = { name = ms } each command list's GPU time
+// summed, parts = { name = ms } each named span's (they nest: Ocean and "Transparent - Particles" are inside Transparent)
+int GetGpuFrameCosts(lua_State* L)
+{
+	WickedCallGpuCosts costs;
+	if (!WickedCall_GetGpuFrameCosts(&costs))
+	{
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_createtable(L, 0, 6);
+	lua_pushinteger(L, costs.iFrames); lua_setfield(L, -2, "frames");
+	lua_pushinteger(L, costs.iMissed); lua_setfield(L, -2, "missed");
+	lua_pushnumber(L, costs.dGpu); lua_setfield(L, -2, "gpu");
+	lua_pushnumber(L, costs.dGpuMax); lua_setfield(L, -2, "gpumax");
+	lua_createtable(L, 0, (int)costs.lists.size());
+	for (const auto& list : costs.lists)
+	{
+		lua_pushnumber(L, list.second);
+		lua_setfield(L, -2, list.first.c_str());
+	}
+	lua_setfield(L, -2, "lists");
+	lua_createtable(L, 0, (int)costs.parts.size());
+	for (const auto& part : costs.parts)
+	{
+		lua_pushnumber(L, part.second);
+		lua_setfield(L, -2, part.first.c_str());
+	}
+	lua_setfield(L, -2, "parts");
+	return 1;
+}
+
 int GetPhysicsStatsTop(lua_State* L)
 {
 	int iMax = 5;
@@ -16871,6 +16915,8 @@ void addFunctions()
 	lua_register(lua, "GetPhysicsStatsTop", GetPhysicsStatsTop);
 	lua_register(lua, "GetLuaEntityCosts", GetLuaEntityCosts);
 	lua_register(lua, "GetFrameCosts", GetFrameCosts);
+	lua_register(lua, "SetGpuTiming", SetGpuTiming);
+	lua_register(lua, "GetGpuFrameCosts", GetGpuFrameCosts);
 	lua_register(lua, "GetPhysicsBodyPose", GetPhysicsBodyPose);
 	lua_register(lua, "SetObjectDamping",        SetObjectDamping );
 	lua_register(lua, "SetHingeLimits",          SetHingeLimits );

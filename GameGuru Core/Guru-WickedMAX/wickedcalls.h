@@ -339,6 +339,20 @@ struct WickedCallFrameCosts
 	std::vector<std::pair<std::string, double>> steps;
 };
 bool WickedCall_GetFrameCosts(WickedCallFrameCosts* pCosts);
+// the game's own GPU timing (main thread), off until WickedCall_SetGpuTiming switches it on: the frames read back since
+// the last call, false if none: the GPU's time a frame (its first command list's start to its last one's end) summed
+// and the most in one frame, each command list's time and each named span's (RenderPath3D, master.cpp) summed by name,
+// and the frames left out (not finished eight frames later, or across a change of the GPU's clock)
+struct WickedCallGpuCosts
+{
+	int iFrames = 0;
+	int iMissed = 0;
+	double dGpu = 0, dGpuMax = 0;
+	std::vector<std::pair<std::string, double>> lists, parts;
+};
+void WickedCall_SetGpuTiming(bool bOn);
+bool WickedCall_GetGpuTiming(void);
+bool WickedCall_GetGpuFrameCosts(WickedCallGpuCosts* pCosts);
 extern DWORD g_dwWickedCallProbeExtraThread;
 struct WickedCallProbeScope
 {

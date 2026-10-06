@@ -8667,6 +8667,222 @@ bool WickedCall_GetFrameCosts(WickedCallFrameCosts* pCosts)
 	return true;
 }
 
+// the game's own GPU timing, off until switched on: a timestamp at each command list's start and end and round the
+// named spans in them (the hooks in wiGraphicsDevice_DX11.cpp), in one of eight frame slots, each with a disjoint query
+// for the GPU's clock. A slot is read eight frames later if the GPU has finished it (GetData without a flush, never
+// waited for), else that frame is left out. No locks: a span takes its place in the slot with an atomic count, and is
+// begun and ended by whichever thread records its list; the slots are read on the main thread at the submit
+#define WICKEDCALL_GPU_SLOTS 8
+#define WICKEDCALL_GPU_SPANS 64
+struct WickedCallGpuSpan
+{
+	char pName[48] = "";
+	bool bList = false;
+	bool bEnded = false;
+};
+struct WickedCallGpuSlot
+{
+	ID3D11Query* pDisjoint = nullptr;
+	ID3D11Query* pStamps[WICKEDCALL_GPU_SPANS * 2] = {};
+	WickedCallGpuSpan spans[WICKEDCALL_GPU_SPANS];
+	std::atomic<uint32_t> count{ 0 };
+	bool bPending = false;
+};
+static WickedCallGpuSlot g_WickedCallGpuSlots[WICKEDCALL_GPU_SLOTS];
+static uint32_t g_iWickedCallGpuSlot = 0;
+static bool g_bWickedCallGpuWanted = false, g_bWickedCallGpuOn = false;
+static int g_iWickedCallGpuMade = 0; // 1 the queries made, -1 they couldn't be
+static int g_iWickedCallGpuList[wiGraphics::COMMANDLIST_COUNT];
+struct WickedCallGpuSum
+{
+	std::string name;
+	bool bList = false;
+	double dMilliseconds = 0;
+};
+static std::unordered_map<uint64_t, WickedCallGpuSum> g_WickedCallGpuSums;
+static WickedCallGpuCosts g_WickedCallGpuCosts;
+
+static int WickedCall_GpuRangeBegin(uint8_t cmd, const char* pName)
+{
+	if (!g_bWickedCallGpuOn) return -1;
+	WickedCallGpuSlot& slot = g_WickedCallGpuSlots[g_iWickedCallGpuSlot];
+	const uint32_t span = slot.count.fetch_add(1);
+	if (span >= WICKEDCALL_GPU_SPANS) return -1;
+	strncpy_s(slot.spans[span].pName, pName ? pName : "", _TRUNCATE);
+	slot.spans[span].bList = false;
+	slot.spans[span].bEnded = false;
+	ID3D11DeviceContext* pContext = (ID3D11DeviceContext*)wiRenderer::GetDevice()->GetDeviceContext(cmd);
+	if (!pContext) return -1;
+	pContext->End(slot.pStamps[span * 2]);
+	return (int)span;
+}
+
+static void WickedCall_GpuRangeEnd(uint8_t cmd, int iRange)
+{
+	if (!g_bWickedCallGpuOn || iRange < 0 || iRange >= WICKEDCALL_GPU_SPANS) return;
+	WickedCallGpuSlot& slot = g_WickedCallGpuSlots[g_iWickedCallGpuSlot];
+	ID3D11DeviceContext* pContext = (ID3D11DeviceContext*)wiRenderer::GetDevice()->GetDeviceContext(cmd);
+	if (!pContext) return;
+	pContext->End(slot.pStamps[iRange * 2 + 1]);
+	slot.spans[iRange].bEnded = true;
+}
+
+static void WickedCall_GpuListBegin(uint8_t cmd, const char* pTag)
+{
+	if (cmd >= wiGraphics::COMMANDLIST_COUNT) return;
+	const int iSpan = WickedCall_GpuRangeBegin(cmd, (pTag && pTag[0]) ? pTag : "(unnamed list)");
+	g_iWickedCallGpuList[cmd] = iSpan;
+	if (iSpan >= 0) g_WickedCallGpuSlots[g_iWickedCallGpuSlot].spans[iSpan].bList = true;
+}
+
+static void WickedCall_GpuListFinish(uint8_t cmd)
+{
+	if (cmd >= wiGraphics::COMMANDLIST_COUNT) return;
+	WickedCall_GpuRangeEnd(cmd, g_iWickedCallGpuList[cmd]);
+	g_iWickedCallGpuList[cmd] = -1;
+}
+
+// a finished slot's times added to the sums, or the frame counted as missed
+static void WickedCall_GpuRead(ID3D11DeviceContext* pImmediate, WickedCallGpuSlot& slot)
+{
+	WickedCallGpuCosts& costs = g_WickedCallGpuCosts;
+	D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint = {};
+	if (pImmediate->GetData(slot.pDisjoint, &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK || disjoint.Disjoint || disjoint.Frequency == 0)
+	{
+		costs.iMissed++;
+		return;
+	}
+	const uint32_t count = std::min(slot.count.load(), (uint32_t)WICKEDCALL_GPU_SPANS);
+	double milliseconds[WICKEDCALL_GPU_SPANS];
+	UINT64 first = UINT64_MAX, last = 0;
+	for (uint32_t i = 0; i < count; i++)
+	{
+		milliseconds[i] = -1;
+		if (!slot.spans[i].bEnded) continue;
+		UINT64 begin = 0, end = 0;
+		if (pImmediate->GetData(slot.pStamps[i * 2], &begin, sizeof(begin), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK
+			|| pImmediate->GetData(slot.pStamps[i * 2 + 1], &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK || end < begin)
+		{
+			costs.iMissed++;
+			return;
+		}
+		milliseconds[i] = (double)(end - begin) * 1000.0 / (double)disjoint.Frequency;
+		if (slot.spans[i].bList)
+		{
+			if (begin < first) first = begin;
+			if (end > last) last = end;
+		}
+	}
+	const double dFrame = last > first ? (double)(last - first) * 1000.0 / (double)disjoint.Frequency : -1.0;
+	if (dFrame < 0 || dFrame > 1000.0)
+	{
+		costs.iMissed++;
+		return;
+	}
+	costs.iFrames++;
+	costs.dGpu += dFrame;
+	if (dFrame > costs.dGpuMax) costs.dGpuMax = dFrame;
+	for (uint32_t i = 0; i < count; i++)
+	{
+		if (milliseconds[i] < 0) continue;
+		uint64_t key = slot.spans[i].bList ? 1099511628211ULL : 14695981039346656037ULL;
+		for (const char* p = slot.spans[i].pName; *p; p++) key = (key ^ (uint8_t)*p) * 1099511628211ULL;
+		WickedCallGpuSum& sum = g_WickedCallGpuSums[key];
+		if (sum.name.empty())
+		{
+			sum.name = slot.spans[i].pName;
+			sum.bList = slot.spans[i].bList;
+		}
+		sum.dMilliseconds += milliseconds[i];
+	}
+}
+
+static bool WickedCall_GpuMake(void)
+{
+	ID3D11Device* pDevice = (ID3D11Device*)wiRenderer::GetDevice()->GetDeviceForIMGUI();
+	if (!pDevice) return false;
+	D3D11_QUERY_DESC stamp = { D3D11_QUERY_TIMESTAMP, 0 };
+	D3D11_QUERY_DESC disjoint = { D3D11_QUERY_TIMESTAMP_DISJOINT, 0 };
+	for (int s = 0; s < WICKEDCALL_GPU_SLOTS; s++)
+	{
+		WickedCallGpuSlot& slot = g_WickedCallGpuSlots[s];
+		if (FAILED(pDevice->CreateQuery(&disjoint, &slot.pDisjoint))) return false;
+		for (int i = 0; i < WICKEDCALL_GPU_SPANS * 2; i++)
+			if (FAILED(pDevice->CreateQuery(&stamp, &slot.pStamps[i]))) return false;
+	}
+	return true;
+}
+
+// the submit's start (bEnd false) begins the frame's disjoint query; its end ends it, reads the slot written eight frames
+// ago and takes up the switch for the next frame
+static void WickedCall_GpuSubmit(bool bEnd)
+{
+	ID3D11DeviceContext* pImmediate = (ID3D11DeviceContext*)wiRenderer::GetDevice()->GetImmediateForIMGUI();
+	if (!pImmediate) return;
+	if (!bEnd)
+	{
+		if (g_bWickedCallGpuOn) pImmediate->Begin(g_WickedCallGpuSlots[g_iWickedCallGpuSlot].pDisjoint);
+		return;
+	}
+	if (g_bWickedCallGpuOn)
+	{
+		WickedCallGpuSlot& slot = g_WickedCallGpuSlots[g_iWickedCallGpuSlot];
+		pImmediate->End(slot.pDisjoint);
+		slot.bPending = true;
+	}
+	const uint32_t next = (g_iWickedCallGpuSlot + 1) % WICKEDCALL_GPU_SLOTS;
+	WickedCallGpuSlot& old = g_WickedCallGpuSlots[next];
+	if (old.bPending)
+	{
+		WickedCall_GpuRead(pImmediate, old);
+		old.bPending = false;
+	}
+	if (g_bWickedCallGpuWanted && g_iWickedCallGpuMade == 0) g_iWickedCallGpuMade = WickedCall_GpuMake() ? 1 : -1;
+	g_bWickedCallGpuOn = g_bWickedCallGpuWanted && g_iWickedCallGpuMade == 1;
+	g_iWickedCallGpuSlot = next;
+	old.count = 0;
+}
+
+void WickedCall_SetGpuTiming(bool bOn)
+{
+	g_bWickedCallGpuWanted = bOn;
+}
+
+bool WickedCall_GetGpuTiming(void)
+{
+	return g_bWickedCallGpuOn;
+}
+
+bool WickedCall_GetGpuFrameCosts(WickedCallGpuCosts* pCosts)
+{
+	WickedCallGpuCosts& costs = g_WickedCallGpuCosts;
+	if (!pCosts || costs.iFrames == 0) return false;
+	*pCosts = costs;
+	pCosts->lists.clear();
+	pCosts->parts.clear();
+	for (auto& it : g_WickedCallGpuSums)
+	{
+		if (it.second.dMilliseconds <= 0) continue;
+		(it.second.bList ? pCosts->lists : pCosts->parts).push_back(std::make_pair(it.second.name, it.second.dMilliseconds));
+		it.second.dMilliseconds = 0;
+	}
+	costs = WickedCallGpuCosts();
+	return true;
+}
+
+static struct WickedCallGpuHook
+{
+	WickedCallGpuHook()
+	{
+		for (int& iList : g_iWickedCallGpuList) iList = -1;
+		g_pfnWickedListBegin = WickedCall_GpuListBegin;
+		g_pfnWickedListFinish = WickedCall_GpuListFinish;
+		g_pfnWickedSubmit = WickedCall_GpuSubmit;
+		g_pfnWickedGpuRangeBegin = WickedCall_GpuRangeBegin;
+		g_pfnWickedGpuRangeEnd = WickedCall_GpuRangeEnd;
+	}
+} g_WickedCallGpuHook;
+
 static void WickedCall_ProbeDeviceCall(double dMilliseconds, const WickedDeviceCallInfo& info)
 {
 	if (info.call == 2) g_iWickedCallPresentMicro += (int64_t)(dMilliseconds * 1000.0);

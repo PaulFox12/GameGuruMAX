@@ -2151,7 +2151,9 @@ void MasterRenderer::Update(float dt)
 			// must be outside a render pass and only called once, even if VR renders twice
 			CommandList cmd = wiRenderer::GetDevice()->BeginCommandList(QUEUE_GRAPHICS, "Particles");
 			auto range = wiProfiler::BeginRangeCPU("Update - Particles");
+			int gpuRange = WickedGpuRangeBegin(cmd, "Update - Particles");
 			gpup_update(dt, cmd);
+			WickedGpuRangeEnd(cmd, gpuRange);
 			wiProfiler::EndRange(range);
 
 			// we can skip all terrain activity when building a standalone
@@ -2165,17 +2167,23 @@ void MasterRenderer::Update(float dt)
 					auto range3 = wiProfiler::BeginRangeCPU("Update - Terrain");
 					extern bool bImGuiRenderTargetFocus;
 					PIXScopedEvent(PIX_COLOR_DEFAULT, "GGTerrain_Update");
+					gpuRange = WickedGpuRangeBegin(cmd, "Update - Terrain");
 					GGTerrain_Update(camera.Eye.x, camera.Eye.y, camera.Eye.z, cmd, bImGuiRenderTargetFocus);
+					WickedGpuRangeEnd(cmd, gpuRange);
 					if (g_iDisableTerrainSystem == 0)
 					{
 						auto rangeTrees = wiProfiler::BeginRangeCPU("Update - Trees");
 						PIXScopedEvent(PIX_COLOR_DEFAULT, "GGTrees_Update");
+						gpuRange = WickedGpuRangeBegin(cmd, "Update - Trees");
 						GGTrees_Update(camera.Eye.x, camera.Eye.y, camera.Eye.z, cmd, bImGuiRenderTargetFocus);
 						GGTrees_UpdateFrustumCulling(&camera);
+						WickedGpuRangeEnd(cmd, gpuRange);
 						wiProfiler::EndRange(rangeTrees);
 						auto rangeGrass = wiProfiler::BeginRangeCPU("Update - Grass");
 						PIXScopedEvent(PIX_COLOR_DEFAULT, "GGGrass_Update");
+						gpuRange = WickedGpuRangeBegin(cmd, "Update - Grass");
 						GGGrass_Update(&camera, cmd, bImGuiRenderTargetFocus);
+						WickedGpuRangeEnd(cmd, gpuRange);
 						wiProfiler::EndRange(rangeGrass);
 					}
 					wiProfiler::EndRange(range3);
