@@ -72,8 +72,10 @@ void GGTerrainApplyRock( float3 worldPos, float3 geometricNormal, float3 posDX, 
 
 	// the edge broken up: the slope moved by a noise in world space (about 8 m and 3 m across, the height mixed in so it
 	// varies down a face too), so the rock runs unevenly into the ground above and below a face rather than along a line
+	// GG: skipped where even the largest noise (it runs -1 to 1) can't lift the slope past where the rock starts, so the
+	// slope below comes out 0 either way
 	[branch]
-	if ( terrain_rockStrength > 0 && terrain_rockEdgeBreakup > 0 )
+	if ( terrain_rockStrength > 0 && terrain_rockEdgeBreakup > 0 && (slope + 0.2 * terrain_rockEdgeBreakup > terrain_rockStart || terrain_rockTransition < 0) )
 	{
 		float2 np = float2( worldPos.x + worldPos.y * 0.6, worldPos.z - worldPos.y * 0.4 ) / 315.0;
 		float n = RockNoise( np ) * 0.7 + RockNoise( np * 2.7 + 17.3 ) * 0.3;

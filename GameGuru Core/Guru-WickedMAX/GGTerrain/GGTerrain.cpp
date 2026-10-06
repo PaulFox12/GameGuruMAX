@@ -771,6 +771,19 @@ InputLayout inputLayout;
 PipelineState psoMain;
 PipelineState psoMainWire;
 PipelineState psoMainPrepass;
+PipelineState psoMainPrepassDepthOnly; // GG: the prepass without its pixel shader, for a measurement (ggterrain_measure 1)
+
+// GG: terrain measurements and tuning from Lua (SetTerrainMeasure, SetTerrainNearFirst, GetTerrainDrawStats).
+// ggterrain_measure 1 draws the prepass depth only: no page requests or velocity, so the pages stop following the camera,
+// for a measuring run only; 2 draws both terrain passes into a 1 x 1 viewport, so their cost is the geometry's alone.
+// ggterrain_prepass_near_first draws the prepass's chunks nearest first, so the near ground's depth rejects the far
+// ground's pixels hidden behind it (the same picture). The last prepass's chunks, those flat (heights within 0.01 units)
+// and its triangles, for GetTerrainDrawStats
+int ggterrain_measure = 0;
+bool ggterrain_prepass_near_first = true;
+int ggterrain_stat_chunks = 0;
+int ggterrain_stat_flat = 0;
+int ggterrain_stat_triangles = 0;
 PipelineState psoMainShadow;
 PipelineState psoReflectionPrepass;
 PipelineState psoEditCube;
@@ -4641,6 +4654,25 @@ int GGTerrain_CheckTextureSource( const GGTextureSource* pSource )
 	return 0;
 }
 
+// GG: the measurements and the prepass order (see ggterrain_measure), and the last prepass's chunks, flat chunks and
+// triangles
+void GGTerrain_SetMeasure( int mode )
+{
+	ggterrain_measure = (mode >= 0 && mode <= 2) ? mode : 0;
+}
+
+void GGTerrain_SetPrepassNearFirst( int on )
+{
+	ggterrain_prepass_near_first = on != 0;
+}
+
+void GGTerrain_GetDrawStats( int* pChunks, int* pFlat, int* pTriangles )
+{
+	if ( pChunks ) *pChunks = ggterrain_stat_chunks;
+	if ( pFlat ) *pFlat = ggterrain_stat_flat;
+	if ( pTriangles ) *pTriangles = ggterrain_stat_triangles;
+}
+
 const char* GGTerrain_GetTextureSource( int slot, int kind, int* pChanged )
 {
 	*pChanged = 0;
@@ -7358,6 +7390,8 @@ int GGTerrain_Init( wiGraphics::CommandList cmd )
 	desc.ps = &shaderMainPrepassPS;
 	depthStateOpaque.DepthWriteMask = DEPTH_WRITE_MASK_ALL;
 	device->CreatePipelineState( &desc, &psoMainPrepass );
+	desc.ps = nullptr;
+	device->CreatePipelineState( &desc, &psoMainPrepassDepthOnly );
 
 	desc.vs = &shaderReflectionPrepassVS;
 	desc.ps = nullptr;
@@ -11177,7 +11211,7 @@ extern "C" void GGTerrain_Draw_Prepass( const Frustum* frustum, CommandList cmd 
 	GraphicsDevice* device = wiRenderer::GetDevice();
 	device->EventBegin("GGTerrain Prepass Draw", cmd);
 		
-	device->BindPipelineState( &psoMainPrepass, cmd );
+	device->BindPipelineState( ggterrain_measure == 1 ? &psoMainPrepassDepthOnly : &psoMainPrepass, cmd );
 
 	int bindSlot = 2;
 	device->BindConstantBuffer( VS, &terrainConstantBuffer, bindSlot, cmd );
@@ -11195,8 +11229,14 @@ extern "C" void GGTerrain_Draw_Prepass( const Frustum* frustum, CommandList cmd 
 	uint32_t numSegments = ggterrain_local_params.segments_per_chunk;
 	uint32_t numIndices = (numSegments*2 + 3) * numSegments - 1;
 	
+	// GG: the chunks to draw gathered first, then drawn nearest first (ggterrain_prepass_near_first) and counted
+	struct DrawChunk { float dist; GGTerrainChunk* pChunk; };
+	DrawChunk drawChunks[ 16 * 64 ];
+	uint32_t numDraw = 0;
+	uint32_t numFlat = 0;
+	const XMFLOAT3 eye = wiScene::GetCamera().Eye;
 	GGTerrainLODSet* pCurrLODs = ggterrain.GetCurrentLODs();
-	for( uint32_t lod = 0; lod < pCurrLODs->GetNumLevels(); lod++ )
+	for( uint32_t lod = 0; lod < pCurrLODs->GetNumLevels() && lod < 16; lod++ )
 	{
 		for( uint32_t i = 0; i < 64; i++ )
 		{
@@ -11211,13 +11251,38 @@ extern "C" void GGTerrain_Draw_Prepass( const Frustum* frustum, CommandList cmd 
 			const AABB* aabb = pChunk->GetBounds();
 			if ( !frustum->CheckBoxFast( *aabb ) ) continue;
 
-			const GPUBuffer* vbs[] = { &pChunk->vertexBuffer };
-			uint32_t stride = sizeof( TerrainVertex );
-			device->BindVertexBuffers( vbs, 0, 1, &stride, 0, cmd );
-			device->BindIndexBuffer( &chunkIndexBuffer, INDEXFORMAT_16BIT, 0, cmd );
-			device->DrawIndexed( numIndices, 0, 0, cmd );
+			float dx = (aabb->_min.x + aabb->_max.x) * 0.5f - eye.x;
+			float dy = (aabb->_min.y + aabb->_max.y) * 0.5f - eye.y;
+			float dz = (aabb->_min.z + aabb->_max.z) * 0.5f - eye.z;
+			if ( aabb->_max.y - aabb->_min.y < 0.01f ) numFlat++;
+			drawChunks[ numDraw ].dist = dx*dx + dy*dy + dz*dz;
+			drawChunks[ numDraw ].pChunk = pChunk;
+			numDraw++;
 		}
 	}
+	if ( ggterrain_prepass_near_first ) std::sort( drawChunks, drawChunks + numDraw, []( const DrawChunk& a, const DrawChunk& b ) { return a.dist < b.dist; } );
+
+	ID3D11DeviceContext* pContext = (ID3D11DeviceContext*) device->GetDeviceContext( cmd );
+	D3D11_VIEWPORT viewports[ D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE ];
+	UINT numViewports = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+	if ( ggterrain_measure == 2 && pContext )
+	{
+		pContext->RSGetViewports( &numViewports, viewports );
+		D3D11_VIEWPORT tiny = { 0, 0, 1, 1, 0, 1 };
+		pContext->RSSetViewports( 1, &tiny );
+	}
+	for( uint32_t k = 0; k < numDraw; k++ )
+	{
+		const GPUBuffer* vbs[] = { &drawChunks[ k ].pChunk->vertexBuffer };
+		uint32_t stride = sizeof( TerrainVertex );
+		device->BindVertexBuffers( vbs, 0, 1, &stride, 0, cmd );
+		device->BindIndexBuffer( &chunkIndexBuffer, INDEXFORMAT_16BIT, 0, cmd );
+		device->DrawIndexed( numIndices, 0, 0, cmd );
+	}
+	if ( ggterrain_measure == 2 && pContext ) pContext->RSSetViewports( numViewports, viewports );
+	ggterrain_stat_chunks = (int) numDraw;
+	ggterrain_stat_flat = (int) numFlat;
+	ggterrain_stat_triangles = (int) (numDraw * numSegments * numSegments * 2);
 
 	device->EventEnd(cmd);
 
@@ -11523,6 +11588,18 @@ extern "C" void GGTerrain_Draw( const Frustum* frustum, int mode, CommandList cm
 	if ( mode == 1 ) lowestLevel = GGTERRAIN_REFLECTION_LOWEST_LOD;
 	if ( lowestLevel >= numLODLevels ) lowestLevel = numLODLevels - 1;
 	
+	// GG: measurement 2, the geometry's cost alone (main view only)
+	ID3D11DeviceContext* pContext = (ID3D11DeviceContext*) device->GetDeviceContext( cmd );
+	D3D11_VIEWPORT viewports[ D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE ];
+	UINT numViewports = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+	const bool bTinyViewport = ggterrain_measure == 2 && mode == 0 && pContext;
+	if ( bTinyViewport )
+	{
+		pContext->RSGetViewports( &numViewports, viewports );
+		D3D11_VIEWPORT tiny = { 0, 0, 1, 1, 0, 1 };
+		pContext->RSSetViewports( 1, &tiny );
+	}
+
 	//PE: Chunks should do a quick bounding box occlusion check.
 	for( uint32_t lod = lowestLevel; lod < numLODLevels; lod++ )
 	{
@@ -11550,6 +11627,7 @@ extern "C" void GGTerrain_Draw( const Frustum* frustum, int mode, CommandList cm
 			device->DrawIndexed( numIndices, 0, 0, cmd );
 		}
 	}
+	if ( bTinyViewport ) pContext->RSSetViewports( numViewports, viewports );
 
 	device->EventEnd(cmd);
 

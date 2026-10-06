@@ -437,6 +437,11 @@ int GGTerrain_CheckTextureSource( const GGTextureSource* pSource );
 // the file a terrain slot (0 to 31) was last uploaded from, kind 0 color, 1 normal, 2 surface: "" none, 0 a bad slot or
 // kind; *pChanged as GGTerrain_CheckTextureSource
 const char* GGTerrain_GetTextureSource( int slot, int kind, int* pChanged );
+// GG: measurements (0 none, 1 the prepass depth only, 2 both terrain passes into a 1 x 1 viewport), the prepass's chunks
+// nearest first (on at first), and the last prepass's chunks drawn, those flat, and its triangles
+void GGTerrain_SetMeasure( int mode );
+void GGTerrain_SetPrepassNearFirst( int on );
+void GGTerrain_GetDrawStats( int* pChunks, int* pFlat, int* pTriangles );
 } // namespace GGTerrain
 
 #endif // _H_GGTERRAIN
