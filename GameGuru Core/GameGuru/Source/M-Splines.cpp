@@ -2769,20 +2769,12 @@ static void spline_placechanged( void )
 	if ( bHeld ) lighting_holdrefresh( false );
 }
 
-// a new layer, set for the spline's kind: the Long Bien bridge's streetlights along a road, rocks along a river
+// a new layer, empty until an entity is chosen, its placing set for the spline's kind: along a road both sides 30.8 m
+// apart (the defaults), along a river spread like rocks
 static sSplineLayer spline_newlayer( const sSpline& s )
 {
 	sSplineLayer layer;
-	if ( s.kind == SPLINE_KIND_ROAD )
-	{
-		strcpy_s( layer.entity, 260, "User\\Props\\Streetlights\\rusty_streetlight.fpe" );
-		layer.spacing = 1213.0f;
-		layer.offset = 20.0f;
-		layer.side = SPLINE_SIDE_BOTH;
-		layer.facing = SPLINE_FACE_MIRRORED;
-		layer.keepApart = 600.0f;
-	}
-	else
+	if ( s.kind != SPLINE_KIND_ROAD )
 	{
 		layer.spacing = 600.0f;
 		layer.offset = 150.0f;
@@ -3631,7 +3623,7 @@ static void spline_rowlayers( sSpline& s, float w )
 		s.layers.push_back( spline_newlayer( s ) );
 		spline_modified();
 	}
-	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", s.kind == SPLINE_KIND_ROAD ? "A new layer of streetlights (the Long Bien bridge's, 30.8 m apart on both sides); change its entity and spacing as you like" : "A new layer for rocks or plants along the banks: choose its entity" );
+	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", s.kind == SPLINE_KIND_ROAD ? "A new empty layer, 30.8 m apart on both sides: choose its entity (streetlights, posts, anything); it places nothing until then" : "A new layer for rocks or plants along the banks: choose its entity" );
 	ImGui::TreePop();
 }
 
