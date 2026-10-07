@@ -790,6 +790,12 @@ bool ggterrain_seabed_skip = false;
 // GG: parts of the terrain's colour pass left out to time them (SetTerrainShadeMeasure): 1 the steep rock, 2 shadows, 4 all
 // lighting (lights, probes, decals), 8 the page lookup and its samples, 16 fog; 0 (in play) none
 int ggterrain_shade_measure = 0;
+// GG: rain on the painted ground (SetTerrainWetness, SetTerrainMaterialWetness, SetTerrainDryBox): how wet, each
+// material number's gloss and darkening (0 unpainted, 1-32 the texture slots 0-31), and the boxes the rain doesn't reach
+float ggterrain_wetness = 0;
+float ggterrain_wet_material[ 33 ][ 2 ] = {};
+struct GGTerrainDryBox { bool bActive; float fMin[ 3 ]; float fMax[ 3 ]; };
+GGTerrainDryBox ggterrain_dry_boxes[ 8 ] = {};
 ID3D11UnorderedAccessView* ggterrain_requestsUAV = nullptr;
 static bool GGTerrain_RequestsInColourPass()
 {
@@ -4690,6 +4696,49 @@ void GGTerrain_SetSeabedSkip( int on )
 void GGTerrain_SetShadeMeasure( int flags )
 {
 	ggterrain_shade_measure = flags & 31;
+}
+
+void GGTerrain_SetWetness( float amount )
+{
+	ggterrain_wetness = amount < 0 ? 0 : (amount > 1 ? 1 : amount);
+}
+
+void GGTerrain_SetMaterialWetness( int slot, float gloss, float darken )
+{
+	if ( slot < -1 || slot > 31 ) return;
+	ggterrain_wet_material[ slot + 1 ][ 0 ] = gloss < 0 ? 0 : (gloss > 1 ? 1 : gloss);
+	ggterrain_wet_material[ slot + 1 ][ 1 ] = darken < 0 ? 0 : (darken > 1 ? 1 : darken);
+}
+
+void GGTerrain_SetDryBox( int slot, bool bActive, float minX, float minY, float minZ, float maxX, float maxY, float maxZ )
+{
+	for ( int i = 0; i < 8; i++ )
+	{
+		if ( slot != -1 && slot != i ) continue;
+		GGTerrainDryBox& box = ggterrain_dry_boxes[ i ];
+		box.bActive = bActive;
+		box.fMin[ 0 ] = minX < maxX ? minX : maxX; box.fMax[ 0 ] = minX < maxX ? maxX : minX;
+		box.fMin[ 1 ] = minY < maxY ? minY : maxY; box.fMax[ 1 ] = minY < maxY ? maxY : minY;
+		box.fMin[ 2 ] = minZ < maxZ ? minZ : maxZ; box.fMax[ 2 ] = minZ < maxZ ? maxZ : minZ;
+	}
+}
+
+void GGTerrain_ResetWetness()
+{
+	ggterrain_wetness = 0;
+	memset( ggterrain_wet_material, 0, sizeof( ggterrain_wet_material ) );
+	memset( ggterrain_dry_boxes, 0, sizeof( ggterrain_dry_boxes ) );
+}
+
+int GGTerrain_GetPaintedMaterial( float x, float z )
+{
+	if ( !pMaterialMap ) return -1;
+	float fX = (x / ggterrain_local_render_params2.editable_size * 0.5f + 0.5f) * GGTERRAIN_MATERIALMAP_SIZE;
+	float fZ = (z / ggterrain_local_render_params2.editable_size * 0.5f + 0.5f) * GGTERRAIN_MATERIALMAP_SIZE;
+	int iX = (int) fX;
+	int iZ = (int) fZ;
+	if ( fX < 0 || fZ < 0 || iX >= GGTERRAIN_MATERIALMAP_SIZE || iZ >= GGTERRAIN_MATERIALMAP_SIZE ) return -1;
+	return (int) pMaterialMap[ iZ * GGTERRAIN_MATERIALMAP_SIZE + iX ] - 1;
 }
 
 void GGTerrain_SetPrepassNearFirst( int on )
@@ -10495,6 +10544,25 @@ void GGTerrain_Update( float playerX, float playerY, float playerZ, wiGraphics::
 		terrainConstantData.terrain_seabedCut.w = bSeabedCut ? 1.0f : 0.0f;
 	}
 	terrainConstantData.terrain_shadeMeasure = (float) ggterrain_shade_measure;
+	// GG: rain on the painted ground: the dry boxes in use packed to the front
+	{
+		int iBoxes = 0;
+		for ( int i = 0; i < 8; i++ )
+		{
+			if ( !ggterrain_dry_boxes[ i ].bActive ) continue;
+			const GGTerrainDryBox& box = ggterrain_dry_boxes[ i ];
+			terrainConstantData.terrain_dryBoxMin[ iBoxes ] = XMFLOAT4( box.fMin[ 0 ], box.fMin[ 1 ], box.fMin[ 2 ], 0 );
+			terrainConstantData.terrain_dryBoxMax[ iBoxes ] = XMFLOAT4( box.fMax[ 0 ], box.fMax[ 1 ], box.fMax[ 2 ], 0 );
+			iBoxes++;
+		}
+		terrainConstantData.terrain_wetness = XMFLOAT4( ggterrain_wetness, (float) iBoxes, 0, 0 );
+		for ( int i = 0; i < 17; i++ )
+		{
+			int a = i * 2, b = i * 2 + 1;
+			terrainConstantData.terrain_wetMaterial[ i ] = XMFLOAT4( ggterrain_wet_material[ a ][ 0 ], ggterrain_wet_material[ a ][ 1 ],
+				b < 33 ? ggterrain_wet_material[ b ][ 0 ] : 0, b < 33 ? ggterrain_wet_material[ b ][ 1 ] : 0 );
+		}
+	}
 
 	wiInput::MouseState mouseState = wiInput::GetMouseState();
 	ggterrain_internal_params.mouseLeftState = mouseState.left_button_press;
@@ -11635,6 +11703,8 @@ extern "C" void GGTerrain_Draw( const Frustum* frustum, int mode, CommandList cm
 	const bool bWriteRequests = mode == 0 && !ggterrain_render_wireframe && ggterrain_update_enabled && GGTerrain_RequestsInColourPass();
 	if ( ggterrain_render_wireframe ) device->BindPipelineState( &psoMainWire, cmd );
 	else device->BindPipelineState( bWriteRequests ? &psoMainRequests : &psoMain, cmd );
+	// GG: the painted material numbers, for the wet ground (GGTerrainVirtualPBR_PS)
+	device->BindResource( PS, &texMaterialMap, 52, cmd );
 
 	int bindSlot = 2;
 	device->BindConstantBuffer( VS, &terrainConstantBuffer, bindSlot, cmd );

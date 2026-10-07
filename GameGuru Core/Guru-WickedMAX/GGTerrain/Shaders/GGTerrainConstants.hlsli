@@ -89,6 +89,15 @@ cbuffer TerrainCB : register( b2 )
 	// GG: the seabed the ocean's water fog hides (SetTerrainSeabedSkip): x the lowest the water's surface goes (its height
 	// less the wave amplitude), y its fog's start, z its fog's range, in units; w 1 when on
 	float4   terrain_seabedCut;
+
+	// GG: rain on the painted ground (SetTerrainWetness): x how wet, 0 dry to 1 soaked; y the dry boxes in use; zw spare
+	float4   terrain_wetness;
+	// how each material number in the material map wets (SetTerrainMaterialWetness), 0 unpainted and 1-32 the texture
+	// slots 0-31, two to a float4: x/z how much glossier, y/w how much darker, 0 to 1
+	float4   terrain_wetMaterial[ 17 ];
+	// boxes the rain doesn't reach, in world units (SetTerrainDryBox): the ground in them stays dry
+	float4   terrain_dryBoxMin[ 8 ];
+	float4   terrain_dryBoxMax[ 8 ];
 };
 
 #endif // GGTERRAIN_CONSTANTS_FULL_DECL

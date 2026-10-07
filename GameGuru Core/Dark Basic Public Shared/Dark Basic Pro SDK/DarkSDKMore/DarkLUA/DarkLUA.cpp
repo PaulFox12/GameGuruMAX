@@ -14795,6 +14795,10 @@ namespace GGTerrain
 	void GGTerrain_SetDepthOnlyPrepass( int on );
 	void GGTerrain_SetSeabedSkip( int on );
 	void GGTerrain_SetShadeMeasure( int flags );
+	void GGTerrain_SetWetness( float amount );
+	void GGTerrain_SetMaterialWetness( int slot, float gloss, float darken );
+	void GGTerrain_SetDryBox( int slot, bool bActive, float minX, float minY, float minZ, float maxX, float maxY, float maxZ );
+	int GGTerrain_GetPaintedMaterial( float x, float z );
 }
 // SetTerrainMeasure(mode) - 0 none (at first); 1 the terrain prepass draws depth only (no page requests or velocity, so the
 // terrain's pages stop following the camera: a measuring run only); 2 both terrain passes drawn into a 1 x 1 viewport, so
@@ -14839,6 +14843,41 @@ int SetGunReloadWhileRunning(lua_State* L)
 	extern int g_iGunReloadWhileRunning;
 	g_iGunReloadWhileRunning = lua_tointeger(L, 1) != 0 ? 1 : 0;
 	return 0;
+}
+// SetTerrainWetness(amount) - rain on the painted ground, 0 (at first, and when a test game ends) dry to 1 soaked: each
+// texture slot gets glossier and darker by its own amounts (SetTerrainMaterialWetness), none until they are set
+int SetTerrainWetness(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	GGTerrain::GGTerrain_SetWetness((float)lua_tonumber(L, 1));
+	return 0;
+}
+// SetTerrainMaterialWetness(slot, gloss, darken) - how a terrain texture slot (0-31 as painted, -1 the unpainted ground)
+// wets at full wetness: gloss 0 (none) to 1 (near a mirror), darken 0 to 1 (black); asphalt might be 0.9, 0.3
+int SetTerrainMaterialWetness(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 3) return 0;
+	GGTerrain::GGTerrain_SetMaterialWetness((int)lua_tointeger(L, 1), (float)lua_tonumber(L, 2), (float)lua_tonumber(L, 3));
+	return 0;
+}
+// SetTerrainDryBox(slot, x1, y1, z1, x2, y2, z2) - a box (slot 0-7, corners in world units) the rain doesn't reach: the
+// ground in it stays dry; SetTerrainDryBox(slot) clears it, SetTerrainDryBox(-1) clears all
+int SetTerrainDryBox(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	int slot = (int)lua_tointeger(L, 1);
+	if (n < 7) { GGTerrain::GGTerrain_SetDryBox(slot, false, 0, 0, 0, 0, 0, 0); return 0; }
+	GGTerrain::GGTerrain_SetDryBox(slot, true, (float)lua_tonumber(L, 2), (float)lua_tonumber(L, 3), (float)lua_tonumber(L, 4),
+		(float)lua_tonumber(L, 5), (float)lua_tonumber(L, 6), (float)lua_tonumber(L, 7));
+	return 0;
+}
+// GetTerrainMaterialAt(x, z) - the terrain texture slot painted at a point (0-31), -1 where unpainted or off the map
+int GetTerrainMaterialAt(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 2) return 0;
+	lua_pushinteger(L, GGTerrain::GGTerrain_GetPaintedMaterial((float)lua_tonumber(L, 1), (float)lua_tonumber(L, 2)));
+	return 1;
 }
 // SetTerrainShadeMeasure(flags) - parts of the terrain's colour pass left out, to time what each costs (a measuring run only:
 // the terrain looks wrong meanwhile): 1 the steep rock, 2 shadows, 4 all lighting (lights, probes, decals), 8 the page
@@ -18047,6 +18086,10 @@ void addFunctions()
 	lua_register(lua, "SetTerrainDepthOnlyPrepass", SetTerrainDepthOnlyPrepass);
 	lua_register(lua, "SetTerrainSeabedSkip", SetTerrainSeabedSkip);
 	lua_register(lua, "SetTerrainShadeMeasure", SetTerrainShadeMeasure);
+	lua_register(lua, "SetTerrainWetness", SetTerrainWetness);
+	lua_register(lua, "SetTerrainMaterialWetness", SetTerrainMaterialWetness);
+	lua_register(lua, "SetTerrainDryBox", SetTerrainDryBox);
+	lua_register(lua, "GetTerrainMaterialAt", GetTerrainMaterialAt);
 	lua_register(lua, "SetGunReloadWhileRunning", SetGunReloadWhileRunning);
 	lua_register(lua, "GetGrassShade", GetGrassShade);
 	lua_register(lua, "GetTextureSource", GetTextureSource);

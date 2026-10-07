@@ -447,6 +447,14 @@ void GGTerrain_SetDepthOnlyPrepass( int on );
 void GGTerrain_SetSeabedSkip( int on );
 // GG: parts of the colour pass left out to time them: 1 the rock, 2 shadows, 4 all lighting, 8 the page lookup, 16 fog
 void GGTerrain_SetShadeMeasure( int flags );
+// GG: rain on the painted ground: how wet, 0 dry to 1 soaked; how a texture slot (0-31, -1 the unpainted ground) wets,
+// glossier and darker, 0 to 1 each; boxes the rain doesn't reach (slot 0-7, -1 all); all back to dry and none; the painted
+// slot at a point (-1 unpainted or off the map)
+void GGTerrain_SetWetness( float amount );
+void GGTerrain_SetMaterialWetness( int slot, float gloss, float darken );
+void GGTerrain_SetDryBox( int slot, bool bActive, float minX, float minY, float minZ, float maxX, float maxY, float maxZ );
+void GGTerrain_ResetWetness();
+int GGTerrain_GetPaintedMaterial( float x, float z );
 void GGTerrain_GetDrawStats( int* pChunks, int* pFlat, int* pTriangles );
 } // namespace GGTerrain
 

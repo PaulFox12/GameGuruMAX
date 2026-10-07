@@ -3,6 +3,7 @@ Texture2D texNormalRoughnessAO   : register( t51 );
 							     
 Texture2DArray<float> texPageTableArray : register( t53 );
 Texture2D<float> texPageTableFinal      : register( t54 );
+Texture2D<float> texMaterialMap         : register( t52 ); // GG: the painted material numbers, for the wet ground
 
 SamplerState sampler1            : register( s1 );
 
@@ -291,6 +292,25 @@ inline void ApplyLighting(in Surface surface, in Lighting lighting, inout float4
 	color.rgb = surface.albedo * combined_lighting.diffuse + combined_lighting.specular;
 }
 
+// GG: how wet the ground's painted material gets (SetTerrainMaterialWetness): x glossier, y darker, blended over the
+// four nearest cells of the material map as the page generator blends the materials themselves
+float2 GGTerrainWetResponse( float2 worldXZ )
+{
+	float2 p = (worldXZ / terrain_mapEditSize * 0.5 + 0.5) * 4096 - 0.5;
+	int2 cell = (int2) floor( p );
+	float2 f = p - cell;
+	float2 response[4];
+	[unroll]
+	for ( uint i = 0; i < 4; i++ )
+	{
+		int2 c = clamp( cell + int2( i & 1, i >> 1 ), int2( 0, 0 ), int2( 4095, 4095 ) );
+		uint m = min( (uint) (texMaterialMap.Load( int3( c, 0 ) ) * 255 + 0.5), 32 );
+		float4 pair = terrain_wetMaterial[ m >> 1 ];
+		response[i] = (m & 1) ? pair.zw : pair.xy;
+	}
+	return lerp( lerp( response[0], response[1], f.x ), lerp( response[2], response[3], f.x ), f.y );
+}
+
 // virtual texture variables
 static const float2 virtToPageSize = float2( pageSize / physTexSizeX, pageSize / physTexSizeY );
 static const float2 texelOffset = float2( pagePaddingLeft / physTexSizeX, pagePaddingLeft / physTexSizeY );
@@ -420,6 +440,27 @@ GBuffer main( PixelIn IN )
 	output.g1 = float4( 0, 1, 0, 1 ); // RGB=normal, A=roughness
 	return output;
 	*/
+
+	// GG: rain on the painted ground (SetTerrainWetness): glossier and darker by its material, the bumps smoothed as water
+	// fills them; dry inside the dry boxes
+	[branch]
+	if ( terrain_wetness.x > 0 )
+	{
+		float wetAmount = terrain_wetness.x;
+		uint dryBoxes = (uint) terrain_wetness.y;
+		for ( uint b = 0; b < dryBoxes; b++ )
+		{
+			if ( all( IN.worldPos >= terrain_dryBoxMin[ b ].xyz ) && all( IN.worldPos <= terrain_dryBoxMax[ b ].xyz ) ) wetAmount = 0;
+		}
+		[branch]
+		if ( wetAmount > 0 )
+		{
+			float2 wet = GGTerrainWetResponse( IN.worldPos.xz ) * wetAmount;
+			normalRoughnessAO.b = lerp( normalRoughnessAO.b, 0.05, wet.x );
+			normalRoughnessAO.rg = lerp( normalRoughnessAO.rg, float2( 0.5, 0.5 ), wet.x * 0.5 );
+			colorMetalness.rgb *= 1 - wet.y;
+		}
+	}
 
 	// expand normal from 2 channels to 3 channels
 	float3 normal;
