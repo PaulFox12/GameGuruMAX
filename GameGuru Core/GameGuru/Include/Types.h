@@ -5883,6 +5883,7 @@ struct entityprofiletype
 	int entitylight; // GG: each placed one carries a light of its own (.fpe entitylight), made and placed by the engine
 	float entitylightx, entitylighty, entitylightz; // where, in the model's own space (.fpe entitylightx/y/z)
 	int entitylightshadows; // it casts shadows (.fpe entitylightshadows), off by default
+	float physicsmass; // GG: its physics body's mass in kilos (.fpe physicsmass), 0 for the mass its shape gives
 	float lifespan;
 	float throwspeed;
 	float throwangle;
@@ -6086,6 +6087,7 @@ struct entityprofiletype
 		 entitylighty = 0.0f;
 		 entitylightz = 0.0f;
 		 entitylightshadows = 0;
+		 physicsmass = 0.0f;
 		 dropoff = 0;
 		 range = 0;
 		 fireiterations = 0;

@@ -1962,6 +1962,7 @@ void entity_loaddata ( void )
 		t.entityprofile[t.entid].entitylighty = 0.0f;
 		t.entityprofile[t.entid].entitylightz = 0.0f;
 		t.entityprofile[t.entid].entitylightshadows = 0;
+		t.entityprofile[t.entid].physicsmass = 0.0f;
 		t.entityprofile[t.entid].isspinetracker = 1;
 		t.entityprofile[t.entid].phyweight=100;
 		t.entityprofile[t.entid].phyfriction=100;
@@ -3017,6 +3018,9 @@ void entity_loaddata ( void )
 					if (  matched  )  t.entityprofile[t.entid].entitylightz = t.value1_f;
 					cmpStrConst( t_field_s, "entitylightshadows" );
 					if (  matched  )  t.entityprofile[t.entid].entitylightshadows = t.value1;
+					// GG: its physics body's mass in kilos (SetEntityMass sets one for a single entity)
+					cmpStrConst( t_field_s, "physicsmass" );
+					if (  matched  )  t.entityprofile[t.entid].physicsmass = t.value1_f;
 
 					//  trigger extras
 					cmpStrConst( t_field_s, "stylecolor" );

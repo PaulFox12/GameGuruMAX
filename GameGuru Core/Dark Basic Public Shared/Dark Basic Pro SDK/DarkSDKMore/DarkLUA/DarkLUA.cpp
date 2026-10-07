@@ -8219,9 +8219,10 @@ int GetPhysicsStatsTop(lua_State* L)
 // still, island (as GetPhysicsStatsTop's), points (contact points in the last step), layer, mask (collision bits) }, then
 // how many bodies are awake and how many of them touch nothing
 // SetEntityMass(e, kg) - the entity's physics body weighs kg kilos (0.05 is 50 grams), kept for the entity so a body built
-// again (CollisionOn, a wreck swap) and its ragdoll take it too; its inertia follows its shape, and it isn't woken.
-// Returns 1 set now, 0 kept for when it has a body, -1 its body is static (kept for a moving one); 0 or less clears it,
-// back to the mass its shape gives. Works for a spawned clone with no g_Entity row
+// again (CollisionOn, a wreck swap) and its ragdoll take it too; its inertia follows its shape, and it isn't woken. It
+// comes before the .fpe's physicsmass. Returns 1 set now, 0 kept for when it has a body, -1 its body is static (kept
+// for a moving one); 0 or less clears it, back to the .fpe's physicsmass or the mass its shape gives. Works for a
+// spawned clone with no g_Entity row
 int SetEntityMass(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 2) return 0;
@@ -8231,27 +8232,38 @@ int SetEntityMass(lua_State* L)
 	if (iEntity > 0 && iEntity < (int)t.entityelement.size())
 	{
 		extern int ODESetEntityMassKg(int iEntity, int iObject, float fKg);
+		extern int ODESetObjectMassKg(int iObject, float fKg);
 		iResult = ODESetEntityMassKg(iEntity, t.entityelement[iEntity].obj, fKg);
+		float fProfileKg = t.entityprofile[t.entityelement[iEntity].bankindex].physicsmass;
+		if (fKg <= 0 && fProfileKg > 0) iResult = ODESetObjectMassKg(t.entityelement[iEntity].obj, fProfileKg);
 	}
 	lua_pushinteger(L, iResult);
 	return 1;
 }
-// GetEntityMass(e) - kg, set: the kilos SetEntityMass gave it (set 1), or its body's mass now (set 0; 0 kilos for no body)
+// GetEntityMass(e) - kg, source: the kilos SetEntityMass gave it (source 1), else its .fpe's physicsmass (2), else its
+// body's mass now (0; 0 kilos for no body)
 int GetEntityMass(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
 	int iEntity = (int)lua_tonumber(L, 1);
 	float fKg = 0;
 	bool bSet = false;
+	int iSource = 0;
 	if (iEntity > 0 && iEntity < (int)t.entityelement.size())
 	{
 		extern bool ODEGetEntityMassKg(int iEntity, float* pfKg);
 		extern float ODEGetObjectMassKg(int iObject);
 		bSet = ODEGetEntityMassKg(iEntity, &fKg);
-		if (!bSet) fKg = ODEGetObjectMassKg(t.entityelement[iEntity].obj);
+		if (bSet) iSource = 1;
+		else if (t.entityprofile[t.entityelement[iEntity].bankindex].physicsmass > 0)
+		{
+			fKg = t.entityprofile[t.entityelement[iEntity].bankindex].physicsmass;
+			iSource = 2;
+		}
+		else fKg = ODEGetObjectMassKg(t.entityelement[iEntity].obj);
 	}
 	lua_pushnumber(L, fKg);
-	lua_pushinteger(L, bSet ? 1 : 0);
+	lua_pushinteger(L, iSource);
 	return 2;
 }
 // GetObjectMass(obj) - the kilos its physics body has now; 0 for no body or a static one

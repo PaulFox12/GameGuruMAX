@@ -1052,13 +1052,24 @@ int ODESetEntityMassKg(int iEntity, int iObject, float fKg)
 	return iResult;
 }
 
-// a body built for an entity takes its kilos again (physics_prepareentityforphysics)
-void ODEApplyEntityMassKg(int iEntity, int iObject)
+// a body built for an entity takes its kilos again (physics_prepareentityforphysics): false if it has none
+bool ODEApplyEntityMassKg(int iEntity, int iObject)
 {
 	physicslock.lock();
 	auto it = g_EntityMassKg.find(iEntity);
-	if (it != g_EntityMassKg.end()) ODEApplyMassKg(ODEFindID(iObject), it->second);
+	bool bSet = (it != g_EntityMassKg.end());
+	if (bSet) ODEApplyMassKg(ODEFindID(iObject), it->second);
 	physicslock.unlock();
+	return bSet;
+}
+
+// kilos for an object's body, kept nowhere (an entity's .fpe physicsmass, applied at each build): as ODESetEntityMassKg
+int ODESetObjectMassKg(int iObject, float fKg)
+{
+	physicslock.lock();
+	int iResult = ODEApplyMassKg(ODEFindID(iObject), fKg);
+	physicslock.unlock();
+	return iResult;
 }
 
 // the kilos SetEntityMass gave an entity: false if none
