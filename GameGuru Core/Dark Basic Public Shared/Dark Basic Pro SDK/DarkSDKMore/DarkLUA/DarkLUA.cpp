@@ -14147,6 +14147,8 @@ extern void LuaPostEffects_GetDepthOfField(int* piEnabled, float* pfStrength, fl
 extern void LuaPostEffects_SetLightShafts(int iEnabled);
 extern void LuaPostEffects_SetLensFlare(int iEnabled, float fSunHue, float fSunBrightness);
 extern void LuaPostEffects_GetLensFlareSun(float* pfSunHue, float* pfSunBrightness);
+extern void LuaPostEffects_SetScreenLensFlare(int iEnabled, float fIntensity, float fThreshold, float fSpacing, float fHalo, int iNoSky);
+extern void LuaPostEffects_GetScreenLensFlare(int* piEnabled, float* pfIntensity, float* pfThreshold, float* pfSpacing, float* pfHalo, int* piNoSky);
 extern bool GetLightShaftState(void);
 extern bool GetLensFlareState(void);
 
@@ -14217,6 +14219,32 @@ int SetLensFlare(lua_State* L)
 	if (n < 1) return 0;
 	LuaPostEffects_SetLensFlare((int)lua_tonumber(L, 1), LuaOptionalNumber(L, n, 2), LuaOptionalNumber(L, n, 3));
 	return 0;
+}
+
+// SetScreenLensFlare(on [, strength [, threshold [, spacing [, halo [, nosky]]]]]) - ghosts and a halo from any very bright
+// spot on screen (missiles, explosions, fire): strength 0-10, its own threshold 0.1-100, the ghosts' gap 0-1, the halo's
+// radius 0-1, the sky left out (1, the sun has its own flare) or not (0); for this level, omitted or negative keeps
+int SetScreenLensFlare(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaPostEffects_SetScreenLensFlare((int)lua_tonumber(L, 1), LuaOptionalNumber(L, n, 2), LuaOptionalNumber(L, n, 3), LuaOptionalNumber(L, n, 4),
+		LuaOptionalNumber(L, n, 5), (int)LuaOptionalNumber(L, n, 6));
+	return 0;
+}
+// GetScreenLensFlare() - on, strength, threshold, spacing, halo, nosky
+int GetScreenLensFlare(lua_State* L)
+{
+	int iEnabled = 0, iNoSky = 0;
+	float fIntensity = 0, fThreshold = 0, fSpacing = 0, fHalo = 0;
+	LuaPostEffects_GetScreenLensFlare(&iEnabled, &fIntensity, &fThreshold, &fSpacing, &fHalo, &iNoSky);
+	lua_pushnumber(L, iEnabled);
+	lua_pushnumber(L, fIntensity);
+	lua_pushnumber(L, fThreshold);
+	lua_pushnumber(L, fSpacing);
+	lua_pushnumber(L, fHalo);
+	lua_pushnumber(L, iNoSky);
+	return 6;
 }
 
 int GetLensFlare(lua_State* L)
@@ -18033,6 +18061,8 @@ void addFunctions()
 	lua_register(lua, "SetLightShafts", SetLightShafts);
 	lua_register(lua, "GetLightShafts", GetLightShafts);
 	lua_register(lua, "SetLensFlare", SetLensFlare);
+	lua_register(lua, "SetScreenLensFlare", SetScreenLensFlare);
+	lua_register(lua, "GetScreenLensFlare", GetScreenLensFlare);
 	lua_register(lua, "GetLensFlare", GetLensFlare);
 	lua_register(lua, "SetOcclusionCulling", SetOcclusionCulling);
 	lua_register(lua, "SetLODMultiplier", SetLODMultiplier);

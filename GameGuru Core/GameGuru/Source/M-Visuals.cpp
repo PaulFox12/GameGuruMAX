@@ -233,6 +233,12 @@ void visuals_resetvalues (bool bNewLevel)
 	t.visuals.fsetBloomCap = 30.0f;
 	t.visuals.fLensFlareSunHue = 1.0f;
 	t.visuals.fLensFlareSunBrightness = 1.0f;
+	t.visuals.bScreenLensFlare = false;
+	t.visuals.fScreenLensFlareIntensity = 0.1f;
+	t.visuals.fScreenLensFlareThreshold = 4.0f;
+	t.visuals.fScreenLensFlareSpacing = 0.35f;
+	t.visuals.fScreenLensFlareHalo = 0.45f;
+	t.visuals.bScreenLensFlareNoSky = true;
 	t.visuals.bSSREnabled = false;
 	t.visuals.bReflectionsEnabled = true;
 	t.visuals.bFXAAEnabled = false;
@@ -800,6 +806,18 @@ void visuals_save ( void )
 	WriteString(1, t.strwork.Get());
 	t.strwork = ""; t.strwork = t.strwork + "visuals.LensFlareSunBrightness=" + Str(t.visuals.fLensFlareSunBrightness);
 	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.ScreenLensFlare=" + Str(t.visuals.bScreenLensFlare);
+	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.ScreenLensFlareIntensity=" + Str(t.visuals.fScreenLensFlareIntensity);
+	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.ScreenLensFlareThreshold=" + Str(t.visuals.fScreenLensFlareThreshold);
+	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.ScreenLensFlareSpacing=" + Str(t.visuals.fScreenLensFlareSpacing);
+	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.ScreenLensFlareHalo=" + Str(t.visuals.fScreenLensFlareHalo);
+	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.ScreenLensFlareNoSky=" + Str(t.visuals.bScreenLensFlareNoSky);
+	WriteString(1, t.strwork.Get());
 	t.strwork = ""; t.strwork = t.strwork + "visuals.SSREnabled=" + Str(t.visuals.bSSREnabled);
 	WriteString(1, t.strwork.Get());
 	t.strwork = ""; t.strwork = t.strwork + "visuals.ReflectionsEnabled=" + Str(t.visuals.bReflectionsEnabled);
@@ -1142,6 +1160,12 @@ void visuals_load ( void )
 	t.visuals.fsetBloomCap = 30.0f;
 	t.visuals.fLensFlareSunHue = 1.0f;
 	t.visuals.fLensFlareSunBrightness = 1.0f;
+	t.visuals.bScreenLensFlare = false;
+	t.visuals.fScreenLensFlareIntensity = 0.1f;
+	t.visuals.fScreenLensFlareThreshold = 4.0f;
+	t.visuals.fScreenLensFlareSpacing = 0.35f;
+	t.visuals.fScreenLensFlareHalo = 0.45f;
+	t.visuals.bScreenLensFlareNoSky = true;
 	t.visuals.bSSREnabled = false;
 	t.visuals.bReflectionsEnabled = true;
 	t.visuals.bFXAAEnabled = false;
@@ -1462,6 +1486,12 @@ void visuals_load ( void )
 			t.try_s = "visuals.BloomCap"; if (t.tfield_s == t.try_s)  t.visuals.fsetBloomCap = ValF(t.tvalue_s.Get());
 			t.try_s = "visuals.LensFlareSunHue"; if (t.tfield_s == t.try_s)  t.visuals.fLensFlareSunHue = ValF(t.tvalue_s.Get());
 			t.try_s = "visuals.LensFlareSunBrightness"; if (t.tfield_s == t.try_s)  t.visuals.fLensFlareSunBrightness = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.ScreenLensFlare"; if (t.tfield_s == t.try_s)  t.visuals.bScreenLensFlare = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.ScreenLensFlareIntensity"; if (t.tfield_s == t.try_s)  t.visuals.fScreenLensFlareIntensity = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.ScreenLensFlareThreshold"; if (t.tfield_s == t.try_s)  t.visuals.fScreenLensFlareThreshold = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.ScreenLensFlareSpacing"; if (t.tfield_s == t.try_s)  t.visuals.fScreenLensFlareSpacing = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.ScreenLensFlareHalo"; if (t.tfield_s == t.try_s)  t.visuals.fScreenLensFlareHalo = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.ScreenLensFlareNoSky"; if (t.tfield_s == t.try_s)  t.visuals.bScreenLensFlareNoSky = ValF(t.tvalue_s.Get());
 
 			t.try_s = "visuals.SSREnabled"; if (t.tfield_s == t.try_s)	t.visuals.bSSREnabled = ValF(t.tvalue_s.Get());
 			t.try_s = "visuals.ReflectionsEnabled"; if (t.tfield_s == t.try_s)  t.visuals.bReflectionsEnabled = ValF(t.tvalue_s.Get());

@@ -15220,6 +15220,12 @@ void editor_previewmapormultiplayer_initcode ( int iUseVRTest )
 	t.gamevisuals.fsetBloomCap = t.visuals.fsetBloomCap;
 	t.gamevisuals.fLensFlareSunHue = t.visuals.fLensFlareSunHue;
 	t.gamevisuals.fLensFlareSunBrightness = t.visuals.fLensFlareSunBrightness;
+	t.gamevisuals.bScreenLensFlare = t.visuals.bScreenLensFlare;
+	t.gamevisuals.fScreenLensFlareIntensity = t.visuals.fScreenLensFlareIntensity;
+	t.gamevisuals.fScreenLensFlareThreshold = t.visuals.fScreenLensFlareThreshold;
+	t.gamevisuals.fScreenLensFlareSpacing = t.visuals.fScreenLensFlareSpacing;
+	t.gamevisuals.fScreenLensFlareHalo = t.visuals.fScreenLensFlareHalo;
+	t.gamevisuals.bScreenLensFlareNoSky = t.visuals.bScreenLensFlareNoSky;
 	t.gamevisuals.bReflectionsEnabled = t.visuals.bReflectionsEnabled;
 	t.gamevisuals.iShadowSpotCascadeResolution = t.visuals.iShadowSpotCascadeResolution;
 	t.gamevisuals.iShadowPointMax = t.visuals.iShadowPointMax;
@@ -16030,6 +16036,12 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.fsetBloomCap = t.gamevisuals.fsetBloomCap;
 	t.visuals.fLensFlareSunHue = t.gamevisuals.fLensFlareSunHue;
 	t.visuals.fLensFlareSunBrightness = t.gamevisuals.fLensFlareSunBrightness;
+	t.visuals.bScreenLensFlare = t.gamevisuals.bScreenLensFlare;
+	t.visuals.fScreenLensFlareIntensity = t.gamevisuals.fScreenLensFlareIntensity;
+	t.visuals.fScreenLensFlareThreshold = t.gamevisuals.fScreenLensFlareThreshold;
+	t.visuals.fScreenLensFlareSpacing = t.gamevisuals.fScreenLensFlareSpacing;
+	t.visuals.fScreenLensFlareHalo = t.gamevisuals.fScreenLensFlareHalo;
+	t.visuals.bScreenLensFlareNoSky = t.gamevisuals.bScreenLensFlareNoSky;
 	t.visuals.bAutoExposure = t.gamevisuals.bAutoExposure;
 	t.visuals.fAutoExposureRate = t.gamevisuals.fAutoExposureRate;
 	t.visuals.fAutoExposureKey = t.gamevisuals.fAutoExposureKey;
