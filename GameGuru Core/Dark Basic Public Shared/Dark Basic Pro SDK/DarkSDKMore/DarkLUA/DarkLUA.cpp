@@ -3419,10 +3419,15 @@ static int LUA_GETTOP(lua_State* L)
 					 HideObject(t.entityelement[t.tentitytoselect].attachmentobj);
 					 t.entityelement[t.tentitytoselect].attachmentobj = 0;
 				 }
+				 // GG: its ragdoll goes with it, before the object: left behind, its 13 or so bodies fell for ever, awake
+				 extern int BPhys_RagdollExist(int ragdollID);
+				 if (BPhys_RagdollExist(t.entityelement[t.tentitytoselect].obj) == 1)
+				 {
+					 t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
+				 }
 				 entity_deleteentityfrommap();
 				 if (t.entityelement[t.tentitytoselect].ragdollified == 1)
 				 {
-					 //t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
 					 t.entityelement[t.tentitytoselect].ragdollified = 0;
 				 }
 			 }
@@ -3469,10 +3474,15 @@ static int LUA_GETTOP(lua_State* L)
 				 HideObject (t.entityelement[t.tentitytoselect].attachmentobj);
 				 t.entityelement[t.tentitytoselect].attachmentobj = 0;
 			 }
+			 // GG: its ragdoll goes with it, before the object: left behind, its 13 or so bodies fell for ever, awake
+			 extern int BPhys_RagdollExist(int ragdollID);
+			 if (BPhys_RagdollExist(t.entityelement[t.tentitytoselect].obj) == 1)
+			 {
+				 t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
+			 }
 			 entity_deleteentityfrommap ();
 			 if (t.entityelement[t.tentitytoselect].ragdollified == 1)
 			 {
-				 //t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
 				 t.entityelement[t.tentitytoselect].ragdollified = 0;
 			 }
 
