@@ -229,6 +229,10 @@ void visuals_resetvalues (bool bNewLevel)
 	t.visuals.fsetBloomThreshold = 2.0f;
 	t.visuals.ApparentSize = 0.000008f;
 	t.visuals.fsetBloomStrength = 1.0f;
+	t.visuals.fsetBloomRadius = 0.0f;
+	t.visuals.fsetBloomCap = 30.0f;
+	t.visuals.fLensFlareSunHue = 1.0f;
+	t.visuals.fLensFlareSunBrightness = 1.0f;
 	t.visuals.bSSREnabled = false;
 	t.visuals.bReflectionsEnabled = true;
 	t.visuals.bFXAAEnabled = false;
@@ -788,6 +792,14 @@ void visuals_save ( void )
 
 	t.strwork = ""; t.strwork = t.strwork + "visuals.BloomStrength=" + Str(t.visuals.fsetBloomStrength);
 	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.BloomRadius=" + Str(t.visuals.fsetBloomRadius);
+	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.BloomCap=" + Str(t.visuals.fsetBloomCap);
+	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.LensFlareSunHue=" + Str(t.visuals.fLensFlareSunHue);
+	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.LensFlareSunBrightness=" + Str(t.visuals.fLensFlareSunBrightness);
+	WriteString(1, t.strwork.Get());
 	t.strwork = ""; t.strwork = t.strwork + "visuals.SSREnabled=" + Str(t.visuals.bSSREnabled);
 	WriteString(1, t.strwork.Get());
 	t.strwork = ""; t.strwork = t.strwork + "visuals.ReflectionsEnabled=" + Str(t.visuals.bReflectionsEnabled);
@@ -1126,6 +1138,10 @@ void visuals_load ( void )
 	t.visuals.fsetBloomThreshold = 2.0f;
 	t.visuals.ApparentSize = 0.000008f;
 	t.visuals.fsetBloomStrength = 1.0f;
+	t.visuals.fsetBloomRadius = 0.0f;
+	t.visuals.fsetBloomCap = 30.0f;
+	t.visuals.fLensFlareSunHue = 1.0f;
+	t.visuals.fLensFlareSunBrightness = 1.0f;
 	t.visuals.bSSREnabled = false;
 	t.visuals.bReflectionsEnabled = true;
 	t.visuals.bFXAAEnabled = false;
@@ -1442,6 +1458,10 @@ void visuals_load ( void )
 			t.try_s = "visuals.ApparentSize"; if (t.tfield_s == t.try_s)  t.visuals.ApparentSize = ValF(t.tvalue_s.Get());
 			
 			t.try_s = "visuals.BloomStrength"; if (t.tfield_s == t.try_s)  t.visuals.fsetBloomStrength = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.BloomRadius"; if (t.tfield_s == t.try_s)  t.visuals.fsetBloomRadius = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.BloomCap"; if (t.tfield_s == t.try_s)  t.visuals.fsetBloomCap = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.LensFlareSunHue"; if (t.tfield_s == t.try_s)  t.visuals.fLensFlareSunHue = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.LensFlareSunBrightness"; if (t.tfield_s == t.try_s)  t.visuals.fLensFlareSunBrightness = ValF(t.tvalue_s.Get());
 
 			t.try_s = "visuals.SSREnabled"; if (t.tfield_s == t.try_s)	t.visuals.bSSREnabled = ValF(t.tvalue_s.Get());
 			t.try_s = "visuals.ReflectionsEnabled"; if (t.tfield_s == t.try_s)  t.visuals.bReflectionsEnabled = ValF(t.tvalue_s.Get());

@@ -15216,6 +15216,10 @@ void editor_previewmapormultiplayer_initcode ( int iUseVRTest )
 
 	t.gamevisuals.bLightShafts = t.visuals.bLightShafts;
 	t.gamevisuals.bLensFlare = t.visuals.bLensFlare;
+	t.gamevisuals.fsetBloomRadius = t.visuals.fsetBloomRadius;
+	t.gamevisuals.fsetBloomCap = t.visuals.fsetBloomCap;
+	t.gamevisuals.fLensFlareSunHue = t.visuals.fLensFlareSunHue;
+	t.gamevisuals.fLensFlareSunBrightness = t.visuals.fLensFlareSunBrightness;
 	t.gamevisuals.bReflectionsEnabled = t.visuals.bReflectionsEnabled;
 	t.gamevisuals.iShadowSpotCascadeResolution = t.visuals.iShadowSpotCascadeResolution;
 	t.gamevisuals.iShadowPointMax = t.visuals.iShadowPointMax;
@@ -16022,6 +16026,10 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.bTessellation = t.gamevisuals.bTessellation;
 	t.visuals.bLightShafts = t.gamevisuals.bLightShafts;
 	t.visuals.bLensFlare = t.gamevisuals.bLensFlare;
+	t.visuals.fsetBloomRadius = t.gamevisuals.fsetBloomRadius;
+	t.visuals.fsetBloomCap = t.gamevisuals.fsetBloomCap;
+	t.visuals.fLensFlareSunHue = t.gamevisuals.fLensFlareSunHue;
+	t.visuals.fLensFlareSunBrightness = t.gamevisuals.fLensFlareSunBrightness;
 	t.visuals.bAutoExposure = t.gamevisuals.bAutoExposure;
 	t.visuals.fAutoExposureRate = t.gamevisuals.fAutoExposureRate;
 	t.visuals.fAutoExposureKey = t.gamevisuals.fAutoExposureKey;

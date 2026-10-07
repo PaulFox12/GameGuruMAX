@@ -3856,6 +3856,10 @@ struct visualstype
 	float fsetBloomThreshold;
 	float ApparentSize;
 	float fsetBloomStrength;
+	float fsetBloomRadius; // GG: wider bloom halos, 0 as before
+	float fsetBloomCap; // GG: the brightest a pixel counts for in the bloom, 30 as before
+	float fLensFlareSunHue; // GG: how far the sun's flare takes its colour, 0 white as before to 1
+	float fLensFlareSunBrightness; // GG: how far it follows the sun's intensity against the level's, 0 none to 1
 	bool bSSREnabled;
 	bool bReflectionsEnabled;
 	bool bFXAAEnabled;
@@ -4127,6 +4131,10 @@ struct visualstype
 		 fsetBloomThreshold = 2.0f;
 		 ApparentSize = 0.000008f;
 		 fsetBloomStrength = 1.0f;
+		 fsetBloomRadius = 0.0f;
+		 fsetBloomCap = 30.0f;
+		 fLensFlareSunHue = 1.0f;
+		 fLensFlareSunBrightness = 1.0f;
 		 bSSREnabled = false;
 		 bReflectionsEnabled = true;
 		 bFXAAEnabled = false;

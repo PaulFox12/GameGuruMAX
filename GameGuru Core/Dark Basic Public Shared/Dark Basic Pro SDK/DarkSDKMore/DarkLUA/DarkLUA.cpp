@@ -14140,12 +14140,13 @@ int GetExposure(lua_State* L)
 
 // post effects for the running game (M-GridEditB.cpp LuaPostEffects_*); an omitted or negative argument keeps the
 // current value, and the level's own settings come back at the next level or when a test game ends
-extern void LuaPostEffects_SetBloom(int iEnabled, float fStrength, float fThreshold);
-extern void LuaPostEffects_GetBloom(int* piEnabled, float* pfStrength, float* pfThreshold);
+extern void LuaPostEffects_SetBloom(int iEnabled, float fStrength, float fThreshold, float fRadius, float fCap);
+extern void LuaPostEffects_GetBloom(int* piEnabled, float* pfStrength, float* pfThreshold, float* pfRadius, float* pfCap);
 extern void LuaPostEffects_SetDepthOfField(int iEnabled, float fStrength, float fFocalLength, float fApertureSize);
 extern void LuaPostEffects_GetDepthOfField(int* piEnabled, float* pfStrength, float* pfFocalLength, float* pfApertureSize);
 extern void LuaPostEffects_SetLightShafts(int iEnabled);
-extern void LuaPostEffects_SetLensFlare(int iEnabled);
+extern void LuaPostEffects_SetLensFlare(int iEnabled, float fSunHue, float fSunBrightness);
+extern void LuaPostEffects_GetLensFlareSun(float* pfSunHue, float* pfSunBrightness);
 extern bool GetLightShaftState(void);
 extern bool GetLensFlareState(void);
 
@@ -14159,19 +14160,21 @@ int SetBloom(lua_State* L)
 {
 	int n = LUA_GETTOP(L);
 	if (n < 1) return 0;
-	LuaPostEffects_SetBloom((int)lua_tonumber(L, 1), LuaOptionalNumber(L, n, 2), LuaOptionalNumber(L, n, 3));
+	LuaPostEffects_SetBloom((int)lua_tonumber(L, 1), LuaOptionalNumber(L, n, 2), LuaOptionalNumber(L, n, 3), LuaOptionalNumber(L, n, 4), LuaOptionalNumber(L, n, 5));
 	return 0;
 }
 
 int GetBloom(lua_State* L)
 {
 	int iEnabled = 0;
-	float fStrength = 0, fThreshold = 0;
-	LuaPostEffects_GetBloom(&iEnabled, &fStrength, &fThreshold);
+	float fStrength = 0, fThreshold = 0, fRadius = 0, fCap = 0;
+	LuaPostEffects_GetBloom(&iEnabled, &fStrength, &fThreshold, &fRadius, &fCap);
 	lua_pushnumber(L, iEnabled);
 	lua_pushnumber(L, fStrength);
 	lua_pushnumber(L, fThreshold);
-	return 3;
+	lua_pushnumber(L, fRadius);
+	lua_pushnumber(L, fCap);
+	return 5;
 }
 
 int SetDepthOfField(lua_State* L)
@@ -14212,14 +14215,19 @@ int SetLensFlare(lua_State* L)
 {
 	int n = LUA_GETTOP(L);
 	if (n < 1) return 0;
-	LuaPostEffects_SetLensFlare((int)lua_tonumber(L, 1));
+	LuaPostEffects_SetLensFlare((int)lua_tonumber(L, 1), LuaOptionalNumber(L, n, 2), LuaOptionalNumber(L, n, 3));
 	return 0;
 }
 
 int GetLensFlare(lua_State* L)
 {
 	lua_pushnumber(L, GetLensFlareState() ? 1 : 0);
-	return 1;
+	// GG: and how far the sun's flare takes its colour and follows its intensity
+	float fSunHue = 0, fSunBrightness = 0;
+	LuaPostEffects_GetLensFlareSun(&fSunHue, &fSunBrightness);
+	lua_pushnumber(L, fSunHue);
+	lua_pushnumber(L, fSunBrightness);
+	return 3;
 }
 
 // performance levers for the running game (M-GridEditB.cpp LuaRenderSettings_*): kept through visuals pushes and

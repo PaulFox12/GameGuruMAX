@@ -2519,14 +2519,14 @@ GetTerrainPageStats : waiting, visible, readbacks, made = GetTerrainPageStats ( 
 GetGameQuality : quality = GetGameQuality ( ) -- the graphics quality in force: 1 Low, 2 Medium, 3 High (the level's own settings, and what a game has until the player changes quality), 4 Ultra
 RayTrees : hit, x, y, z, nx, ny, nz = RayTrees ( x1, y1, z1, x2, y2, z2 ) -- the nearest tree trunk the segment meets, anywhere on the map (the physics and IntersectAll see only trunks near the camera, or none): hit 1 with the point and the trunk's normal, else 0 and zeros. A trunk is as thick as the trees' collision (by species and scale), from the ground to the tree's top; canopies don't count, nor trees hidden under a building or removed by a blast. Walks only the tree chunks along the segment, so long rays (a laser designator's) are cheap
 
-SetBloom : SetBloom ( on [, strength [, threshold] ] ) -- bloom on (1) or off (0), strength 0.1 to 3, threshold 0.1 to 10. For this level only; omitted or negative values keep the current ones
-GetBloom : on, strength, threshold = GetBloom()
+SetBloom : SetBloom ( on [, strength [, threshold [, radius [, cap] ] ] ] ) -- bloom on (1) or off (0), strength 0.1 to 10, threshold 0.1 to 10, radius 0 (as before) to 2 for wider halos, cap 1 to 10000 the brightest a pixel counts for (30 as before). For this level only; omitted or negative values keep the current ones
+GetBloom : on, strength, threshold, radius, cap = GetBloom()
 SetDepthOfField : SetDepthOfField ( on [, strength [, focalLength [, aperture] ] ] ) -- depth of field on or off, strength 1 to 20, focal length 0.001 to 800, aperture 0 to 1. For this level only
 GetDepthOfField : on, strength, focalLength, aperture = GetDepthOfField()
 SetLightShafts : SetLightShafts ( on ) -- sun light shafts on or off, for this level only
 GetLightShafts : on = GetLightShafts()
-SetLensFlare : SetLensFlare ( on ) -- sun lens flare on or off, for this level only
-GetLensFlare : on = GetLensFlare()
+SetLensFlare : SetLensFlare ( on [, suncolour [, sunintensity] ] ) -- sun lens flare on or off; suncolour 0 to 1 how far it takes the sun's colour, sunintensity 0 to 1 how far it follows the sun's intensity against the level's. For this level only; omitted or negative values keep the current ones
+GetLensFlare : on, suncolour, sunintensity = GetLensFlare()
 SetOcclusionCulling : SetOcclusionCulling ( on [, objects [, animations [, terrain [, shadows] ] ] ] ) -- the GPU occlusion culling (skips what stands wholly behind something, a frame late, nothing within 1500 units) and what uses it: objects, the animation of an occluded character (it pauses), terrain chunks, point and spot light shadows; 1 or 0 each, an omitted or negative value keeps the current one. Kept through graphics quality changes until the level ends (not SetOcclusion, the old CPU occluder) (a sixth value, spotShadows, sets spot light shadow culling apart from point light shadows)
 SetLODMultiplier : SetLODMultiplier ( v ) -- models with LOD levels (a _lod.dbo) switch to LOD 1, 2, 3 past 400, 600, 800 units times v (0 to 15; the graphics quality sets 1 to 3); until the level ends
 SetShadowsLowestLOD : SetShadowsLowestLOD ( on ) -- models cast shadows from their lowest LOD (cheaper); until the level ends

@@ -7498,6 +7498,7 @@ void Wicked_Update_LightColors(void* visual)
 		weather->zenith.z = visuals->ZenithBlue_f / 255.0f;
 	}
 	WickedCall_SetSunColors(visuals->SunRed_f / 255.0, visuals->SunGreen_f / 255.0, visuals->SunBlue_f / 255.0, visuals->SunIntensity_f, 1.0f, t.visuals.fSunShadowBias);
+	wiRenderer::SetLensFlareEnergyReference(visuals->SunIntensity_f); // GG: the sun's flare brightness against the level's
 }
 
 void Wicked_Update_Wind(void* visual)
@@ -7566,12 +7567,16 @@ struct sLuaPostEffects
 	int iBloom = -1;
 	float fBloomStrength = -1;
 	float fBloomThreshold = -1;
+	float fBloomRadius = -1;
+	float fBloomCap = -1;
 	int iDOF = -1;
 	float fDOFStrength = -1;
 	float fDOFFocalLength = -1;
 	float fDOFApertureSize = -1;
 	int iLightShafts = -1;
 	int iLensFlare = -1;
+	float fLensFlareSunHue = -1;
+	float fLensFlareSunBrightness = -1;
 };
 sLuaPostEffects g_LuaPostEffects;
 
@@ -7589,6 +7594,8 @@ void LuaPostEffects_Apply(void)
 	if (p->iBloom >= 0) master_renderer->setBloomEnabled(p->iBloom != 0);
 	if (p->fBloomStrength >= 0) master_renderer->setBloomStrength(p->fBloomStrength);
 	if (p->fBloomThreshold >= 0) master_renderer->setBloomThreshold(p->fBloomThreshold);
+	if (p->fBloomRadius >= 0) master_renderer->setBloomRadius(p->fBloomRadius);
+	if (p->fBloomCap >= 0) master_renderer->setBloomCap(p->fBloomCap);
 	if (p->iDOF >= 0) master_renderer->setDepthOfFieldEnabled(p->iDOF != 0);
 	if (p->fDOFStrength >= 0) master_renderer->setDepthOfFieldStrength(p->fDOFStrength);
 	if (p->fDOFFocalLength >= 0 || p->fDOFApertureSize >= 0)
@@ -7601,19 +7608,28 @@ void LuaPostEffects_Apply(void)
 	}
 	if (p->iLightShafts >= 0) master_renderer->setLightShaftsEnabled(p->iLightShafts != 0);
 	if (p->iLensFlare >= 0) master_renderer->setLensFlareEnabled(p->iLensFlare != 0);
+	if (p->fLensFlareSunHue >= 0 || p->fLensFlareSunBrightness >= 0)
+	{
+		wiRenderer::SetLensFlareLightColour(p->fLensFlareSunHue >= 0 ? p->fLensFlareSunHue : wiRenderer::GetLensFlareLightHue(),
+			p->fLensFlareSunBrightness >= 0 ? p->fLensFlareSunBrightness : wiRenderer::GetLensFlareLightBrightness());
+	}
 }
 
 // values below 0 keep the current setting; ranges as the editor's sliders
-void LuaPostEffects_SetBloom(int iEnabled, float fStrength, float fThreshold)
+void LuaPostEffects_SetBloom(int iEnabled, float fStrength, float fThreshold, float fRadius, float fCap)
 {
 	if (iEnabled >= 0) g_LuaPostEffects.iBloom = iEnabled ? 1 : 0;
-	if (fStrength >= 0) g_LuaPostEffects.fBloomStrength = LuaPostEffects_Clamp(fStrength, 0.1f, 3.0f);
+	if (fStrength >= 0) g_LuaPostEffects.fBloomStrength = LuaPostEffects_Clamp(fStrength, 0.1f, 10.0f);
 	if (fThreshold >= 0) g_LuaPostEffects.fBloomThreshold = LuaPostEffects_Clamp(fThreshold, 0.1f, 10.0f);
+	if (fRadius >= 0) g_LuaPostEffects.fBloomRadius = LuaPostEffects_Clamp(fRadius, 0.0f, 2.0f);
+	if (fCap >= 0) g_LuaPostEffects.fBloomCap = LuaPostEffects_Clamp(fCap, 1.0f, 10000.0f);
 	LuaPostEffects_Apply();
 }
 
-void LuaPostEffects_GetBloom(int* piEnabled, float* pfStrength, float* pfThreshold)
+void LuaPostEffects_GetBloom(int* piEnabled, float* pfStrength, float* pfThreshold, float* pfRadius, float* pfCap)
 {
+	*pfRadius = master_renderer ? master_renderer->getBloomRadius() : 0;
+	*pfCap = master_renderer ? master_renderer->getBloomCap() : 0;
 	*piEnabled = (master_renderer && master_renderer->getBloomEnabled()) ? 1 : 0;
 	*pfStrength = master_renderer ? master_renderer->getBloomStrength() : 0;
 	*pfThreshold = master_renderer ? master_renderer->getBloomThreshold() : 0;
@@ -7643,9 +7659,17 @@ void LuaPostEffects_SetLightShafts(int iEnabled)
 	LuaPostEffects_Apply();
 }
 
-void LuaPostEffects_SetLensFlare(int iEnabled)
+void LuaPostEffects_GetLensFlareSun(float* pfSunHue, float* pfSunBrightness)
+{
+	*pfSunHue = wiRenderer::GetLensFlareLightHue();
+	*pfSunBrightness = wiRenderer::GetLensFlareLightBrightness();
+}
+
+void LuaPostEffects_SetLensFlare(int iEnabled, float fSunHue, float fSunBrightness)
 {
 	if (iEnabled >= 0) g_LuaPostEffects.iLensFlare = iEnabled ? 1 : 0;
+	if (fSunHue >= 0) g_LuaPostEffects.fLensFlareSunHue = LuaPostEffects_Clamp(fSunHue, 0.0f, 1.0f);
+	if (fSunBrightness >= 0) g_LuaPostEffects.fLensFlareSunBrightness = LuaPostEffects_Clamp(fSunBrightness, 0.0f, 1.0f);
 	LuaPostEffects_Apply();
 }
 
@@ -7657,11 +7681,13 @@ void LuaPostEffects_Clear(void* pVisualsToRestore)
 	g_LuaPostEffects = sLuaPostEffects();
 	visualstype* visuals = (visualstype*)pVisualsToRestore;
 	if (!visuals || !master_renderer) return;
-	if (old.iBloom >= 0 || old.fBloomStrength >= 0 || old.fBloomThreshold >= 0)
+	if (old.iBloom >= 0 || old.fBloomStrength >= 0 || old.fBloomThreshold >= 0 || old.fBloomRadius >= 0 || old.fBloomCap >= 0)
 	{
 		master_renderer->setBloomEnabled(visuals->bBloomEnabled);
 		master_renderer->setBloomStrength(visuals->fsetBloomStrength);
 		master_renderer->setBloomThreshold(visuals->fsetBloomThreshold);
+		master_renderer->setBloomRadius(visuals->fsetBloomRadius);
+		master_renderer->setBloomCap(visuals->fsetBloomCap);
 	}
 	if (old.iDOF >= 0 || old.fDOFStrength >= 0 || old.fDOFFocalLength >= 0 || old.fDOFApertureSize >= 0)
 	{
@@ -7675,6 +7701,7 @@ void LuaPostEffects_Clear(void* pVisualsToRestore)
 	}
 	if (old.iLightShafts >= 0) master_renderer->setLightShaftsEnabled(visuals->bLightShafts);
 	if (old.iLensFlare >= 0) master_renderer->setLensFlareEnabled(visuals->bLensFlare);
+	if (old.fLensFlareSunHue >= 0 || old.fLensFlareSunBrightness >= 0) wiRenderer::SetLensFlareLightColour(visuals->fLensFlareSunHue, visuals->fLensFlareSunBrightness);
 }
 
 // performance levers set from Lua (SetOcclusionCulling, SetLODMultiplier, SetShadowsLowestLOD, SetDelayedShadows,
@@ -8616,6 +8643,7 @@ void Wicked_Update_Visuals(void *voidvisual)
 	}
 
 	WickedCall_SetSunColors(visuals->SunRed_f / 255.0, visuals->SunGreen_f / 255.0, visuals->SunBlue_f / 255.0, visuals->SunIntensity_f, 1.0f, t.visuals.fSunShadowBias);
+	wiRenderer::SetLensFlareEnergyReference(visuals->SunIntensity_f); // GG: the sun's flare brightness against the level's
 	WickedCall_SetSunDirection(visuals->SunAngleX, visuals->SunAngleY, visuals->SunAngleZ);
 
 	if (master_renderer) 
@@ -8656,6 +8684,8 @@ void Wicked_Update_Visuals(void *voidvisual)
 		master_renderer->setBloomEnabled(visuals->bBloomEnabled);
 		master_renderer->setBloomThreshold(visuals->fsetBloomThreshold);
 		master_renderer->setBloomStrength(visuals->fsetBloomStrength);
+		master_renderer->setBloomRadius(visuals->fsetBloomRadius);
+		master_renderer->setBloomCap(visuals->fsetBloomCap);
 		master_renderer->setSSREnabled(visuals->bSSREnabled);
 		master_renderer->setReflectionsEnabled(visuals->bReflectionsEnabled);
 		master_renderer->setFXAAEnabled(visuals->bFXAAEnabled);
@@ -8750,6 +8780,7 @@ void Wicked_Update_Visuals(void *voidvisual)
 		master_renderer->setLightShaftsEnabled(visuals->bLightShafts);
 
 		master_renderer->setLensFlareEnabled(visuals->bLensFlare);
+		wiRenderer::SetLensFlareLightColour(visuals->fLensFlareSunHue, visuals->fLensFlareSunBrightness);
 
 		// post effects a game script set keep their values through this push
 		LuaPostEffects_Apply();
@@ -53557,7 +53588,7 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Threshold is a measure of how bright an object or area must be before the bloom effect is applied");
 
-			if (ImGui::SliderFloat("##WickedsetBloomStrength", &t.visuals.fsetBloomStrength, 0.1f, 3.0f, "%.2f", 1.0f))
+			if (ImGui::SliderFloat("##WickedsetBloomStrength", &t.visuals.fsetBloomStrength, 0.1f, 10.0f, "%.2f", 2.0f))
 			{
 				t.gamevisuals.fsetBloomStrength = t.visuals.fsetBloomStrength;
 				if (master_renderer) {
@@ -53566,6 +53597,22 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 				g.projectmodified = 1;
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Strength is a measure of how strongly the bloom is applied to the scene");
+
+			// GG: wider halos and the brightest a pixel counts for
+			if (ImGui::SliderFloat("##WickedsetBloomRadius", &t.visuals.fsetBloomRadius, 0.0f, 2.0f, "Radius %.2f", 1.0f))
+			{
+				t.gamevisuals.fsetBloomRadius = t.visuals.fsetBloomRadius;
+				if (master_renderer) master_renderer->setBloomRadius(t.visuals.fsetBloomRadius);
+				g.projectmodified = 1;
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Radius adds wider, softer halos around bright areas (0 as before)");
+			if (ImGui::SliderFloat("##WickedsetBloomCap", &t.visuals.fsetBloomCap, 1.0f, 10000.0f, "Cap %.0f", 4.0f))
+			{
+				t.gamevisuals.fsetBloomCap = t.visuals.fsetBloomCap;
+				if (master_renderer) master_renderer->setBloomCap(t.visuals.fsetBloomCap);
+				g.projectmodified = 1;
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Cap is the brightest a pixel counts for in the bloom (30 as before): raise it so very bright lights such as missiles glow more and keep their colour");
 
 			ImGui::PopItemWidth();
 		}
@@ -53633,6 +53680,24 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			g.projectmodified = 1;
 		}
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enables lens flare from light cast from the sun");
+		// GG: the sun's flare takes its colour and follows its intensity
+		if (t.visuals.bLensFlare)
+		{
+			if (ImGui::SliderFloat("##LensFlareSunHue", &t.visuals.fLensFlareSunHue, 0.0f, 1.0f, "Sun Colour %.2f", 1.0f))
+			{
+				t.gamevisuals.fLensFlareSunHue = t.visuals.fLensFlareSunHue;
+				wiRenderer::SetLensFlareLightColour(t.visuals.fLensFlareSunHue, t.visuals.fLensFlareSunBrightness);
+				g.projectmodified = 1;
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How far the lens flare takes the sun's colour (0 the flare images' own colour)");
+			if (ImGui::SliderFloat("##LensFlareSunBrightness", &t.visuals.fLensFlareSunBrightness, 0.0f, 1.0f, "Sun Intensity %.2f", 1.0f))
+			{
+				t.gamevisuals.fLensFlareSunBrightness = t.visuals.fLensFlareSunBrightness;
+				wiRenderer::SetLensFlareLightColour(t.visuals.fLensFlareSunHue, t.visuals.fLensFlareSunBrightness);
+				g.projectmodified = 1;
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How far the lens flare dims and brightens with the sun's intensity against the level's (0 constant)");
+		}
 		ImGui::PopItemWidth();
 
 		ImGui::PushItemWidth(-10);
