@@ -8541,6 +8541,7 @@ void LuaGameVisuals_Clear(void)
 	GGTerrain::GGTerrain_SetShadeMeasure(0);
 	GGTerrain::GGTerrain_ResetWetness();
 	extern void decal_setripplebatching(bool bOn); decal_setripplebatching(false);
+	extern bool g_bPhysicsWorldAt60; g_bPhysicsWorldAt60 = false;
 	extern int g_iGunReloadWhileRunning; extern bool g_bGunReloadWanted;
 	g_iGunReloadWhileRunning = 0; g_bGunReloadWanted = false;
 

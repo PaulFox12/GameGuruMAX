@@ -8215,6 +8215,23 @@ int GetPhysicsStatsTop(lua_State* L)
 // (the object has its own body in the physics' list), shape (the physics shape's name), mass, x, y, z, speed, spin, state,
 // still, island (as GetPhysicsStatsTop's), points (contact points in the last step), layer, mask (collision bits) }, then
 // how many bodies are awake and how many of them touch nothing
+// SetPhysicsWorldRate(rate) - 60 steps the physics world 60 times a second (half the work) while the player keeps its own
+// 120 steps, as its controller moves a set distance each step; 120 (at first, at a test game's end, and for any other
+// value) steps all of it at 120 as before
+int SetPhysicsWorldRate(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	extern bool g_bPhysicsWorldAt60;
+	g_bPhysicsWorldAt60 = (lua_tonumber(L, 1) == 60);
+	return 0;
+}
+// GetPhysicsWorldRate() - 60 or 120
+int GetPhysicsWorldRate(lua_State* L)
+{
+	extern bool g_bPhysicsWorldAt60;
+	lua_pushinteger(L, g_bPhysicsWorldAt60 ? 60 : 120);
+	return 1;
+}
 int GetPhysicsAwakeBodies(lua_State* L)
 {
 	int iMax = 16;
@@ -17218,6 +17235,8 @@ void addFunctions()
 	lua_register(lua, "GetPhysicsStats", GetPhysicsStats);
 	lua_register(lua, "GetPhysicsStatsTop", GetPhysicsStatsTop);
 	lua_register(lua, "GetPhysicsAwakeBodies", GetPhysicsAwakeBodies);
+	lua_register(lua, "SetPhysicsWorldRate", SetPhysicsWorldRate);
+	lua_register(lua, "GetPhysicsWorldRate", GetPhysicsWorldRate);
 	lua_register(lua, "GetLuaEntityCosts", GetLuaEntityCosts);
 	lua_register(lua, "GetFrameCosts", GetFrameCosts);
 	lua_register(lua, "SetGpuTiming", SetGpuTiming);

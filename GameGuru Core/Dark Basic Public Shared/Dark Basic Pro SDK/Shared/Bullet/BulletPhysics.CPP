@@ -135,6 +135,11 @@ btCollisionDispatcher* g_dispatcher;
 btSequentialImpulseConstraintSolver* g_solver;
 btPairCachingGhostObject* m_ghostObject = NULL;
 btKinematicCharacterController* m_character = NULL;
+// GG: SetPhysicsWorldRate(60): the world steps 60 times a second, half the work, while the player's controller, which
+// moves a set distance each step, keeps stepping 120 times a second on its own; at 120 all of it steps together as before
+bool g_bPhysicsWorldAt60 = false;
+static btKinematicCharacterController* g_pCharacterOwnSteps = NULL;
+static btScalar g_fCharacterLocalTime = 0;
 btBroadphaseInterface* sweepBP = NULL;
 btBroadphaseInterface* m_overlappingPairCache = NULL;
 #ifdef WICKEDENGINE
@@ -760,6 +765,7 @@ void ODEEnd ( void )
 			m_ghostObject = NULL;
 			delete m_character;
 			m_character = NULL;
+			g_pCharacterOwnSteps = NULL;
 		}
 
 		// reset links to regular DBP objects in case any missed
@@ -1044,7 +1050,26 @@ void Update(float fTimeStep)
 		//PE: fixed timestep with interpolation set at 1/60.
 		g_iPhysicsSubSteps = g_dynamicsWorld->stepSimulation(fTimeStep, 7, btScalar(1.) / btScalar(60.));
 	#else
-		g_iPhysicsSubSteps = g_dynamicsWorld->stepSimulation(fTimeStep, 7, 1.0f / 120.0f);
+		// GG: the player's controller is taken out of the world's steps while the world steps at 60, and put back at 120
+		btKinematicCharacterController* pCharacterOwnSteps = g_bPhysicsWorldAt60 ? m_character : NULL;
+		if (pCharacterOwnSteps != g_pCharacterOwnSteps)
+		{
+			if (g_pCharacterOwnSteps) g_dynamicsWorld->addAction(g_pCharacterOwnSteps);
+			if (pCharacterOwnSteps) g_dynamicsWorld->removeAction(pCharacterOwnSteps);
+			g_pCharacterOwnSteps = pCharacterOwnSteps;
+			g_fCharacterLocalTime = 0;
+		}
+		g_iPhysicsSubSteps = g_dynamicsWorld->stepSimulation(fTimeStep, 7, g_bPhysicsWorldAt60 ? btScalar(1.) / btScalar(60.) : 1.0f / 120.0f);
+		if (g_pCharacterOwnSteps)
+		{
+			// the controller's own 1/120 steps after the world's, as many as the world took at 120, at most 7 a frame as before
+			const btScalar fCharacterStep = 1.0f / 120.0f;
+			g_fCharacterLocalTime += fTimeStep;
+			int iCharacterSteps = int(g_fCharacterLocalTime / fCharacterStep);
+			g_fCharacterLocalTime -= iCharacterSteps * fCharacterStep;
+			if (iCharacterSteps > 7) iCharacterSteps = 7;
+			for (int i = 0; i < iCharacterSteps; i++) g_pCharacterOwnSteps->updateAction(g_dynamicsWorld, fCharacterStep);
+		}
 	#endif
 
 	physicslock.unlock();
