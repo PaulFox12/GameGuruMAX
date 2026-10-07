@@ -3869,6 +3869,7 @@ struct visualstype
 	float fScreenLensFlareHalo;
 	bool bScreenLensFlareNoSky;
 	float fScreenLensFlareCap; // GG: the brightest a pixel counts for in it, 200 as before
+	bool bScreenLensFlareFollowBloom; // GG: the bloom's threshold and cap in place of its own
 	bool bSSREnabled;
 	bool bReflectionsEnabled;
 	bool bFXAAEnabled;
@@ -4151,6 +4152,7 @@ struct visualstype
 		 fScreenLensFlareHalo = 0.45f;
 		 bScreenLensFlareNoSky = true;
 		 fScreenLensFlareCap = 200.0f;
+		 bScreenLensFlareFollowBloom = true;
 		 bSSREnabled = false;
 		 bReflectionsEnabled = true;
 		 bFXAAEnabled = false;

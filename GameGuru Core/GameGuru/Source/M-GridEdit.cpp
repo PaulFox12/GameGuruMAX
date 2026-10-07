@@ -15227,6 +15227,7 @@ void editor_previewmapormultiplayer_initcode ( int iUseVRTest )
 	t.gamevisuals.fScreenLensFlareHalo = t.visuals.fScreenLensFlareHalo;
 	t.gamevisuals.bScreenLensFlareNoSky = t.visuals.bScreenLensFlareNoSky;
 	t.gamevisuals.fScreenLensFlareCap = t.visuals.fScreenLensFlareCap;
+	t.gamevisuals.bScreenLensFlareFollowBloom = t.visuals.bScreenLensFlareFollowBloom;
 	t.gamevisuals.bReflectionsEnabled = t.visuals.bReflectionsEnabled;
 	t.gamevisuals.iShadowSpotCascadeResolution = t.visuals.iShadowSpotCascadeResolution;
 	t.gamevisuals.iShadowPointMax = t.visuals.iShadowPointMax;
@@ -16044,6 +16045,7 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.fScreenLensFlareHalo = t.gamevisuals.fScreenLensFlareHalo;
 	t.visuals.bScreenLensFlareNoSky = t.gamevisuals.bScreenLensFlareNoSky;
 	t.visuals.fScreenLensFlareCap = t.gamevisuals.fScreenLensFlareCap;
+	t.visuals.bScreenLensFlareFollowBloom = t.gamevisuals.bScreenLensFlareFollowBloom;
 	t.visuals.bAutoExposure = t.gamevisuals.bAutoExposure;
 	t.visuals.fAutoExposureRate = t.gamevisuals.fAutoExposureRate;
 	t.visuals.fAutoExposureKey = t.gamevisuals.fAutoExposureKey;

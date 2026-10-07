@@ -7584,6 +7584,7 @@ struct sLuaPostEffects
 	float fScreenLensFlareHalo = -1;
 	int iScreenLensFlareNoSky = -1;
 	float fScreenLensFlareCap = -1;
+	int iScreenLensFlareFollowBloom = -1;
 };
 sLuaPostEffects g_LuaPostEffects;
 
@@ -7627,6 +7628,7 @@ void LuaPostEffects_Apply(void)
 	if (p->fScreenLensFlareHalo >= 0) master_renderer->setScreenLensFlareHalo(p->fScreenLensFlareHalo);
 	if (p->iScreenLensFlareNoSky >= 0) master_renderer->setScreenLensFlareNoSky(p->iScreenLensFlareNoSky != 0);
 	if (p->fScreenLensFlareCap >= 0) master_renderer->setScreenLensFlareCap(p->fScreenLensFlareCap);
+	if (p->iScreenLensFlareFollowBloom >= 0) master_renderer->setScreenLensFlareFollowBloom(p->iScreenLensFlareFollowBloom != 0);
 }
 
 // values below 0 keep the current setting; ranges as the editor's sliders
@@ -7674,8 +7676,9 @@ void LuaPostEffects_SetLightShafts(int iEnabled)
 }
 
 // GG: the screen-space lens flare: on, strength 0-10, threshold 0.1-10000, the ghosts' gap 0-1, the halo's radius 0-1, the
-// sky left out (1) or not (0), the cap 1-10000; values below 0 keep the current ones
-void LuaPostEffects_SetScreenLensFlare(int iEnabled, float fIntensity, float fThreshold, float fSpacing, float fHalo, int iNoSky, float fCap)
+// sky left out (1) or not (0), the cap 1-10000, the bloom's threshold and cap in place of its own (1) or not (0); values
+// below 0 keep the current ones
+void LuaPostEffects_SetScreenLensFlare(int iEnabled, float fIntensity, float fThreshold, float fSpacing, float fHalo, int iNoSky, float fCap, int iFollowBloom)
 {
 	if (iEnabled >= 0) g_LuaPostEffects.iScreenLensFlare = iEnabled ? 1 : 0;
 	if (fIntensity >= 0) g_LuaPostEffects.fScreenLensFlareIntensity = LuaPostEffects_Clamp(fIntensity, 0.0f, 10.0f);
@@ -7684,10 +7687,11 @@ void LuaPostEffects_SetScreenLensFlare(int iEnabled, float fIntensity, float fTh
 	if (fHalo >= 0) g_LuaPostEffects.fScreenLensFlareHalo = LuaPostEffects_Clamp(fHalo, 0.0f, 1.0f);
 	if (iNoSky >= 0) g_LuaPostEffects.iScreenLensFlareNoSky = iNoSky ? 1 : 0;
 	if (fCap >= 0) g_LuaPostEffects.fScreenLensFlareCap = LuaPostEffects_Clamp(fCap, 1.0f, 10000.0f);
+	if (iFollowBloom >= 0) g_LuaPostEffects.iScreenLensFlareFollowBloom = iFollowBloom ? 1 : 0;
 	LuaPostEffects_Apply();
 }
 
-void LuaPostEffects_GetScreenLensFlare(int* piEnabled, float* pfIntensity, float* pfThreshold, float* pfSpacing, float* pfHalo, int* piNoSky, float* pfCap)
+void LuaPostEffects_GetScreenLensFlare(int* piEnabled, float* pfIntensity, float* pfThreshold, float* pfSpacing, float* pfHalo, int* piNoSky, float* pfCap, int* piFollowBloom)
 {
 	*piEnabled = (master_renderer && master_renderer->getScreenLensFlareEnabled()) ? 1 : 0;
 	*pfIntensity = master_renderer ? master_renderer->getScreenLensFlareIntensity() : 0;
@@ -7696,6 +7700,7 @@ void LuaPostEffects_GetScreenLensFlare(int* piEnabled, float* pfIntensity, float
 	*pfHalo = master_renderer ? master_renderer->getScreenLensFlareHalo() : 0;
 	*piNoSky = (master_renderer && master_renderer->getScreenLensFlareNoSky()) ? 1 : 0;
 	*pfCap = master_renderer ? master_renderer->getScreenLensFlareCap() : 0;
+	*piFollowBloom = (master_renderer && master_renderer->getScreenLensFlareFollowBloom()) ? 1 : 0;
 }
 
 void LuaPostEffects_GetLensFlareSun(float* pfSunHue, float* pfSunBrightness)
@@ -7741,7 +7746,7 @@ void LuaPostEffects_Clear(void* pVisualsToRestore)
 	if (old.iLightShafts >= 0) master_renderer->setLightShaftsEnabled(visuals->bLightShafts);
 	if (old.iLensFlare >= 0) master_renderer->setLensFlareEnabled(visuals->bLensFlare);
 	if (old.fLensFlareSunHue >= 0 || old.fLensFlareSunBrightness >= 0) wiRenderer::SetLensFlareLightColour(visuals->fLensFlareSunHue, visuals->fLensFlareSunBrightness);
-	if (old.iScreenLensFlare >= 0 || old.fScreenLensFlareIntensity >= 0 || old.fScreenLensFlareThreshold >= 0 || old.fScreenLensFlareSpacing >= 0 || old.fScreenLensFlareHalo >= 0 || old.iScreenLensFlareNoSky >= 0 || old.fScreenLensFlareCap >= 0)
+	if (old.iScreenLensFlare >= 0 || old.fScreenLensFlareIntensity >= 0 || old.fScreenLensFlareThreshold >= 0 || old.fScreenLensFlareSpacing >= 0 || old.fScreenLensFlareHalo >= 0 || old.iScreenLensFlareNoSky >= 0 || old.fScreenLensFlareCap >= 0 || old.iScreenLensFlareFollowBloom >= 0)
 	{
 		master_renderer->setScreenLensFlareEnabled(visuals->bScreenLensFlare);
 		master_renderer->setScreenLensFlareIntensity(visuals->fScreenLensFlareIntensity);
@@ -7750,6 +7755,7 @@ void LuaPostEffects_Clear(void* pVisualsToRestore)
 		master_renderer->setScreenLensFlareHalo(visuals->fScreenLensFlareHalo);
 		master_renderer->setScreenLensFlareNoSky(visuals->bScreenLensFlareNoSky);
 		master_renderer->setScreenLensFlareCap(visuals->fScreenLensFlareCap);
+		master_renderer->setScreenLensFlareFollowBloom(visuals->bScreenLensFlareFollowBloom);
 	}
 }
 
@@ -8838,6 +8844,7 @@ void Wicked_Update_Visuals(void *voidvisual)
 		master_renderer->setScreenLensFlareHalo(visuals->fScreenLensFlareHalo);
 		master_renderer->setScreenLensFlareNoSky(visuals->bScreenLensFlareNoSky);
 		master_renderer->setScreenLensFlareCap(visuals->fScreenLensFlareCap);
+		master_renderer->setScreenLensFlareFollowBloom(visuals->bScreenLensFlareFollowBloom);
 
 		// post effects a game script set keep their values through this push
 		LuaPostEffects_Apply();
@@ -53670,6 +53677,7 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 				g.projectmodified = 1;
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Cap is the brightest a pixel counts for in the bloom (30 as before): raise it so very bright lights such as missiles glow more and keep their colour");
+			if (t.visuals.fsetBloomCap <= t.visuals.fsetBloomThreshold) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Cap at or below the threshold: nothing blooms");
 
 			ImGui::PopItemWidth();
 		}
@@ -53768,10 +53776,21 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			bool bChanged = false;
 			if (ImGui::SliderFloat("##ScreenLensFlareIntensity", &t.visuals.fScreenLensFlareIntensity, 0.0f, 10.0f, "Strength %.3f", 3.0f)) bChanged = true;
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How strong the screen lens flare is");
-			if (ImGui::SliderFloat("##ScreenLensFlareThreshold", &t.visuals.fScreenLensFlareThreshold, 0.1f, 10000.0f, "Threshold %.2f", 4.0f)) bChanged = true;
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How bright a spot must be to flare (its own, apart from the bloom's); keep it below the cap");
-			if (ImGui::SliderFloat("##ScreenLensFlareCap", &t.visuals.fScreenLensFlareCap, 1.0f, 10000.0f, "Cap %.0f", 4.0f)) bChanged = true;
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The brightest a pixel counts for in the flare, before the threshold is taken off; raise it so the brightest spots (missiles) stand out from lamps");
+			if (ImGui::Checkbox("Follow Bloom##ScreenLensFlareFollowBloom", &t.visuals.bScreenLensFlareFollowBloom)) bChanged = true;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Use the bloom's threshold and cap, so what blooms also flares; off gives the flare its own");
+			if (t.visuals.bScreenLensFlareFollowBloom)
+			{
+				ImGui::Text("Bloom's Threshold %.2f, Cap %.0f", t.visuals.fsetBloomThreshold, t.visuals.fsetBloomCap);
+				if (t.visuals.fsetBloomCap <= t.visuals.fsetBloomThreshold) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Cap at or below the threshold: nothing flares");
+			}
+			else
+			{
+				if (ImGui::SliderFloat("##ScreenLensFlareThreshold", &t.visuals.fScreenLensFlareThreshold, 0.1f, 10000.0f, "Threshold %.2f", 4.0f)) bChanged = true;
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("How bright a spot must be to flare (its own, apart from the bloom's); keep it below the cap");
+				if (ImGui::SliderFloat("##ScreenLensFlareCap", &t.visuals.fScreenLensFlareCap, 1.0f, 10000.0f, "Cap %.0f", 4.0f)) bChanged = true;
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("The brightest a pixel counts for in the flare, before the threshold is taken off; raise it so the brightest spots (missiles) stand out from lamps");
+				if (t.visuals.fScreenLensFlareCap <= t.visuals.fScreenLensFlareThreshold) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Cap at or below the threshold: nothing flares");
+			}
 			if (ImGui::SliderFloat("##ScreenLensFlareSpacing", &t.visuals.fScreenLensFlareSpacing, 0.0f, 1.0f, "Ghost Spacing %.2f", 1.0f)) bChanged = true;
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The gap between the flare's ghosts along the line through the centre of the screen");
 			if (ImGui::SliderFloat("##ScreenLensFlareHalo", &t.visuals.fScreenLensFlareHalo, 0.0f, 1.0f, "Halo Radius %.2f", 1.0f)) bChanged = true;
@@ -53786,6 +53805,7 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 				t.gamevisuals.fScreenLensFlareHalo = t.visuals.fScreenLensFlareHalo;
 				t.gamevisuals.bScreenLensFlareNoSky = t.visuals.bScreenLensFlareNoSky;
 				t.gamevisuals.fScreenLensFlareCap = t.visuals.fScreenLensFlareCap;
+				t.gamevisuals.bScreenLensFlareFollowBloom = t.visuals.bScreenLensFlareFollowBloom;
 				if (master_renderer)
 				{
 					master_renderer->setScreenLensFlareIntensity(t.visuals.fScreenLensFlareIntensity);
@@ -53794,6 +53814,7 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 					master_renderer->setScreenLensFlareHalo(t.visuals.fScreenLensFlareHalo);
 					master_renderer->setScreenLensFlareNoSky(t.visuals.bScreenLensFlareNoSky);
 					master_renderer->setScreenLensFlareCap(t.visuals.fScreenLensFlareCap);
+					master_renderer->setScreenLensFlareFollowBloom(t.visuals.bScreenLensFlareFollowBloom);
 				}
 				g.projectmodified = 1;
 			}
