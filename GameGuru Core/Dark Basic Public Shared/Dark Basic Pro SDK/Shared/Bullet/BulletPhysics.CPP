@@ -135,8 +135,8 @@ btCollisionDispatcher* g_dispatcher;
 btSequentialImpulseConstraintSolver* g_solver;
 btPairCachingGhostObject* m_ghostObject = NULL;
 btKinematicCharacterController* m_character = NULL;
-btAxisSweep3* sweepBP = NULL;
-btAxisSweep3* m_overlappingPairCache = NULL;
+btBroadphaseInterface* sweepBP = NULL;
+btBroadphaseInterface* m_overlappingPairCache = NULL;
 #ifdef WICKEDENGINE
 BulletDebugDrawer g_debugDrawer;
 #endif
@@ -658,9 +658,10 @@ void ODEStart ( void )
 
 	///use the default collision dispatcher. For parallel processing you can use a diffent dispatcher (see Extras/BulletMultiThreaded)
 	g_dispatcher = new	btCollisionDispatcher(g_collisionConfiguration);
-	btVector3 worldMin(-500,-2500,-500);
-	btVector3 worldMax(1800,4000,1800);
-	sweepBP = new btAxisSweep3(worldMin,worldMax);
+	// GG: a broadphase with no world bounds. The axis sweep's box (x and z -500 to 1800, -20,000 to 72,000 in world units)
+	// clamped every body outside it to its edge, so far apart bodies there overlapped on one axis, made pairs and shared
+	// one simulation island that never slept; a MAX map is centred on 0 and can be far larger
+	sweepBP = new btDbvtBroadphase();
 	m_overlappingPairCache = sweepBP;
 
 	///the default constraint solver. For parallel processing you can use a different solver (see Extras/BulletMultiThreaded)
