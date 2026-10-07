@@ -24,6 +24,11 @@ int g_weaponboneshadereffectindex = 0;
 // is used to select a target for a player counter attack
 int g_iCounterAttackTargetForPlayer = 0;
 
+// GG: reload while running (SetGunReloadWhileRunning): a reload asked for while the gun is in its run animation is kept,
+// the run animation stood down for it as firing does, and the reload started once the gun has left it
+int g_iGunReloadWhileRunning = 0;
+bool g_bGunReloadWanted = false;
+
 void gun_flashbrass_position(float* pfWorldPosX, float* pfWorldPosY, float* pfWorldPosZ, float fModX, float fModY, float fModZ);
 template<typename T> static inline T PELerp(T a, T b, float t) { return (T)(a + (b - a) * t); }
 
@@ -348,6 +353,11 @@ void gun_manager ( void )
 					{
 						t.gunmode = 121;
 					}
+					else
+					{
+						// GG: kept until the gun has left the run animation (SetGunReloadWhileRunning)
+						if ( g_iGunReloadWhileRunning == 1 ) g_bGunReloadWanted = true;
+					}
 				}
 			}
 		}
@@ -358,6 +368,24 @@ void gun_manager ( void )
 			{
 				//  AirMod - Enable MOVE animation in crouch
 				if (  t.player[1].state.moving != 0  )  t.gunmode = 21;
+			}
+		}
+	}
+
+	// GG: a reload kept while running starts once the gun has left the run animation; dropped if the switch is off or
+	// another action (firing, melee, zoom, a weapon change) took the gun first
+	if ( g_bGunReloadWanted == true )
+	{
+		if ( g_iGunReloadWhileRunning == 0 || t.gunmode >= 30 || bGunshotOverridden == true )
+		{
+			g_bGunReloadWanted = false;
+		}
+		else
+		{
+			if ( t.playercontrol.usingrun == -1 && (t.gunmode<27 || t.gunmode>28) )
+			{
+				g_bGunReloadWanted = false;
+				t.gunmode = 121;
 			}
 		}
 	}
@@ -1678,7 +1706,8 @@ void gun_control ( void )
 	bool bReallyRunning = false;
 	bool bTrueFiring = false;
 	if ( t.player[t.plrid].state.firingmode == 1 && t.weaponammo[g.weaponammoindex+g.ammooffset] > 0 ) bTrueFiring = true;
-	if ( t.playercontrol.isrunning == 1 && bTrueFiring == false && t.gun[t.gunid].settings.ismelee == 0 ) 
+	// GG: a reload kept while running (SetGunReloadWhileRunning) stands the run animation down, as firing does
+	if ( t.playercontrol.isrunning == 1 && bTrueFiring == false && t.gun[t.gunid].settings.ismelee == 0 && g_bGunReloadWanted == false ) 
 	{
 		// also ensure player is not reloading, meleeing, firing but is moving
 		if ( t.playercontrol.movement != 0 && (t.gunmode < 121 || t.gunmode > 126) && (t.gunmode < 700 || t.gunmode > 707) )

@@ -8457,6 +8457,8 @@ void LuaGameVisuals_Clear(void)
 	GGTerrain::GGTerrain_SetDepthOnlyPrepass(0);
 	GGTerrain::GGTerrain_SetSeabedSkip(0);
 	GGTerrain::GGTerrain_SetShadeMeasure(0);
+	extern int g_iGunReloadWhileRunning; extern bool g_bGunReloadWanted;
+	g_iGunReloadWhileRunning = 0; g_bGunReloadWanted = false;
 
 	// and the trees blasts removed (SetGrassKillBox and SetProjectedDecalGrass with trees), here and at level start
 	GGTrees_RestoreKilled();

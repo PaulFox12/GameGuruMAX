@@ -14756,6 +14756,16 @@ int SetTerrainSeabedSkip(lua_State* L)
 	GGTerrain::GGTerrain_SetSeabedSkip((int)lua_tointeger(L, 1));
 	return 0;
 }
+// SetGunReloadWhileRunning(on) - 1 lets the player reload while running: the gun leaves its run animation for the reload, as
+// it does to fire, and goes back to it after; 0 (at first, and when a test game ends) the stock rule, no reload until the
+// player stops running
+int SetGunReloadWhileRunning(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	extern int g_iGunReloadWhileRunning;
+	g_iGunReloadWhileRunning = lua_tointeger(L, 1) != 0 ? 1 : 0;
+	return 0;
+}
 // SetTerrainShadeMeasure(flags) - parts of the terrain's colour pass left out, to time what each costs (a measuring run only:
 // the terrain looks wrong meanwhile): 1 the steep rock, 2 shadows, 4 all lighting (lights, probes, decals), 8 the page
 // lookup and its samples (a flat colour), 16 fog; added together for several; 0 (at first) none
@@ -17962,6 +17972,7 @@ void addFunctions()
 	lua_register(lua, "SetTerrainDepthOnlyPrepass", SetTerrainDepthOnlyPrepass);
 	lua_register(lua, "SetTerrainSeabedSkip", SetTerrainSeabedSkip);
 	lua_register(lua, "SetTerrainShadeMeasure", SetTerrainShadeMeasure);
+	lua_register(lua, "SetGunReloadWhileRunning", SetGunReloadWhileRunning);
 	lua_register(lua, "GetGrassShade", GetGrassShade);
 	lua_register(lua, "GetTextureSource", GetTextureSource);
 	lua_register(lua, "GetEngineProbe", GetEngineProbe);
