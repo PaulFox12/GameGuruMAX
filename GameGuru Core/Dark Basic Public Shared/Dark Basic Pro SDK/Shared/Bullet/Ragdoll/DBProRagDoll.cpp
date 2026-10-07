@@ -466,6 +466,9 @@ void DBProRagDoll::Activate()
 	}
 }
 
+// GG: a force, or at a world rate of 60 an impulse so a frame with no world step doesn't lose it (BulletPhysics.CPP)
+extern void PhysicsApplyPush(btRigidBody* pBody, const btVector3& force, const btVector3& relPos);
+
 void DBProRagDoll::ApplyForce(int iLimbNumber, btVector3& Start, btVector3& End, float fForceValue)
 {
 	for (int i = 0; i < m_ragDollBoneArray.size(); i++)
@@ -478,7 +481,7 @@ void DBProRagDoll::ApplyForce(int iLimbNumber, btVector3& Start, btVector3& End,
 		force = force * (fForceValue/gSc);
 		if ( iLimbNumber==-1 )
 		{
-			pBody->applyForce(force, relPos);
+			PhysicsApplyPush(pBody, force, relPos);
 		}
 		else
 		{
@@ -486,7 +489,7 @@ void DBProRagDoll::ApplyForce(int iLimbNumber, btVector3& Start, btVector3& End,
 			{
 				if ( iLimbNumber==m_ragDollBoneArray[i]->dbproLimbIDs[j] )
 				{
-					pBody->applyForce(force, relPos);
+					PhysicsApplyPush(pBody, force, relPos);
 				}
 			}
 		}

@@ -140,6 +140,22 @@ btKinematicCharacterController* m_character = NULL;
 bool g_bPhysicsWorldAt60 = false;
 static btKinematicCharacterController* g_pCharacterOwnSteps = NULL;
 static btScalar g_fCharacterLocalTime = 0;
+static float g_fPhysicsFrameTime = 1.0f / 60.0f;
+
+// GG: a one-off push (PushObject, a shot's ray force, a ragdoll hit): at a world rate of 60 an impulse, the force times
+// the frame's time, as a frame that takes no world step clears its forces before any step applies them (stepSimulation's
+// clearForces) and the push was lost; on average that is the push a force gave at 120, where a frame's steps add up to
+// its time. At 120 a force as before
+void PhysicsApplyPush(btRigidBody* pBody, const btVector3& force, const btVector3& relPos)
+{
+	if (!g_bPhysicsWorldAt60)
+	{
+		pBody->applyForce(force, relPos);
+		return;
+	}
+	// a sleeping body takes no force, so it takes no impulse either
+	if (pBody->isActive()) pBody->applyImpulse(force * g_fPhysicsFrameTime, relPos);
+}
 btBroadphaseInterface* sweepBP = NULL;
 btBroadphaseInterface* m_overlappingPairCache = NULL;
 #ifdef WICKEDENGINE
@@ -1038,6 +1054,9 @@ static void ODEObjectPoseFromBody ( sObjectList* pEntry, sObject* pObject, const
 
 void Update(float fTimeStep)
 {
+	// GG: the frame's time for PhysicsApplyPush, at most the 7 steps at 120 a frame could take
+	g_fPhysicsFrameTime = fTimeStep < 7.0f / 120.0f ? fTimeStep : 7.0f / 120.0f;
+
 	// step physics simulation
 	//PE: 1.0f/120.0f is what is killing the bullet engine (fps drops) , simulation in 1:1 is 1.0f / 60.0f, 1.0f/120.0f run twice as fast.
 	//PE: We are calling it at 60 fps , so bullet is always behind and need to call the simulation many times per frame to keep up.
@@ -4067,7 +4086,7 @@ void ODEAddBodyForce ( int iObject, float fX, float fY, float fZ, float fPX, flo
 
 	// apply force
 	pPhyObject->body->activate();
-	pPhyObject->body->applyForce(btVector3(fX/gSc,fY/gSc,fZ/gSc), btVector3(fPX/gSc,fPY/gSc,fPZ/gSc));
+	PhysicsApplyPush(pPhyObject->body, btVector3(fX/gSc,fY/gSc,fZ/gSc), btVector3(fPX/gSc,fPY/gSc,fPZ/gSc));
 }
 
 void ODESetAngularVelocity (int iObject, float fX, float fY, float fZ)
@@ -4265,7 +4284,7 @@ int ODERayForce ( float fX, float fY, float fZ, float fToX, float fToY, float fT
 				btVector3 force = (End-Start);
 				force = force / force.length() / gSc;
 				force = force * (fForceValue/gSc);
-				pBody->applyForce(force, relPos);
+				PhysicsApplyPush(pBody, force, relPos);
 
 				// find which object we hit
 				sObject* pFound = NULL;
