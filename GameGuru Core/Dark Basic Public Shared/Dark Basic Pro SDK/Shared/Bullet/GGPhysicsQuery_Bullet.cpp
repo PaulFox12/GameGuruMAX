@@ -17,6 +17,8 @@ extern float gSc;
 extern std::recursive_mutex physicslock;
 extern int g_iPhysicsSubSteps;
 int ODEFindObjectNumberOfBody(const btCollisionObject* pObject);
+int ODEFind(int iID);
+int BPhys_RagdollExists(int ragdollID);
 
 // the object number a body stands for: the one its creation stored (setUserIndex), else found in the physics object list; the
 // ground is 0, and a ghost (the player's capsule) or a body with no object -1
@@ -481,6 +483,84 @@ int PhysicsQuery_StatsTop(PhysicsStatsBody* pBodies, int iMax)
 		out.sleepSpin = pRigid ? pRigid->getAngularSleepingThreshold() : 0.0f;
 		out.island = pBody->getIslandTag();
 		points[iBest] = 0;
+	}
+	physicslock.unlock();
+	return iCount;
+}
+
+int PhysicsQuery_AwakeBodies(PhysicsAwakeBody* pBodies, int iMax, int* pTotal, int* pTouchingNothing)
+{
+	*pTotal = 0;
+	*pTouchingNothing = 0;
+	if (!g_dynamicsWorld || iMax <= 0) return 0;
+	physicslock.lock();
+
+	// each body's contact points from the last sub-step
+	std::unordered_map<const btCollisionObject*, int> points;
+	btDispatcher* pDispatcher = g_dynamicsWorld->getDispatcher();
+	for (int m = 0; m < pDispatcher->getNumManifolds(); m++)
+	{
+		const btPersistentManifold* pManifold = pDispatcher->getManifoldByIndexInternal(m);
+		int iPoints = pManifold->getNumContacts();
+		if (iPoints == 0) continue;
+		points[pManifold->getBody0()] += iPoints;
+		points[pManifold->getBody1()] += iPoints;
+	}
+
+	// the awake moving bodies
+	btAlignedObjectArray<const btRigidBody*> awake;
+	btAlignedObjectArray<int> awakePoints;
+	const btCollisionObjectArray& objects = g_dynamicsWorld->getCollisionObjectArray();
+	for (int o = 0; o < objects.size(); o++)
+	{
+		const btRigidBody* pRigid = btRigidBody::upcast(objects[o]);
+		if (!pRigid || pRigid->isStaticOrKinematicObject() || !pRigid->isActive()) continue;
+		auto it = points.find(pRigid);
+		int iPoints = it == points.end() ? 0 : it->second;
+		if (iPoints == 0) (*pTouchingNothing)++;
+		awake.push_back(pRigid);
+		awakePoints.push_back(iPoints);
+	}
+	*pTotal = awake.size();
+
+	// those touching nothing first, then the fastest, picked one at a time (iMax is small)
+	btAlignedObjectArray<int> taken;
+	taken.resize(awake.size(), 0);
+	int iCount = 0;
+	while (iCount < iMax)
+	{
+		int iBest = -1;
+		for (int i = 0; i < awake.size(); i++)
+		{
+			if (taken[i]) continue;
+			if (iBest < 0) { iBest = i; continue; }
+			bool bNothing = awakePoints[i] == 0, bBestNothing = awakePoints[iBest] == 0;
+			if (bNothing != bBestNothing) { if (bNothing) iBest = i; continue; }
+			if (awake[i]->getLinearVelocity().length2() > awake[iBest]->getLinearVelocity().length2()) iBest = i;
+		}
+		if (iBest < 0) break;
+		taken[iBest] = 1;
+		const btRigidBody* pRigid = awake[iBest];
+		const btBroadphaseProxy* pProxy = pRigid->getBroadphaseHandle();
+		PhysicsAwakeBody& out = pBodies[iCount++];
+		out.object = PhysicsQuery_ObjectNumber(pRigid, pProxy ? pProxy->m_collisionFilterGroup : 0);
+		out.points = awakePoints[iBest];
+		out.layer = pProxy ? pProxy->m_collisionFilterGroup : 0;
+		out.mask = pProxy ? pProxy->m_collisionFilterMask : 0;
+		out.mass = pRigid->getInvMass() > 0 ? 1.0f / pRigid->getInvMass() : 0.0f;
+		// the world runs in units divided by gSc
+		const btVector3& origin = pRigid->getWorldTransform().getOrigin();
+		out.pos[0] = origin.getX() * gSc;
+		out.pos[1] = origin.getY() * gSc;
+		out.pos[2] = origin.getZ() * gSc;
+		out.speed = pRigid->getLinearVelocity().length() * gSc;
+		out.spin = pRigid->getAngularVelocity().length();
+		out.state = pRigid->getActivationState();
+		out.still = pRigid->getDeactivationTime();
+		out.island = pRigid->getIslandTag();
+		out.shape = pRigid->getCollisionShape() ? pRigid->getCollisionShape()->getName() : "";
+		out.ragdoll = out.object > 0 ? BPhys_RagdollExists(out.object) : 0;
+		out.listed = out.object > 0 ? ODEFind(out.object) : 0;
 	}
 	physicslock.unlock();
 	return iCount;

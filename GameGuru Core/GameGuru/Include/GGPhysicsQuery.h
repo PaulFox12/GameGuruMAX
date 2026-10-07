@@ -66,6 +66,27 @@ struct PhysicsStatsBody
 };
 int PhysicsQuery_StatsTop(PhysicsStatsBody* pBodies, int iMax);
 
+// GG: every awake moving body, those touching nothing first (a body left behind by a deleted object shows here, never in
+// the busiest list), then the fastest; how many were written, at most iMax, with the counts of all of them. A diagnostic
+struct PhysicsAwakeBody
+{
+	int object; // the object it stands for (a ragdoll bone: its character's), -1 unknown
+	int points; // its contact points over all its pairs in the last step
+	int layer; // its collision group bits
+	int mask; // the groups it collides with
+	float mass;
+	float pos[3]; // in world units
+	float speed; // linear, units a second
+	float spin; // angular, radians a second
+	int state; // as PhysicsStatsBody's
+	float still; // seconds under its sleep speeds
+	int island;
+	const char* shape; // the physics shape's name
+	int ragdoll; // 1 when a ragdoll is still registered for its object
+	int listed; // 1 when its object has a body in the physics' object list (an entity's own body, not a ragdoll bone)
+};
+int PhysicsQuery_AwakeBodies(PhysicsAwakeBody* pBodies, int iMax, int* pTotal, int* pTouchingNothing);
+
 // puts an object's moving body to sleep with every moving body in its island (those touching it, directly or through
 // others), their velocities zeroed: a body put to sleep alone is woken again at the next step while any body in its
 // island is awake. They wake as any sleeping body does (a force, a velocity set, an awake body touching them). How many

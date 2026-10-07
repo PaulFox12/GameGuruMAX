@@ -8192,6 +8192,64 @@ int GetPhysicsStatsTop(lua_State* L)
 	}
 	return 1;
 }
+// GetPhysicsAwakeBodies([n]): a diagnostic, every awake moving body, those touching nothing first (a body left behind by a
+// deleted object shows here, never in GetPhysicsStatsTop), then the fastest, up to n (16 by default, at most 64): a table
+// of entries { obj (the object it stands for; a ragdoll bone gives its character's; -1 unknown), e (the entity holding that
+// object now, -1 none), exists (the object still exists), ragdoll (a ragdoll is still registered for the object), listed
+// (the object has its own body in the physics' list), shape (the physics shape's name), mass, x, y, z, speed, spin, state,
+// still, island (as GetPhysicsStatsTop's), points (contact points in the last step), layer, mask (collision bits) }, then
+// how many bodies are awake and how many of them touch nothing
+int GetPhysicsAwakeBodies(lua_State* L)
+{
+	int iMax = 16;
+	if (LUA_GETTOP(L) >= 1) iMax = (int)lua_tointeger(L, 1);
+	if (iMax < 1) iMax = 1;
+	if (iMax > 64) iMax = 64;
+	PhysicsAwakeBody bodies[64];
+	int iTotal = 0, iTouchingNothing = 0;
+	int iCount = PhysicsQuery_AwakeBodies(bodies, iMax, &iTotal, &iTouchingNothing);
+	lua_createtable(L, iCount, 0);
+	for (int i = 0; i < iCount; i++)
+	{
+		const PhysicsAwakeBody& body = bodies[i];
+		int iEntity = -1;
+		if (body.object > 0)
+		{
+			for (int e = 1; e <= g.entityelementlist; e++)
+			{
+				if (t.entityelement[e].obj == body.object) { iEntity = e; break; }
+			}
+		}
+		const char* pState = "active";
+		if (body.state == 2) pState = "asleep";
+		else if (body.state == 3) pState = "ready";
+		else if (body.state == 4) pState = "always";
+		else if (body.state == 5) pState = "off";
+		lua_createtable(L, 0, 19);
+		lua_pushinteger(L, body.object); lua_setfield(L, -2, "obj");
+		lua_pushinteger(L, iEntity); lua_setfield(L, -2, "e");
+		lua_pushboolean(L, (body.object > 0 && ObjectExist(body.object) == 1) ? 1 : 0); lua_setfield(L, -2, "exists");
+		lua_pushboolean(L, body.ragdoll); lua_setfield(L, -2, "ragdoll");
+		lua_pushboolean(L, body.listed); lua_setfield(L, -2, "listed");
+		lua_pushstring(L, body.shape ? body.shape : ""); lua_setfield(L, -2, "shape");
+		lua_pushnumber(L, body.mass); lua_setfield(L, -2, "mass");
+		lua_pushnumber(L, body.pos[0]); lua_setfield(L, -2, "x");
+		lua_pushnumber(L, body.pos[1]); lua_setfield(L, -2, "y");
+		lua_pushnumber(L, body.pos[2]); lua_setfield(L, -2, "z");
+		lua_pushnumber(L, body.speed); lua_setfield(L, -2, "speed");
+		lua_pushnumber(L, body.spin); lua_setfield(L, -2, "spin");
+		lua_pushstring(L, pState); lua_setfield(L, -2, "state");
+		lua_pushnumber(L, body.still); lua_setfield(L, -2, "still");
+		lua_pushinteger(L, body.island); lua_setfield(L, -2, "island");
+		lua_pushinteger(L, body.points); lua_setfield(L, -2, "points");
+		lua_pushinteger(L, body.layer); lua_setfield(L, -2, "layer");
+		lua_pushinteger(L, body.mask); lua_setfield(L, -2, "mask");
+		lua_rawseti(L, -2, i + 1);
+	}
+	lua_pushinteger(L, iTotal);
+	lua_pushinteger(L, iTouchingNothing);
+	return 3;
+}
 // GetPhysicsBodyPose(obj): where an object's physics body is, as the pose it would give the object: x, y, z and angles
 // x, y, z in degrees (as GetEntityAngleX/Y/Z), then bodies, how many bodies the physics holds for the object (more than
 // 1 is one left behind; the pose is the first's, the one CollisionOff removes). A static body never moves its object, so
@@ -17042,6 +17100,7 @@ void addFunctions()
 	lua_register(lua, "PhysicsOverlapBox", PhysicsOverlapBox);
 	lua_register(lua, "GetPhysicsStats", GetPhysicsStats);
 	lua_register(lua, "GetPhysicsStatsTop", GetPhysicsStatsTop);
+	lua_register(lua, "GetPhysicsAwakeBodies", GetPhysicsAwakeBodies);
 	lua_register(lua, "GetLuaEntityCosts", GetLuaEntityCosts);
 	lua_register(lua, "GetFrameCosts", GetFrameCosts);
 	lua_register(lua, "SetGpuTiming", SetGpuTiming);

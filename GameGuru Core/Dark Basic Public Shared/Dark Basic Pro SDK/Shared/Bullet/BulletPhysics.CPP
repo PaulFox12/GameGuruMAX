@@ -3883,6 +3883,12 @@ int BPhys_DeleteRagdoll(int ragdollID)
 	return 1;
 }
 
+// GG: whether a ragdoll is registered for an object (GGPhysicsQuery's awake list)
+int BPhys_RagdollExists(int ragdollID)
+{
+	return ( ragdollManager && ragdollManager->GetRagdoll(ragdollID) ) ? 1 : 0;
+}
+
 int BPhys_RagdollIsStatic(int ragdollID)
 {
 	if ( ragdollManager )
