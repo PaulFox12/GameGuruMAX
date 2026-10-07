@@ -345,6 +345,8 @@ function gameplayercontrol.weaponfire()
       end
 
       -- Trigger Zoom (no Zoom in When Reloading or firing in simple zoom or with gun empty or when running) then
+      -- GG: g_AimWhileRunning = 1 (set by a game) lets the player aim while running: aiming ends the run, so the player
+      -- moves at the gun's zoom walk speed, and running comes back when the aim is let go (nil or 0: the stock rule)
       tttriggerironsight=0
       if ( GetGamePlayerControlThirdpersonEnabled() == 0 ) then
       if ( GetGamePlayerStateRightMouseHold()>0 ) then 
@@ -371,7 +373,7 @@ function gameplayercontrol.weaponfire()
 
       -- can now zoom even if have no bullets (only if not in VR)
       if GetHeadTracker() == 0 then
-         if ( tttriggerironsight == 1 and (GetGamePlayerStateGunMode() <= 100 or GetFireModeSettingsSimpleZoom() == 0) and (GetFireModeSettingsForceZoomOut() == 0 or GetGamePlayerStateGunMode() <= 100) and GetGamePlayerControlIsRunning() == 0 and GetGamePlayerStateIsMelee() == 0 ) then 
+         if ( tttriggerironsight == 1 and (GetGamePlayerStateGunMode() <= 100 or GetFireModeSettingsSimpleZoom() == 0) and (GetFireModeSettingsForceZoomOut() == 0 or GetGamePlayerStateGunMode() <= 100) and (GetGamePlayerControlIsRunning() == 0 or g_AimWhileRunning == 1) and GetGamePlayerStateIsMelee() == 0 ) then 
             -- Modified for Simple Zoom
             if ( GetGamePlayerStateGunZoomMode() == 0 and (GetFireModeSettingsZoomMode() ~= 0 or GetFireModeSettingsSimpleZoom() ~= 0) ) then 
                SetGamePlayerStateGunZoomMode(1)  
@@ -391,7 +393,7 @@ function gameplayercontrol.weaponfire()
          else
             -- only UNZOOM when we have finished other gun actions
             if ( GetGamePlayerStateGunMode() ~= 106 ) then 
-               if ( GetGamePlayerStateGunZoomMode() == 9 and (tttriggerironsight == 0 or GetGamePlayerControlIsRunning() ~= 0) ) then 
+               if ( GetGamePlayerStateGunZoomMode() == 9 and (tttriggerironsight == 0 or (GetGamePlayerControlIsRunning() ~= 0 and g_AimWhileRunning ~= 1)) ) then 
                   SetGamePlayerStateGunZoomMode(11)
                   if ( GetFireModeSettingsSimpleZoomAnim() ~= 0 and GetFireModeSettingsSimpleZoom() ~= 0  ) then SetGamePlayerStateGunMode(2003) end
                end
@@ -879,7 +881,8 @@ function gameplayercontrol.lookmove()
 				   SetGamePlayerControlBasespeed(0.5)
 				   SetGamePlayerControlIsRunning(0)
 				else
-				   if ( GetGamePlayerControlCanRun() == 1 and (GetGamePlayerStatePlrKeyShift() == 1 or GetGamePlayerStatePlrKeyShift2() == 1) ) then 
+				   -- GG: no running while aiming when g_AimWhileRunning = 1 (the zoom walk speed applies instead)
+				   if ( GetGamePlayerControlCanRun() == 1 and (GetGamePlayerStatePlrKeyShift() == 1 or GetGamePlayerStatePlrKeyShift2() == 1) and not (g_AimWhileRunning == 1 and GetGamePlayerStateGunZoomMode() ~= 0) ) then 
 				   
 					  -- detect extra user defined global for MYSTAMINAMAXIMUM (moving)
 					  gameplayerspeed = require "scriptbank\\gameplayerspeed"
