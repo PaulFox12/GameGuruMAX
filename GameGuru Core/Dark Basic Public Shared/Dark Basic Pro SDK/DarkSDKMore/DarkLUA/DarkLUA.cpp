@@ -3161,7 +3161,8 @@ static int LUA_GETTOP(lua_State* L)
 	 for (int i = 0; i < vSpawnList.size(); i++)
 	 {
 		 int iEntityIndex = vSpawnList[i];
-		 if (iEntityIndex > t.storedentityelementlist && iEntityIndex < t.entityelement.size())
+		 // GG: also clones spawned into free elements of the level's list
+		 if (iEntityIndex > 0 && iEntityIndex < t.entityelement.size() && (iEntityIndex > t.storedentityelementlist || t.entityelement[iEntityIndex].iWasSpawnedInGame > 0))
 		 {
 			 // was created at run-time, can delete
 			 t.tentitytoselect = iEntityIndex;
@@ -3195,6 +3196,7 @@ static int LUA_GETTOP(lua_State* L)
 					 t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
 				 }
 				 entity_deleteentityfrommap();
+				 t.entityelement[t.tentitytoselect].iWasSpawnedInGame = 0;
 				 if (t.entityelement[t.tentitytoselect].ragdollified == 1)
 				 {
 					 t.entityelement[t.tentitytoselect].ragdollified = 0;
@@ -3216,7 +3218,8 @@ static int LUA_GETTOP(lua_State* L)
 	 int iEntityIndex = lua_tonumber(L, 1);
 	 if (iEntityIndex > 0)
 	 {
-		 if (iEntityIndex > t.storedentityelementlist)
+		 // GG: also clones spawned into free elements of the level's list
+		 if (iEntityIndex > t.storedentityelementlist || (iEntityIndex < t.entityelement.size() && t.entityelement[iEntityIndex].iWasSpawnedInGame > 0))
 		 {
 			 // was created at run-time, can delete
 			 int storee = t.e;
@@ -3250,6 +3253,7 @@ static int LUA_GETTOP(lua_State* L)
 				 t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
 			 }
 			 entity_deleteentityfrommap ();
+			 t.entityelement[t.tentitytoselect].iWasSpawnedInGame = 0;
 			 if (t.entityelement[t.tentitytoselect].ragdollified == 1)
 			 {
 				 t.entityelement[t.tentitytoselect].ragdollified = 0;
