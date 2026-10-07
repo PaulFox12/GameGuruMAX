@@ -1017,6 +1017,9 @@
     <ClCompile Include="tracers\TracerManager.cpp">
       <Filter>GGTerrain</Filter>
     </ClCompile>
+    <ClCompile Include="ripples\RippleManager.cpp">
+      <Filter>GGTerrain</Filter>
+    </ClCompile>
     <ClCompile Include="CrashLogger.cpp">
       <Filter>Code</Filter>
     </ClCompile>
@@ -1238,6 +1241,12 @@
       <Filter>GGTerrain\Shaders</Filter>
     </FxCompile>
     <FxCompile Include="tracers\BulletTracerPS.hlsl">
+      <Filter>GGTerrain\Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="ripples\RainRippleVS.hlsl">
+      <Filter>GGTerrain\Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="ripples\RainRipplePS.hlsl">
       <Filter>GGTerrain\Shaders</Filter>
     </FxCompile>
     <FxCompile Include="GGTerrain\CustomShaders\objectPS_hologram2.hlsl">

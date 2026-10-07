@@ -8714,6 +8714,27 @@ int TriggerWaterRippleSize(lua_State *L)
 	g_bDecalOnSurfaceNormal = false;
 	return 0;
 }
+// SetRippleBatching(on) - 1 draws water ripples (TriggerWaterRipple, TriggerWaterRippleSize) as one batch: each ring a
+// record, all of them one instanced draw, the ripple decal's look; 0 (at first, and when a test game ends) the decal
+// elements as before. GetRippleBatching() - on, the rings showing, the most there can be, the rings not made (all in use)
+int SetRippleBatching(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	extern void decal_setripplebatching(bool bOn);
+	decal_setripplebatching(lua_tointeger(L, 1) != 0);
+	return 0;
+}
+int GetRippleBatching(lua_State *L)
+{
+	extern void decal_getripplebatching(int* piOn, int* piLive, int* piCapacity, int* piDropped);
+	int iOn = 0, iLive = 0, iCapacity = 0, iDropped = 0;
+	decal_getripplebatching(&iOn, &iLive, &iCapacity, &iDropped);
+	lua_pushinteger(L, iOn);
+	lua_pushinteger(L, iLive);
+	lua_pushinteger(L, iCapacity);
+	lua_pushinteger(L, iDropped);
+	return 4;
+}
 // SetDecalRange(units): decals (water splashes and ripples, impacts, blood) further than this from the camera are not
 // made; 800 (about 20 m) unless set, back to that at the next level. GetDecalRange() reads it
 int SetDecalRange(lua_State *L)
@@ -17245,6 +17266,8 @@ void addFunctions()
 	lua_register(lua, "RunCharLoop" , RunCharLoop );
 	lua_register(lua, "TriggerWaterRipple" , TriggerWaterRipple );
 	lua_register(lua, "TriggerWaterRippleSize", TriggerWaterRippleSize);
+	lua_register(lua, "SetRippleBatching", SetRippleBatching);
+	lua_register(lua, "GetRippleBatching", GetRippleBatching);
 	lua_register(lua, "SetDecalRange", SetDecalRange);
 	lua_register(lua, "GetDecalRange", GetDecalRange);
 	lua_register(lua, "SetDecalLimit", SetDecalLimit);

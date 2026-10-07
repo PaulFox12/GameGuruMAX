@@ -5020,6 +5020,8 @@ void game_main_loop ( void )
 	//  Decal control
 	auto rangeDecals = wiProfiler::BeginRangeCPU("Update - Logic - Decals");
 	if ( g_bGamePaused == false ) decalelement_control();
+	// GG: the batched rain ripples age as the decals do, not while paused (SetRippleBatching)
+	if ( g_bGamePaused == false ) { extern void decal_updatebatchedripples(void); decal_updatebatchedripples(); }
 	wiProfiler::EndRange(rangeDecals);
 
 	// bullethole manegement

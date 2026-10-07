@@ -33,6 +33,80 @@ int g_iDecalRangeBeforeScript = 0;
 bool g_bDecalOnSurfaceNormal = false;
 GGVECTOR3 g_vecDecalSurfaceNormal = GGVECTOR3(0, 1, 0);
 
+// GG: rain ripples drawn as one batch (SetRippleBatching, Guru-WickedMAX/ripples/RippleManager): with it on, a water
+// ripple is a record for one instanced draw instead of a decal element with its own object and material
+namespace Ripples
+{
+	void SetEnabled(bool bEnabled);
+	bool IsEnabled();
+	void SetLook(const char* pImageFile, int iAcross, int iDown, float fFramesPerSecond);
+	void Add(float fX, float fY, float fZ, float fSizeX, float fSizeY, float fNX, float fNY, float fNZ, int iFrameStart, int iFrameEnd);
+	void Update(float fSeconds);
+	void GetStats(int* piLive, int* piCapacity, int* piDropped);
+}
+
+void decal_setripplebatching(bool bOn)
+{
+	Ripples::SetEnabled(bOn);
+}
+
+void decal_getripplebatching(int* piOn, int* piLive, int* piCapacity, int* piDropped)
+{
+	*piOn = Ripples::IsEnabled() ? 1 : 0;
+	Ripples::GetStats(piLive, piCapacity, piDropped);
+}
+
+// the batched ripples age with the game's elapsed time, as the decal elements' frames advance
+void decal_updatebatchedripples(void)
+{
+	if (Ripples::IsEnabled()) Ripples::Update(g.timeelapsed_f / 20.0f);
+}
+
+// a water ripple for the batch, from g.decalx/y/z, t.decalscalemodx/y and the surface normal: the ripple decal's own image,
+// frames (a random variant's), playing speed, size and height offset, and the decals' range test, as decalelement_create
+// and decalelement_control make and play it; false when batching is off
+static bool decal_triggerwaterripple_batched(void)
+{
+	if (!Ripples::IsEnabled()) return false;
+	int iDecal = t.decalglobal.splashdecalrippleid;
+	if (iDecal <= 0 || iDecal >= (int)t.decal.size()) return false;
+	float fDX = g.decalx - CameraPositionX(t.terrain.gameplaycamera);
+	float fDY = g.decaly - CameraPositionY(t.terrain.gameplaycamera);
+	float fDZ = g.decalz - CameraPositionZ(t.terrain.gameplaycamera);
+	if (g.decalrange == 0) g.decalrange = 1000;
+	if (sqrtf(fDX * fDX + fDY * fDY + fDZ * fDZ) > g.decalrange) { g_iDecalDroppedRange++; return true; }
+	char pImage[MAX_PATH];
+	sprintf_s(pImage, "gamecore\\decals\\%s\\decal.dds", t.decal[iDecal].name_s.Get());
+	float fFramesPerSecond = 40.0f * t.decal[iDecal].playspeed_f * (t.decal[iDecal].particle.lifeincrement / 100.0f);
+	Ripples::SetLook(pImage, t.decal[iDecal].across, t.decal[iDecal].down, fFramesPerSecond);
+	int iFrameStart = 0, iFrameEnd = t.decal[iDecal].framemax;
+	if (t.decal[iDecal].variants > 1)
+	{
+		int iSection = t.decal[iDecal].framemax / t.decal[iDecal].variants;
+		int iChoice = Rnd(t.decal[iDecal].variants - 1);
+		iFrameStart = iChoice * iSection;
+		iFrameEnd = (iChoice + 1) * iSection;
+	}
+	float fScale = t.decal[iDecal].particle.scale / 100.0f;
+	float fScaleOnlyX = t.decal[iDecal].particle.scaleonlyx / 100.0f;
+	float fSizeX, fSizeY, fOffsetY;
+	if (t.decalscalemodx == 0)
+	{
+		fSizeX = t.decal[iDecal].particle.scale * fScaleOnlyX;
+		fSizeY = t.decal[iDecal].particle.scale;
+		fOffsetY = t.decal[iDecal].particle.offsety;
+	}
+	else
+	{
+		fSizeX = t.decalscalemodx * fScale * fScaleOnlyX;
+		fSizeY = t.decalscalemody * fScale;
+		fOffsetY = (t.decal[iDecal].particle.offsety / 100.0f) * t.decalscalemody;
+	}
+	GGVECTOR3 vecNormal = g_bDecalOnSurfaceNormal ? g_vecDecalSurfaceNormal : GGVECTOR3(0, 1, 0);
+	Ripples::Add(g.decalx, g.decaly + fOffsetY, g.decalz, fSizeX, fSizeY, vecNormal.x, vecNormal.y, vecNormal.z, iFrameStart, iFrameEnd);
+	return true;
+}
+
 // 
 //  Decal Module
 // 
@@ -1401,6 +1475,7 @@ void decal_triggerwaterripple ( void )
 {
 	//  location of water ripple passed in decalx y z
 	t.originatore=-1 ; t.decalscalemodx=200 ; t.decalscalemody=200;
+	if ( decal_triggerwaterripple_batched() ) return; // GG
 	t.decalforward=0;
 	t.decalid = t.decalglobal.splashdecalrippleid; t.decalorient = 2; decalelement_create ( );
 }
@@ -1409,6 +1484,7 @@ void decal_triggerwaterripplesize(void)
 {
 	//  location of water ripple passed in decalx y z
 	t.originatore = -1;/* t.decalscalemodx = 200; t.decalscalemody = 200;*/
+	if ( decal_triggerwaterripple_batched() ) return; // GG
 	t.decalforward = 0;
 	t.decalid = t.decalglobal.splashdecalrippleid; t.decalorient = 2; decalelement_create();
 }

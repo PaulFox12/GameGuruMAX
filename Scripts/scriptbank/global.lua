@@ -1760,6 +1760,8 @@ GetObjectAngleZ: z=GetObjectAngleZ(obj) -- returns the Z position of the specifi
 RunCharLoop: RunCharLoop() -- runs the legacy animation system to control character index GetGamePlayerStateCharAnimIndex()
 TriggerWaterRipple: TriggerWaterRipple(x,y,z) -- triggers a ripple decal animation at the xyz position 
 TriggerWaterRippleSize : TriggerWaterRippleSize ( x, y, z, sizex, sizey [, nx, ny, nz] ) -- a ripple ring of that size; with a surface normal it lies on that surface (a slope) rather than flat. Nothing checks for water, so it can mark wet ground. Not made past GetDecalRange() from the camera
+SetRippleBatching : SetRippleBatching ( on ) -- 1 draws water ripples (TriggerWaterRipple, TriggerWaterRippleSize) as one batch, one instanced draw with the ripple decal's look, cheaper and up to 2048 at once; 0 (at first, and when a test game ends) the decal elements as before (not in the stock exe: guard it)
+GetRippleBatching : on, live, capacity, dropped = GetRippleBatching ( ) -- whether ripples are batched, the rings showing, the most there can be, and the rings not made because all were in use
 PlayFootfallSound: snd=PlayFootfallSound(type,x,y,z,lastsnd) -- triggers footfall sound and returns raw sound index used
 PlayFootfallSound: snd=PlayFootfallSound(type,x,y,z,lastsnd,leftorright,walkorrun) -- additional parameters for greater footfall variety
 ResetUnderwaterState: ResetUnderwaterState() -- resets the underwater sub-system when player emerges from water

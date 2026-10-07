@@ -13,6 +13,7 @@
 #include "GGTerrain/GGTrees.h"
 #include "GGTerrain/GGGrass.h"
 #include "tracers/TracerManager.h"
+#include "ripples/RippleManager.h"
 using namespace Tracers;
 
 // For profiling
@@ -180,6 +181,7 @@ bool GuruLoopLogic ( void )
 				#endif
 				
 				Tracers::Initialize();
+				Ripples::Initialize(); // GG: the batched rain ripples
 
 				g_iInitializationSequence = 3;
 				break;
