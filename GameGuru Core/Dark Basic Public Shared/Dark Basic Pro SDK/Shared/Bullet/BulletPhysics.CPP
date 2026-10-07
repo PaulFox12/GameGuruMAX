@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <math.h>
 #include <mutex>
+#include <unordered_map>
+#include <string>
 
 // Bullet specific includes
 #include "btBulletDynamicsCommon.h"
@@ -333,6 +335,59 @@ sObjectList* ODEFindID ( int iID )
 	return NULL;
 }
 
+// GG: kilos for an entity's body (SetEntityMass), kept by entity so a body built again (CollisionOn, a wreck swap) takes
+// them again. Bullet's units are already kilos, metres and seconds: a Bullet unit is gSc (40) GG units, about a metre,
+// gravity is 10, and a ragdoll's 175 at Weight 100 is a heavy man. A body built from its shape keeps the old formula, its
+// box in Bullet units cubed over gMs (50), times its Weight over 100 for a box, sphere, cylinder or capsule
+static std::unordered_map<int, float> g_EntityMassKg;
+
+// GG: a diagnostic, one object's pushes and its body over the steps after each (SetPhysicsPushLog, GetPhysicsPushLog)
+extern std::recursive_mutex physicslock;
+extern int g_iPhysicsSubSteps;
+static int g_iPushLogObject = 0;
+static int g_iPushLogSteps = 8;
+static int g_iPushLogStepsLeft = 0;
+static std::vector<std::string> g_PushLog;
+
+static void PhysicsPushLogBody(const char* pWhen)
+{
+	physicslock.lock();
+	if (g_PushLog.size() < 256)
+	{
+		int iEntries = 0;
+		for (int i = 0; i < (int)g_PhyObjectList.size(); i++) if (g_PhyObjectList[i].iID == g_iPushLogObject) iEntries++;
+		sObjectList* pPhyObject = ODEFindID(g_iPushLogObject);
+		char pLine[640];
+		if (pPhyObject == NULL || pPhyObject->body == NULL)
+		{
+			snprintf(pLine, sizeof(pLine), "%s obj %d: no body (%d entries)", pWhen, g_iPushLogObject, iEntries);
+		}
+		else
+		{
+			btRigidBody* pBody = pPhyObject->body;
+			const btVector3& v = pBody->getLinearVelocity();
+			const btVector3& p = pBody->getWorldTransform().getOrigin();
+			const btVector3& lf = pBody->getLinearFactor();
+			snprintf(pLine, sizeof(pLine), "%s obj %d: body %p entries %d state %d active %d invmass %.5f vel %.1f %.1f %.1f spin %.2f pos %.1f %.1f %.1f linfactor %.2f %.2f %.2f damping %.3f %.3f still %.2f island %d flags %d response %d frame %.4f substeps %d",
+				pWhen, g_iPushLogObject, (void*)pBody, iEntries, pBody->getActivationState(), pBody->isActive() ? 1 : 0,
+				pBody->getInvMass(), v.getX() * gSc, v.getY() * gSc, v.getZ() * gSc, pBody->getAngularVelocity().length(),
+				p.getX() * gSc, p.getY() * gSc, p.getZ() * gSc, lf.getX(), lf.getY(), lf.getZ(), pBody->getLinearDamping(),
+				pBody->getAngularDamping(), pBody->getDeactivationTime(), pBody->getIslandTag(), pBody->getCollisionFlags(),
+				pPhyObject->iResponseMode, g_fPhysicsFrameTime, g_iPhysicsSubSteps);
+		}
+		g_PushLog.push_back(pLine);
+	}
+	physicslock.unlock();
+}
+
+// each simulation step (PostTickCallback) after a logged push
+static void PhysicsPushLogStep(void)
+{
+	if (g_iPushLogObject <= 0 || g_iPushLogStepsLeft <= 0) return;
+	g_iPushLogStepsLeft--;
+	PhysicsPushLogBody("step");
+}
+
 int ODEFind (int iID)
 {
 	if (ODEFindID(iID) != NULL)
@@ -640,6 +695,7 @@ void UpdateCollisionsForLua()
 void PostTickCallback(btDynamicsWorld *world, btScalar timeStep)
 {
 	UpdateCollisionsForLua();
+	PhysicsPushLogStep();
 
 	for (int j=((int)g_PhyObjectList.size())-1; j>=0 ;j--)
 	{
@@ -767,6 +823,10 @@ void DestroyThisObject ( sObjectList* pPhyObject )
 
 void ODEEnd ( void )
 {
+	// GG: entity kilos and the push log go with the world
+	g_EntityMassKg.clear();
+	g_iPushLogObject = 0;
+
 	// ragdoll system termination
 	SAFE_DELETE ( jointManager );
 	SAFE_DELETE ( ragdollManager );
@@ -957,6 +1017,98 @@ float BULLETCosineInterpolate ( float y1, float y2, float mu )
 //std::mutex physicslock = {};
 std::recursive_mutex physicslock = {};
 int g_iPhysicsSubSteps = 0; // the simulation steps the last update took (GGPhysicsQuery's stats)
+
+// GG: SetEntityMass: 1 set on its body now, 0 kept for when it has a body, -1 its body is static (kept for a moving one);
+// 0 kilos or less clears it and gives the body its built mass again. It neither wakes the body nor changes its damping,
+// sleep thresholds or friction
+static int ODEApplyMassKg(sObjectList* pPhyObject, float fKg)
+{
+	if (pPhyObject == NULL || pPhyObject->body == NULL) return 0;
+	btRigidBody* pBody = pPhyObject->body;
+	if (pBody->getInvMass() == 0) return -1;
+	btVector3 localInertia(0, 0, 0);
+	pBody->getCollisionShape()->calculateLocalInertia(fKg, localInertia);
+	pBody->setMassProps(fKg, localInertia);
+	pBody->updateInertiaTensor();
+	return 1;
+}
+
+int ODESetEntityMassKg(int iEntity, int iObject, float fKg)
+{
+	physicslock.lock();
+	sObjectList* pPhyObject = iObject > 0 ? ODEFindID(iObject) : NULL;
+	int iResult = 0;
+	if (fKg > 0)
+	{
+		g_EntityMassKg[iEntity] = fKg;
+		iResult = ODEApplyMassKg(pPhyObject, fKg);
+	}
+	else
+	{
+		g_EntityMassKg.erase(iEntity);
+		if (pPhyObject && pPhyObject->fMass > 0) iResult = ODEApplyMassKg(pPhyObject, pPhyObject->fMass);
+	}
+	physicslock.unlock();
+	return iResult;
+}
+
+// a body built for an entity takes its kilos again (physics_prepareentityforphysics)
+void ODEApplyEntityMassKg(int iEntity, int iObject)
+{
+	physicslock.lock();
+	auto it = g_EntityMassKg.find(iEntity);
+	if (it != g_EntityMassKg.end()) ODEApplyMassKg(ODEFindID(iObject), it->second);
+	physicslock.unlock();
+}
+
+// the kilos SetEntityMass gave an entity: false if none
+bool ODEGetEntityMassKg(int iEntity, float* pfKg)
+{
+	physicslock.lock();
+	auto it = g_EntityMassKg.find(iEntity);
+	bool bSet = (it != g_EntityMassKg.end());
+	if (bSet) *pfKg = it->second;
+	physicslock.unlock();
+	return bSet;
+}
+
+// an entity deleted: its element can be reused by the next spawn
+void ODEClearEntityMassKg(int iEntity)
+{
+	physicslock.lock();
+	g_EntityMassKg.erase(iEntity);
+	physicslock.unlock();
+}
+
+// the mass an object's body has now (kilos); 0 for none or a static body
+float ODEGetObjectMassKg(int iObject)
+{
+	physicslock.lock();
+	float fKg = 0;
+	sObjectList* pPhyObject = ODEFindID(iObject);
+	if (pPhyObject && pPhyObject->body && pPhyObject->body->getInvMass() > 0) fKg = 1.0f / pPhyObject->body->getInvMass();
+	physicslock.unlock();
+	return fKg;
+}
+
+// SetPhysicsPushLog, GetPhysicsPushLog
+void ODESetPushLog(int iObject, int iSteps)
+{
+	physicslock.lock();
+	g_iPushLogObject = iObject;
+	g_iPushLogSteps = iSteps > 0 ? iSteps : 8;
+	g_iPushLogStepsLeft = 0;
+	g_PushLog.clear();
+	physicslock.unlock();
+}
+
+void ODEGetPushLog(std::vector<std::string>* pLines)
+{
+	physicslock.lock();
+	*pLines = g_PushLog;
+	g_PushLog.clear();
+	physicslock.unlock();
+}
 //#else
 //class physicslockclass
 //{
@@ -4079,6 +4231,15 @@ void ODESetLinearVelocityUsingWorldPosTarget (int iObject, float fWorldX, float 
 
 void ODEAddBodyForce ( int iObject, float fX, float fY, float fZ, float fPX, float fPY, float fPZ )
 {
+	// GG: SetPhysicsPushLog's object: its body before and after the push, and over the steps after
+	bool bLogPush = ( iObject > 0 && iObject == g_iPushLogObject );
+	if ( bLogPush )
+	{
+		char pWhen[128];
+		snprintf ( pWhen, sizeof(pWhen), "push %.0f %.0f %.0f at %.0f %.0f %.0f, before", fX, fY, fZ, fPX, fPY, fPZ );
+		PhysicsPushLogBody ( pWhen );
+	}
+
 	// get reference object
 	sObjectList* pPhyObject = ODEFindID ( iObject );
 	if ( pPhyObject==NULL ) return;
@@ -4087,6 +4248,11 @@ void ODEAddBodyForce ( int iObject, float fX, float fY, float fZ, float fPX, flo
 	// apply force
 	pPhyObject->body->activate();
 	PhysicsApplyPush(pPhyObject->body, btVector3(fX/gSc,fY/gSc,fZ/gSc), btVector3(fPX/gSc,fPY/gSc,fPZ/gSc));
+	if ( bLogPush )
+	{
+		PhysicsPushLogBody ( "after" );
+		g_iPushLogStepsLeft = g_iPushLogSteps;
+	}
 }
 
 void ODESetAngularVelocity (int iObject, float fX, float fY, float fZ)

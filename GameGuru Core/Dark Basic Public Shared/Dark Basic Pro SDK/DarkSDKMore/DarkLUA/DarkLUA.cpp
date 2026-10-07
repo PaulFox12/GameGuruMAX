@@ -3485,6 +3485,9 @@ static int LUA_GETTOP(lua_State* L)
 			 {
 				 t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
 			 }
+			 // GG: and its kilos, as the element can go to the next spawn
+			 extern void ODEClearEntityMassKg(int iEntity);
+			 ODEClearEntityMassKg(t.tentitytoselect);
 			 entity_deleteentityfrommap ();
 			 t.entityelement[t.tentitytoselect].iWasSpawnedInGame = 0;
 			 if (t.entityelement[t.tentitytoselect].ragdollified == 1)
@@ -8215,6 +8218,73 @@ int GetPhysicsStatsTop(lua_State* L)
 // (the object has its own body in the physics' list), shape (the physics shape's name), mass, x, y, z, speed, spin, state,
 // still, island (as GetPhysicsStatsTop's), points (contact points in the last step), layer, mask (collision bits) }, then
 // how many bodies are awake and how many of them touch nothing
+// SetEntityMass(e, kg) - the entity's physics body weighs kg kilos (0.05 is 50 grams), kept for the entity so a body built
+// again (CollisionOn, a wreck swap) and its ragdoll take it too; its inertia follows its shape, and it isn't woken.
+// Returns 1 set now, 0 kept for when it has a body, -1 its body is static (kept for a moving one); 0 or less clears it,
+// back to the mass its shape gives. Works for a spawned clone with no g_Entity row
+int SetEntityMass(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 2) return 0;
+	int iEntity = (int)lua_tonumber(L, 1);
+	float fKg = (float)lua_tonumber(L, 2);
+	int iResult = 0;
+	if (iEntity > 0 && iEntity < (int)t.entityelement.size())
+	{
+		extern int ODESetEntityMassKg(int iEntity, int iObject, float fKg);
+		iResult = ODESetEntityMassKg(iEntity, t.entityelement[iEntity].obj, fKg);
+	}
+	lua_pushinteger(L, iResult);
+	return 1;
+}
+// GetEntityMass(e) - kg, set: the kilos SetEntityMass gave it (set 1), or its body's mass now (set 0; 0 kilos for no body)
+int GetEntityMass(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	int iEntity = (int)lua_tonumber(L, 1);
+	float fKg = 0;
+	bool bSet = false;
+	if (iEntity > 0 && iEntity < (int)t.entityelement.size())
+	{
+		extern bool ODEGetEntityMassKg(int iEntity, float* pfKg);
+		extern float ODEGetObjectMassKg(int iObject);
+		bSet = ODEGetEntityMassKg(iEntity, &fKg);
+		if (!bSet) fKg = ODEGetObjectMassKg(t.entityelement[iEntity].obj);
+	}
+	lua_pushnumber(L, fKg);
+	lua_pushinteger(L, bSet ? 1 : 0);
+	return 2;
+}
+// GetObjectMass(obj) - the kilos its physics body has now; 0 for no body or a static one
+int GetObjectMass(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	extern float ODEGetObjectMassKg(int iObject);
+	lua_pushnumber(L, ODEGetObjectMassKg((int)lua_tonumber(L, 1)));
+	return 1;
+}
+// SetPhysicsPushLog(obj [, steps]) - a diagnostic: each PushObject on obj logs its body before and after, then over the
+// next steps (8 at first) simulation steps; obj 0 stops it. GetPhysicsPushLog() returns the lines since, as a table
+int SetPhysicsPushLog(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	int iSteps = (LUA_GETTOP(L) >= 2) ? (int)lua_tonumber(L, 2) : 8;
+	extern void ODESetPushLog(int iObject, int iSteps);
+	ODESetPushLog((int)lua_tonumber(L, 1), iSteps);
+	return 0;
+}
+int GetPhysicsPushLog(lua_State* L)
+{
+	extern void ODEGetPushLog(std::vector<std::string>* pLines);
+	std::vector<std::string> lines;
+	ODEGetPushLog(&lines);
+	lua_createtable(L, (int)lines.size(), 0);
+	for (int i = 0; i < (int)lines.size(); i++)
+	{
+		lua_pushstring(L, lines[i].c_str());
+		lua_rawseti(L, -2, i + 1);
+	}
+	return 1;
+}
 // SetPhysicsWorldRate(rate) - 60 steps the physics world 60 times a second (half the work) while the player keeps its own
 // 120 steps, as its controller moves a set distance each step; 120 (at first, at a test game's end, and for any other
 // value) steps all of it at 120 as before
@@ -17237,6 +17307,11 @@ void addFunctions()
 	lua_register(lua, "GetPhysicsAwakeBodies", GetPhysicsAwakeBodies);
 	lua_register(lua, "SetPhysicsWorldRate", SetPhysicsWorldRate);
 	lua_register(lua, "GetPhysicsWorldRate", GetPhysicsWorldRate);
+	lua_register(lua, "SetEntityMass", SetEntityMass);
+	lua_register(lua, "GetEntityMass", GetEntityMass);
+	lua_register(lua, "GetObjectMass", GetObjectMass);
+	lua_register(lua, "SetPhysicsPushLog", SetPhysicsPushLog);
+	lua_register(lua, "GetPhysicsPushLog", GetPhysicsPushLog);
 	lua_register(lua, "GetLuaEntityCosts", GetLuaEntityCosts);
 	lua_register(lua, "GetFrameCosts", GetFrameCosts);
 	lua_register(lua, "SetGpuTiming", SetGpuTiming);

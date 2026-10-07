@@ -184,7 +184,12 @@ void ragdoll_create ( void )
 
 			// create ragdoll, and pass in weight from character
 			float fWeight = t.entityelement[t.tphye].eleprof.phyweight;
-			BPhys_RagDollBegin ( t.tphyobj, 175.0 * (fWeight/100.0f) );
+			float fRagdollKg = 175.0f * (fWeight/100.0f);
+			// GG: or the kilos SetEntityMass gave the character
+			extern bool ODEGetEntityMassKg(int iEntity, float* pfKg);
+			float fSetKg = 0;
+			if ( ODEGetEntityMassKg ( t.tphye, &fSetKg ) ) fRagdollKg = fSetKg;
+			BPhys_RagDollBegin ( t.tphyobj, fRagdollKg );
 
 			// determine if a crotch exists
 			if ( getlimbbyname(t.tphyobj, "Crotch") == -1 ) 

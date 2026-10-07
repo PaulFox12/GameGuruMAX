@@ -805,6 +805,9 @@ void physics_prepareentityforphysics ( void )
 						t.tcollisionscaling=t.entityprofile[t.entid].collisionscaling;
 						t.tcollisionscalingxz = t.entityprofile[t.entid].collisionscalingxz;
 						physics_setupobject ( );
+						// GG: the kilos SetEntityMass gave this entity, again on its new body
+						extern void ODEApplyEntityMassKg(int iEntity, int iObject);
+						ODEApplyEntityMassKg ( t.e, t.tphyobj );
 						t.entityelement[t.e].usingphysicsnow=1;
 					}
 				}
