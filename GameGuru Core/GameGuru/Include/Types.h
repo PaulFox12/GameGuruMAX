@@ -3868,6 +3868,7 @@ struct visualstype
 	float fScreenLensFlareSpacing;
 	float fScreenLensFlareHalo;
 	bool bScreenLensFlareNoSky;
+	float fScreenLensFlareCap; // GG: the brightest a pixel counts for in it, 200 as before
 	bool bSSREnabled;
 	bool bReflectionsEnabled;
 	bool bFXAAEnabled;
@@ -4149,6 +4150,7 @@ struct visualstype
 		 fScreenLensFlareSpacing = 0.35f;
 		 fScreenLensFlareHalo = 0.45f;
 		 bScreenLensFlareNoSky = true;
+		 fScreenLensFlareCap = 200.0f;
 		 bSSREnabled = false;
 		 bReflectionsEnabled = true;
 		 bFXAAEnabled = false;

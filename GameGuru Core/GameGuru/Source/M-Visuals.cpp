@@ -239,6 +239,7 @@ void visuals_resetvalues (bool bNewLevel)
 	t.visuals.fScreenLensFlareSpacing = 0.35f;
 	t.visuals.fScreenLensFlareHalo = 0.45f;
 	t.visuals.bScreenLensFlareNoSky = true;
+	t.visuals.fScreenLensFlareCap = 200.0f;
 	t.visuals.bSSREnabled = false;
 	t.visuals.bReflectionsEnabled = true;
 	t.visuals.bFXAAEnabled = false;
@@ -818,6 +819,8 @@ void visuals_save ( void )
 	WriteString(1, t.strwork.Get());
 	t.strwork = ""; t.strwork = t.strwork + "visuals.ScreenLensFlareNoSky=" + Str(t.visuals.bScreenLensFlareNoSky);
 	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.ScreenLensFlareCap=" + Str(t.visuals.fScreenLensFlareCap);
+	WriteString(1, t.strwork.Get());
 	t.strwork = ""; t.strwork = t.strwork + "visuals.SSREnabled=" + Str(t.visuals.bSSREnabled);
 	WriteString(1, t.strwork.Get());
 	t.strwork = ""; t.strwork = t.strwork + "visuals.ReflectionsEnabled=" + Str(t.visuals.bReflectionsEnabled);
@@ -1166,6 +1169,7 @@ void visuals_load ( void )
 	t.visuals.fScreenLensFlareSpacing = 0.35f;
 	t.visuals.fScreenLensFlareHalo = 0.45f;
 	t.visuals.bScreenLensFlareNoSky = true;
+	t.visuals.fScreenLensFlareCap = 200.0f;
 	t.visuals.bSSREnabled = false;
 	t.visuals.bReflectionsEnabled = true;
 	t.visuals.bFXAAEnabled = false;
@@ -1492,6 +1496,7 @@ void visuals_load ( void )
 			t.try_s = "visuals.ScreenLensFlareSpacing"; if (t.tfield_s == t.try_s)  t.visuals.fScreenLensFlareSpacing = ValF(t.tvalue_s.Get());
 			t.try_s = "visuals.ScreenLensFlareHalo"; if (t.tfield_s == t.try_s)  t.visuals.fScreenLensFlareHalo = ValF(t.tvalue_s.Get());
 			t.try_s = "visuals.ScreenLensFlareNoSky"; if (t.tfield_s == t.try_s)  t.visuals.bScreenLensFlareNoSky = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.ScreenLensFlareCap"; if (t.tfield_s == t.try_s)  t.visuals.fScreenLensFlareCap = ValF(t.tvalue_s.Get());
 
 			t.try_s = "visuals.SSREnabled"; if (t.tfield_s == t.try_s)	t.visuals.bSSREnabled = ValF(t.tvalue_s.Get());
 			t.try_s = "visuals.ReflectionsEnabled"; if (t.tfield_s == t.try_s)  t.visuals.bReflectionsEnabled = ValF(t.tvalue_s.Get());
