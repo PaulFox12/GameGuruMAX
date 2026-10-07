@@ -135,8 +135,8 @@ btCollisionDispatcher* g_dispatcher;
 btSequentialImpulseConstraintSolver* g_solver;
 btPairCachingGhostObject* m_ghostObject = NULL;
 btKinematicCharacterController* m_character = NULL;
-btAxisSweep3* sweepBP = NULL;
-btAxisSweep3* m_overlappingPairCache = NULL;
+btBroadphaseInterface* sweepBP = NULL;
+btBroadphaseInterface* m_overlappingPairCache = NULL;
 #ifdef WICKEDENGINE
 BulletDebugDrawer g_debugDrawer;
 #endif
@@ -648,9 +648,8 @@ void ODEStart ( void )
 
 	///use the default collision dispatcher. For parallel processing you can use a diffent dispatcher (see Extras/BulletMultiThreaded)
 	g_dispatcher = new	btCollisionDispatcher(g_collisionConfiguration);
-	btVector3 worldMin(-500,-2500,-500);
-	btVector3 worldMax(1800,4000,1800);
-	sweepBP = new btAxisSweep3(worldMin,worldMax);
+	// GG: no world bounds; the old box clamped bodies outside it into one island that never slept
+	sweepBP = new btDbvtBroadphase();
 	m_overlappingPairCache = sweepBP;
 
 	///the default constraint solver. For parallel processing you can use a different solver (see Extras/BulletMultiThreaded)
