@@ -13026,6 +13026,93 @@ int WParticleEffectGetSize(lua_State* L)
 	return 0;
 }
 
+// GG: a layer of an effect is one of its emitters, by its name; "" or "*" is every layer
+static bool WParticleEffectLayerMatches(Scene& scene, Entity emitter, const char* pName)
+{
+	if (pName == nullptr || pName[0] == 0 || (pName[0] == '*' && pName[1] == 0)) return true;
+	const NameComponent* name = scene.names.GetComponent(emitter);
+	return name && _stricmp(name->name.c_str(), pName) == 0;
+}
+
+//WParticleEffectSetLayer(EffectID,Name[,Size[,Emissive[,Count[,Speed[,Spread]]]]]) - multiplies one layer of the effect (its emitter named Name, or every layer for "" or "*"): its particle size (with WParticleEffectSetSize), its emissive strength, how many it emits (rate and bursts), their speed, and the spread of where they start. 1 = as made; omitted or negative keeps the current one. Returns how many layers it set.
+int WParticleEffectSetLayer(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 2) return 0;
+	Entity root = lua_tonumber(L, 1);
+	const char* pName = lua_tostring(L, 2);
+	float fValues[5];
+	for (int v = 0; v < 5; v++) fValues[v] = (n >= 3 + v) ? (float)lua_tonumber(L, 3 + v) : -1.0f;
+
+	int iLayers = 0;
+	Scene& scene = wiScene::GetScene();
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		if (!hier || hier->parentID != root || !WParticleEffectLayerMatches(scene, emitter, pName)) continue;
+		auto& layer = scene.emitters[i];
+		if (fValues[0] >= 0) layer.layer_size_scale = fValues[0];
+		if (fValues[1] >= 0) layer.emissive_scale = fValues[1];
+		if (fValues[2] >= 0) layer.count_scale = fValues[2];
+		if (fValues[3] >= 0) layer.speed_scale = fValues[3];
+		if (fValues[4] >= 0) layer.spread_scale = fValues[4];
+		iLayers++;
+	}
+	lua_pushinteger(L, iLayers);
+	return 1;
+}
+
+//WParticleEffectGetLayer(EffectID,Name) - Size, Emissive, Count, Speed, Spread of the effect's first layer named Name (as WParticleEffectSetLayer), nil if it has none.
+int WParticleEffectGetLayer(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 2) return 0;
+	Entity root = lua_tonumber(L, 1);
+	const char* pName = lua_tostring(L, 2);
+
+	Scene& scene = wiScene::GetScene();
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		if (!hier || hier->parentID != root || !WParticleEffectLayerMatches(scene, emitter, pName)) continue;
+		auto& layer = scene.emitters[i];
+		lua_pushnumber(L, layer.layer_size_scale);
+		lua_pushnumber(L, layer.emissive_scale);
+		lua_pushnumber(L, layer.count_scale);
+		lua_pushnumber(L, layer.speed_scale);
+		lua_pushnumber(L, layer.spread_scale);
+		return 5;
+	}
+	return 0;
+}
+
+//WParticleEffectGetLayers(EffectID) - a table of the effect's layer (emitter) names.
+int WParticleEffectGetLayers(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	Entity root = lua_tonumber(L, 1);
+
+	Scene& scene = wiScene::GetScene();
+	lua_newtable(L);
+	int iLayers = 0;
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		if (!hier || hier->parentID != root) continue;
+		const NameComponent* name = scene.names.GetComponent(emitter);
+		lua_pushstring(L, name ? name->name.c_str() : "");
+		lua_rawseti(L, -2, ++iLayers);
+	}
+	return 1;
+}
+
 //WParticleEffectSetColor(EffectID,Red,Green,Blue) - 0 to 255 each, multiplying the colour the effect was made with (255,255,255 = as made).
 int WParticleEffectSetColor(lua_State* L)
 {
@@ -17953,6 +18040,9 @@ void addFunctions()
 	lua_register(lua, "WParticleEffectGetOpacity", WParticleEffectGetOpacity);
 	lua_register(lua, "WParticleEffectSetSize", WParticleEffectSetSize);
 	lua_register(lua, "WParticleEffectGetSize", WParticleEffectGetSize);
+	lua_register(lua, "WParticleEffectSetLayer", WParticleEffectSetLayer);
+	lua_register(lua, "WParticleEffectGetLayer", WParticleEffectGetLayer);
+	lua_register(lua, "WParticleEffectGetLayers", WParticleEffectGetLayers);
 	lua_register(lua, "WParticleEffectSetColor", WParticleEffectSetColor);
 	lua_register(lua, "WParticleEffectGetColor", WParticleEffectGetColor);
 	lua_register(lua, "WParticleEffectGetBounds", WParticleEffectGetBounds);

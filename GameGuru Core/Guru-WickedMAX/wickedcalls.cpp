@@ -9403,8 +9403,10 @@ uint32_t WickedCall_LoadWiSceneDirect(Scene& scene2,char* filename, bool attache
 		//PE: Support _e_ here for all materials.
 		for (int i = 0; i < scene2.materials.GetCount(); i++)
 		{
-			for (int a = 0; a < MaterialComponent::EMISSIVEMAP; a++)
+			for (int a = 0; a <= MaterialComponent::EMISSIVEMAP; a++)
 			{
+				// GG: a particle emitter's emissive map too (wiEmittedParticle::Draw binds it); other materials as before
+				if (a == MaterialComponent::EMISSIVEMAP && !scene2.emitters.Contains(scene2.materials.GetEntity(i))) continue;
 				if (scene2.materials[i].textures[a].name.size() > 0)
 				{
 					if (!scene2.materials[i].textures[a].resource)
