@@ -2645,8 +2645,8 @@ WParticleEffectSetOpacity : WParticleEffectSetOpacity ( id, percent ) -- 100 = a
 WParticleEffectGetOpacity : percent = WParticleEffectGetOpacity ( id )
 WParticleEffectSetSize : WParticleEffectSetSize ( id, percent ) -- particle size, 100 = as made
 WParticleEffectGetSize : percent = WParticleEffectGetSize ( id )
-WParticleEffectSetLayer : layers = WParticleEffectSetLayer ( id, name [, size [, emissive [, count [, speed [, spread] ] ] ] ] ) -- multiplies one layer (the emitter named name, or every layer for "" or "*"): particle size (with WParticleEffectSetSize), emissive strength, how many it emits, their speed, the spread of where they start; 1 = as made, omitted or negative keeps; reset a reused effect with (id, "*", 1, 1, 1, 1, 1) (not in the stock exe: guard it)
-WParticleEffectGetLayer : size, emissive, count, speed, spread = WParticleEffectGetLayer ( id, name ) -- nil if the effect has no such layer
+WParticleEffectSetLayer : layers = WParticleEffectSetLayer ( id, name [, size [, emissive [, count [, speed [, spread [, life] ] ] ] ] ] ) -- multiplies one layer (the emitter named name, or every layer for "" or "*"): particle size (with WParticleEffectSetSize), emissive strength, how many it emits, their speed, the spread of where they start, how long new ones live; 1 = as made, omitted or negative keeps; reset a reused effect with (id, "*", 1, 1, 1, 1, 1, 1) (not in the stock exe: guard it)
+WParticleEffectGetLayer : size, emissive, count, speed, spread, life = WParticleEffectGetLayer ( id, name ) -- nil if the effect has no such layer
 WParticleEffectGetLayers : names = WParticleEffectGetLayers ( id ) -- the effect's layer (emitter) names
 WParticleEffectSetColor : WParticleEffectSetColor ( id, r, g, b ) -- 0 to 255 each, multiplying the effect's own colour (255,255,255 = as made)
 WParticleEffectGetColor : r, g, b = WParticleEffectGetColor ( id )

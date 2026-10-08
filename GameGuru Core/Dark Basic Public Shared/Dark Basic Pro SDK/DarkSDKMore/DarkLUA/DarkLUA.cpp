@@ -13034,7 +13034,7 @@ static bool WParticleEffectLayerMatches(Scene& scene, Entity emitter, const char
 	return name && _stricmp(name->name.c_str(), pName) == 0;
 }
 
-//WParticleEffectSetLayer(EffectID,Name[,Size[,Emissive[,Count[,Speed[,Spread]]]]]) - multiplies one layer of the effect (its emitter named Name, or every layer for "" or "*"): its particle size (with WParticleEffectSetSize), its emissive strength, how many it emits (rate and bursts), their speed, and the spread of where they start. 1 = as made; omitted or negative keeps the current one. Returns how many layers it set.
+//WParticleEffectSetLayer(EffectID,Name[,Size[,Emissive[,Count[,Speed[,Spread[,Life]]]]]]) - multiplies one layer of the effect (its emitter named Name, or every layer for "" or "*"): its particle size (with WParticleEffectSetSize), its emissive strength, how many it emits (rate and bursts), their speed, the spread of where they start, and how long new ones live. 1 = as made; omitted or negative keeps the current one. Returns how many layers it set.
 int WParticleEffectSetLayer(lua_State* L)
 {
 	lua = L;
@@ -13042,8 +13042,8 @@ int WParticleEffectSetLayer(lua_State* L)
 	if (n < 2) return 0;
 	Entity root = lua_tonumber(L, 1);
 	const char* pName = lua_tostring(L, 2);
-	float fValues[5];
-	for (int v = 0; v < 5; v++) fValues[v] = (n >= 3 + v) ? (float)lua_tonumber(L, 3 + v) : -1.0f;
+	float fValues[6];
+	for (int v = 0; v < 6; v++) fValues[v] = (n >= 3 + v) ? (float)lua_tonumber(L, 3 + v) : -1.0f;
 
 	int iLayers = 0;
 	Scene& scene = wiScene::GetScene();
@@ -13058,13 +13058,14 @@ int WParticleEffectSetLayer(lua_State* L)
 		if (fValues[2] >= 0) layer.count_scale = fValues[2];
 		if (fValues[3] >= 0) layer.speed_scale = fValues[3];
 		if (fValues[4] >= 0) layer.spread_scale = fValues[4];
+		if (fValues[5] >= 0) layer.life_scale = fValues[5];
 		iLayers++;
 	}
 	lua_pushinteger(L, iLayers);
 	return 1;
 }
 
-//WParticleEffectGetLayer(EffectID,Name) - Size, Emissive, Count, Speed, Spread of the effect's first layer named Name (as WParticleEffectSetLayer), nil if it has none.
+//WParticleEffectGetLayer(EffectID,Name) - Size, Emissive, Count, Speed, Spread, Life of the effect's first layer named Name (as WParticleEffectSetLayer), nil if it has none.
 int WParticleEffectGetLayer(lua_State* L)
 {
 	lua = L;
@@ -13085,7 +13086,8 @@ int WParticleEffectGetLayer(lua_State* L)
 		lua_pushnumber(L, layer.count_scale);
 		lua_pushnumber(L, layer.speed_scale);
 		lua_pushnumber(L, layer.spread_scale);
-		return 5;
+		lua_pushnumber(L, layer.life_scale);
+		return 6;
 	}
 	return 0;
 }
