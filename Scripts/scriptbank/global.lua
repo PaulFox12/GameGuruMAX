@@ -2648,6 +2648,8 @@ WParticleEffectGetSize : percent = WParticleEffectGetSize ( id )
 WParticleEffectSetLayer : layers = WParticleEffectSetLayer ( id, name [, size [, emissive [, count [, speed [, spread [, life] ] ] ] ] ] ) -- multiplies one layer (the emitter named name, or every layer for "" or "*"): particle size (with WParticleEffectSetSize), emissive strength, how many it emits, their speed, the spread of where they start, how long new ones live; 1 = as made, omitted or negative keeps; reset a reused effect with (id, "*", 1, 1, 1, 1, 1, 1) (not in the stock exe: guard it)
 WParticleEffectGetLayer : size, emissive, count, speed, spread, life = WParticleEffectGetLayer ( id, name ) -- nil if the effect has no such layer
 WParticleEffectGetLayers : names = WParticleEffectGetLayers ( id ) -- the effect's layer (emitter) names
+WParticleEffectSetLayerWind : layers = WParticleEffectSetLayerWind ( id, name, x, y, z ) -- the air's velocity for one layer (or every layer for "" or "*"), units a second, world axes: the layer's drag slows its particles toward it, those alive too, so they drift with it; a layer with drag 1 isn't moved; 0, 0, 0 = still air (the default); not saved; reset a reused effect with (id, "*", 0, 0, 0) (not in the stock exe: guard it)
+WParticleEffectGetLayerWind : x, y, z = WParticleEffectGetLayerWind ( id, name ) -- nil if the effect has no such layer
 WParticleEffectSetColor : WParticleEffectSetColor ( id, r, g, b ) -- 0 to 255 each, multiplying the effect's own colour (255,255,255 = as made)
 WParticleEffectGetColor : r, g, b = WParticleEffectGetColor ( id )
 WParticleEffectGetBounds : minx, miny, minz, maxx, maxy, maxz = WParticleEffectGetBounds ( id ) -- the world box the effect's particles are born in, as of the last frame

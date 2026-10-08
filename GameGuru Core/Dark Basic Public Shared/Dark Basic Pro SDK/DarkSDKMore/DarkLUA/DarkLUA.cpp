@@ -13092,6 +13092,54 @@ int WParticleEffectGetLayer(lua_State* L)
 	return 0;
 }
 
+//WParticleEffectSetLayerWind(EffectID,Name,X,Y,Z) - the air's velocity for one layer of the effect (its emitter named Name, or every layer for "" or "*"), in units a second, world axes: the layer's drag slows its particles toward it instead of to a stop, so they drift with it, those alive too; a layer without drag isn't moved. 0,0,0 = still air (the default). Returns how many layers it set.
+int WParticleEffectSetLayerWind(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 5) return 0;
+	Entity root = lua_tonumber(L, 1);
+	const char* pName = lua_tostring(L, 2);
+	XMFLOAT3 wind = XMFLOAT3((float)lua_tonumber(L, 3), (float)lua_tonumber(L, 4), (float)lua_tonumber(L, 5));
+
+	int iLayers = 0;
+	Scene& scene = wiScene::GetScene();
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		if (!hier || hier->parentID != root || !WParticleEffectLayerMatches(scene, emitter, pName)) continue;
+		scene.emitters[i].layer_wind = wind;
+		iLayers++;
+	}
+	lua_pushinteger(L, iLayers);
+	return 1;
+}
+
+//WParticleEffectGetLayerWind(EffectID,Name) - X, Y, Z of the air's velocity for the effect's first layer named Name (as WParticleEffectSetLayerWind), nil if it has none.
+int WParticleEffectGetLayerWind(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 2) return 0;
+	Entity root = lua_tonumber(L, 1);
+	const char* pName = lua_tostring(L, 2);
+
+	Scene& scene = wiScene::GetScene();
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		if (!hier || hier->parentID != root || !WParticleEffectLayerMatches(scene, emitter, pName)) continue;
+		const XMFLOAT3& wind = scene.emitters[i].layer_wind;
+		lua_pushnumber(L, wind.x);
+		lua_pushnumber(L, wind.y);
+		lua_pushnumber(L, wind.z);
+		return 3;
+	}
+	return 0;
+}
+
 //WParticleEffectGetLayers(EffectID) - a table of the effect's layer (emitter) names.
 int WParticleEffectGetLayers(lua_State* L)
 {
@@ -18045,6 +18093,8 @@ void addFunctions()
 	lua_register(lua, "WParticleEffectSetLayer", WParticleEffectSetLayer);
 	lua_register(lua, "WParticleEffectGetLayer", WParticleEffectGetLayer);
 	lua_register(lua, "WParticleEffectGetLayers", WParticleEffectGetLayers);
+	lua_register(lua, "WParticleEffectSetLayerWind", WParticleEffectSetLayerWind);
+	lua_register(lua, "WParticleEffectGetLayerWind", WParticleEffectGetLayerWind);
 	lua_register(lua, "WParticleEffectSetColor", WParticleEffectSetColor);
 	lua_register(lua, "WParticleEffectGetColor", WParticleEffectGetColor);
 	lua_register(lua, "WParticleEffectGetBounds", WParticleEffectGetBounds);
