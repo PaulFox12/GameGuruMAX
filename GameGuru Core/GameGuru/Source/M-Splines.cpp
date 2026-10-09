@@ -3339,6 +3339,50 @@ void spline_setpaintkeep( bool bOn )
 	if ( !bOn ) std::vector<uint32_t>().swap( g_SplinePaintKeep );
 }
 
+// the terrain's sculpt brush leaving the roads' carriageways and the rivers' beds alone (Sculpt Terrain, Keep Off Roads and
+// Rivers): a bit for each height map texel of one whose bake still shows, made again at the start of each stroke. Their
+// shoulders and banks are the brush's; the next bake blends them from the road to the ground the brush left.
+static bool g_bSplineSculptKeep = false;
+static std::vector<uint32_t> g_SplineSculptKeep;
+static int g_iSplineSculptKeepFrame = -10;
+
+static const uint32_t* spline_sculptkeepbits( void )
+{
+	const int frame = ImGui::GetFrameCount();
+	if ( frame - g_iSplineSculptKeepFrame > 1 )
+	{
+		// a texel sculpted since its bake is the brush's again
+		g_SplineSculptKeep.assign( SPLINE_MAP_SIZE * SPLINE_MAP_SIZE / 32, 0 );
+		const float* pH = GGTerrain::GGTerrain_GetHeightEditMap();
+		const uint8_t* pT = GGTerrain::GGTerrain_GetHeightEditTypeMap();
+		for ( const sSpline& s : g_Splines )
+		{
+			for ( const sSplineBakeTexel& b : s.baked )
+			{
+				if ( !(b.flags & SPLINE_TEXEL_CARRIAGEWAY) || !(b.flags & SPLINE_TEXEL_HEIGHT) || b.x >= SPLINE_MAP_SIZE || b.z >= SPLINE_MAP_SIZE ) continue;
+				const uint32_t hIndex = (SPLINE_MAP_SIZE - 1 - b.z) * SPLINE_MAP_SIZE + b.x;
+				if ( !pH || !pT || pH[ hIndex ] != b.heightAfter || pT[ hIndex ] != b.typeAfter ) continue;
+				const uint32_t index = b.z * SPLINE_MAP_SIZE + b.x;
+				g_SplineSculptKeep[ index >> 5 ] |= 1u << (index & 31);
+			}
+		}
+	}
+	g_iSplineSculptKeepFrame = frame;
+	return g_SplineSculptKeep.data();
+}
+
+bool spline_sculptkeep( void )
+{
+	return g_bSplineSculptKeep;
+}
+
+void spline_setsculptkeep( bool bOn )
+{
+	g_bSplineSculptKeep = bOn;
+	GGTerrain::GGTerrain_SetSculptKeep( bOn ? spline_sculptkeepbits : nullptr );
+	if ( !bOn ) std::vector<uint32_t>().swap( g_SplineSculptKeep );
+}
+
 static float fRowLabelX = 0, fRowFieldX = 0, fRowRight = 0;
 
 // the rows' columns from where the cursor is now (under a heading, indented with it)

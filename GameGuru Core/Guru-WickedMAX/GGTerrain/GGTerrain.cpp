@@ -862,6 +862,7 @@ Texture texMask;
 uint8_t* pMaterialMap = 0;
 Texture texMaterialMap;
 const uint32_t* (*pfnPaintKeep)( void ) = 0; // GG: the texels the paint brush leaves alone (GGTerrain_SetPaintKeep)
+const uint32_t* (*pfnSculptKeep)( void ) = 0; // GG: the texels the sculpt brush leaves alone (GGTerrain_SetSculptKeep)
 
 // CPU copy of page table data, useful when shifting the page table
 //#define GGTERRAIN_PAGE_TABLE_DEPTH 32 // must be greater than max numLODLevels + max mip levels (currently 15 + 7)
@@ -9030,6 +9031,14 @@ void GGTerrain_InvalidateEverything( uint32_t flags )
 	GGTerrain_InvalidateRegion( -1e20f, -1e20f, 1e20f, 1e20f, flags );
 }
 
+// GG: whether the sculpt brush leaves this edit map texel alone (GGTerrain_SetSculptKeep)
+static inline bool GGTerrain_SculptKept( const uint32_t* pKeep, int x, int z )
+{
+	if ( !pKeep ) return false;
+	const uint32_t i = (uint32_t)z * GGTERRAIN_HEIGHTMAP_EDIT_SIZE + (uint32_t)x;
+	return (pKeep[ i >> 5 ] & (1u << (i & 31))) != 0;
+}
+
 void GGTerrain_Update_Sculpting( float pickX, float pickY, float pickZ )
 {
 #ifdef GGTERRAIN_ENABLE_SCULPTING
@@ -9149,6 +9158,8 @@ void GGTerrain_Update_Sculpting( float pickX, float pickY, float pickZ )
 					}
 					#endif
 
+					const uint32_t* pKeep = pfnSculptKeep ? pfnSculptKeep() : 0;
+
 					for( int y = minY; y < maxY; y++ )
 					{
 						for( int x = minX; x < maxX; x++ )
@@ -9162,6 +9173,7 @@ void GGTerrain_Update_Sculpting( float pickX, float pickY, float pickZ )
 							float rampVZ2 = -rampVX;
 							float perpDist = diffX*rampVX2 + diffZ*rampVZ2;
 							if ( perpDist < -radius || perpDist > radius ) continue;
+							if ( GGTerrain_SculptKept( pKeep, x, y ) ) continue;
 
 							float fract = dotp / rampLength;
 							float targetY = fStartY + fract*(fEndY - fStartY);
@@ -9252,6 +9264,7 @@ void GGTerrain_Update_Sculpting( float pickX, float pickY, float pickZ )
 
 		float radius = ggterrain_local_render_params2.brushSize / ggterrain_local_render_params2.editable_size;
 		radius *= GGTERRAIN_HEIGHTMAP_EDIT_SIZE * 0.5f;
+		const uint32_t* pKeep = pfnSculptKeep ? pfnSculptKeep() : 0;
 
 		int startX = (int) (fX - radius);
 		int startY = (int) (fZ - radius);
@@ -9413,6 +9426,7 @@ void GGTerrain_Update_Sculpting( float pickX, float pickY, float pickZ )
 						int indexOrig = (GGTERRAIN_HEIGHTMAP_EDIT_SIZE-1 - origY) * GGTERRAIN_HEIGHTMAP_EDIT_SIZE + origX;
 						int index = y * diffX + x;
 
+						if ( GGTerrain_SculptKept( pKeep, origX, origY ) ) continue;
 						pHeightMapEditType[ indexOrig ] = 1; // replace
 						pHeightMapEdit[ indexOrig ] = newHeights[ index ];
 					}
@@ -9434,6 +9448,7 @@ void GGTerrain_Update_Sculpting( float pickX, float pickY, float pickZ )
 						uint32_t index = (GGTERRAIN_HEIGHTMAP_EDIT_SIZE-1 - y) * GGTERRAIN_HEIGHTMAP_EDIT_SIZE + x;
 						uint8_t heightType = pHeightMapEditType[ index ];
 						float newHeightMapHeight;
+						if ( GGTerrain_SculptKept( pKeep, x, y ) ) continue;
 
 						float realX = x / (float) GGTERRAIN_HEIGHTMAP_EDIT_SIZE;
 						realX = realX * 2 - 1;
@@ -10910,6 +10925,7 @@ float* GGTerrain_GetHeightEditMap() { return pHeightMapEdit; }
 uint8_t* GGTerrain_GetHeightEditTypeMap() { return pHeightMapEditType; }
 uint8_t* GGTerrain_GetMaterialMap() { return pMaterialMap; }
 void GGTerrain_SetPaintKeep( const uint32_t* (*pfnKeep)( void ) ) { pfnPaintKeep = pfnKeep; }
+void GGTerrain_SetSculptKeep( const uint32_t* (*pfnKeep)( void ) ) { pfnSculptKeep = pfnKeep; }
 
 // a world height as a sculpt edit stores it (as the ramp and write sculpt modes do)
 float GGTerrain_HeightToEdit( float y )

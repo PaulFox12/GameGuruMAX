@@ -2390,6 +2390,10 @@ void imgui_terrain_loop_v3(void)
 					ImGui::TextCenter("Scuplt Speed");
 					ImGui::MaxSliderInputFloatPower("##Sculpt Speed", &ggterrain_extra_params.sculpt_speed, 1.0f, 200.0f, 0, 1.0f, 200.0f, 30, 2.0f);
 
+					bool bKeep = spline_sculptkeep();
+					if (ImGui::Checkbox("Keep Off Roads and Rivers##sculptkeep", &bKeep)) spline_setsculptkeep(bKeep);
+					if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sculpting leaves the road surfaces and river beds made with Roads and Rivers as they are.\nTheir shoulders and banks are sculpted, and blend from the road to the new ground when it is next applied");
+
 					if (ggterrain_extra_params.sculpt_mode == GGTERRAIN_SCULPT_RANDOM)
 					{
 						ImGui::TextCenter("Randomness Frequency");

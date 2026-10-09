@@ -347,6 +347,9 @@ void GGTerrain_SetMarkings( const GGTerrainMarking* pMarkings, uint32_t count );
 // GG: the material map texels the paint brush leaves alone (the spline roads and rivers), one bit each (index z * 4096 + x,
 // bit index & 31 of word index >> 5), from the given function, asked on each frame the brush paints; null paints everywhere
 void GGTerrain_SetPaintKeep( const uint32_t* (*pfnKeep)( void ) );
+// GG: the height map texels the sculpt brush leaves alone (the spline roads' carriageways and rivers' beds), the same way
+// (index z * 4096 + x), asked on each frame the brush sculpts; null sculpts everywhere
+void GGTerrain_SetSculptKeep( const uint32_t* (*pfnKeep)( void ) );
 uint32_t GGTerrain_GetPaintDataSize();
 int GGTerrain_GetPaintData( uint8_t* data ); // data must be allocated with a size of GGTerrain_GetPaintDataSize(), returns 1 on success
 int GGTerrain_SetPaintData( uint32_t size, uint8_t* data, sUndoSysEventTerrainPaint* = nullptr); // size must be equal to GGTerrain_GetPaintDataSize(), returns 1 on success
