@@ -78,6 +78,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_KIND_RIVER 2
 
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
+#define SPLINE_NODE_HOLDHEIGHT 2 // a road is built up or cut down to the node's height (its y) there, not at a junction
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
 #define SPLINE_FILE_VERSION 21 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth; 18: road markings; 19: At Junctions; 20: Solid on Crests; 21: bank planting
@@ -321,6 +322,7 @@ static std::unordered_set<int> g_SplineForceBake;
 static bool g_bLibraryPickEntity = false;
 // drawing: nodes are being added to the selected spline, so a click on another spline's node or curve joins it
 static bool bDrawing = false;
+static bool g_bSplineHoldNewNodes = false; // nodes added to a road hold the height where they are placed
 // the rivers' water over the terrain texels (the highest where rivers meet), for the water height and the navmesh
 static std::unordered_map<uint32_t, sRiverTexel> g_RiverWater;
 // after a level load the water waits this many frames (and for the terrain), so the terrain has taken the level's settings
@@ -723,6 +725,7 @@ static uint64_t spline_signature( const sSpline& s )
 		mix( f, sizeof(f) );
 		mix( &node.junction, sizeof(node.junction) );
 		mix( &node.segCurve, sizeof(node.segCurve) );
+		if ( s.kind == SPLINE_KIND_ROAD && (node.flags & SPLINE_NODE_HOLDHEIGHT) ) mix( &node.y, sizeof(node.y) );
 	}
 	const sSplineRoad& r = s.road;
 	const float rf[7] = { r.width, r.shoulder, r.smoothing, r.maxGrade, r.crown, r.grassMargin, r.treeMargin };
@@ -1182,6 +1185,16 @@ static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protecte
 	for ( size_t ni = 0; ni < sp.nodes.size(); ni++ )
 	{
 		if ( sp.nodes[ ni ].junction && nodeSample[ ni ] >= 0 ) pins.push_back( { nodeSample[ ni ], c[ nodeSample[ ni ] ].ground } );
+	}
+	// a node holding its height (Hold Height, not at a junction) is pinned to it, an end held there rather than at the
+	// ground: the road is built up or cut down to it, and the bake sculpts the terrain to meet the road
+	for ( size_t ni = 0; ni < sp.nodes.size(); ni++ )
+	{
+		const sSplineNode& node = sp.nodes[ ni ];
+		if ( !(node.flags & SPLINE_NODE_HOLDHEIGHT) || node.junction || nodeSample[ ni ] < 0 ) continue;
+		bool bHeld = false;
+		for ( auto& pin : pins ) if ( pin.first == nodeSample[ ni ] ) { pin.second = node.y; bHeld = true; }
+		if ( !bHeld ) pins.push_back( { nodeSample[ ni ], node.y } );
 	}
 	std::vector<char> pinned;
 	spline_pinprofile( c, pins, pinned );
@@ -3046,10 +3059,12 @@ static void spline_findsnap( ImVec2 mouse )
 static ImVec2 vDragStart;
 static float fDragOffsetX = 0.0f, fDragOffsetZ = 0.0f;
 static bool bDragMoved = false;
+static bool bDragPlacing = false; // the node dragged was just added: it goes to the ground where it is let go
 static void spline_dragstart( const ImVec2& mouse )
 {
 	vDragStart = mouse;
 	bDragMoved = false;
+	bDragPlacing = false;
 	fDragOffsetX = fDragOffsetZ = 0.0f;
 	float x, y, z;
 	if ( iDragNode < 0 || !spline_terrainpick( &x, &y, &z ) ) return;
@@ -3098,6 +3113,12 @@ static void spline_mouse( void )
 				{
 					spline_findsnap( mouse );
 					if ( iSnapSpline >= 0 ) { x = fSnapX; y = fSnapY; z = fSnapZ; }
+					else
+					{
+						// a node holding its height keeps it as it moves, unless it was just added
+						const sSplineNode& moving = s.nodes[ iDragNode ];
+						if ( (moving.flags & SPLINE_NODE_HOLDHEIGHT) && !moving.junction && !bDragPlacing ) y = moving.y;
+					}
 					spline_movenode( iDragSpline, iDragNode, x, y, z );
 				}
 				else
@@ -3249,10 +3270,12 @@ static void spline_mouse( void )
 	{
 		bDrawing = false;
 		g_iSplineNodeSelected = spline_insertnode( si, seg, t );
+		if ( g_bSplineHoldNewNodes && g_Splines[ si ].kind == SPLINE_KIND_ROAD ) g_Splines[ si ].nodes[ g_iSplineNodeSelected ].flags |= SPLINE_NODE_HOLDHEIGHT;
 		iDragSpline = si;
 		iDragNode = g_iSplineNodeSelected;
 		iDragHandle = 0;
 		spline_dragstart( mouse );
+		bDragPlacing = true;
 		return;
 	}
 
@@ -3274,6 +3297,7 @@ static void spline_mouse( void )
 	sSpline& s = g_Splines[ g_iSplineSelected ];
 	if ( s.closed ) return;
 	const int at = spline_addend( g_iSplineSelected, x, y, z );
+	if ( g_bSplineHoldNewNodes && s.kind == SPLINE_KIND_ROAD ) s.nodes[ at ].flags |= SPLINE_NODE_HOLDHEIGHT;
 	bDrawing = true;
 	g_iSplineNodeSelected = at;
 	g_iSplineSegSelected = -1;
@@ -3281,6 +3305,7 @@ static void spline_mouse( void )
 	iDragNode = at;
 	iDragHandle = 0;
 	spline_dragstart( mouse );
+	bDragPlacing = true;
 	spline_modified();
 }
 
@@ -5197,8 +5222,47 @@ void spline_imgui_panel( float w )
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The selected node's Z position, in world units" );
 				if ( bMoved )
 				{
-					spline_movenode( g_iSplineSelected, g_iSplineNodeSelected, x, spline_groundy( x, z ), z );
+					const bool bHeld = (node.flags & SPLINE_NODE_HOLDHEIGHT) && !node.junction;
+					spline_movenode( g_iSplineSelected, g_iSplineNodeSelected, x, bHeld ? node.y : spline_groundy( x, z ), z );
 					spline_modified();
+				}
+				if ( s.kind == SPLINE_KIND_ROAD )
+				{
+					// its height held: the road built up or cut down to it and the terrain sculpted to meet it, rather than the
+					// road following the ground there; not at a junction, where the road meets the other road's surface
+					if ( node.junction )
+					{
+						spline_row( "Hold Height" );
+						ImGui::TextDisabled( "%s", "No, a junction" );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "At a junction the road meets the other road's surface, so it can't hold a height of its own" );
+					}
+					else
+					{
+						bool bHold = (node.flags & SPLINE_NODE_HOLDHEIGHT) != 0;
+						ImGui::SetCursorPosX( fRowLabelX );
+						if ( ImGui::Checkbox( "Hold Height##splinenodehold", &bHold ) )
+						{
+							if ( bHold )
+							{
+								node.flags |= SPLINE_NODE_HOLDHEIGHT;
+								node.y = spline_groundy( node.x, node.z );
+							}
+							else node.flags &= ~SPLINE_NODE_HOLDHEIGHT;
+							spline_modified();
+						}
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The road goes through this node at its Height, built up or cut down to it, and the terrain is\nsculpted to meet it, rather than the road following the ground here. It starts at the ground's height.\nThe Max Grade still holds between held nodes and the ends, so a road given too little length to\nclimb to a height gets steeper next to the end or held node it can't move." );
+						if ( bHold )
+						{
+							float y = node.y;
+							spline_row( "Height" );
+							if ( ImGui::InputFloat( "##splinenodey", &y, 0.0f, 0.0f, "%.1f" ) )
+							{
+								node.y = y;
+								spline_modified();
+							}
+							if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The height the road holds at this node, in world units (as Lua and the logs give positions)" );
+						}
+					}
 				}
 				if ( s.kind == SPLINE_KIND_ROAD ? !s.road.autoApply : (s.kind == SPLINE_KIND_RIVER && !s.river.autoApply) )
 				{
@@ -5404,6 +5468,9 @@ void spline_imgui_panel( float w )
 					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The road's height is averaged over this length, so it rides over bumps" );
 					spline_row( "Max Grade" );
 					bChanged |= ImGui::SliderFloat( "##splineroadgrade", &r.maxGrade, 1.0f, 40.0f, "%.0f %%" );
+					ImGui::SetCursorPosX( fRowLabelX );
+					ImGui::Checkbox( "Hold New Nodes' Height##splineholdnew", &g_bSplineHoldNewNodes );
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Nodes you add to a road from now on hold the height where you place them (each node's Hold Height),\nso the road goes through each at that height and the terrain is sculpted to meet it" );
 					bChanged |= spline_rowmetres( "Crown", "##splineroadcrown", &r.crown, 0.0f, 0.5f, "%.2f m" );
 					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "How far the centre stands above the edges, so the road sheds water" );
 				}
