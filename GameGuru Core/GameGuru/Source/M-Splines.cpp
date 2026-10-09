@@ -2038,17 +2038,19 @@ static void spline_unplace( sSpline& s )
 	{
 		if ( t.entityelement[ e ].maintype == 0 || t.entityelement[ e ].bankindex <= 0 ) continue;
 		if ( t.entityelement[ e ].eleprof.iObjectReserved1 != SPLINE_ENTITY_TAG || t.entityelement[ e ].eleprof.iObjectReserved2 != s.id ) continue;
-		bool bStill = false;
+		// found by where it was put across the ground (sculpting moves it up and down with the ground), by the layer of its
+		// own entity where two layers put one there
+		const int bank = t.entityelement[ e ].bankindex;
+		const char* pFile = bank < (int)t.entitybank_s.size() ? t.entitybank_s[ bank ].Get() : "";
+		const sSplinePlaced* pFound = nullptr;
 		for ( const sSplinePlaced& placed : s.placed )
 		{
-			if ( fabsf( placed.x - t.entityelement[ e ].x ) < 2.0f && fabsf( placed.z - t.entityelement[ e ].z ) < 2.0f && fabsf( placed.y - t.entityelement[ e ].y ) < 2.0f )
-			{
-				const bool bFrozen = placed.layer >= 0 && placed.layer < (int)s.layers.size() && s.layers[ placed.layer ].frozen;
-				bStill = !bFrozen;
-				break;
-			}
+			if ( fabsf( placed.x - t.entityelement[ e ].x ) >= 2.0f || fabsf( placed.z - t.entityelement[ e ].z ) >= 2.0f ) continue;
+			if ( placed.layer >= 0 && placed.layer < (int)s.layers.size() && _stricmp( s.layers[ placed.layer ].entity, pFile ) == 0 ) { pFound = &placed; break; }
+			if ( !pFound ) pFound = &placed;
 		}
-		if ( !bStill ) continue;
+		if ( !pFound ) continue;
+		if ( pFound->layer >= 0 && pFound->layer < (int)s.layers.size() && s.layers[ pFound->layer ].frozen ) continue;
 		t.tentitytoselect = e;
 		DeleteEntityFromLists( e );
 		entity_deleteentityfrommap();
