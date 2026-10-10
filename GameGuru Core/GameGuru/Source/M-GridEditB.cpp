@@ -53629,9 +53629,15 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		}
 
 		//Bloom
+		// a post effect a script holds (LuaPostEffects) shows here, and an edit here hands that setting back to the level
+		float fShowBloomThreshold = (g_LuaPostEffects.fBloomThreshold >= 0 && master_renderer) ? master_renderer->getBloomThreshold() : t.visuals.fsetBloomThreshold;
+		float fShowBloomCap = (g_LuaPostEffects.fBloomCap >= 0 && master_renderer) ? master_renderer->getBloomCap() : t.visuals.fsetBloomCap;
 		ImGui::PushItemWidth(-10);
-		if (ImGui::Checkbox("Bloom Enabled##setBloomEnabled", &t.visuals.bBloomEnabled))
+		bool bBloom = (g_LuaPostEffects.iBloom >= 0 && master_renderer) ? master_renderer->getBloomEnabled() : t.visuals.bBloomEnabled;
+		if (ImGui::Checkbox("Bloom Enabled##setBloomEnabled", &bBloom))
 		{
+			g_LuaPostEffects.iBloom = -1;
+			t.visuals.bBloomEnabled = bBloom;
 			t.gamevisuals.bBloomEnabled = t.visuals.bBloomEnabled;
 			if (master_renderer)
 				master_renderer->setBloomEnabled(t.visuals.bBloomEnabled);
@@ -53643,8 +53649,10 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		if (master_renderer && master_renderer->getBloomEnabled())
 		{
 			ImGui::PushItemWidth(-10);
-			if (ImGui::SliderFloat("##WickedsetBloomThreshold", &t.visuals.fsetBloomThreshold, 0.1f, 10.0f, "%.2f", 2.0f))
+			if (ImGui::SliderFloat("##WickedsetBloomThreshold", &fShowBloomThreshold, 0.1f, 10.0f, "%.2f", 2.0f))
 			{
+				g_LuaPostEffects.fBloomThreshold = -1;
+				t.visuals.fsetBloomThreshold = fShowBloomThreshold;
 				t.gamevisuals.fsetBloomThreshold = t.visuals.fsetBloomThreshold;
 				if (master_renderer) {
 					master_renderer->setBloomThreshold(t.visuals.fsetBloomThreshold);
@@ -53653,8 +53661,11 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Threshold is a measure of how bright an object or area must be before the bloom effect is applied");
 
-			if (ImGui::SliderFloat("##WickedsetBloomStrength", &t.visuals.fsetBloomStrength, 0.1f, 10.0f, "%.2f", 2.0f))
+			float fShowBloomStrength = g_LuaPostEffects.fBloomStrength >= 0 ? master_renderer->getBloomStrength() : t.visuals.fsetBloomStrength;
+			if (ImGui::SliderFloat("##WickedsetBloomStrength", &fShowBloomStrength, 0.1f, 10.0f, "%.2f", 2.0f))
 			{
+				g_LuaPostEffects.fBloomStrength = -1;
+				t.visuals.fsetBloomStrength = fShowBloomStrength;
 				t.gamevisuals.fsetBloomStrength = t.visuals.fsetBloomStrength;
 				if (master_renderer) {
 					master_renderer->setBloomStrength(t.visuals.fsetBloomStrength);
@@ -53664,21 +53675,26 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Strength is a measure of how strongly the bloom is applied to the scene");
 
 			// GG: wider halos and the brightest a pixel counts for
-			if (ImGui::SliderFloat("##WickedsetBloomRadius", &t.visuals.fsetBloomRadius, 0.0f, 2.0f, "Radius %.2f", 1.0f))
+			float fShowBloomRadius = g_LuaPostEffects.fBloomRadius >= 0 ? master_renderer->getBloomRadius() : t.visuals.fsetBloomRadius;
+			if (ImGui::SliderFloat("##WickedsetBloomRadius", &fShowBloomRadius, 0.0f, 2.0f, "Radius %.2f", 1.0f))
 			{
+				g_LuaPostEffects.fBloomRadius = -1;
+				t.visuals.fsetBloomRadius = fShowBloomRadius;
 				t.gamevisuals.fsetBloomRadius = t.visuals.fsetBloomRadius;
 				if (master_renderer) master_renderer->setBloomRadius(t.visuals.fsetBloomRadius);
 				g.projectmodified = 1;
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Radius adds wider, softer halos around bright areas (0 as before)");
-			if (ImGui::SliderFloat("##WickedsetBloomCap", &t.visuals.fsetBloomCap, 1.0f, 10000.0f, "Cap %.0f", 4.0f))
+			if (ImGui::SliderFloat("##WickedsetBloomCap", &fShowBloomCap, 1.0f, 10000.0f, "Cap %.0f", 4.0f))
 			{
+				g_LuaPostEffects.fBloomCap = -1;
+				t.visuals.fsetBloomCap = fShowBloomCap;
 				t.gamevisuals.fsetBloomCap = t.visuals.fsetBloomCap;
 				if (master_renderer) master_renderer->setBloomCap(t.visuals.fsetBloomCap);
 				g.projectmodified = 1;
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Cap is the brightest a pixel counts for in the bloom (30 as before): raise it so very bright lights such as missiles glow more and keep their colour");
-			if (t.visuals.fsetBloomCap <= t.visuals.fsetBloomThreshold) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Cap at or below the threshold: nothing blooms");
+			if (fShowBloomCap <= fShowBloomThreshold) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Cap at or below the threshold: nothing blooms");
 
 			ImGui::PopItemWidth();
 		}
@@ -53727,7 +53743,10 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::PopItemWidth();
 
 		ImGui::PushItemWidth(-10);
-		if (ImGui::Checkbox("Light Shafts##setLightShaftsEnabled", &t.visuals.bLightShafts)) {
+		bool bLightShafts = (g_LuaPostEffects.iLightShafts >= 0 && master_renderer) ? master_renderer->getLightShaftsEnabled() : t.visuals.bLightShafts;
+		if (ImGui::Checkbox("Light Shafts##setLightShaftsEnabled", &bLightShafts)) {
+			g_LuaPostEffects.iLightShafts = -1;
+			t.visuals.bLightShafts = bLightShafts;
 			t.gamevisuals.bLightShafts = t.visuals.bLightShafts;
 			if (master_renderer)
 				master_renderer->setLightShaftsEnabled(t.visuals.bLightShafts);
@@ -53738,8 +53757,11 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 
 		// LB: aded lens flare
 		ImGui::PushItemWidth(-10);
-		if (ImGui::Checkbox("Lens Flare##setLensFlareEnabled", &t.visuals.bLensFlare))
+		bool bLensFlare = (g_LuaPostEffects.iLensFlare >= 0 && master_renderer) ? master_renderer->getLensFlareEnabled() : t.visuals.bLensFlare;
+		if (ImGui::Checkbox("Lens Flare##setLensFlareEnabled", &bLensFlare))
 		{
+			g_LuaPostEffects.iLensFlare = -1;
+			t.visuals.bLensFlare = bLensFlare;
 			t.gamevisuals.bLensFlare = t.visuals.bLensFlare;
 			if (master_renderer)
 				master_renderer->setLensFlareEnabled(t.visuals.bLensFlare);
@@ -53747,56 +53769,73 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		}
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enables lens flare from light cast from the sun");
 		// GG: the sun's flare takes its colour and follows its intensity
-		if (t.visuals.bLensFlare)
+		if (bLensFlare)
 		{
-			if (ImGui::SliderFloat("##LensFlareSunHue", &t.visuals.fLensFlareSunHue, 0.0f, 1.0f, "Sun Colour %.2f", 1.0f))
+			float fShowSunHue = g_LuaPostEffects.fLensFlareSunHue >= 0 ? wiRenderer::GetLensFlareLightHue() : t.visuals.fLensFlareSunHue;
+			float fShowSunBrightness = g_LuaPostEffects.fLensFlareSunBrightness >= 0 ? wiRenderer::GetLensFlareLightBrightness() : t.visuals.fLensFlareSunBrightness;
+			if (ImGui::SliderFloat("##LensFlareSunHue", &fShowSunHue, 0.0f, 1.0f, "Sun Colour %.2f", 1.0f))
 			{
+				g_LuaPostEffects.fLensFlareSunHue = -1;
+				t.visuals.fLensFlareSunHue = fShowSunHue;
 				t.gamevisuals.fLensFlareSunHue = t.visuals.fLensFlareSunHue;
-				wiRenderer::SetLensFlareLightColour(t.visuals.fLensFlareSunHue, t.visuals.fLensFlareSunBrightness);
+				wiRenderer::SetLensFlareLightColour(fShowSunHue, fShowSunBrightness);
 				g.projectmodified = 1;
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How far the lens flare takes the sun's colour (0 the flare images' own colour)");
-			if (ImGui::SliderFloat("##LensFlareSunBrightness", &t.visuals.fLensFlareSunBrightness, 0.0f, 1.0f, "Sun Intensity %.2f", 1.0f))
+			if (ImGui::SliderFloat("##LensFlareSunBrightness", &fShowSunBrightness, 0.0f, 1.0f, "Sun Intensity %.2f", 1.0f))
 			{
+				g_LuaPostEffects.fLensFlareSunBrightness = -1;
+				t.visuals.fLensFlareSunBrightness = fShowSunBrightness;
 				t.gamevisuals.fLensFlareSunBrightness = t.visuals.fLensFlareSunBrightness;
-				wiRenderer::SetLensFlareLightColour(t.visuals.fLensFlareSunHue, t.visuals.fLensFlareSunBrightness);
+				wiRenderer::SetLensFlareLightColour(fShowSunHue, fShowSunBrightness);
 				g.projectmodified = 1;
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How far the lens flare dims and brightens with the sun's intensity against the level's (0 constant)");
 		}
 		// GG: the screen-space lens flare from the image's bright spots
-		if (ImGui::Checkbox("Screen Lens Flare##setScreenLensFlare", &t.visuals.bScreenLensFlare))
+		bool bScreenLensFlare = (g_LuaPostEffects.iScreenLensFlare >= 0 && master_renderer) ? master_renderer->getScreenLensFlareEnabled() : t.visuals.bScreenLensFlare;
+		if (ImGui::Checkbox("Screen Lens Flare##setScreenLensFlare", &bScreenLensFlare))
 		{
+			g_LuaPostEffects.iScreenLensFlare = -1;
+			t.visuals.bScreenLensFlare = bScreenLensFlare;
 			t.gamevisuals.bScreenLensFlare = t.visuals.bScreenLensFlare;
 			if (master_renderer) master_renderer->setScreenLensFlareEnabled(t.visuals.bScreenLensFlare);
 			g.projectmodified = 1;
 		}
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lens flare ghosts and a halo from any very bright spot on screen: missiles, explosions, fire");
-		if (t.visuals.bScreenLensFlare)
+		if (bScreenLensFlare)
 		{
+			sLuaPostEffects* p = &g_LuaPostEffects;
+			float fIntensity = (p->fScreenLensFlareIntensity >= 0 && master_renderer) ? master_renderer->getScreenLensFlareIntensity() : t.visuals.fScreenLensFlareIntensity;
+			float fThreshold = (p->fScreenLensFlareThreshold >= 0 && master_renderer) ? master_renderer->getScreenLensFlareThreshold() : t.visuals.fScreenLensFlareThreshold;
+			float fSpacing = (p->fScreenLensFlareSpacing >= 0 && master_renderer) ? master_renderer->getScreenLensFlareSpacing() : t.visuals.fScreenLensFlareSpacing;
+			float fHalo = (p->fScreenLensFlareHalo >= 0 && master_renderer) ? master_renderer->getScreenLensFlareHalo() : t.visuals.fScreenLensFlareHalo;
+			bool bNoSky = (p->iScreenLensFlareNoSky >= 0 && master_renderer) ? master_renderer->getScreenLensFlareNoSky() : t.visuals.bScreenLensFlareNoSky;
+			float fCap = (p->fScreenLensFlareCap >= 0 && master_renderer) ? master_renderer->getScreenLensFlareCap() : t.visuals.fScreenLensFlareCap;
+			bool bFollowBloom = (p->iScreenLensFlareFollowBloom >= 0 && master_renderer) ? master_renderer->getScreenLensFlareFollowBloom() : t.visuals.bScreenLensFlareFollowBloom;
 			bool bChanged = false;
-			if (ImGui::SliderFloat("##ScreenLensFlareIntensity", &t.visuals.fScreenLensFlareIntensity, 0.0f, 10.0f, "Strength %.3f", 3.0f)) bChanged = true;
+			if (ImGui::SliderFloat("##ScreenLensFlareIntensity", &fIntensity, 0.0f, 10.0f, "Strength %.3f", 3.0f)) { p->fScreenLensFlareIntensity = -1; t.visuals.fScreenLensFlareIntensity = fIntensity; bChanged = true; }
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How strong the screen lens flare is");
-			if (ImGui::Checkbox("Follow Bloom##ScreenLensFlareFollowBloom", &t.visuals.bScreenLensFlareFollowBloom)) bChanged = true;
+			if (ImGui::Checkbox("Follow Bloom##ScreenLensFlareFollowBloom", &bFollowBloom)) { p->iScreenLensFlareFollowBloom = -1; t.visuals.bScreenLensFlareFollowBloom = bFollowBloom; bChanged = true; }
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Use the bloom's threshold and cap, so what blooms also flares; off gives the flare its own");
-			if (t.visuals.bScreenLensFlareFollowBloom)
+			if (bFollowBloom)
 			{
-				ImGui::Text("Bloom's Threshold %.2f, Cap %.0f", t.visuals.fsetBloomThreshold, t.visuals.fsetBloomCap);
-				if (t.visuals.fsetBloomCap <= t.visuals.fsetBloomThreshold) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Cap at or below the threshold: nothing flares");
+				ImGui::Text("Bloom's Threshold %.2f, Cap %.0f", fShowBloomThreshold, fShowBloomCap);
+				if (fShowBloomCap <= fShowBloomThreshold) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Cap at or below the threshold: nothing flares");
 			}
 			else
 			{
-				if (ImGui::SliderFloat("##ScreenLensFlareThreshold", &t.visuals.fScreenLensFlareThreshold, 0.1f, 10000.0f, "Threshold %.2f", 4.0f)) bChanged = true;
+				if (ImGui::SliderFloat("##ScreenLensFlareThreshold", &fThreshold, 0.1f, 10000.0f, "Threshold %.2f", 4.0f)) { p->fScreenLensFlareThreshold = -1; t.visuals.fScreenLensFlareThreshold = fThreshold; bChanged = true; }
 				if (ImGui::IsItemHovered()) ImGui::SetTooltip("How bright a spot must be to flare (its own, apart from the bloom's); keep it below the cap");
-				if (ImGui::SliderFloat("##ScreenLensFlareCap", &t.visuals.fScreenLensFlareCap, 1.0f, 10000.0f, "Cap %.0f", 4.0f)) bChanged = true;
+				if (ImGui::SliderFloat("##ScreenLensFlareCap", &fCap, 1.0f, 10000.0f, "Cap %.0f", 4.0f)) { p->fScreenLensFlareCap = -1; t.visuals.fScreenLensFlareCap = fCap; bChanged = true; }
 				if (ImGui::IsItemHovered()) ImGui::SetTooltip("The brightest a pixel counts for in the flare, before the threshold is taken off; raise it so the brightest spots (missiles) stand out from lamps");
-				if (t.visuals.fScreenLensFlareCap <= t.visuals.fScreenLensFlareThreshold) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Cap at or below the threshold: nothing flares");
+				if (fCap <= fThreshold) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Cap at or below the threshold: nothing flares");
 			}
-			if (ImGui::SliderFloat("##ScreenLensFlareSpacing", &t.visuals.fScreenLensFlareSpacing, 0.0f, 1.0f, "Ghost Spacing %.2f", 1.0f)) bChanged = true;
+			if (ImGui::SliderFloat("##ScreenLensFlareSpacing", &fSpacing, 0.0f, 1.0f, "Ghost Spacing %.2f", 1.0f)) { p->fScreenLensFlareSpacing = -1; t.visuals.fScreenLensFlareSpacing = fSpacing; bChanged = true; }
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The gap between the flare's ghosts along the line through the centre of the screen");
-			if (ImGui::SliderFloat("##ScreenLensFlareHalo", &t.visuals.fScreenLensFlareHalo, 0.0f, 1.0f, "Halo Radius %.2f", 1.0f)) bChanged = true;
+			if (ImGui::SliderFloat("##ScreenLensFlareHalo", &fHalo, 0.0f, 1.0f, "Halo Radius %.2f", 1.0f)) { p->fScreenLensFlareHalo = -1; t.visuals.fScreenLensFlareHalo = fHalo; bChanged = true; }
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The radius of the flare's halo ring");
-			if (ImGui::Checkbox("Leave Out The Sky##ScreenLensFlareNoSky", &t.visuals.bScreenLensFlareNoSky)) bChanged = true;
+			if (ImGui::Checkbox("Leave Out The Sky##ScreenLensFlareNoSky", &bNoSky)) { p->iScreenLensFlareNoSky = -1; t.visuals.bScreenLensFlareNoSky = bNoSky; bChanged = true; }
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The sky doesn't flare here, as the sun has its own flare above");
 			if (bChanged)
 			{
@@ -53807,15 +53846,16 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 				t.gamevisuals.bScreenLensFlareNoSky = t.visuals.bScreenLensFlareNoSky;
 				t.gamevisuals.fScreenLensFlareCap = t.visuals.fScreenLensFlareCap;
 				t.gamevisuals.bScreenLensFlareFollowBloom = t.visuals.bScreenLensFlareFollowBloom;
+				// the values a script still holds stay in force
 				if (master_renderer)
 				{
-					master_renderer->setScreenLensFlareIntensity(t.visuals.fScreenLensFlareIntensity);
-					master_renderer->setScreenLensFlareThreshold(t.visuals.fScreenLensFlareThreshold);
-					master_renderer->setScreenLensFlareSpacing(t.visuals.fScreenLensFlareSpacing);
-					master_renderer->setScreenLensFlareHalo(t.visuals.fScreenLensFlareHalo);
-					master_renderer->setScreenLensFlareNoSky(t.visuals.bScreenLensFlareNoSky);
-					master_renderer->setScreenLensFlareCap(t.visuals.fScreenLensFlareCap);
-					master_renderer->setScreenLensFlareFollowBloom(t.visuals.bScreenLensFlareFollowBloom);
+					master_renderer->setScreenLensFlareIntensity(fIntensity);
+					master_renderer->setScreenLensFlareThreshold(fThreshold);
+					master_renderer->setScreenLensFlareSpacing(fSpacing);
+					master_renderer->setScreenLensFlareHalo(fHalo);
+					master_renderer->setScreenLensFlareNoSky(bNoSky);
+					master_renderer->setScreenLensFlareCap(fCap);
+					master_renderer->setScreenLensFlareFollowBloom(bFollowBloom);
 				}
 				g.projectmodified = 1;
 			}
@@ -53856,7 +53896,14 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 
 		//PE: Added DOF.
 		ImGui::PushItemWidth(-10);
-		if (ImGui::Checkbox("Depth Of Field (DOF)##DOF", &t.visuals.bDOF)) {
+		wiScene::CameraComponent& dofcamera = wiScene::GetCamera();
+		float fShowDOFStrength = (g_LuaPostEffects.fDOFStrength >= 0 && master_renderer) ? master_renderer->getDepthOfFieldStrength() : t.visuals.fDOFStrength;
+		float fShowDOFApertureSize = g_LuaPostEffects.fDOFApertureSize >= 0 ? dofcamera.aperture_size : t.visuals.fDOFApertureSize;
+		float fShowDOFFocalLength = g_LuaPostEffects.fDOFFocalLength >= 0 ? dofcamera.focal_length : t.visuals.fDOFFocalLength;
+		bool bDOF = (g_LuaPostEffects.iDOF >= 0 && master_renderer) ? master_renderer->getDepthOfFieldEnabled() : t.visuals.bDOF;
+		if (ImGui::Checkbox("Depth Of Field (DOF)##DOF", &bDOF)) {
+			g_LuaPostEffects.iDOF = -1;
+			t.visuals.bDOF = bDOF;
 			t.gamevisuals.bDOF = t.visuals.bDOF;
 			if (master_renderer)
 			{
@@ -53864,9 +53911,9 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 				{
 					wiScene::Scene& scene = wiScene::GetScene();
 					wiScene::CameraComponent& camera = wiScene::GetCamera();
-					camera.aperture_size = t.visuals.fDOFApertureSize;
-					camera.focal_length = t.visuals.fDOFFocalLength;
-					master_renderer->setDepthOfFieldStrength(t.visuals.fDOFStrength);
+					camera.aperture_size = fShowDOFApertureSize;
+					camera.focal_length = fShowDOFFocalLength;
+					master_renderer->setDepthOfFieldStrength(fShowDOFStrength);
 				}
 				master_renderer->setDepthOfFieldEnabled(t.visuals.bDOF);
 			}
@@ -53875,12 +53922,14 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Depth Of Field (DOF): Is the area of acceptable sharpness in front of and behind the subject which the camera lens is focused.");
 		ImGui::PopItemWidth();
 
-		if (t.visuals.bDOF)
+		if (bDOF)
 		{
 			tab_tab_Column_text("DOF Strength", fTabColumnWidth);
 			ImGui::PushItemWidth(-10);
-			if (ImGui::SliderFloat("##DOF Strength", &t.visuals.fDOFStrength, 1.0f, 20.0f))
+			if (ImGui::SliderFloat("##DOF Strength", &fShowDOFStrength, 1.0f, 20.0f))
 			{
+				g_LuaPostEffects.fDOFStrength = -1;
+				t.visuals.fDOFStrength = fShowDOFStrength;
 				t.gamevisuals.fDOFStrength = t.visuals.fDOFStrength;
 				if (master_renderer)
 					master_renderer->setDepthOfFieldStrength(t.visuals.fDOFStrength);
@@ -53889,8 +53938,10 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 
 			tab_tab_Column_text("DOF ApertureSize", fTabColumnWidth);
 			ImGui::PushItemWidth(-10);
-			if (ImGui::SliderFloat("##DOF fDOFApertureSize", &t.visuals.fDOFApertureSize, 0.0f, 1.0f))
+			if (ImGui::SliderFloat("##DOF fDOFApertureSize", &fShowDOFApertureSize, 0.0f, 1.0f))
 			{
+				g_LuaPostEffects.fDOFApertureSize = -1;
+				t.visuals.fDOFApertureSize = fShowDOFApertureSize;
 				t.gamevisuals.fDOFApertureSize = t.visuals.fDOFApertureSize;
 				if (master_renderer)
 				{
@@ -53905,8 +53956,10 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 
 			tab_tab_Column_text("DOF Focal Length", fTabColumnWidth);
 			ImGui::PushItemWidth(-10);
-			if (ImGui::SliderFloat("##DOF focal_length", &t.visuals.fDOFFocalLength, 0.001f, 800.0f))
+			if (ImGui::SliderFloat("##DOF focal_length", &fShowDOFFocalLength, 0.001f, 800.0f))
 			{
+				g_LuaPostEffects.fDOFFocalLength = -1;
+				t.visuals.fDOFFocalLength = fShowDOFFocalLength;
 				t.gamevisuals.fDOFFocalLength = t.visuals.fDOFFocalLength;
 				if (master_renderer)
 				{
