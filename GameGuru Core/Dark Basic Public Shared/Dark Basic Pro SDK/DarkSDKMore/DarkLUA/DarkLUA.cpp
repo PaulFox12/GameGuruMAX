@@ -13880,6 +13880,26 @@ int GetEntityImmunity ( lua_State *L )
 	return 1;
 }
 
+// SetRagdollAllDeaths(on): 1 gives every death of a character with ragdoll = 1 the forced ragdoll of
+// SetEntityHealth(e, -12345), skipping the death animations; SetEntityHealth(e, -12346) still has none. 0 at each level start
+int SetRagdollAllDeaths ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	extern bool g_bRagdollAllDeaths;
+	g_bRagdollAllDeaths = lua_tointeger(L, 1) != 0;
+	return 0;
+}
+
+int GetRagdollAllDeaths ( lua_State *L )
+{
+	lua = L;
+	extern bool g_bRagdollAllDeaths;
+	lua_pushinteger ( L, g_bRagdollAllDeaths ? 1 : 0 );
+	return 1;
+}
+
 int SetAttachmentVisible ( lua_State *L )
 {
 	lua = L;
@@ -18121,6 +18141,8 @@ void addFunctions()
 	lua_register(lua, "SetEntityInstanceTint" , SetEntityInstanceTint );
 	lua_register(lua, "GetEntityInstanceTint" , GetEntityInstanceTint );
 	lua_register(lua, "GetEntityImmunity" , GetEntityImmunity );
+	lua_register(lua, "SetRagdollAllDeaths" , SetRagdollAllDeaths );
+	lua_register(lua, "GetRagdollAllDeaths" , GetRagdollAllDeaths );
 	lua_register(lua, "SetOcclusion" , SetOcclusion );
 	lua_register(lua, "SetPlayerWeapons", SetPlayerWeapons);
 	lua_register(lua, "FirePlayerWeapon", FirePlayerWeapon);

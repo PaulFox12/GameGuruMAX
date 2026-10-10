@@ -2867,7 +2867,9 @@ void entity_applydamage ( void )
 			else
 			{
 				extern bool g_bForceRagdoll;
-				if (g_bForceRagdoll == true)
+				extern bool g_bRagdollAllDeaths;
+				// SetRagdollAllDeaths(1) gives every death of a ragdoll character (not the third person player) a forced ragdoll
+				if (g_bForceRagdoll == true || (g_bRagdollAllDeaths == true && iThirdPersonCharacter == 0 && t.entityprofile[t.ttentid].ragdoll == 1))
 				{
 					// trigger a forced ragdoll event
 					t.impacting = 6;

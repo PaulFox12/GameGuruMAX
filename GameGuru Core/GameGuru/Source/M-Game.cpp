@@ -4188,6 +4188,9 @@ void game_preparelevel_finally ( void )
 	// each level starts with its own grass distance until a script sets one
 	extern float g_fGrassDistanceOverride;
 	g_fGrassDistanceOverride = 0.0f;
+	// and its deaths take the death animations until a script sets SetRagdollAllDeaths
+	extern bool g_bRagdollAllDeaths;
+	g_bRagdollAllDeaths = false;
 	// and its own post effects, clouds, wind, water, LUT and entity glow until a script sets them
 	extern void LuaPostEffects_Clear(void* pVisualsToRestore);
 	LuaPostEffects_Clear(NULL);

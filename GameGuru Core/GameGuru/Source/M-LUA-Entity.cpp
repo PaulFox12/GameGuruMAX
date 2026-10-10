@@ -2506,6 +2506,8 @@ void entity_lua_setanimationspeed ( void )
 // g_bForceRagdoll when calling 'entity_applydamage'
 bool g_bForceRagdoll = false;
 bool g_bForceNoRagdollJustDestroy = false;
+// SetRagdollAllDeaths: every death of a ragdoll character as if by SetEntityHealth(e,-12345), until the level ends
+bool g_bRagdollAllDeaths = false;
 
 void entity_lua_setentityhealth_core ( int iSilentOrDamage )
 {
