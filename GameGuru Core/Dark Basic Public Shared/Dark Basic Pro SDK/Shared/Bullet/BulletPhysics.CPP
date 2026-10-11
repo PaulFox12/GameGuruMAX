@@ -2352,6 +2352,32 @@ void SetOBJLoadingFilename (LPSTR pFilename)
 	strcpy (g_ProvidedMeshFilenameForOBJLoading, pFilename);
 }
 
+// GG: a hull decomposition's hulls were made from three points for each of their triangles, so each corner was there about
+// five times (a .bullet file keeps them so), and every contact test reads all of a hull's points. Only the corners are
+// kept: the same shapes. A hull the hull computer can't make again keeps its points
+static void PhysicsOptimiseCompoundHulls(btCollisionShape* pShape)
+{
+	if (!pShape || pShape->getShapeType() != COMPOUND_SHAPE_PROXYTYPE) return;
+	btCompoundShape* pCompound = (btCompoundShape*)pShape;
+	for (int c = 0; c < pCompound->getNumChildShapes(); c++)
+	{
+		btCollisionShape* pChild = pCompound->getChildShape(c);
+		if (pChild->getShapeType() != CONVEX_HULL_SHAPE_PROXYTYPE) continue;
+		btConvexHullShape* pHull = (btConvexHullShape*)pChild;
+		const int iPoints = pHull->getNumPoints();
+		if (iPoints < 8) continue;
+		btAlignedObjectArray<btVector3> original;
+		original.resize(iPoints);
+		for (int p = 0; p < iPoints; p++) original[p] = pHull->getUnscaledPoints()[p];
+		pHull->optimizeConvexHull();
+		if (pHull->getNumPoints() < 4)
+		{
+			for (int p = 0; p < iPoints; p++) pHull->addPoint(original[p], false);
+		}
+		pHull->recalcLocalAabb();
+	}
+}
+
 void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrainMesh, int iCollisionScaling, int iHullReduction, float fWeight, float fFriction, float fRestitution )
 {
 	// get reference object
@@ -2770,6 +2796,7 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 				if (numShapes)
 				{
 					compoundShape = (btCompoundShape*)importer->getCollisionShapeByIndex(0);
+					PhysicsOptimiseCompoundHulls(compoundShape);
 					bLoadedAndCreatedOkay = true;
 					iShapeUsed = 2;
 				}
@@ -2837,6 +2864,7 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 						compoundShape->addChildShape(localTransform, simplifiedConvexShape);
 						g_collisionShapes.push_back(simplifiedConvexShape);
 					}
+					PhysicsOptimiseCompoundHulls(compoundShape);
 					g_collisionShapes.push_back(compoundShape);
 					iShapeUsed = 2;
 
