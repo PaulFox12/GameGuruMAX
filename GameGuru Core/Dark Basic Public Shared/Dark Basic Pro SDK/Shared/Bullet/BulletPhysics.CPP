@@ -4331,7 +4331,7 @@ bool BPhys_RagDollHold(int ragdollID, int boneIndex, float fX, float fY, float f
 	if ( !ragdoll || !g_dynamicsWorld ) return false;
 	btMatrix3x3 rotation;
 	rotation.setEulerYPR(btRadians(fAZ), btRadians(fAY), btRadians(fAX));
-	ragdoll->Hold(boneIndex, btVector3(fX, fY, fZ), rotation, uNowMs);
+	ragdoll->Hold(boneIndex, btVector3(fX, fY, fZ), rotation, btScalar(fAY), uNowMs);
 	return ragdoll->IsHeld();
 }
 

@@ -51,7 +51,7 @@ public:
 	btVector3 GetBonePosition(int boneIndex);
 	void SetRestYaw(btScalar yawDegrees);
 	void SetFollowBone(int boneIndex);
-	void Hold(int boneIndex, const btVector3& position, const btMatrix3x3& rotation, unsigned int uNowMs);
+	void Hold(int boneIndex, const btVector3& position, const btMatrix3x3& rotation, btScalar fYawDegrees, unsigned int uNowMs);
 	void Release();
 	bool IsHeld();
 	bool IsResting();
@@ -67,6 +67,21 @@ private:
 	int BoneOfBody(const btRigidBody* pBody);
 	void BuildHoldPose(int boneIndex);
 	void SetHeldBodies(bool bHeld);
+	void SetHeldCollision(bool bHeld);
+
+	// a held body drawn where it is held now: the hold's target set after this frame's physics (the script runs after
+	// it) is reached by the next, so the object is moved and turned by the difference from where the last update left it
+	bool m_bHoldEased;
+	bool m_bHoldSteppedEased;
+	bool m_bHoldDrawnKnown;
+	btScalar m_fHoldTargetYaw;
+	btScalar m_fHoldYawStepped;
+	btScalar m_fHoldYawAtUpdate;
+	btVector3 m_vecObjectAtUpdate;
+	btVector3 m_vecObjectAnglesAtUpdate;
+	btVector3 m_vecHeldAtUpdate;
+	btAlignedObjectArray<int> m_heldGroup;
+	btAlignedObjectArray<int> m_heldMask;
 
 	// a joint as made: its bodies and its pivot in the world
 	struct sJointLink

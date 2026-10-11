@@ -68,6 +68,15 @@ DBProRagDoll::DBProRagDoll(int ragdollID) : BaseItem(ragdollID)
 	m_fHoldDamping = 0.6f;
 	m_fHoldWaistFold = 60.0f;
 	m_fHoldHipFold = 60.0f;
+	m_bHoldEased = false;
+	m_bHoldSteppedEased = false;
+	m_bHoldDrawnKnown = false;
+	m_fHoldTargetYaw = 0;
+	m_fHoldYawStepped = 0;
+	m_fHoldYawAtUpdate = 0;
+	m_vecObjectAtUpdate.setZero();
+	m_vecObjectAnglesAtUpdate.setZero();
+	m_vecHeldAtUpdate.setZero();
 
 	sObject* pObject = GetObjectData(ragdollID);
 	//SetCullingRadius(pObject->collision.fRadius, pObject->collision.fScaledRadius, pObject->collision.fScaledLargestRadius);
@@ -737,6 +746,17 @@ void DBProRagDoll::Update()
 		pbFramePartOfBoneMovement = NULL;
 	}
 
+	// GG: where an eased hold's update left the object and the held body, and the yaw it was held at, for Hold to draw
+	// it where the script holds it after this update
+	if (m_pHoldJoint && m_bHoldSteppedEased && pObject && m_iHoldBone >= 0)
+	{
+		m_vecObjectAtUpdate = BT2DX::DX_VECTOR3_2BT(pObject->position.vecPosition);
+		m_vecObjectAnglesAtUpdate = btVector3(ObjectAngleX(objectID), ObjectAngleY(objectID), ObjectAngleZ(objectID));
+		m_vecHeldAtUpdate = GetBonePosition(m_iHoldBone);
+		m_fHoldYawAtUpdate = m_fHoldYawStepped;
+		m_bHoldDrawnKnown = true;
+	}
+
 	// if overall ragdoll has stopped moving, switch it to static
 	// GG: not while held, or a held body that stops swinging could no longer be carried
 	if (bStillMoving == false && m_pHoldJoint == NULL)
@@ -982,7 +1002,7 @@ void DBProRagDoll::SetFollowBone(int boneIndex)
 // with no collision, which HoldStep moves toward the point a little at each simulation step. From where the body was,
 // the point is eased there over a quarter of a second. The other bodies hang from it on the ragdoll's own joints, those
 // at the held body opened up so they can hang, all solved harder. Held, the bodies never sleep or turn static
-void DBProRagDoll::Hold(int boneIndex, const btVector3& position, const btMatrix3x3& rotation, unsigned int uNowMs)
+void DBProRagDoll::Hold(int boneIndex, const btVector3& position, const btMatrix3x3& rotation, btScalar fYawDegrees, unsigned int uNowMs)
 {
 	if (boneIndex < 0 || boneIndex >= m_ragDollBoneArray.size()) return;
 	if (m_pHoldJoint && m_iHoldBone != boneIndex) Release();
@@ -999,13 +1019,19 @@ void DBProRagDoll::Hold(int boneIndex, const btVector3& position, const btMatrix
 
 	if (m_pHoldJoint == NULL)
 	{
-		// a static ragdoll has no mass to move; held, nothing may sleep
-		if (m_bIsStatic) SetStatic(false);
+		// every body given its mass (a ragdoll that settled has none), and held, nothing may sleep
+		SetStatic(false);
 		for (int i = 0; i < m_ragDollBoneArray.size(); i++)
 		{
 			btRigidBody* pBoneBody = m_ragDollBoneArray[i]->GetRigidBody();
 			if (pBoneBody) pBoneBody->setActivationState(DISABLE_DEACTIVATION);
 		}
+
+		// held, the bodies meet nothing: a foot sunk into the ground at the lift was held there and the leg pulled out
+		SetHeldCollision(true);
+		m_bHoldEased = false;
+		m_bHoldSteppedEased = false;
+		m_bHoldDrawnKnown = false;
 
 		// the anchor starts where the body is, so the joint holds it without a jolt
 		m_holdFrom = pBody->getWorldTransform();
@@ -1045,39 +1071,88 @@ void DBProRagDoll::Hold(int boneIndex, const btVector3& position, const btMatrix
 	float fBlend = (float)(uNowMs - m_uHoldStartMs) / 250.0f;
 	if (fBlend < 0.0f) fBlend = 0.0f;
 	if (fBlend > 1.0f) fBlend = 1.0f;
+	if (fBlend >= 1.0f) m_bHoldEased = true;
 	fBlend = fBlend * fBlend * (3.0f - (2.0f * fBlend));
 	m_holdTarget.setOrigin(m_holdFrom.getOrigin().lerp(target.getOrigin(), fBlend));
 	m_holdTarget.setRotation(m_holdFrom.getRotation().slerp(target.getRotation(), fBlend));
+	m_fHoldTargetYaw = fYawDegrees;
+
+	// once eased, drawn where it is held: the script sets this after the frame's physics, so the last update left
+	// the held body where the previous call put it; the object (whose limbs are drawn from it) is moved by the
+	// difference and turned about the held body by the change of yaw, and the next update takes over from there
+	if (m_bHoldEased && m_bHoldDrawnKnown)
+	{
+		btScalar fTurn = fYawDegrees - m_fHoldYawAtUpdate;
+		btMatrix3x3 turnY;
+		turnY.setEulerYPR(0, btRadians(fTurn), 0);
+		btVector3 objectDrawn = position + turnY * (m_vecObjectAtUpdate - m_vecHeldAtUpdate);
+		PositionObject(m_id, objectDrawn.getX(), objectDrawn.getY(), objectDrawn.getZ());
+		RotateObject(m_id, m_vecObjectAnglesAtUpdate.getX(), m_vecObjectAnglesAtUpdate.getY() + fTurn, m_vecObjectAnglesAtUpdate.getZ());
+	}
 }
 
-// GG: the time the coming physics update covers: the anchor reaches its target by the end of it
+// GG: held, the bodies are taken out of the world's collision (mask none) and put back as they were when let go
+void DBProRagDoll::SetHeldCollision(bool bHeld)
+{
+	if (!g_dynamicsWorld) return;
+	if (bHeld)
+	{
+		m_heldGroup.resize(m_ragDollBoneArray.size());
+		m_heldMask.resize(m_ragDollBoneArray.size());
+	}
+	else if (m_heldGroup.size() != m_ragDollBoneArray.size())
+	{
+		return;
+	}
+	for (int i = 0; i < m_ragDollBoneArray.size(); i++)
+	{
+		btRigidBody* pBody = m_ragDollBoneArray[i]->GetRigidBody();
+		if (!pBody || !pBody->getBroadphaseHandle()) continue;
+		if (bHeld)
+		{
+			m_heldGroup[i] = pBody->getBroadphaseHandle()->m_collisionFilterGroup;
+			m_heldMask[i] = pBody->getBroadphaseHandle()->m_collisionFilterMask;
+		}
+		g_dynamicsWorld->removeRigidBody(pBody);
+		g_dynamicsWorld->addRigidBody(pBody, m_heldGroup[i], bHeld ? 0 : m_heldMask[i]);
+	}
+	if (!bHeld)
+	{
+		m_heldGroup.clear();
+		m_heldMask.clear();
+	}
+}
+
+// GG: the time the coming physics update covers: while easing, the anchor reaches its target by the end of it
 void DBProRagDoll::HoldFrame(btScalar frameTime)
 {
 	m_fHoldTimeLeft = frameTime;
+	m_fHoldYawStepped = m_fHoldTargetYaw;
+	m_bHoldSteppedEased = m_bHoldEased;
 }
 
-// GG: before each simulation step. The anchor moves its share of the way left to the target in this update, at most
-// 25 m/s and 360 degrees a second (a flick of the view turns the body over half a second, not in one step), with the
-// velocity of that move so the joint follows it smoothly; a jump once a frame yanked the held body. After a hold, the
-// joints opened up go back to their limits over a second
+// GG: before each simulation step. Easing (the lift), the anchor moves its share of the way left to the target in
+// this update, at most 25 m/s and 360 degrees a second, with the velocity of that move so the joint follows it
+// smoothly. Eased, it goes onto the target in the first step, so an update always ends with the held body where the
+// last call put it (Hold draws it from there). After a hold, the joints opened up go back to their limits over a second
 void DBProRagDoll::HoldStep(btScalar timeStep)
 {
 	if (m_pHoldAnchor && timeStep > 0)
 	{
 		btTransform from = m_pHoldAnchor->getWorldTransform();
-		btScalar fShare = (m_fHoldTimeLeft > timeStep) ? timeStep / m_fHoldTimeLeft : btScalar(1.0);
+		btScalar fShare = (m_fHoldTimeLeft > timeStep && !m_bHoldSteppedEased) ? timeStep / m_fHoldTimeLeft : btScalar(1.0);
 		m_fHoldTimeLeft = (m_fHoldTimeLeft > timeStep) ? m_fHoldTimeLeft - timeStep : btScalar(0.0);
 
 		btVector3 move = (m_holdTarget.getOrigin() - from.getOrigin()) * fShare;
 		btScalar fMaxMove = btScalar(25.0) * timeStep; // bullet units are world units / 40, a metre
-		if (move.length() > fMaxMove) move *= fMaxMove / move.length();
+		if (!m_bHoldSteppedEased && move.length() > fMaxMove) move *= fMaxMove / move.length();
 
 		btQuaternion turnFrom = from.getRotation();
 		btQuaternion turnTo = m_holdTarget.getRotation();
 		btScalar fAngle = turnFrom.angleShortestPath(turnTo);
 		btScalar fTurn = fAngle * fShare;
 		btScalar fMaxTurn = btRadians(360.0f) * timeStep;
-		if (fTurn > fMaxTurn) fTurn = fMaxTurn;
+		if (!m_bHoldSteppedEased && fTurn > fMaxTurn) fTurn = fMaxTurn;
 		btQuaternion turn = (fAngle > btScalar(0.00001)) ? turnFrom.slerp(turnTo, fTurn / fAngle) : turnTo;
 
 		btTransform to(turn, from.getOrigin() + move);
@@ -1208,6 +1283,10 @@ void DBProRagDoll::Release()
 	{
 		SetJointIterations(-1);
 		SetHeldBodies(false);
+		SetHeldCollision(false);
+		m_bHoldEased = false;
+		m_bHoldSteppedEased = false;
+		m_bHoldDrawnKnown = false;
 		if (m_heldJointLimits.size() > 0) m_fLimitsRestoreLeft = 1.0f;
 		if (g_dynamicsWorld) g_dynamicsWorld->removeConstraint(m_pHoldJoint);
 		delete m_pHoldJoint;
