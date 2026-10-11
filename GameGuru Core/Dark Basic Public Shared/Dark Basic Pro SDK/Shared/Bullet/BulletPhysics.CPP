@@ -692,9 +692,58 @@ void UpdateCollisionsForLua()
 }
 
 
+// GG: projectiles that end on contact (ODEWatchProjectileContact): the first contact of each one's body, found after the
+// simulation step it happened in, before the projectile is drawn rebounding from it
+struct sProjectileContact
+{
+	int iObject;
+	int iIgnoreObject;
+	btRigidBody* body;
+	int iTouched; // -1 none yet, else the object number of the body touched (0 the terrain or a body with no object)
+	btVector3 vecPoint; // world units
+};
+static std::vector<sProjectileContact> g_ProjectileContacts;
+
+static void UpdateProjectileContacts()
+{
+	if ( g_ProjectileContacts.empty() ) return;
+	btDispatcher* pDispatcher = g_dynamicsWorld->getDispatcher();
+	for ( int m = 0; m < pDispatcher->getNumManifolds(); m++ )
+	{
+		btPersistentManifold* pManifold = pDispatcher->getManifoldByIndexInternal(m);
+		if ( pManifold->getNumContacts() == 0 ) continue;
+		for ( sProjectileContact& contact : g_ProjectileContacts )
+		{
+			if ( contact.iTouched >= 0 ) continue;
+			bool bIsBody0 = pManifold->getBody0() == contact.body;
+			if ( !bIsBody0 && pManifold->getBody1() != contact.body ) continue;
+			const btCollisionObject* pOther = bIsBody0 ? pManifold->getBody1() : pManifold->getBody0();
+
+			// a ghost (the player's capsule) or a body that gives no contact response isn't a hit, nor is the thrower
+			if ( !btRigidBody::upcast(pOther) || !pOther->hasContactResponse() ) continue;
+			int iOther = pOther->getUserIndex();
+			if ( iOther < 0 ) iOther = ODEFindObjectNumberOfBody ( pOther );
+			const btBroadphaseProxy* pProxy = pOther->getBroadphaseHandle();
+			if ( iOther < 0 || ( pProxy && ( pProxy->m_collisionFilterGroup & COL_TERRAIN ) ) ) iOther = 0;
+			if ( iOther > 0 && iOther == contact.iIgnoreObject ) continue;
+
+			// the touching point on the other body (a predicted point ahead of the body doesn't count)
+			for ( int p = 0; p < pManifold->getNumContacts(); p++ )
+			{
+				const btManifoldPoint& point = pManifold->getContactPoint(p);
+				if ( point.getDistance() > 0.01f ) continue;
+				contact.iTouched = iOther;
+				contact.vecPoint = ( bIsBody0 ? point.getPositionWorldOnB() : point.getPositionWorldOnA() ) * gSc;
+				break;
+			}
+		}
+	}
+}
+
 void PostTickCallback(btDynamicsWorld *world, btScalar timeStep)
 {
 	UpdateCollisionsForLua();
+	UpdateProjectileContacts();
 	PhysicsPushLogStep();
 
 	for (int j=((int)g_PhyObjectList.size())-1; j>=0 ;j--)
@@ -729,6 +778,7 @@ void ODEStart ( void )
 
 	// clear physics system data
 	g_PhyObjectList.clear();
+	g_ProjectileContacts.clear();
 
 	///collision configuration contains default setup for memory, collision setup. Advanced users can create their own configuration.
 	g_collisionConfiguration = new btDefaultCollisionConfiguration();
@@ -870,6 +920,7 @@ void ODEEnd ( void )
 
 		// clear physics system data (no mallocs in structure, just references)
 		g_PhyObjectList.clear();
+		g_ProjectileContacts.clear();
 
 		// delete physics system resources
 		delete g_dynamicsWorld;
@@ -3879,6 +3930,10 @@ void ODEDestroyObject ( int iObjectNumber )
 	}
 	DestroyThisObject ( pPhyObject );
 	ODERemoveObject ( iObjectNumber );
+	for ( int i = (int)g_ProjectileContacts.size() - 1; i >= 0; i-- )
+	{
+		if ( g_ProjectileContacts[i].iObject == iObjectNumber ) g_ProjectileContacts.erase ( g_ProjectileContacts.begin() + i );
+	}
 	physicslock.unlock();
 }
 
@@ -4775,6 +4830,55 @@ void ODESetBodyDamping ( int iObject, float fDamp, float fAngleDamp )
 	{
 		pPhyObject->body->setDamping ( fDamp, fAngleDamp );
 	}
+}
+
+// GG: a projectile body that ends on its first contact: no bounce, swept so a fast one can't step through a thin part
+// between steps, and its first contact with another body kept for ODEGetProjectileContact (iIgnoreObject: the thrower's)
+void ODEWatchProjectileContact ( int iObjectNumber, int iIgnoreObject )
+{
+	physicslock.lock();
+	sObjectList* pPhyObject = ODEFindID ( iObjectNumber );
+	if ( pPhyObject && pPhyObject->body )
+	{
+		btRigidBody* body = pPhyObject->body;
+		body->setRestitution ( 0.0f );
+		btVector3 vecMin, vecMax;
+		body->getCollisionShape()->getAabb ( btTransform::getIdentity(), vecMin, vecMax );
+		const btVector3 vecSize = vecMax - vecMin;
+		const btScalar fSmallest = btMin ( vecSize.x(), btMin ( vecSize.y(), vecSize.z() ) );
+		body->setCcdMotionThreshold ( fSmallest * 0.5f );
+		body->setCcdSweptSphereRadius ( fSmallest * 0.4f );
+		sProjectileContact contact;
+		contact.iObject = iObjectNumber;
+		contact.iIgnoreObject = iIgnoreObject;
+		contact.body = body;
+		contact.iTouched = -1;
+		contact.vecPoint = btVector3 ( 0, 0, 0 );
+		bool bFound = false;
+		for ( sProjectileContact& existing : g_ProjectileContacts )
+		{
+			if ( existing.iObject == iObjectNumber ) { existing = contact; bFound = true; }
+		}
+		if ( !bFound ) g_ProjectileContacts.push_back ( contact );
+	}
+	physicslock.unlock();
+}
+
+// the object number a watched projectile first touched (0 the terrain or a body with no object) and where, or -1
+int ODEGetProjectileContact ( int iObjectNumber, float* pX, float* pY, float* pZ )
+{
+	int iTouched = -1;
+	physicslock.lock();
+	for ( const sProjectileContact& contact : g_ProjectileContacts )
+	{
+		if ( contact.iObject != iObjectNumber || contact.iTouched < 0 ) continue;
+		iTouched = contact.iTouched;
+		*pX = contact.vecPoint.x();
+		*pY = contact.vecPoint.y();
+		*pZ = contact.vecPoint.z();
+	}
+	physicslock.unlock();
+	return iTouched;
 }
 
 DWORD ODEGetBodyLinearVelocityX ( int iObjectNumber )

@@ -141,6 +141,8 @@ DARKSDK void        ODESetBodyScaling                       ( int iObjectNumber,
 DARKSDK void		ODESetBodyMass							( int iObject, float fMass );
 DARKSDK void		ODESetBodyFriction						( int iObject, float fFriction );
 DARKSDK void		ODESetBodyDamping                       ( int iObject, float fDamp, float fAngleDamp );
+DARKSDK void		ODEWatchProjectileContact				( int iObjectNumber, int iIgnoreObject );
+DARKSDK int			ODEGetProjectileContact					( int iObjectNumber, float* pX, float* pY, float* pZ );
 DARKSDK void        ODESetHingeLimits                       ( int iConstraint, float fAngMin, float fAngMax, float fSoftness, float fBias, float fRelaxation );
 DARKSDK void        ODESetHingeMotor                        ( int iConstraint, float fSpeed, float fAngle, float fForce );
 DARKSDK void        ODESetSliderLimits                      ( int iConstraint, float fLowerLin, float fUpperLin, float fLowerAng, float fUpperAng );

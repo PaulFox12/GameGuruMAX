@@ -307,6 +307,87 @@ void weapon_projectile_free ( void )
 	}
 }
 
+// GG: a contact projectile's path this frame against the collision boxes of entities with no physics body, where they
+// stand now: CollisionOff removes a moving vehicle's body, so the projectile's own body can't touch it. Each box is grown
+// by the projectile's half size, and one the path starts inside is passed (the thrower's own vehicle). Returns the object
+// of the first box entered (0 none), the entry point, and how far along the path it is (0 to 1)
+static int weapon_projectile_boxhit ( GGVECTOR3 vecFrom, GGVECTOR3 vecTo, float fRadius, int iIgnoreObj, GGVECTOR3* pHit, float* pAlong )
+{
+	bool CalcObjectWorld ( sObject* pObject );
+	GGVECTOR3 vecPath = vecTo - vecFrom;
+	float fPathSquared = GGVec3Dot ( &vecPath, &vecPath );
+	if ( fPathSquared < 0.000001f ) return 0;
+	int iHitObj = 0;
+	float fBest = 2.0f;
+	for ( int e = 1; e <= g.entityelementlist; e++ )
+	{
+		int iEntID = t.entityelement[e].bankindex;
+		int iObj = t.entityelement[e].obj;
+		if ( iEntID <= 0 || iObj <= 0 || iObj == iIgnoreObj ) continue;
+		if ( t.entityelement[e].active == 0 || t.entityelement[e].usingphysicsnow != 0 ) continue;
+		if ( t.entityprofile[iEntID].ismarker != 0 || t.entityprofile[iEntID].ischaracter != 0 ) continue;
+		if ( ObjectExist ( iObj ) == 0 || GetVisible ( iObj ) == 0 ) continue;
+		sObject* pObject = GetObjectData ( iObj );
+		if ( !pObject ) continue;
+
+		// a sphere round the object's origin that holds its box, against the path
+		const GGVECTOR3& vecMin = pObject->collision.vecMin;
+		const GGVECTOR3& vecMax = pObject->collision.vecMax;
+		GGVECTOR3 vecFar ( fabs(vecMin.x) > fabs(vecMax.x) ? fabs(vecMin.x) : fabs(vecMax.x),
+			fabs(vecMin.y) > fabs(vecMax.y) ? fabs(vecMin.y) : fabs(vecMax.y),
+			fabs(vecMin.z) > fabs(vecMax.z) ? fabs(vecMin.z) : fabs(vecMax.z) );
+		const GGVECTOR3& vecScale = pObject->position.vecScale;
+		float fScale = fabs(vecScale.x);
+		if ( fabs(vecScale.y) > fScale ) fScale = fabs(vecScale.y);
+		if ( fabs(vecScale.z) > fScale ) fScale = fabs(vecScale.z);
+		float fReach = GGVec3Length ( &vecFar ) * fScale * 1.5f + fRadius;
+		GGVECTOR3 vecOrigin ( ObjectPositionX(iObj), ObjectPositionY(iObj), ObjectPositionZ(iObj) );
+		GGVECTOR3 vecToOrigin = vecOrigin - vecFrom;
+		float fNearest = GGVec3Dot ( &vecToOrigin, &vecPath ) / fPathSquared;
+		if ( fNearest < 0 ) fNearest = 0;
+		if ( fNearest > 1 ) fNearest = 1;
+		GGVECTOR3 vecGap = vecOrigin - ( vecFrom + vecPath * fNearest );
+		if ( GGVec3Length ( &vecGap ) > fReach ) continue;
+
+		// the path in the object's own space against its box, by slabs
+		CalcObjectWorld ( pObject );
+		GGMATRIX matInverse;
+		float fDeterminant = 0.0f;
+		GGMatrixInverse ( &matInverse, &fDeterminant, &pObject->position.matWorld );
+		if ( fabs(fDeterminant) < 0.000001f || fScale < 0.0001f ) continue;
+		GGVECTOR3 vecLocalFrom, vecLocalTo;
+		GGVec3TransformCoord ( &vecLocalFrom, &vecFrom, &matInverse );
+		GGVec3TransformCoord ( &vecLocalTo, &vecTo, &matInverse );
+		const float fLocalRadius = fRadius / fScale;
+		const float fStart[3] = { vecLocalFrom.x, vecLocalFrom.y, vecLocalFrom.z };
+		const float fDelta[3] = { vecLocalTo.x - vecLocalFrom.x, vecLocalTo.y - vecLocalFrom.y, vecLocalTo.z - vecLocalFrom.z };
+		const float fLow[3] = { vecMin.x - fLocalRadius, vecMin.y - fLocalRadius, vecMin.z - fLocalRadius };
+		const float fHigh[3] = { vecMax.x + fLocalRadius, vecMax.y + fLocalRadius, vecMax.z + fLocalRadius };
+		float fEnter = -1.0e30f, fExit = 1.0e30f;
+		bool bMissed = false;
+		for ( int a = 0; a < 3 && !bMissed; a++ )
+		{
+			if ( fabs(fDelta[a]) < 0.000001f )
+			{
+				if ( fStart[a] < fLow[a] || fStart[a] > fHigh[a] ) bMissed = true;
+				continue;
+			}
+			float fT1 = ( fLow[a] - fStart[a] ) / fDelta[a];
+			float fT2 = ( fHigh[a] - fStart[a] ) / fDelta[a];
+			if ( fT1 > fT2 ) { float fSwap = fT1; fT1 = fT2; fT2 = fSwap; }
+			if ( fT1 > fEnter ) fEnter = fT1;
+			if ( fT2 < fExit ) fExit = fT2;
+			if ( fEnter > fExit ) bMissed = true;
+		}
+		if ( bMissed || fEnter < 0 || fEnter > 1 || fEnter >= fBest ) continue;
+		fBest = fEnter;
+		iHitObj = iObj;
+		*pHit = vecFrom + vecPath * fEnter;
+	}
+	*pAlong = fBest;
+	return iHitObj;
+}
+
 void weapon_projectile_loop ( void )
 {
 #ifdef OPTICK_ENABLE
@@ -634,7 +715,47 @@ void weapon_projectile_loop ( void )
 							if (  t.WeaponProjectile[t.tProj].sourceEntity>0  )  t.tIgnoreObject  =  t.entityelement[t.WeaponProjectile[t.tProj].sourceEntity].obj;
 							t.tEndEntity = g.entityviewstartobj+g.entityelementlist;
 							//Dave - don't need to do raycasts for the nade hitting anything as it is controlled by physics
-							if ( t.WeaponProjectileBase[t.tProjType].resultBounce>0 ) 
+							bool bContactHit = false;
+							float fContactX = 0, fContactY = 0, fContactZ = 0;
+							if ( t.WeaponProjectileBase[t.tProjType].resultBounce>0 && t.WeaponProjectileBase[t.tProjType].usingRealPhysics>0 )
+							{
+								// GG: a real physics one ends where its body first touched another (ODEWatchProjectileContact), the
+								// object touched named if it is an entity's; the scene picks below missed what its body bounced off
+								int iTouched = ODEGetProjectileContact ( t.tobj, &fContactX, &fContactY, &fContactZ );
+								bContactHit = iTouched >= 0;
+								t.tHitObj = iTouched > 0 ? iTouched : 0;
+
+								// and the boxes of entities with no body (a moving vehicle), if its path entered one first
+								GGVECTOR3 vecFrom ( t.WeaponProjectile[t.tProj].xOldPos_f, t.WeaponProjectile[t.tProj].yOldPos_f, t.WeaponProjectile[t.tProj].zOldPos_f );
+								GGVECTOR3 vecTo ( t.tXNewPos_f, t.tYNewPos_f, t.tZNewPos_f );
+								float fRadius = ObjectSizeX ( t.tobj, 1 );
+								if ( ObjectSizeY ( t.tobj, 1 ) < fRadius ) fRadius = ObjectSizeY ( t.tobj, 1 );
+								if ( ObjectSizeZ ( t.tobj, 1 ) < fRadius ) fRadius = ObjectSizeZ ( t.tobj, 1 );
+								fRadius *= 0.5f;
+								GGVECTOR3 vecBoxHit ( 0, 0, 0 );
+								float fBoxAlong = 2.0f;
+								int iBoxObj = weapon_projectile_boxhit ( vecFrom, vecTo, fRadius, t.tIgnoreObject, &vecBoxHit, &fBoxAlong );
+								if ( iBoxObj > 0 )
+								{
+									float fContactAlong = 2.0f;
+									if ( bContactHit )
+									{
+										GGVECTOR3 vecPath = vecTo - vecFrom;
+										GGVECTOR3 vecToContact = GGVECTOR3 ( fContactX, fContactY, fContactZ ) - vecFrom;
+										float fPathSquared = GGVec3Dot ( &vecPath, &vecPath );
+										fContactAlong = fPathSquared > 0.000001f ? GGVec3Dot ( &vecToContact, &vecPath ) / fPathSquared : 0.0f;
+									}
+									if ( fBoxAlong <= fContactAlong )
+									{
+										bContactHit = true;
+										t.tHitObj = iBoxObj;
+										fContactX = vecBoxHit.x;
+										fContactY = vecBoxHit.y;
+										fContactZ = vecBoxHit.z;
+									}
+								}
+							}
+							else if ( t.WeaponProjectileBase[t.tProjType].resultBounce>0 )
 							{
 								if (g.lightmappedobjectoffset >= g.lightmappedobjectoffsetfinish)
 									t.ttt = IntersectAll(87000, 87000 + g.merged_new_objects - 1, 0, 0, 0, 0, 0, 0, -123);
@@ -700,7 +821,7 @@ void weapon_projectile_loop ( void )
 							}
 
 							//  if confirmed, bang!
-							if (  t.tHitObj>0 ) 
+							if (  t.tHitObj>0 || bContactHit )
 							{
 
 								//  only explode if flagged to do so on a hit
@@ -721,6 +842,12 @@ void weapon_projectile_loop ( void )
 										fDZ /= fDist;
 										t.tHitX_f += (fDX*10.0f);
 										t.tHitZ_f += (fDZ*10.0f);
+									}
+									else if ( bContactHit == true )
+									{
+										t.tHitX_f = fContactX;
+										t.tHitY_f = fContactY;
+										t.tHitZ_f = fContactZ;
 									}
 									else
 									{
@@ -1533,6 +1660,15 @@ void weapon_projectile_make ( bool bUsingVRForAngle, bool bDoNotAdvanceToAvoidPe
 				MoveObject (t.tobj, 20.0);
 			}
 			ODECreateDynamicBox (  t.tobj,-1,0,t.tweight,(float)t.tfriction,-1 );
+			// GG: one that acts on contact ends on its body's first contact (weapon_projectile_loop), not by scene picks
+			if ( t.WeaponProjectileBase[t.tProjectileType].resultBounce > 0 )
+			{
+				int iThrowerObj = 0;
+				int iSource = t.WeaponProjectile[t.tNewProj].sourceEntity;
+				if ( iSource > 0 ) iThrowerObj = t.entityelement[iSource].obj;
+				else if ( t.playercontrol.thirdperson.enabled == 1 && t.playercontrol.thirdperson.charactere > 0 ) iThrowerObj = t.entityelement[t.playercontrol.thirdperson.charactere].obj;
+				ODEWatchProjectileContact ( t.tobj, iThrowerObj );
+			}
 			t.tinertiax_f=t.WeaponProjectile[t.tNewProj].xSpeed_f*t.WeaponProjectile[t.tNewProj].acceleration_f;
 			t.tinertiay_f=t.WeaponProjectile[t.tNewProj].ySpeed_f*t.WeaponProjectile[t.tNewProj].acceleration_f;
 			t.tinertiaz_f=t.WeaponProjectile[t.tNewProj].zSpeed_f*t.WeaponProjectile[t.tNewProj].acceleration_f;
