@@ -57,11 +57,36 @@ public:
 	bool IsResting();
 	void HoldFrame(btScalar frameTime);
 	void HoldStep(btScalar timeStep);
+	void SetHoldStiffness(btScalar fStiffness, btScalar fDamping, btScalar fWaistFold, btScalar fHipFold);
+	void GetHoldStiffness(btScalar* pStiffness, btScalar* pDamping, btScalar* pWaistFold, btScalar* pHipFold);
 
 private:
 	void RelaxHeldJoints(btRigidBody* pBody);
 	void SetHeldJointLimits(btScalar fRelaxed);
 	void SetJointIterations(int iIterations);
+	int BoneOfBody(const btRigidBody* pBody);
+	void BuildHoldPose(int boneIndex);
+	void SetHeldBodies(bool bHeld);
+
+	// a joint as made: its bodies and its pivot in the world
+	struct sJointLink
+	{
+		int iBoneA;
+		int iBoneB;
+		btVector3 pivot;
+	};
+
+	// the drape a held ragdoll is pulled to: each body's transform from the held body, how hard, its swing damped, and
+	// the folds at the joints of the held body (above it, toward the chest by fWaistFold; below, by fHipFold)
+	btAlignedObjectArray<btTransform> m_createTransform;
+	btScalar m_fRestYaw;
+	btAlignedObjectArray<sJointLink> m_jointLinks;
+	btAlignedObjectArray<btTransform> m_holdPose;
+	btAlignedObjectArray<btScalar> m_heldFriction;
+	btScalar m_fHoldStiffness;
+	btScalar m_fHoldDamping;
+	btScalar m_fHoldWaistFold;
+	btScalar m_fHoldHipFold;
 
 	struct sHeldJointLimits
 	{

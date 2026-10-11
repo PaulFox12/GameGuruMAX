@@ -14020,6 +14020,51 @@ int SetEntityRagdollHold ( lua_State *L )
 	return 1;
 }
 
+// SetEntityRagdollHoldStiffness(e, stiffness [, damping [, waistfold [, hipfold]]]): for e's ragdoll while held, how hard
+// each body is pulled to a drape (0 hangs free, 1 rigid; 0.85 when made), its swing's damping (0 to 1; 0.6), and the
+// drape's folds in degrees at the held body's joints: the part above toward his chest (60) and the parts below (60).
+// Left out keeps the value. Set again after each SetEntityRagdoll(e, 1), as a new ragdoll starts with these. 1 when set
+int SetEntityRagdollHoldStiffness ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 2 ) return 0;
+	int e = lua_tointeger(L, 1);
+	int iDone = 0;
+	if ( LuaEntityIDValid ( L, e, 1 ) && t.entityelement[e].obj > 0 )
+	{
+		int iObj = t.entityelement[e].obj;
+		float fStiffness, fDamping, fWaistFold, fHipFold;
+		if ( BPhys_RagDollGetHoldStiffness ( iObj, &fStiffness, &fDamping, &fWaistFold, &fHipFold ) )
+		{
+			fStiffness = lua_tonumber(L, 2);
+			if ( n >= 3 ) fDamping = lua_tonumber(L, 3);
+			if ( n >= 4 ) fWaistFold = lua_tonumber(L, 4);
+			if ( n >= 5 ) fHipFold = lua_tonumber(L, 5);
+			iDone = BPhys_RagDollSetHoldStiffness ( iObj, fStiffness, fDamping, fWaistFold, fHipFold ) ? 1 : 0;
+		}
+	}
+	lua_pushinteger ( L, iDone );
+	return 1;
+}
+
+// stiffness, damping, waistfold, hipfold = GetEntityRagdollHoldStiffness(e); nothing when e is no ragdoll
+int GetEntityRagdollHoldStiffness ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int e = lua_tointeger(L, 1);
+	if ( !LuaEntityIDValid ( L, e, 1 ) || t.entityelement[e].obj <= 0 ) return 0;
+	float fStiffness, fDamping, fWaistFold, fHipFold;
+	if ( !BPhys_RagDollGetHoldStiffness ( t.entityelement[e].obj, &fStiffness, &fDamping, &fWaistFold, &fHipFold ) ) return 0;
+	lua_pushnumber ( L, fStiffness );
+	lua_pushnumber ( L, fDamping );
+	lua_pushnumber ( L, fWaistFold );
+	lua_pushnumber ( L, fHipFold );
+	return 4;
+}
+
 int SetAttachmentVisible ( lua_State *L )
 {
 	lua = L;
@@ -18267,6 +18312,8 @@ void addFunctions()
 	lua_register(lua, "SetEntityRagdoll" , SetEntityRagdoll );
 	lua_register(lua, "GetEntityRagdollPose" , GetEntityRagdollPose );
 	lua_register(lua, "SetEntityRagdollHold" , SetEntityRagdollHold );
+	lua_register(lua, "SetEntityRagdollHoldStiffness" , SetEntityRagdollHoldStiffness );
+	lua_register(lua, "GetEntityRagdollHoldStiffness" , GetEntityRagdollHoldStiffness );
 	lua_register(lua, "SetOcclusion" , SetOcclusion );
 	lua_register(lua, "SetPlayerWeapons", SetPlayerWeapons);
 	lua_register(lua, "FirePlayerWeapon", FirePlayerWeapon);

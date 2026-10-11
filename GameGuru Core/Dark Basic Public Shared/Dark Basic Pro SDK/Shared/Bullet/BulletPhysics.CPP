@@ -4353,6 +4353,28 @@ int BPhys_RagDollIsResting(int ragdollID)
 	return ( ragdoll && ragdoll->IsResting() ) ? 1 : 0;
 }
 
+// GG: how hard a held ragdoll is pulled to its drape (0 to 1), its swing's damping (0 to 1), the folds in degrees
+bool BPhys_RagDollSetHoldStiffness(int ragdollID, float fStiffness, float fDamping, float fWaistFold, float fHipFold)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( !ragdoll ) return false;
+	ragdoll->SetHoldStiffness(fStiffness, fDamping, fWaistFold, fHipFold);
+	return true;
+}
+
+bool BPhys_RagDollGetHoldStiffness(int ragdollID, float* pStiffness, float* pDamping, float* pWaistFold, float* pHipFold)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( !ragdoll ) return false;
+	btScalar fStiffness, fDamping, fWaistFold, fHipFold;
+	ragdoll->GetHoldStiffness(&fStiffness, &fDamping, &fWaistFold, &fHipFold);
+	*pStiffness = fStiffness;
+	*pDamping = fDamping;
+	*pWaistFold = fWaistFold;
+	*pHipFold = fHipFold;
+	return true;
+}
+
 // Force commands
 
 void ODESetLinearVelocity ( int iObject, float fX, float fY, float fZ )

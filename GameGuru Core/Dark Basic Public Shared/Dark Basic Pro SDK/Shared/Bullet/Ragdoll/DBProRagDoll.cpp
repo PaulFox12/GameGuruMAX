@@ -63,6 +63,11 @@ DBProRagDoll::DBProRagDoll(int ragdollID) : BaseItem(ragdollID)
 	m_holdTarget.setIdentity();
 	m_fHoldTimeLeft = 0;
 	m_fLimitsRestoreLeft = 0;
+	m_fRestYaw = 0;
+	m_fHoldStiffness = 0.85f;
+	m_fHoldDamping = 0.6f;
+	m_fHoldWaistFold = 60.0f;
+	m_fHoldHipFold = 60.0f;
 
 	sObject* pObject = GetObjectData(ragdollID);
 	//SetCullingRadius(pObject->collision.fRadius, pObject->collision.fScaledRadius, pObject->collision.fScaledLargestRadius);
@@ -818,6 +823,153 @@ void DBProRagDoll::SetRestYaw(btScalar yawDegrees)
 	{
 		m_restRotation.push_back(facing.transpose() * m_ragDollBoneArray[i]->GetRigidBody()->getWorldTransform().getBasis());
 	}
+
+	// and the pose it is made from, with each joint's pivot, for the drape a held ragdoll is pulled to (BuildHoldPose)
+	m_fRestYaw = yawDegrees;
+	m_createTransform.clear();
+	for (int i = 0; i < m_ragDollBoneArray.size(); i++)
+	{
+		m_createTransform.push_back(m_ragDollBoneArray[i]->GetRigidBody()->getWorldTransform());
+	}
+	m_jointLinks.clear();
+	if (!jointManager) return;
+	for (int i = 0; i < m_joints.size(); i++)
+	{
+		DBProJoint* pDBProJoint = jointManager->GetJoint(m_joints[i]);
+		btTypedConstraint* pJoint = pDBProJoint ? pDBProJoint->GetConstraint() : NULL;
+		if (!pJoint) continue;
+		btTransform frameA;
+		if (pJoint->getConstraintType() == HINGE_CONSTRAINT_TYPE) frameA = ((btHingeConstraint*)pJoint)->getAFrame();
+		else if (pJoint->getConstraintType() == CONETWIST_CONSTRAINT_TYPE) frameA = ((btConeTwistConstraint*)pJoint)->getAFrame();
+		else continue;
+		sJointLink link;
+		link.iBoneA = BoneOfBody(&pJoint->getRigidBodyA());
+		link.iBoneB = BoneOfBody(&pJoint->getRigidBodyB());
+		if (link.iBoneA < 0 || link.iBoneB < 0) continue;
+		link.pivot = pJoint->getRigidBodyA().getWorldTransform() * frameA.getOrigin();
+		m_jointLinks.push_back(link);
+	}
+}
+
+int DBProRagDoll::BoneOfBody(const btRigidBody* pBody)
+{
+	for (int i = 0; i < m_ragDollBoneArray.size(); i++)
+		if (m_ragDollBoneArray[i]->GetRigidBody() == pBody) return i;
+	return -1;
+}
+
+// GG: the drape a held ragdoll is pulled to, each body's transform from the held one: the pose it was made from (a
+// knockout's, standing), each part hanging from a joint of the held body turned about that joint's pivot on his right
+// to his front, by the waist fold for a part above the joint and the hip fold below (a fireman's carry, face down)
+void DBProRagDoll::BuildHoldPose(int boneIndex)
+{
+	const int iBones = m_ragDollBoneArray.size();
+	m_holdPose.resize(iBones);
+	if (boneIndex < 0 || boneIndex >= iBones) return;
+	if (m_createTransform.size() != iBones)
+	{
+		// with no pose to start from, the one it has now
+		btTransform heldInverse = m_ragDollBoneArray[boneIndex]->GetRigidBody()->getWorldTransform().inverse();
+		for (int i = 0; i < iBones; i++) m_holdPose[i] = heldInverse * m_ragDollBoneArray[i]->GetRigidBody()->getWorldTransform();
+		return;
+	}
+	btTransform heldInverse = m_createTransform[boneIndex].inverse();
+	for (int i = 0; i < iBones; i++) m_holdPose[i] = heldInverse * m_createTransform[i];
+	btMatrix3x3 facing;
+	facing.setEulerYPR(0, btRadians(m_fRestYaw), 0);
+	btVector3 upLocal = heldInverse.getBasis() * btVector3(0, 1, 0);
+	btVector3 rightLocal = heldInverse.getBasis() * (facing * btVector3(1, 0, 0));
+	if (rightLocal.length2() < 0.0001f) return;
+	rightLocal.normalize();
+
+	btAlignedObjectArray<int> branchOf;
+	branchOf.resize(iBones);
+	for (int i = 0; i < iBones; i++) branchOf[i] = -1;
+	branchOf[boneIndex] = -2;
+	for (int l = 0; l < m_jointLinks.size(); l++)
+	{
+		const sJointLink& link = m_jointLinks[l];
+		int iStart = link.iBoneA == boneIndex ? link.iBoneB : (link.iBoneB == boneIndex ? link.iBoneA : -1);
+		if (iStart < 0 || branchOf[iStart] != -1) continue;
+
+		// the part hanging from this joint: every body reached from it without going back through the held one
+		btAlignedObjectArray<int> branch;
+		branch.push_back(iStart);
+		branchOf[iStart] = l;
+		for (int b = 0; b < branch.size(); b++)
+		{
+			for (int m = 0; m < m_jointLinks.size(); m++)
+			{
+				int iNext = m_jointLinks[m].iBoneA == branch[b] ? m_jointLinks[m].iBoneB : (m_jointLinks[m].iBoneB == branch[b] ? m_jointLinks[m].iBoneA : -1);
+				if (iNext < 0 || branchOf[iNext] != -1) continue;
+				branchOf[iNext] = l;
+				branch.push_back(iNext);
+			}
+		}
+
+		// above the joint (the torso) folds by the waist fold, below it (a leg) by the hip fold, both toward his front
+		btVector3 pivotLocal = heldInverse * link.pivot;
+		btVector3 centre(0, 0, 0);
+		for (int b = 0; b < branch.size(); b++) centre += m_holdPose[branch[b]].getOrigin();
+		centre /= btScalar(branch.size());
+		bool bAbove = (centre - pivotLocal).dot(upLocal) > 0;
+		btScalar fFold = bAbove ? btRadians(m_fHoldWaistFold) : -btRadians(m_fHoldHipFold);
+		btTransform toPivot(btQuaternion::getIdentity(), pivotLocal);
+		btTransform fold(btQuaternion(rightLocal, fFold), btVector3(0, 0, 0));
+		btTransform fromPivot(btQuaternion::getIdentity(), -pivotLocal);
+		btTransform turn = toPivot * fold * fromPivot;
+		for (int b = 0; b < branch.size(); b++) m_holdPose[branch[b]] = turn * m_holdPose[branch[b]];
+	}
+}
+
+// GG: held, the bodies slide where they touch (no friction) and their swing is damped; let go, as they were
+void DBProRagDoll::SetHeldBodies(bool bHeld)
+{
+	if (bHeld && m_heldFriction.size() != m_ragDollBoneArray.size())
+	{
+		m_heldFriction.resize(m_ragDollBoneArray.size());
+		for (int i = 0; i < m_ragDollBoneArray.size(); i++) m_heldFriction[i] = m_ragDollBoneArray[i]->GetRigidBody()->getFriction();
+	}
+	btScalar fDamping = btMin(btMax(m_fHoldDamping, btScalar(0.0)), btScalar(0.99));
+	for (int i = 0; i < m_ragDollBoneArray.size(); i++)
+	{
+		btRigidBody* pBody = m_ragDollBoneArray[i]->GetRigidBody();
+		if (!pBody) continue;
+		if (bHeld)
+		{
+			pBody->setFriction(0);
+			pBody->setDamping(btMax(m_linearDamping, fDamping), btMax(m_angularDamping, fDamping));
+		}
+		else
+		{
+			if (i < m_heldFriction.size()) pBody->setFriction(m_heldFriction[i]);
+			pBody->setDamping(m_linearDamping, m_angularDamping);
+		}
+	}
+	if (!bHeld) m_heldFriction.clear();
+}
+
+// GG: how hard a held ragdoll is pulled to its drape (0 hangs free, 1 rigid), its swing's damping (0 to 1), and the
+// folds in degrees at the held body's joints; held now, at once
+void DBProRagDoll::SetHoldStiffness(btScalar fStiffness, btScalar fDamping, btScalar fWaistFold, btScalar fHipFold)
+{
+	m_fHoldStiffness = btMin(btMax(fStiffness, btScalar(0.0)), btScalar(1.0));
+	m_fHoldDamping = btMin(btMax(fDamping, btScalar(0.0)), btScalar(1.0));
+	m_fHoldWaistFold = fWaistFold;
+	m_fHoldHipFold = fHipFold;
+	if (m_pHoldJoint)
+	{
+		BuildHoldPose(m_iHoldBone);
+		SetHeldBodies(true);
+	}
+}
+
+void DBProRagDoll::GetHoldStiffness(btScalar* pStiffness, btScalar* pDamping, btScalar* pWaistFold, btScalar* pHipFold)
+{
+	*pStiffness = m_fHoldStiffness;
+	*pDamping = m_fHoldDamping;
+	*pWaistFold = m_fHoldWaistFold;
+	*pHipFold = m_fHoldHipFold;
 }
 
 // GG: the object's position follows this body from the next update (-1 stops it)
@@ -882,6 +1034,11 @@ void DBProRagDoll::Hold(int boneIndex, const btVector3& position, const btMatrix
 		// is solved four times as hard
 		RelaxHeldJoints(pBody);
 		SetJointIterations(40);
+
+		// and pulled to a drape at each step (HoldStep), sliding where it touches, its swing damped: open joints alone
+		// left a held body swinging, and a hand on the ground held by friction
+		BuildHoldPose(boneIndex);
+		SetHeldBodies(true);
 	}
 
 	// eased from where the body was to the target over 0.25 s, then on the target; the anchor follows at each step
@@ -933,6 +1090,24 @@ void DBProRagDoll::HoldStep(btScalar timeStep)
 		m_pHoldAnchor->setAngularVelocity(angularVelocity);
 		m_pHoldAnchor->setInterpolationLinearVelocity(linearVelocity);
 		m_pHoldAnchor->setInterpolationAngularVelocity(angularVelocity);
+
+		// each other body's velocity moved toward the one that puts it on the drape by the end of this step: all the
+		// way at stiffness 1, the share per sixtieth of a second at less
+		if (m_fHoldStiffness > 0 && m_holdPose.size() == m_ragDollBoneArray.size())
+		{
+			btScalar fPull = btScalar(1.0) - btPow(btScalar(1.0) - m_fHoldStiffness, timeStep * btScalar(60.0));
+			for (int i = 0; i < m_ragDollBoneArray.size(); i++)
+			{
+				if (i == m_iHoldBone) continue;
+				btRigidBody* pBody = m_ragDollBoneArray[i]->GetRigidBody();
+				if (!pBody) continue;
+				btTransform drape = to * m_holdPose[i];
+				btVector3 drapeLinear, drapeAngular;
+				btTransformUtil::calculateVelocity(pBody->getWorldTransform(), drape, timeStep, drapeLinear, drapeAngular);
+				pBody->setLinearVelocity(pBody->getLinearVelocity().lerp(drapeLinear, fPull));
+				pBody->setAngularVelocity(pBody->getAngularVelocity().lerp(drapeAngular, fPull));
+			}
+		}
 	}
 	if (m_fLimitsRestoreLeft > 0)
 	{
@@ -1032,6 +1207,7 @@ void DBProRagDoll::Release()
 	if (m_pHoldJoint)
 	{
 		SetJointIterations(-1);
+		SetHeldBodies(false);
 		if (m_heldJointLimits.size() > 0) m_fLimitsRestoreLeft = 1.0f;
 		if (g_dynamicsWorld) g_dynamicsWorld->removeConstraint(m_pHoldJoint);
 		delete m_pHoldJoint;
