@@ -55,8 +55,21 @@ public:
 	void Release();
 	bool IsHeld();
 	bool IsResting();
+	void HoldFrame(btScalar frameTime);
+	void HoldStep(btScalar timeStep);
 
 private:
+	void RelaxHeldJoints(btRigidBody* pBody);
+	void SetHeldJointLimits(btScalar fRelaxed);
+	void SetJointIterations(int iIterations);
+
+	struct sHeldJointLimits
+	{
+		btTypedConstraint* pJoint;
+		btScalar fOriginal[3];
+		btScalar fRelaxed[3];
+	};
+
 	btAlignedObjectArray<btMatrix3x3> m_restRotation;
 	int m_iFollowBone;
 	int m_iHoldBone;
@@ -65,6 +78,10 @@ private:
 	btTypedConstraint* m_pHoldJoint;
 	btTransform m_holdFrom;
 	unsigned int m_uHoldStartMs;
+	btTransform m_holdTarget;
+	btScalar m_fHoldTimeLeft;
+	btAlignedObjectArray<sHeldJointLimits> m_heldJointLimits;
+	btScalar m_fLimitsRestoreLeft;
 
 private:
 	void SetCullingRadius(float fRadius, float fScaledRadius, float fScaledLargestRadius);

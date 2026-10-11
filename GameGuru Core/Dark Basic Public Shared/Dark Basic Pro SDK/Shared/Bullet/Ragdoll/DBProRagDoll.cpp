@@ -10,6 +10,7 @@
 #include "DBProJoints.h"
 #include "DBProJointManager.h"
 #include "BT2DX.h"
+#include "LinearMath/btTransformUtil.h"
 
 #include "CObjectsC.h"
 #include ".\..\..\Error\CError.h"
@@ -59,6 +60,9 @@ DBProRagDoll::DBProRagDoll(int ragdollID) : BaseItem(ragdollID)
 	m_pHoldJoint = NULL;
 	m_holdFrom.setIdentity();
 	m_uHoldStartMs = 0;
+	m_holdTarget.setIdentity();
+	m_fHoldTimeLeft = 0;
+	m_fLimitsRestoreLeft = 0;
 
 	sObject* pObject = GetObjectData(ragdollID);
 	//SetCullingRadius(pObject->collision.fRadius, pObject->collision.fScaledRadius, pObject->collision.fScaledLargestRadius);
@@ -823,8 +827,9 @@ void DBProRagDoll::SetFollowBone(int boneIndex)
 }
 
 // GG: holds a body at a point (world units) turned by the given turn of the character: a fixed joint to a kinematic body
-// with no collision, moved here each call. From where the body was, it is brought there over a quarter of a second.
-// The other bodies hang from it on the ragdoll's own joints. Held, the bodies never sleep or turn static
+// with no collision, which HoldStep moves toward the point a little at each simulation step. From where the body was,
+// the point is eased there over a quarter of a second. The other bodies hang from it on the ragdoll's own joints, those
+// at the held body opened up so they can hang, all solved harder. Held, the bodies never sleep or turn static
 void DBProRagDoll::Hold(int boneIndex, const btVector3& position, const btMatrix3x3& rotation, unsigned int uNowMs)
 {
 	if (boneIndex < 0 || boneIndex >= m_ragDollBoneArray.size()) return;
@@ -869,24 +874,165 @@ void DBProRagDoll::Hold(int boneIndex, const btVector3& position, const btMatrix
 		g_dynamicsWorld->addConstraint(pJoint, true);
 		m_pHoldJoint = pJoint;
 		m_iHoldBone = boneIndex;
+		m_holdTarget = m_holdFrom;
+		m_fHoldTimeLeft = 0;
+
+		// a waist that bends 50 degrees and hips 15 held a body out straight from a held pelvis, and the joints gave
+		// (stretched and folded limbs): those at the held body open up so what hangs from it hangs, and every joint
+		// is solved four times as hard
+		RelaxHeldJoints(pBody);
+		SetJointIterations(40);
 	}
 
-	// eased from where the body was to the target over 0.25 s, then on the target
+	// eased from where the body was to the target over 0.25 s, then on the target; the anchor follows at each step
 	float fBlend = (float)(uNowMs - m_uHoldStartMs) / 250.0f;
 	if (fBlend < 0.0f) fBlend = 0.0f;
 	if (fBlend > 1.0f) fBlend = 1.0f;
 	fBlend = fBlend * fBlend * (3.0f - (2.0f * fBlend));
-	btTransform anchor;
-	anchor.setOrigin(m_holdFrom.getOrigin().lerp(target.getOrigin(), fBlend));
-	anchor.setRotation(m_holdFrom.getRotation().slerp(target.getRotation(), fBlend));
-	m_pHoldAnchor->getMotionState()->setWorldTransform(anchor);
+	m_holdTarget.setOrigin(m_holdFrom.getOrigin().lerp(target.getOrigin(), fBlend));
+	m_holdTarget.setRotation(m_holdFrom.getRotation().slerp(target.getRotation(), fBlend));
 }
 
-// GG: lets a held body go; the ragdoll falls from where it is and can settle again
+// GG: the time the coming physics update covers: the anchor reaches its target by the end of it
+void DBProRagDoll::HoldFrame(btScalar frameTime)
+{
+	m_fHoldTimeLeft = frameTime;
+}
+
+// GG: before each simulation step. The anchor moves its share of the way left to the target in this update, at most
+// 25 m/s and 360 degrees a second (a flick of the view turns the body over half a second, not in one step), with the
+// velocity of that move so the joint follows it smoothly; a jump once a frame yanked the held body. After a hold, the
+// joints opened up go back to their limits over a second
+void DBProRagDoll::HoldStep(btScalar timeStep)
+{
+	if (m_pHoldAnchor && timeStep > 0)
+	{
+		btTransform from = m_pHoldAnchor->getWorldTransform();
+		btScalar fShare = (m_fHoldTimeLeft > timeStep) ? timeStep / m_fHoldTimeLeft : btScalar(1.0);
+		m_fHoldTimeLeft = (m_fHoldTimeLeft > timeStep) ? m_fHoldTimeLeft - timeStep : btScalar(0.0);
+
+		btVector3 move = (m_holdTarget.getOrigin() - from.getOrigin()) * fShare;
+		btScalar fMaxMove = btScalar(25.0) * timeStep; // bullet units are world units / 40, a metre
+		if (move.length() > fMaxMove) move *= fMaxMove / move.length();
+
+		btQuaternion turnFrom = from.getRotation();
+		btQuaternion turnTo = m_holdTarget.getRotation();
+		btScalar fAngle = turnFrom.angleShortestPath(turnTo);
+		btScalar fTurn = fAngle * fShare;
+		btScalar fMaxTurn = btRadians(360.0f) * timeStep;
+		if (fTurn > fMaxTurn) fTurn = fMaxTurn;
+		btQuaternion turn = (fAngle > btScalar(0.00001)) ? turnFrom.slerp(turnTo, fTurn / fAngle) : turnTo;
+
+		btTransform to(turn, from.getOrigin() + move);
+		btVector3 linearVelocity, angularVelocity;
+		btTransformUtil::calculateVelocity(from, to, timeStep, linearVelocity, angularVelocity);
+		m_pHoldAnchor->setWorldTransform(to);
+		m_pHoldAnchor->setInterpolationWorldTransform(to);
+		m_pHoldAnchor->getMotionState()->setWorldTransform(to);
+		m_pHoldAnchor->setLinearVelocity(linearVelocity);
+		m_pHoldAnchor->setAngularVelocity(angularVelocity);
+		m_pHoldAnchor->setInterpolationLinearVelocity(linearVelocity);
+		m_pHoldAnchor->setInterpolationAngularVelocity(angularVelocity);
+	}
+	if (m_fLimitsRestoreLeft > 0)
+	{
+		m_fLimitsRestoreLeft -= timeStep;
+		if (m_fLimitsRestoreLeft > 0)
+		{
+			SetHeldJointLimits(m_fLimitsRestoreLeft);
+		}
+		else
+		{
+			SetHeldJointLimits(0);
+			m_heldJointLimits.clear();
+			m_fLimitsRestoreLeft = 0;
+		}
+	}
+}
+
+// GG: the joints at a held body: a hinge widened 80 degrees each way, a cone's swing to 80 degrees (both the same either
+// way, so gravity alone decides which way what hangs from it goes); their own limits kept to go back to
+void DBProRagDoll::RelaxHeldJoints(btRigidBody* pBody)
+{
+	if (m_heldJointLimits.size() > 0)
+	{
+		SetHeldJointLimits(0);
+		m_heldJointLimits.clear();
+	}
+	m_fLimitsRestoreLeft = 0;
+	if (!jointManager) return;
+	const btScalar fOpen = btRadians(80.0f);
+	for (int i = 0; i < m_joints.size(); i++)
+	{
+		DBProJoint* pDBProJoint = jointManager->GetJoint(m_joints[i]);
+		btTypedConstraint* pJoint = pDBProJoint ? pDBProJoint->GetConstraint() : NULL;
+		if (!pJoint || (&pJoint->getRigidBodyA() != pBody && &pJoint->getRigidBodyB() != pBody)) continue;
+		sHeldJointLimits limits;
+		limits.pJoint = pJoint;
+		if (pJoint->getConstraintType() == HINGE_CONSTRAINT_TYPE)
+		{
+			btHingeConstraint* pHinge = (btHingeConstraint*)pJoint;
+			limits.fOriginal[0] = pHinge->getLowerLimit();
+			limits.fOriginal[1] = pHinge->getUpperLimit();
+			limits.fOriginal[2] = 0;
+			limits.fRelaxed[0] = btMax(btScalar(-2.8), limits.fOriginal[0] - fOpen);
+			limits.fRelaxed[1] = btMin(btScalar(2.8), limits.fOriginal[1] + fOpen);
+			limits.fRelaxed[2] = 0;
+		}
+		else if (pJoint->getConstraintType() == CONETWIST_CONSTRAINT_TYPE)
+		{
+			btConeTwistConstraint* pCone = (btConeTwistConstraint*)pJoint;
+			limits.fOriginal[0] = pCone->getSwingSpan1();
+			limits.fOriginal[1] = pCone->getSwingSpan2();
+			limits.fOriginal[2] = pCone->getTwistSpan();
+			limits.fRelaxed[0] = btMax(limits.fOriginal[0], fOpen);
+			limits.fRelaxed[1] = btMax(limits.fOriginal[1], fOpen);
+			limits.fRelaxed[2] = limits.fOriginal[2];
+		}
+		else continue;
+		m_heldJointLimits.push_back(limits);
+	}
+	SetHeldJointLimits(1);
+}
+
+// GG: the held body's joints between their own limits (0) and opened up (1)
+void DBProRagDoll::SetHeldJointLimits(btScalar fRelaxed)
+{
+	for (int i = 0; i < m_heldJointLimits.size(); i++)
+	{
+		const sHeldJointLimits& limits = m_heldJointLimits[i];
+		btScalar fLimit[3];
+		for (int a = 0; a < 3; a++) fLimit[a] = limits.fOriginal[a] + ((limits.fRelaxed[a] - limits.fOriginal[a]) * fRelaxed);
+		if (limits.pJoint->getConstraintType() == HINGE_CONSTRAINT_TYPE)
+			((btHingeConstraint*)limits.pJoint)->setLimit(fLimit[0], fLimit[1]);
+		else
+			((btConeTwistConstraint*)limits.pJoint)->setLimit(fLimit[0], fLimit[1], fLimit[2]);
+	}
+}
+
+// GG: solver iterations for every joint of this ragdoll and its hold (-1 the world's own)
+void DBProRagDoll::SetJointIterations(int iIterations)
+{
+	if (jointManager)
+	{
+		for (int i = 0; i < m_joints.size(); i++)
+		{
+			DBProJoint* pDBProJoint = jointManager->GetJoint(m_joints[i]);
+			btTypedConstraint* pJoint = pDBProJoint ? pDBProJoint->GetConstraint() : NULL;
+			if (pJoint) pJoint->setOverrideNumSolverIterations(iIterations);
+		}
+	}
+	if (m_pHoldJoint) m_pHoldJoint->setOverrideNumSolverIterations(iIterations);
+}
+
+// GG: lets a held body go; the ragdoll falls from where it is and can settle again, its opened joints going back to
+// their limits over a second (at once they would fling what hangs from them back)
 void DBProRagDoll::Release()
 {
 	if (m_pHoldJoint)
 	{
+		SetJointIterations(-1);
+		if (m_heldJointLimits.size() > 0) m_fLimitsRestoreLeft = 1.0f;
 		if (g_dynamicsWorld) g_dynamicsWorld->removeConstraint(m_pHoldJoint);
 		delete m_pHoldJoint;
 		m_pHoldJoint = NULL;

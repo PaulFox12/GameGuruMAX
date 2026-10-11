@@ -743,6 +743,12 @@ static void UpdateProjectileContacts()
 	}
 }
 
+// GG: before each simulation step: held ragdoll anchors move a step toward their targets, released joints stiffen back
+static void PreTickCallback(btDynamicsWorld *world, btScalar timeStep)
+{
+	if ( ragdollManager ) ragdollManager->HoldStep ( timeStep );
+}
+
 void PostTickCallback(btDynamicsWorld *world, btScalar timeStep)
 {
 	UpdateCollisionsForLua();
@@ -813,6 +819,8 @@ void ODEStart ( void )
 
 	// callback to do some processing after each simulation steo
 	g_dynamicsWorld->setInternalTickCallback(&PostTickCallback);
+	// GG: and before each, a held ragdoll's anchor moved on (DBProRagDoll::HoldStep)
+	g_dynamicsWorld->setInternalTickCallback(&PreTickCallback, 0, true);
 	g_dynamicsWorld->getDispatchInfo().m_allowedCcdPenetration=0.0001f;
 
 	// set gravity
@@ -1288,6 +1296,8 @@ void Update(float fTimeStep)
 	// GG: the last update's slow pairs kept for GetPhysicsSlowPairs (GGPhysicsQuery_Bullet.cpp)
 	extern void PhysicsQuery_SlowPairsUpdateStart(void);
 	PhysicsQuery_SlowPairsUpdateStart();
+	// GG: held ragdolls spread their anchors' moves over this update's steps
+	if ( ragdollManager ) ragdollManager->HoldFrame ( fTimeStep );
 	#ifdef FASTBULLETPHYSICS
 		//PE: fixed timestep with interpolation set at 1/60.
 		g_iPhysicsSubSteps = g_dynamicsWorld->stepSimulation(fTimeStep, 7, btScalar(1.) / btScalar(60.));
