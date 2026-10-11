@@ -867,6 +867,7 @@ void DBProRagDoll::SetRestYaw(btScalar yawDegrees)
 		link.iBoneB = BoneOfBody(&pJoint->getRigidBodyB());
 		if (link.iBoneA < 0 || link.iBoneB < 0) continue;
 		link.pivot = pJoint->getRigidBodyA().getWorldTransform() * frameA.getOrigin();
+		link.pJoint = pJoint;
 		m_jointLinks.push_back(link);
 	}
 }
@@ -878,9 +879,21 @@ int DBProRagDoll::BoneOfBody(const btRigidBody* pBody)
 	return -1;
 }
 
+// GG: whether a body is the given one or hangs from it (parentOf: each body's next toward the held body, -1 at it)
+static bool RagdollBodyHangsFrom(const btAlignedObjectArray<int>& parentOf, int iBody, int iFrom)
+{
+	for (int iGuard = 0; iBody >= 0 && iGuard < parentOf.size(); iGuard++)
+	{
+		if (iBody == iFrom) return true;
+		iBody = parentOf[iBody];
+	}
+	return false;
+}
+
 // GG: the drape a held ragdoll is pulled to, each body's transform from the held one: the pose it was made from (a
 // knockout's, standing), each part hanging from a joint of the held body turned about that joint's pivot on his right
-// to his front, by the waist fold for a part above the joint and the hip fold below (a fireman's carry, face down)
+// to his front, by the waist fold for a part above the joint and the hip fold below (a fireman's carry, face down),
+// then every joint put within its limits
 void DBProRagDoll::BuildHoldPose(int boneIndex)
 {
 	const int iBones = m_ragDollBoneArray.size();
@@ -902,44 +915,191 @@ void DBProRagDoll::BuildHoldPose(int boneIndex)
 	if (rightLocal.length2() < 0.0001f) return;
 	rightLocal.normalize();
 
-	btAlignedObjectArray<int> branchOf;
-	branchOf.resize(iBones);
-	for (int i = 0; i < iBones; i++) branchOf[i] = -1;
-	branchOf[boneIndex] = -2;
-	for (int l = 0; l < m_jointLinks.size(); l++)
+	// each body's joint toward the held body and the body on the other side of it, reached from the held body outward
+	btAlignedObjectArray<int> linkOf;
+	btAlignedObjectArray<int> parentOf;
+	linkOf.resize(iBones);
+	parentOf.resize(iBones);
+	for (int i = 0; i < iBones; i++)
 	{
-		const sJointLink& link = m_jointLinks[l];
-		int iStart = link.iBoneA == boneIndex ? link.iBoneB : (link.iBoneB == boneIndex ? link.iBoneA : -1);
-		if (iStart < 0 || branchOf[iStart] != -1) continue;
-
-		// the part hanging from this joint: every body reached from it without going back through the held one
-		btAlignedObjectArray<int> branch;
-		branch.push_back(iStart);
-		branchOf[iStart] = l;
-		for (int b = 0; b < branch.size(); b++)
+		linkOf[i] = -1;
+		parentOf[i] = -1;
+	}
+	btAlignedObjectArray<int> reached;
+	reached.push_back(boneIndex);
+	for (int r = 0; r < reached.size(); r++)
+	{
+		for (int l = 0; l < m_jointLinks.size(); l++)
 		{
-			for (int m = 0; m < m_jointLinks.size(); m++)
-			{
-				int iNext = m_jointLinks[m].iBoneA == branch[b] ? m_jointLinks[m].iBoneB : (m_jointLinks[m].iBoneB == branch[b] ? m_jointLinks[m].iBoneA : -1);
-				if (iNext < 0 || branchOf[iNext] != -1) continue;
-				branchOf[iNext] = l;
-				branch.push_back(iNext);
-			}
+			const sJointLink& link = m_jointLinks[l];
+			int iNext = link.iBoneA == reached[r] ? link.iBoneB : (link.iBoneB == reached[r] ? link.iBoneA : -1);
+			if (iNext < 0 || iNext == boneIndex || linkOf[iNext] != -1) continue;
+			linkOf[iNext] = l;
+			parentOf[iNext] = reached[r];
+			reached.push_back(iNext);
 		}
+	}
 
-		// above the joint (the torso) folds by the waist fold, below it (a leg) by the hip fold, both toward his front
-		btVector3 pivotLocal = heldInverse * link.pivot;
+	// the part hanging from each joint of the held body (that body and every one beyond it): above the joint (the
+	// torso) it folds by the waist fold, below it (a leg) by the hip fold, both toward his front
+	for (int r = 1; r < reached.size(); r++)
+	{
+		int iStart = reached[r];
+		if (parentOf[iStart] != boneIndex) continue;
+		btVector3 pivotLocal = heldInverse * m_jointLinks[linkOf[iStart]].pivot;
 		btVector3 centre(0, 0, 0);
-		for (int b = 0; b < branch.size(); b++) centre += m_holdPose[branch[b]].getOrigin();
-		centre /= btScalar(branch.size());
+		int iCount = 0;
+		for (int i = 0; i < iBones; i++)
+		{
+			if (!RagdollBodyHangsFrom(parentOf, i, iStart)) continue;
+			centre += m_holdPose[i].getOrigin();
+			iCount++;
+		}
+		centre /= btScalar(iCount);
 		bool bAbove = (centre - pivotLocal).dot(upLocal) > 0;
 		btScalar fFold = bAbove ? btRadians(m_fHoldWaistFold) : -btRadians(m_fHoldHipFold);
 		btTransform toPivot(btQuaternion::getIdentity(), pivotLocal);
 		btTransform fold(btQuaternion(rightLocal, fFold), btVector3(0, 0, 0));
 		btTransform fromPivot(btQuaternion::getIdentity(), -pivotLocal);
 		btTransform turn = toPivot * fold * fromPivot;
-		for (int b = 0; b < branch.size(); b++) m_holdPose[branch[b]] = turn * m_holdPose[branch[b]];
+		for (int i = 0; i < iBones; i++)
+			if (RagdollBodyHangsFrom(parentOf, i, iStart)) m_holdPose[i] = turn * m_holdPose[i];
 	}
+
+	// and every joint put within its limits, a little inside, by turning the part beyond it: a pose from an animation
+	// can bend a joint past them (a cowering knockout's elbows past 100 degrees, a wrist past 10), and pulled to it,
+	// the arm and its joint fought at every step, the arm thrown about
+	for (int r = 1; r < reached.size(); r++)
+	{
+		int iBody = reached[r];
+		btTransform turn;
+		if (!HoldPoseJointTurn(linkOf[iBody], iBody, turn)) continue;
+		for (int i = 0; i < iBones; i++)
+			if (RagdollBodyHangsFrom(parentOf, i, iBody)) m_holdPose[i] = turn * m_holdPose[i];
+	}
+}
+
+// GG: the turn of the part of a drape beyond a joint (iChild, on the side away from the held body, and what hangs
+// from it) that puts the joint within its limits, a little inside them; false when it is within them already
+bool DBProRagDoll::HoldPoseJointTurn(int iLink, int iChild, btTransform& turn)
+{
+	if (iLink < 0 || iLink >= m_jointLinks.size()) return false;
+	const sJointLink& link = m_jointLinks[iLink];
+	btTypedConstraint* pJoint = link.pJoint;
+	if (!pJoint) return false;
+	const btTransform& poseA = m_holdPose[link.iBoneA];
+	const btTransform& poseB = m_holdPose[link.iBoneB];
+	bool bChildIsB = (iChild == link.iBoneB);
+	const btScalar fMarginMax = btRadians(3.0f);
+
+	if (pJoint->getConstraintType() == HINGE_CONSTRAINT_TYPE)
+	{
+		// as the hinge tests it, from the middle of its range (which can run past half a turn)
+		btHingeConstraint* pHinge = (btHingeConstraint*)pJoint;
+		if (!pHinge->hasLimit()) return false;
+		btScalar fLow = pHinge->getLowerLimit();
+		btScalar fHigh = pHinge->getUpperLimit();
+		if (fHigh < fLow) fHigh += SIMD_2_PI;
+		btScalar fCentre = (fLow + fHigh) * btScalar(0.5);
+		btScalar fHalfRange = (fHigh - fLow) * btScalar(0.5);
+		btScalar fWithin = fHalfRange - btMin(fMarginMax, fHalfRange * btScalar(0.5));
+		btScalar fAngle = pHinge->getHingeAngle(poseA, poseB);
+		btScalar fFromCentre = btNormalizeAngle(fAngle - fCentre);
+		if (btFabs(fFromCentre) <= fWithin) return false;
+		btScalar fTarget = btNormalizeAngle(fCentre + ((fFromCentre > 0) ? fWithin : -fWithin));
+
+		// about the hinge's axis at its pivot, whichever way round lands on the target
+		btTransform jointA = poseA * pHinge->getAFrame();
+		btVector3 axis = jointA.getBasis().getColumn(2);
+		btTransform toPivot(btQuaternion::getIdentity(), jointA.getOrigin());
+		btTransform fromPivot(btQuaternion::getIdentity(), -jointA.getOrigin());
+		btScalar fBestMiss = -1;
+		for (int iWay = 0; iWay < 2; iWay++)
+		{
+			btScalar fTurn = (iWay == 0) ? (fTarget - fAngle) : (fAngle - fTarget);
+			btTransform tryTurn = toPivot * btTransform(btQuaternion(axis, fTurn), btVector3(0, 0, 0)) * fromPivot;
+			btScalar fNew = bChildIsB ? pHinge->getHingeAngle(poseA, tryTurn * poseB) : pHinge->getHingeAngle(tryTurn * poseA, poseB);
+			btScalar fMiss = btFabs(btNormalizeAngle(fNew - fTarget));
+			if (fBestMiss < 0 || fMiss < fBestMiss)
+			{
+				fBestMiss = fMiss;
+				turn = tryTurn;
+			}
+		}
+		return true;
+	}
+
+	if (pJoint->getConstraintType() == CONETWIST_CONSTRAINT_TYPE)
+	{
+		// the turn of A from B in the joint's frame, split as the joint splits it: a swing of its twist axis (x), within
+		// the ellipse of its two swing spans, then a twist about that axis, within its twist span
+		btConeTwistConstraint* pCone = (btConeTwistConstraint*)pJoint;
+		btQuaternion qA = poseA.getRotation() * pCone->getAFrame().getRotation();
+		btQuaternion qB = poseB.getRotation() * pCone->getBFrame().getRotation();
+		btQuaternion qAB = qB.inverse() * qA;
+		btVector3 vTwist(1, 0, 0);
+		btVector3 vCone = quatRotate(qAB, vTwist);
+		vCone.normalize();
+		btQuaternion qCone = shortestArcQuat(vTwist, vCone);
+		qCone.normalize();
+		btQuaternion qTwist = qCone.inverse() * qAB;
+		qTwist.normalize();
+		bool bTurned = false;
+
+		btScalar fSwing = qCone.getAngle();
+		if (fSwing > SIMD_EPSILON)
+		{
+			btVector3 swingAxis(qCone.x(), qCone.y(), qCone.z());
+			swingAxis.normalize();
+			btScalar fSpan1 = pCone->getSwingSpan1();
+			btScalar fSpan2 = pCone->getSwingSpan2();
+			btScalar fLimit = fSpan1;
+			if (btFabs(swingAxis.y()) > SIMD_EPSILON && fSpan1 > SIMD_EPSILON && fSpan2 > SIMD_EPSILON)
+			{
+				btScalar fSlope2 = (swingAxis.z() * swingAxis.z()) / (swingAxis.y() * swingAxis.y());
+				btScalar fNorm = (1 / (fSpan2 * fSpan2)) + (fSlope2 / (fSpan1 * fSpan1));
+				fLimit = btSqrt((1 + fSlope2) / fNorm);
+			}
+			fLimit -= btMin(fMarginMax, fLimit * btScalar(0.25));
+			if (fSwing > fLimit)
+			{
+				qCone = btQuaternion(swingAxis, btMax(fLimit, btScalar(0.0)));
+				bTurned = true;
+			}
+		}
+		btScalar fTwistSpan = pCone->getTwistSpan();
+		if (fTwistSpan >= 0)
+		{
+			btScalar fTwistAngle = btNormalizeAngle(2 * btAtan2(qTwist.x(), qTwist.w()));
+			btScalar fTwistLimit = fTwistSpan - btMin(fMarginMax, fTwistSpan * btScalar(0.25));
+			if (btFabs(fTwistAngle) > fTwistLimit)
+			{
+				qTwist = btQuaternion(vTwist, (fTwistAngle > 0) ? fTwistLimit : -fTwistLimit);
+				bTurned = true;
+			}
+		}
+		if (!bTurned) return false;
+
+		// the child's side turned to that, its end of the joint kept on the other's
+		btQuaternion qABWithin = qCone * qTwist;
+		btTransform posed;
+		if (bChildIsB)
+		{
+			posed.setRotation((qA * qABWithin.inverse()) * pCone->getBFrame().getRotation().inverse());
+			btVector3 pivot = poseA * pCone->getAFrame().getOrigin();
+			posed.setOrigin(pivot - (posed.getBasis() * pCone->getBFrame().getOrigin()));
+			turn = posed * poseB.inverse();
+		}
+		else
+		{
+			posed.setRotation((qB * qABWithin) * pCone->getAFrame().getRotation().inverse());
+			btVector3 pivot = poseB * pCone->getBFrame().getOrigin();
+			posed.setOrigin(pivot - (posed.getBasis() * pCone->getAFrame().getOrigin()));
+			turn = posed * poseA.inverse();
+		}
+		return true;
+	}
+	return false;
 }
 
 // GG: held, the bodies slide where they touch (no friction) and their swing is damped; let go, as they were
@@ -1200,8 +1360,9 @@ void DBProRagDoll::HoldStep(btScalar timeStep)
 	}
 }
 
-// GG: the joints at a held body: a hinge widened 80 degrees each way, a cone's swing to 80 degrees (both the same either
-// way, so gravity alone decides which way what hangs from it goes); their own limits kept to go back to
+// GG: the joints at a held body: a hinge widened 80 degrees each way, a cone's swing and twist to 80 degrees (both the
+// same either way, so gravity alone decides which way what hangs from it goes, and a fold of the drape about his right
+// is not cut short by the twist); their own limits kept to go back to
 void DBProRagDoll::RelaxHeldJoints(btRigidBody* pBody)
 {
 	if (m_heldJointLimits.size() > 0)
@@ -1237,7 +1398,7 @@ void DBProRagDoll::RelaxHeldJoints(btRigidBody* pBody)
 			limits.fOriginal[2] = pCone->getTwistSpan();
 			limits.fRelaxed[0] = btMax(limits.fOriginal[0], fOpen);
 			limits.fRelaxed[1] = btMax(limits.fOriginal[1], fOpen);
-			limits.fRelaxed[2] = limits.fOriginal[2];
+			limits.fRelaxed[2] = btMax(limits.fOriginal[2], fOpen);
 		}
 		else continue;
 		m_heldJointLimits.push_back(limits);

@@ -66,6 +66,7 @@ private:
 	void SetJointIterations(int iIterations);
 	int BoneOfBody(const btRigidBody* pBody);
 	void BuildHoldPose(int boneIndex);
+	bool HoldPoseJointTurn(int iLink, int iChild, btTransform& turn);
 	void SetHeldBodies(bool bHeld);
 	void SetHeldCollision(bool bHeld);
 
@@ -83,12 +84,13 @@ private:
 	btAlignedObjectArray<int> m_heldGroup;
 	btAlignedObjectArray<int> m_heldMask;
 
-	// a joint as made: its bodies and its pivot in the world
+	// a joint as made: its bodies, its pivot in the world, and the joint
 	struct sJointLink
 	{
 		int iBoneA;
 		int iBoneB;
 		btVector3 pivot;
+		btTypedConstraint* pJoint;
 	};
 
 	// the drape a held ragdoll is pulled to: each body's transform from the held body, how hard, its swing damped, and
