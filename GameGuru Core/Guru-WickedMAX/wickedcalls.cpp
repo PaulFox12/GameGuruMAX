@@ -1930,6 +1930,18 @@ void WickedCall_RemoveObject( sObject* pObject )
 			}
 		}
 
+		// remove all entities associated with all frames of this object, before their meshes, so no object of the scene
+		// is left using a removed mesh (g_bWickedKeepMeshesInUse keeps one that is)
+		for (int iF = 0; iF < pObject->iFrameCount; iF++)
+		{
+			sFrame* pFrame = pObject->ppFrameList[iF];
+			if (pFrame)
+			{
+				wiScene::GetScene().Entity_Remove(pFrame->wickedobjindex);
+				pFrame->wickedobjindex = 0;
+			}
+		}
+
 		// remove all materials and armature used by any mesh
 		for (int iM = 0; iM < pObject->iMeshCount; iM++)
 		{
@@ -1957,16 +1969,6 @@ void WickedCall_RemoveObject( sObject* pObject )
 			}
 		}
 
-		// remove all entities associated with all frames of this object
-		for (int iF = 0; iF < pObject->iFrameCount; iF++)
-		{
-			sFrame* pFrame = pObject->ppFrameList[iF];
-			if (pFrame)
-			{
-				wiScene::GetScene().Entity_Remove(pFrame->wickedobjindex);
-				pFrame->wickedobjindex = 0;
-			}
-		}
 		// look at editor on how objects are thoroughly deleted
 		wiScene::GetScene().Entity_Remove(rootEntity);
 		pObject->wickedrootentityindex = 0;
@@ -8529,6 +8531,8 @@ static void WickedCall_ProbeProfilerLockHold(double dMilliseconds);
 static void WickedCall_ProbeFramePhase(const char* pName, const char* pParents, double dMilliseconds);
 // and each job that queued or ran 20 ms or more, on whichever thread ran it ("job stall")
 static void WickedCall_ProbeJobStall(const WickedJobStallInfo& info);
+// and a mesh kept from a remove while an object still used it (g_bWickedKeepMeshesInUse), with who asked
+static void WickedCall_MeshInUseRemove(wiECS::Entity mesh, wiECS::Entity object);
 static struct WickedCallProbeHook
 {
 	WickedCallProbeHook()
@@ -8539,6 +8543,7 @@ static struct WickedCallProbeHook
 		g_pfnWickedProfilerLockHold = WickedCall_ProbeProfilerLockHold;
 		g_pfnWickedFramePhase = WickedCall_ProbeFramePhase;
 		g_pfnWickedJobStall = WickedCall_ProbeJobStall;
+		g_pfnWickedMeshInUseRemove = WickedCall_MeshInUseRemove;
 	}
 } g_WickedCallProbeHook;
 
@@ -8561,6 +8566,118 @@ static WickedCallProbeSlowCall g_WickedCallProbeSlow[WICKEDCALL_PROBE_COUNT];
 static std::atomic<int> g_iWickedCallProbeFrameNumber{ 0 };
 static DWORD g_dwWickedCallProbeMainThread = 0;
 DWORD g_dwWickedCallProbeExtraThread = 0;
+
+// DbgHelp for the exe's pdb, set up on first use; its calls aren't thread safe, so they are made holding this lock
+static std::mutex g_WickedCallSymbolLock;
+static bool WickedCall_SymbolsReady(void)
+{
+	static int iReady = -1;
+	if (iReady < 0)
+	{
+		SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
+		iReady = SymInitialize(GetCurrentProcess(), NULL, TRUE) != FALSE ? 1 : 0;
+	}
+	return iReady == 1;
+}
+
+// the first eight meshes kept a session go to Guru-Crash.log (beside the exe) with the remove's call stack: removed
+// entities' ids are handed out again, so the caller is one removing an id it no longer owned (or a master object deleted
+// under its instances), and the object using the mesh says whose mesh it was
+static void WickedCall_MeshInUseRemove(wiECS::Entity mesh, wiECS::Entity object)
+{
+	static std::atomic<int> iKept{ 0 };
+	const int iThis = ++iKept;
+	if (iThis > 9) return;
+	void* pStack[24] = {};
+	const USHORT iFrames = CaptureStackBackTrace(1, 24, pStack, NULL);
+	std::string text;
+	char pLine[1024];
+	extern std::string GetTimestamp();
+	if (iThis == 9)
+	{
+		sprintf_s(pLine, "\r\n==== MESH IN USE KEPT FROM A REMOVE (%s) ====\r\nMore than eight this session; the rest aren't logged.\r\n", GetTimestamp().c_str());
+		text = pLine;
+	}
+	else
+	{
+		wiScene::Scene& scene = wiScene::GetScene();
+		const wiScene::NameComponent* pMeshName = scene.names.GetComponent(mesh);
+		const wiScene::NameComponent* pObjectName = scene.names.GetComponent(object);
+		sprintf_s(pLine, "\r\n==== MESH IN USE KEPT FROM A REMOVE (%d of at most 8) ====\r\nTime:            %s\r\nThread:          %s\r\n", iThis, GetTimestamp().c_str(), GetCurrentThreadId() == g_dwWickedCallProbeMainThread ? "main" : "other");
+		text += pLine;
+
+		// the game objects that hold the mesh in their records, and the one whose frame is the object using it
+		extern sObject** g_ObjectList;
+		extern int* g_ObjectListRef;
+		extern int g_iObjectListRefCount;
+		int iMeshHolders = 0;
+		std::string holders;
+		sObject* pUser = m_ObjectManager.FindObjectFromWickedObjectEntityID(object);
+		for (int iShortList = 0; iShortList < g_iObjectListRefCount; iShortList++)
+		{
+			sObject* pObject = g_ObjectList[g_ObjectListRef[iShortList]];
+			if (!pObject || !pObject->ppMeshList) continue;
+			for (int iM = 0; iM < pObject->iMeshCount; iM++)
+			{
+				sMesh* pMesh = pObject->ppMeshList[iM];
+				if (!pMesh || (pMesh->wickedmeshindex != mesh && pMesh->master_wickedmeshindex != mesh)) continue;
+				if (iMeshHolders++ < 6)
+				{
+					sprintf_s(pLine, "%s%d (mesh %d%s)", holders.empty() ? "" : ", ", (int)pObject->dwObjectNumber, iM, pMesh->wickedmeshindex == mesh ? "" : ", as its instance master");
+					holders += pLine;
+				}
+				break;
+			}
+		}
+		sprintf_s(pLine, "Mesh:            entity %u \"%s\", in the records of object %s\r\n", mesh, pMeshName ? pMeshName->name.c_str() : "", iMeshHolders > 0 ? holders.c_str() : "none");
+		text += pLine;
+		int iUserObject = pUser ? (int)pUser->dwObjectNumber : 0;
+		sprintf_s(pLine, "Used by:         entity %u \"%s\", object %d", object, pObjectName ? pObjectName->name.c_str() : "", iUserObject);
+		text += pLine;
+		for (int e = 1; iUserObject > 0 && e <= g.entityelementlist; e++)
+		{
+			if (t.entityelement[e].obj == iUserObject) { sprintf_s(pLine, ", entity element %d's object", e); text += pLine; }
+			if (t.entityelement[e].attachmentobj == iUserObject) { sprintf_s(pLine, ", entity element %d's attachment", e); text += pLine; }
+		}
+		text += "\r\nRemoved by:      (exe offsets for the pdb in brackets)\r\n";
+
+		std::lock_guard<std::mutex> lockSymbols(g_WickedCallSymbolLock);
+		const bool bSymbols = WickedCall_SymbolsReady();
+		const DWORD64 dwExeBase = (DWORD64)GetModuleHandle(NULL);
+		char pSymbolBuffer[sizeof(SYMBOL_INFO) + 256] = {};
+		SYMBOL_INFO* pSymbol = (SYMBOL_INFO*)pSymbolBuffer;
+		pSymbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+		pSymbol->MaxNameLen = 255;
+		for (USHORT f = 0; f < iFrames; f++)
+		{
+			const DWORD64 dwAddress = (DWORD64)pStack[f];
+			DWORD64 dwDisplacement = 0;
+			const char* pName = (bSymbols && SymFromAddr(GetCurrentProcess(), dwAddress, &dwDisplacement, pSymbol)) ? pSymbol->Name : "?";
+			IMAGEHLP_LINE64 line = {};
+			line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
+			DWORD dwLineDisplacement = 0;
+			char pWhere[300] = "";
+			if (bSymbols && SymGetLineFromAddr64(GetCurrentProcess(), dwAddress, &dwLineDisplacement, &line))
+			{
+				const char* pFile = strrchr(line.FileName, '\\');
+				sprintf_s(pWhere, " %s:%u", pFile ? pFile + 1 : line.FileName, line.LineNumber);
+			}
+			sprintf_s(pLine, "  #%d  %s+0x%llx%s  [0x%llx]\r\n", (int)f, pName, dwDisplacement, pWhere, dwAddress - dwExeBase);
+			text += pLine;
+		}
+	}
+
+	char pLogPath[MAX_PATH];
+	GetModuleFileNameA(NULL, pLogPath, MAX_PATH);
+	char* pSlash = strrchr(pLogPath, '\\');
+	if (pSlash) strcpy_s(pSlash + 1, MAX_PATH - (pSlash + 1 - pLogPath), "Guru-Crash.log");
+	FILE* pFile = NULL;
+	if (fopen_s(&pFile, pLogPath, "ab") == 0 && pFile)
+	{
+		fputs(text.c_str(), pFile);
+		fclose(pFile);
+	}
+}
 
 // milliseconds on the performance counter
 double WickedCall_ProbeNow(void)
@@ -9070,13 +9187,9 @@ const char* WickedCall_ProbeDetail(const char* pName, float fMinMs)
 	if (slowest.dMilliseconds < dMinMs) return "";
 	if (!slowest.bFormatted)
 	{
-		// the callers' names from the exe's pdb (DbgHelp, on this thread only)
-		static bool bSymbols = false;
-		if (!bSymbols)
-		{
-			SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
-			bSymbols = SymInitialize(GetCurrentProcess(), NULL, TRUE) != FALSE;
-		}
+		// the callers' names from the exe's pdb
+		std::lock_guard<std::mutex> lockSymbols(g_WickedCallSymbolLock);
+		const bool bSymbols = WickedCall_SymbolsReady();
 		const char* pThread = slowest.dwThread == g_dwWickedCallProbeMainThread ? "main" : (slowest.dwThread == g_dwWickedCallProbeExtraThread ? "extra" : "worker");
 		int iLen = sprintf_s(slowest.pDetail, "%s %.0f ms, %s thread", slowest.pWhat, slowest.dMilliseconds, pThread);
 		char pSymbolBuffer[sizeof(SYMBOL_INFO) + 256] = {};

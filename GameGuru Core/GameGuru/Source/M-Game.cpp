@@ -4191,6 +4191,9 @@ void game_preparelevel_finally ( void )
 	// and its deaths take the death animations until a script sets SetRagdollAllDeaths
 	extern bool g_bRagdollAllDeaths;
 	g_bRagdollAllDeaths = false;
+	// while it runs, a mesh an object still uses is kept from a remove, and Guru-Crash.log told who asked (wickedcalls.cpp)
+	extern bool g_bWickedKeepMeshesInUse;
+	g_bWickedKeepMeshesInUse = true;
 	// and its own post effects, clouds, wind, water, LUT and entity glow until a script sets them
 	extern void LuaPostEffects_Clear(void* pVisualsToRestore);
 	LuaPostEffects_Clear(NULL);
@@ -4251,6 +4254,10 @@ void game_stopallsounds ( void )
 
 void game_freelevel ( void )
 {
+	// the level's objects go now: Wicked removes meshes without checking for objects that use them (only in a game)
+	extern bool g_bWickedKeepMeshesInUse;
+	g_bWickedKeepMeshesInUse = false;
+
 	// remove any bulletholes
 	bulletholes_free();
 
