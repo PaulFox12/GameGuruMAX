@@ -7,6 +7,7 @@
 // Includes
 #include "stdafx.h"
 #include "gameguru.h"
+#include <map>
 
 // OPTICK Performance
 #ifdef OPTICK_ENABLE
@@ -21,7 +22,10 @@ using namespace wiScene;
 using namespace wiECS;
 
 // Externs
-extern void newparticle_updateparticleemitter (newparticletype* pParticle, float fScale, float fX, float fY, float fZ, float fRX, float fRY, float fRZ, GGMATRIX* pmatBaseRotation, bool bAutoDelete, int decal_id = -1);
+extern void newparticle_updateparticleemitter (newparticletype* pParticle, float fScale, float fX, float fY, float fZ, float fRX, float fRY, float fRZ, GGMATRIX* pmatBaseRotation, bool bAutoDelete, int decal_id = -1, const GGVECTOR3* pvecUp = NULL);
+
+// GG: the up a decal element's WPE effect stands on when it fires (decalelement_standon), by element; none is upright
+static std::map<int, GGVECTOR3> g_DecalElementUp;
 
 // Script control of decals (SetDecalRange, SetDecalLimit, GetDecalStats, TriggerWaterRippleSize with a normal).
 // g_iDecalRippleStart is the first element kept for water ripples (0 = ripples share every element); the counts are
@@ -631,6 +635,15 @@ void decal_getparticlefile ( void )
 }
 
 int g_iBlendMode = BLENDMODE_ALPHA;
+// GG: a decal element's WPE effect, when it fires, stands on this up (its local Y), not upright (a projectile's explosion
+// on the surface it hit); a zero up leaves it upright
+void decalelement_standon ( int d, float fNX, float fNY, float fNZ )
+{
+	if ( d <= 0 || d > g.decalelementmax ) return;
+	if ( fNX == 0.0f && fNY == 0.0f && fNZ == 0.0f ) { g_DecalElementUp.erase ( d ); return; }
+	g_DecalElementUp[d] = GGVECTOR3 ( fNX, fNY, fNZ );
+}
+
 void decalelement_create ( void )
 {
 #ifdef OPTICK_ENABLE
@@ -688,6 +701,7 @@ void decalelement_create ( void )
 		}
 		// activate new decal element
 		t.currentdecald=t.d;
+		g_DecalElementUp.erase ( t.d );
 		t.decalelement[t.d].decalid=t.decalid;
 		t.decalelement[t.d].active=1;
 		t.decalelement[t.d].xpos=g.decalx;
@@ -1023,7 +1037,8 @@ void decalelement_control ( void )
 				float fRY = 0.0f;
 				float fRZ = 0.0f;
 				GGMatrixRotationY(&pmatBaseRotation, GGToRadian(fRY));
-				newparticle_updateparticleemitter(&t.decalelement[t.f].newparticle, fScale, fX, fY, fZ, fRX, fRY, fRZ, NULL, true, decalid);
+				std::map<int, GGVECTOR3>::iterator itUp = g_DecalElementUp.find ( t.f );
+				newparticle_updateparticleemitter(&t.decalelement[t.f].newparticle, fScale, fX, fY, fZ, fRX, fRY, fRZ, NULL, true, decalid, itUp != g_DecalElementUp.end() ? &itUp->second : NULL);
 
 				if (t.decal[decalid].newparticle.bWPE)
 				{

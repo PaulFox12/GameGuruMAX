@@ -76,6 +76,8 @@ void lua_init ( void )
 	g.projectileEventType_radius = 0;
 	g.projectileEventType_damage = 0;
 	g.projectileEventType_entityhit = 0;
+	extern float g_fProjectileEventNormal[3];
+	g_fProjectileEventNormal[0] = g_fProjectileEventNormal[1] = g_fProjectileEventNormal[2] = 0.0f;
 
 	//LB: more clearances
 	t.plrkeyForceKeystate = 0;
@@ -712,6 +714,11 @@ void lua_loop_begin ( void )
 	LuaSetInt("g_projectileevent_radius", g.projectileEventType_radius);
 	LuaSetInt("g_projectileevent_damage", g.projectileEventType_damage);
 	LuaSetInt("g_projectileevent_entityhit", g.projectileEventType_entityhit);
+	// GG: the normal of the surface it ended on, facing back along its flight; 0,0,0 when it ended on none
+	extern float g_fProjectileEventNormal[3];
+	LuaSetFloat("g_projectileevent_nx", g_fProjectileEventNormal[0]);
+	LuaSetFloat("g_projectileevent_ny", g_fProjectileEventNormal[1]);
+	LuaSetFloat("g_projectileevent_nz", g_fProjectileEventNormal[2]);
 
 	// at new LUA loop start, can activate any newly created spawned entities currently in limbo
 	bool bBringNewOnesToLife = false;

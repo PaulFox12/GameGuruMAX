@@ -8815,7 +8815,8 @@ bool preload_wicked_particle_effect(newparticletype* pParticle, int decal_id)
 	return true;
 }
 
-void newparticle_updateparticleemitter ( newparticletype* pParticle, float fScale, float fX, float fY, float fZ, float fRX, float fRY, float fRZ, GGMATRIX* pmatBaseRotation,bool bAutoDelete,int decal_id)
+// GG: pvecUp, when given, is the up a fired WPE effect stands on (a projectile's explosion on the surface it hit)
+void newparticle_updateparticleemitter ( newparticletype* pParticle, float fScale, float fX, float fY, float fZ, float fRX, float fRY, float fRZ, GGMATRIX* pmatBaseRotation,bool bAutoDelete,int decal_id, const GGVECTOR3* pvecUp = NULL)
 {
 #ifdef OPTICK_ENABLE
 	OPTICK_EVENT();
@@ -8957,7 +8958,24 @@ void newparticle_updateparticleemitter ( newparticletype* pParticle, float fScal
 						//PE: Invert drection - XMVECTOR lookDir = XMVectorSubtract(emitterPos, cameraPos);
 						lookDir = XMVectorSetY(lookDir, 0.0f);
 
-						if (XMVectorGetX(XMVector3LengthSq(lookDir)) > 0.0001f)
+						// GG: stood on a surface, its Y is the surface's normal; on a floor or ceiling it still faces the
+						// camera, on a wall world up keeps it from turning about the normal
+						XMVECTOR surfaceUp = pvecUp ? XMVectorSet(pvecUp->x, pvecUp->y, pvecUp->z, 0.0f) : XMVectorZero();
+						if (XMVectorGetX(XMVector3LengthSq(surfaceUp)) > 0.25f)
+						{
+							surfaceUp = XMVector3Normalize(surfaceUp);
+							XMVECTOR facing = fabs(XMVectorGetY(surfaceUp)) > 0.7f ? lookDir : XMVectorSet(0, 1, 0, 0);
+							facing = XMVectorSubtract(facing, XMVectorScale(surfaceUp, XMVectorGetX(XMVector3Dot(facing, surfaceUp))));
+							if (XMVectorGetX(XMVector3LengthSq(facing)) < 0.0001f)
+							{
+								facing = XMVector3Cross(surfaceUp, XMVectorSet(1, 0, 0, 0));
+								if (XMVectorGetX(XMVector3LengthSq(facing)) < 0.0001f) facing = XMVector3Cross(surfaceUp, XMVectorSet(0, 0, 1, 0));
+							}
+							facing = XMVector3Normalize(facing);
+							XMMATRIX lookAtMat = XMMatrixLookToLH(emitterPos, facing, surfaceUp);
+							root_tranform->MatrixTransform(XMMatrixInverse(nullptr, lookAtMat));
+						}
+						else if (XMVectorGetX(XMVector3LengthSq(lookDir)) > 0.0001f)
 						{
 							lookDir = XMVector3Normalize(lookDir);
 							XMVECTOR worldUp = XMVectorSet(0, 1, 0, 0);

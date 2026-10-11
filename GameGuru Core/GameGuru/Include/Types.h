@@ -1412,6 +1412,7 @@ struct weaponProjectileBaseType
 	float fDecalSpeed = 1.0f;
 	int decalid = -1;
 	int explosion_decalid = -1;
+	int wpeExplosionNormal = 0; // GG: 1 stands the wpeexplosion effect on the surface hit
 
 	// Constructor
 	weaponProjectileBaseType ( )
@@ -1505,6 +1506,7 @@ struct weaponProjectileBaseType
 		 fDecalSpeed = 1.0f;
 		 decalid = -1;
 		 explosion_decalid = -1;
+		 wpeExplosionNormal = 0;
 		 WPE_Root = 0;
 	}
 	// End of Constructor

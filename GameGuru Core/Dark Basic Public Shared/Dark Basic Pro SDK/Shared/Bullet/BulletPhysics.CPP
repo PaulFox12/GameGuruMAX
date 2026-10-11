@@ -701,6 +701,7 @@ struct sProjectileContact
 	btRigidBody* body;
 	int iTouched; // -1 none yet, else the object number of the body touched (0 the terrain or a body with no object)
 	btVector3 vecPoint; // world units
+	btVector3 vecNormal; // the touched surface's, facing the projectile
 };
 static std::vector<sProjectileContact> g_ProjectileContacts;
 
@@ -734,6 +735,8 @@ static void UpdateProjectileContacts()
 				if ( point.getDistance() > 0.01f ) continue;
 				contact.iTouched = iOther;
 				contact.vecPoint = ( bIsBody0 ? point.getPositionWorldOnB() : point.getPositionWorldOnA() ) * gSc;
+				// the normal on body 1 points to body 0, so it faces the projectile when the projectile is body 0
+				contact.vecNormal = bIsBody0 ? point.m_normalWorldOnB : -point.m_normalWorldOnB;
 				break;
 			}
 		}
@@ -4951,6 +4954,7 @@ void ODEWatchProjectileContact ( int iObjectNumber, int iIgnoreObject )
 		contact.body = body;
 		contact.iTouched = -1;
 		contact.vecPoint = btVector3 ( 0, 0, 0 );
+		contact.vecNormal = btVector3 ( 0, 0, 0 );
 		bool bFound = false;
 		for ( sProjectileContact& existing : g_ProjectileContacts )
 		{
@@ -4961,8 +4965,9 @@ void ODEWatchProjectileContact ( int iObjectNumber, int iIgnoreObject )
 	physicslock.unlock();
 }
 
-// the object number a watched projectile first touched (0 the terrain or a body with no object) and where, or -1
-int ODEGetProjectileContact ( int iObjectNumber, float* pX, float* pY, float* pZ )
+// the object number a watched projectile first touched (0 the terrain or a body with no object), where, and the touched
+// surface's normal facing the projectile, or -1
+int ODEGetProjectileContact ( int iObjectNumber, float* pX, float* pY, float* pZ, float* pNX, float* pNY, float* pNZ )
 {
 	int iTouched = -1;
 	physicslock.lock();
@@ -4973,6 +4978,9 @@ int ODEGetProjectileContact ( int iObjectNumber, float* pX, float* pY, float* pZ
 		*pX = contact.vecPoint.x();
 		*pY = contact.vecPoint.y();
 		*pZ = contact.vecPoint.z();
+		if ( pNX ) *pNX = contact.vecNormal.x();
+		if ( pNY ) *pNY = contact.vecNormal.y();
+		if ( pNZ ) *pNZ = contact.vecNormal.z();
 	}
 	physicslock.unlock();
 	return iTouched;

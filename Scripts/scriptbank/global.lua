@@ -180,6 +180,10 @@ g_projectileevent_z = 0
 g_projectileevent_radius = 0
 g_projectileevent_damage = 0
 g_projectileevent_entityhit = 0
+-- the unit normal of the surface it ended on, facing back along its flight; 0,0,0 when it ended on none (a timer, an air burst)
+g_projectileevent_nx = 0
+g_projectileevent_ny = 0
+g_projectileevent_nz = 0
 
 function GameLoopInit(invincible,sth,rra,rsp,rde)
  g_gameloop_StartHealth = sth
