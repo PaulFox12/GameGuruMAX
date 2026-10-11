@@ -2949,7 +2949,8 @@ void entity_applydamage ( void )
 			if (t.entityprofile[t.ttentid].ragdoll == 1)
 			{
 				//  create ragdoll and stop any further manipulation of the object
-				if (t.entityelement[t.ttte].ragdollplusactivate == 0)
+				// GG: not for one already a ragdoll (knocked out by SetEntityRagdoll), which would get a death animation and its box
+				if (t.entityelement[t.ttte].ragdollplusactivate == 0 && BPhys_RagdollExist(t.entityelement[t.ttte].obj) == 0)
 				{
 					t.entityelement[t.ttte].ragdollplusactivate = t.impacting;
 					// could use: t.bulletraytype; // 1-pierce, 2-shotgun shell

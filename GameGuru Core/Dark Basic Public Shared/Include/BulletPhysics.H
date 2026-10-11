@@ -98,6 +98,15 @@ DARKSDK int			BPhys_RagDollShowBones(int ragdollID);
 DARKSDK void		BPhys_RagDollSetDamping(float linear, float angular);
 DARKSDK void		BPhys_RagDollSetSleepingThresholds(float linear, float angular);
 DARKSDK void		BPhys_RagDollSetDeactivationTime(float time);
+// GG: a ragdoll body held at a point, the body moving a limb, where it is, and the body the object follows
+DARKSDK int			BPhys_RagDollFindBone(int ragdollID, int limbID);
+DARKSDK bool		BPhys_RagDollGetBonePosition(int ragdollID, int boneIndex, float* pX, float* pY, float* pZ);
+DARKSDK void		BPhys_RagDollSetRestYaw(int ragdollID, float fYaw);
+DARKSDK void		BPhys_RagDollSetFollowBone(int ragdollID, int boneIndex);
+DARKSDK bool		BPhys_RagDollHold(int ragdollID, int boneIndex, float fX, float fY, float fZ, float fAX, float fAY, float fAZ, unsigned int uNowMs);
+DARKSDK void		BPhys_RagDollRelease(int ragdollID);
+DARKSDK int			BPhys_RagDollIsHeld(int ragdollID);
+DARKSDK int			BPhys_RagDollIsResting(int ragdollID);
 
 // Destruction commands
 DARKSDK void		ODEDestroyObject						( int iObjectNumber );

@@ -4277,6 +4277,69 @@ void BPhys_RagDollSetDeactivationTime(float time)
 	}
 }
 
+// GG: the ragdoll body whose capsule moves a limb, -1 when none does
+int BPhys_RagDollFindBone(int ragdollID, int limbID)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	return ragdoll ? ragdoll->FindBone(limbID) : -1;
+}
+
+// GG: a ragdoll body's centre in world units
+bool BPhys_RagDollGetBonePosition(int ragdollID, int boneIndex, float* pX, float* pY, float* pZ)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( !ragdoll || boneIndex < 0 ) return false;
+	btVector3 position = ragdoll->GetBonePosition(boneIndex);
+	*pX = position.getX();
+	*pY = position.getY();
+	*pZ = position.getZ();
+	return true;
+}
+
+// GG: taken as a ragdoll is made, with the angle the character faces, so a hold can turn a body as the character
+void BPhys_RagDollSetRestYaw(int ragdollID, float fYaw)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( ragdoll ) ragdoll->SetRestYaw(btScalar(fYaw));
+}
+
+// GG: the object's position follows a ragdoll body (-1 stops it)
+void BPhys_RagDollSetFollowBone(int ragdollID, int boneIndex)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( ragdoll ) ragdoll->SetFollowBone(boneIndex);
+}
+
+// GG: holds a ragdoll body at a point (world units), turned as the character would be by the angles (X, then Y, then Z,
+// as for an object: 0, a, 0 is that body as when standing facing a); called each frame while held
+bool BPhys_RagDollHold(int ragdollID, int boneIndex, float fX, float fY, float fZ, float fAX, float fAY, float fAZ, unsigned int uNowMs)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( !ragdoll || !g_dynamicsWorld ) return false;
+	btMatrix3x3 rotation;
+	rotation.setEulerYPR(btRadians(fAZ), btRadians(fAY), btRadians(fAX));
+	ragdoll->Hold(boneIndex, btVector3(fX, fY, fZ), rotation, uNowMs);
+	return ragdoll->IsHeld();
+}
+
+void BPhys_RagDollRelease(int ragdollID)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( ragdoll ) ragdoll->Release();
+}
+
+int BPhys_RagDollIsHeld(int ragdollID)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	return ( ragdoll && ragdoll->IsHeld() ) ? 1 : 0;
+}
+
+int BPhys_RagDollIsResting(int ragdollID)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	return ( ragdoll && ragdoll->IsResting() ) ? 1 : 0;
+}
+
 // Force commands
 
 void ODESetLinearVelocity ( int iObject, float fX, float fY, float fZ )

@@ -51,6 +51,15 @@ DBProRagDoll::DBProRagDoll(int ragdollID) : BaseItem(ragdollID)
 	m_fScaledLargestRadius = 0;
 	m_bNeedsUpdateForCulling = false;
 
+	// GG: nothing held and no body followed until asked
+	m_iFollowBone = -1;
+	m_iHoldBone = -1;
+	m_pHoldAnchor = NULL;
+	m_pHoldAnchorShape = NULL;
+	m_pHoldJoint = NULL;
+	m_holdFrom.setIdentity();
+	m_uHoldStartMs = 0;
+
 	sObject* pObject = GetObjectData(ragdollID);
 	//SetCullingRadius(pObject->collision.fRadius, pObject->collision.fScaledRadius, pObject->collision.fScaledLargestRadius);
 	pObject->collision.fRadius=0;
@@ -74,6 +83,8 @@ DBProRagDoll::DBProRagDoll(int ragdollID) : BaseItem(ragdollID)
 
 DBProRagDoll::~DBProRagDoll()
 {
+	// GG: the hold's joint goes before the bodies it links
+	Release();
 	if ( jointManager )
 	{
 		for (int i = 0; i < m_joints.size(); i++)
@@ -601,6 +612,14 @@ void DBProRagDoll::Update()
 		pObject->collision.fScaledRadius = 0;
 		pObject->collision.fScaledLargestRadius = 0;
 
+		// GG: the object goes where the followed body is before the limbs are worked out from its position, so the
+		// body is drawn where it is and the object stays with it (a held body carried away from where it fell)
+		if (m_iFollowBone >= 0 && m_iFollowBone < m_ragDollBoneArray.size())
+		{
+			btVector3 followPosition = GetBonePosition(m_iFollowBone);
+			PositionObject(objectID, followPosition.getX(), followPosition.getY(), followPosition.getZ());
+		}
+
 		btScalar scaleFactor = 40.0f;///DynamicsWorldArray[0]->m_scaleFactor;
 
 		//Create Transform for DBpro Model,needed for when model is not positioned at origin
@@ -710,7 +729,8 @@ void DBProRagDoll::Update()
 	}
 
 	// if overall ragdoll has stopped moving, switch it to static
-	if (bStillMoving == false) 
+	// GG: not while held, or a held body that stops swinging could no longer be carried
+	if (bStillMoving == false && m_pHoldJoint == NULL)
 		SetStatic(true);
 }
 
@@ -760,6 +780,153 @@ void DBProRagDoll::SetSleepingThresholds(btScalar linear, btScalar angular)
 void  DBProRagDoll::SetDeactivationTime(btScalar time)
 {
 	m_deactivationTime = time;
+}
+
+// GG: the body whose capsule moves a limb (-1 when none does)
+int DBProRagDoll::FindBone(int limbID)
+{
+	for (int i = 0; i < m_ragDollBoneArray.size(); i++)
+	{
+		for (int j = 0; j < m_ragDollBoneArray[i]->dbproLimbIDs.size(); j++)
+		{
+			if (m_ragDollBoneArray[i]->dbproLimbIDs[j] == limbID) return i;
+		}
+	}
+	return -1;
+}
+
+// GG: a body's centre in world units
+btVector3 DBProRagDoll::GetBonePosition(int boneIndex)
+{
+	btScalar scaleFactor = 40.0f;
+	if (boneIndex < 0 || boneIndex >= m_ragDollBoneArray.size()) return btVector3(0, 0, 0);
+	return m_ragDollBoneArray[boneIndex]->GetRigidBody()->getWorldTransform().getOrigin() * scaleFactor;
+}
+
+// GG: each body's turn as it would be with the character facing angle 0, taken as the ragdoll is made (the pose it is
+// made from) with the angle the character faces, so Hold can turn a body as the character would be turned
+void DBProRagDoll::SetRestYaw(btScalar yawDegrees)
+{
+	btMatrix3x3 facing;
+	facing.setEulerYPR(0, btRadians(yawDegrees), 0);
+	m_restRotation.clear();
+	for (int i = 0; i < m_ragDollBoneArray.size(); i++)
+	{
+		m_restRotation.push_back(facing.transpose() * m_ragDollBoneArray[i]->GetRigidBody()->getWorldTransform().getBasis());
+	}
+}
+
+// GG: the object's position follows this body from the next update (-1 stops it)
+void DBProRagDoll::SetFollowBone(int boneIndex)
+{
+	m_iFollowBone = (boneIndex >= 0 && boneIndex < m_ragDollBoneArray.size()) ? boneIndex : -1;
+}
+
+// GG: holds a body at a point (world units) turned by the given turn of the character: a fixed joint to a kinematic body
+// with no collision, moved here each call. From where the body was, it is brought there over a quarter of a second.
+// The other bodies hang from it on the ragdoll's own joints. Held, the bodies never sleep or turn static
+void DBProRagDoll::Hold(int boneIndex, const btVector3& position, const btMatrix3x3& rotation, unsigned int uNowMs)
+{
+	if (boneIndex < 0 || boneIndex >= m_ragDollBoneArray.size()) return;
+	if (m_pHoldJoint && m_iHoldBone != boneIndex) Release();
+	btRigidBody* pBody = m_ragDollBoneArray[boneIndex]->GetRigidBody();
+	if (!pBody) return;
+
+	btScalar scaleFactor = 40.0f;
+	btTransform target;
+	target.setOrigin(position / scaleFactor);
+	if (boneIndex < m_restRotation.size())
+		target.setBasis(rotation * m_restRotation[boneIndex]);
+	else
+		target.setBasis(rotation);
+
+	if (m_pHoldJoint == NULL)
+	{
+		// a static ragdoll has no mass to move; held, nothing may sleep
+		if (m_bIsStatic) SetStatic(false);
+		for (int i = 0; i < m_ragDollBoneArray.size(); i++)
+		{
+			btRigidBody* pBoneBody = m_ragDollBoneArray[i]->GetRigidBody();
+			if (pBoneBody) pBoneBody->setActivationState(DISABLE_DEACTIVATION);
+		}
+
+		// the anchor starts where the body is, so the joint holds it without a jolt
+		m_holdFrom = pBody->getWorldTransform();
+		m_uHoldStartMs = uNowMs;
+		m_pHoldAnchorShape = new btSphereShape(btScalar(0.05));
+		btDefaultMotionState* pMotionState = new btDefaultMotionState(m_holdFrom);
+		btRigidBody::btRigidBodyConstructionInfo anchorInfo(0, pMotionState, m_pHoldAnchorShape, btVector3(0, 0, 0));
+		m_pHoldAnchor = new btRigidBody(anchorInfo);
+		m_pHoldAnchor->setCollisionFlags(m_pHoldAnchor->getCollisionFlags() | btCollisionObject::CF_KINEMATIC_OBJECT | btCollisionObject::CF_NO_CONTACT_RESPONSE);
+		m_pHoldAnchor->setActivationState(DISABLE_DEACTIVATION);
+		g_dynamicsWorld->addRigidBody(m_pHoldAnchor, 0, 0);
+
+		btGeneric6DofConstraint* pJoint = new btGeneric6DofConstraint(*m_pHoldAnchor, *pBody, btTransform::getIdentity(), btTransform::getIdentity(), true);
+		pJoint->setLinearLowerLimit(btVector3(0, 0, 0));
+		pJoint->setLinearUpperLimit(btVector3(0, 0, 0));
+		pJoint->setAngularLowerLimit(btVector3(0, 0, 0));
+		pJoint->setAngularUpperLimit(btVector3(0, 0, 0));
+		g_dynamicsWorld->addConstraint(pJoint, true);
+		m_pHoldJoint = pJoint;
+		m_iHoldBone = boneIndex;
+	}
+
+	// eased from where the body was to the target over 0.25 s, then on the target
+	float fBlend = (float)(uNowMs - m_uHoldStartMs) / 250.0f;
+	if (fBlend < 0.0f) fBlend = 0.0f;
+	if (fBlend > 1.0f) fBlend = 1.0f;
+	fBlend = fBlend * fBlend * (3.0f - (2.0f * fBlend));
+	btTransform anchor;
+	anchor.setOrigin(m_holdFrom.getOrigin().lerp(target.getOrigin(), fBlend));
+	anchor.setRotation(m_holdFrom.getRotation().slerp(target.getRotation(), fBlend));
+	m_pHoldAnchor->getMotionState()->setWorldTransform(anchor);
+}
+
+// GG: lets a held body go; the ragdoll falls from where it is and can settle again
+void DBProRagDoll::Release()
+{
+	if (m_pHoldJoint)
+	{
+		if (g_dynamicsWorld) g_dynamicsWorld->removeConstraint(m_pHoldJoint);
+		delete m_pHoldJoint;
+		m_pHoldJoint = NULL;
+	}
+	if (m_pHoldAnchor)
+	{
+		if (g_dynamicsWorld) g_dynamicsWorld->removeRigidBody(m_pHoldAnchor);
+		delete m_pHoldAnchor->getMotionState();
+		delete m_pHoldAnchor;
+		m_pHoldAnchor = NULL;
+	}
+	if (m_pHoldAnchorShape)
+	{
+		delete m_pHoldAnchorShape;
+		m_pHoldAnchorShape = NULL;
+	}
+	if (m_iHoldBone >= 0)
+	{
+		for (int i = 0; i < m_ragDollBoneArray.size(); i++)
+		{
+			btRigidBody* pBoneBody = m_ragDollBoneArray[i]->GetRigidBody();
+			if (pBoneBody)
+			{
+				pBoneBody->forceActivationState(ACTIVE_TAG);
+				pBoneBody->activate();
+			}
+		}
+	}
+	m_iHoldBone = -1;
+}
+
+bool DBProRagDoll::IsHeld()
+{
+	return m_pHoldJoint != NULL;
+}
+
+// GG: no body moving, as static or all asleep
+bool DBProRagDoll::IsResting()
+{
+	return m_bIsStatic || IsSleeping();
 }
 
 #ifdef WICKEDENGINE

@@ -4191,6 +4191,8 @@ void game_preparelevel_finally ( void )
 	// and its deaths take the death animations until a script sets SetRagdollAllDeaths
 	extern bool g_bRagdollAllDeaths;
 	g_bRagdollAllDeaths = false;
+	// and no character knocked out (SetEntityRagdoll)
+	ragdoll_knockoutclear ( );
 	// while it runs, a mesh an object still uses is kept from a remove, and Guru-Crash.log told who asked (wickedcalls.cpp)
 	extern bool g_bWickedKeepMeshesInUse;
 	g_bWickedKeepMeshesInUse = true;
@@ -4257,6 +4259,8 @@ void game_freelevel ( void )
 	// the level's objects go now: Wicked removes meshes without checking for objects that use them (only in a game)
 	extern bool g_bWickedKeepMeshesInUse;
 	g_bWickedKeepMeshesInUse = false;
+	// knocked out characters are let go; the entities' reset puts their objects back
+	ragdoll_knockoutclear ( );
 
 	// remove any bulletholes
 	bulletholes_free();
@@ -4864,6 +4868,9 @@ void game_main_loop ( void )
 
 			// reinstated physics into main CPU thread for stability over performance
 			physics_loop ( );
+
+			// a knocked out character's entity is where his ragdoll's pelvis now is
+			ragdoll_knockoutloop ( );
 
 			// special mode for testing
 			if (iEnterGodMode != 2)

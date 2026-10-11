@@ -13939,6 +13939,87 @@ int GetRagdollAllDeaths ( lua_State *L )
 	return 1;
 }
 
+// SetEntityRagdoll(e, 1 [, dx, dy, dz, force]): a living character (ragdoll = 1 in its .fpe) becomes a ragdoll but keeps its
+// health and script, pushed along dx,dy,dz by force (as SetEntityRagdollForce's); its entity position follows the pelvis.
+// SetEntityRagdoll(e, 0 [, angle]): he stands where his body lies, facing angle or the way he gets up (face up, toward
+// his feet; face down, toward his head), a character again; play his get-up animation then. Returns 1 when done
+int SetEntityRagdoll ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 2 ) return 0;
+	int e = lua_tointeger(L, 1);
+	int iDone = 0;
+	if ( LuaEntityIDValid ( L, e, 1 ) )
+	{
+		if ( lua_tointeger(L, 2) != 0 )
+		{
+			float fPushX = n >= 6 ? lua_tonumber(L, 3) : 0.0f;
+			float fPushY = n >= 6 ? lua_tonumber(L, 4) : 0.0f;
+			float fPushZ = n >= 6 ? lua_tonumber(L, 5) : 0.0f;
+			float fPushForce = n >= 6 ? lua_tonumber(L, 6) : 0.0f;
+			iDone = ragdoll_knockout ( e, fPushX, fPushY, fPushZ, fPushForce );
+		}
+		else
+		{
+			iDone = ragdoll_wake ( e, n >= 3, n >= 3 ? lua_tonumber(L, 3) : 0.0f );
+		}
+	}
+	lua_pushinteger ( L, iDone );
+	return 1;
+}
+
+// x, y, z, headangle, faceup, resting, held, knockedout = GetEntityRagdollPose(e): where a ragdoll (knocked out or
+// dead) lies: its pelvis, the angle from the pelvis to the head, 1 when lying face up, 1 when no body moves, 1 when
+// held, 1 when knocked out (alive). Nothing when the entity is no ragdoll
+int GetEntityRagdollPose ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int e = lua_tointeger(L, 1);
+	if ( !LuaEntityIDValid ( L, e, 1 ) ) return 0;
+	float fX, fY, fZ, fHeadAngle;
+	int iFaceUp, iResting, iHeld;
+	if ( !ragdoll_getpose ( e, &fX, &fY, &fZ, &fHeadAngle, &iFaceUp, &iResting, &iHeld ) ) return 0;
+	lua_pushnumber ( L, fX );
+	lua_pushnumber ( L, fY );
+	lua_pushnumber ( L, fZ );
+	lua_pushnumber ( L, fHeadAngle );
+	lua_pushinteger ( L, iFaceUp );
+	lua_pushinteger ( L, iResting );
+	lua_pushinteger ( L, iHeld );
+	lua_pushinteger ( L, ragdoll_isknockedout ( e ) ? 1 : 0 );
+	return 8;
+}
+
+// SetEntityRagdollHold(e, x, y, z, ax, ay, az [, limbname]): holds a ragdoll's pelvis (or the body moving limbname) at
+// x,y,z, turned as the character would be: 0,a,0 as standing facing a; 90,a,0 face down, head toward a; -90,a,0 face
+// up, feet toward a. The rest hangs from it. Call each frame while held; it is brought there over 0.25 s.
+// SetEntityRagdollHold(e) lets go. Returns 1 while held
+int SetEntityRagdollHold ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int e = lua_tointeger(L, 1);
+	int iHeld = 0;
+	if ( LuaEntityIDValid ( L, e, 1 ) )
+	{
+		if ( n >= 7 )
+		{
+			const char* pLimbName = n >= 8 ? lua_tostring(L, 8) : NULL;
+			iHeld = ragdoll_hold ( e, lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5), lua_tonumber(L, 6), lua_tonumber(L, 7), pLimbName );
+		}
+		else
+		{
+			ragdoll_release ( e );
+		}
+	}
+	lua_pushinteger ( L, iHeld );
+	return 1;
+}
+
 int SetAttachmentVisible ( lua_State *L )
 {
 	lua = L;
@@ -18183,6 +18264,9 @@ void addFunctions()
 	lua_register(lua, "GetEntityImmunity" , GetEntityImmunity );
 	lua_register(lua, "SetRagdollAllDeaths" , SetRagdollAllDeaths );
 	lua_register(lua, "GetRagdollAllDeaths" , GetRagdollAllDeaths );
+	lua_register(lua, "SetEntityRagdoll" , SetEntityRagdoll );
+	lua_register(lua, "GetEntityRagdollPose" , GetEntityRagdollPose );
+	lua_register(lua, "SetEntityRagdollHold" , SetEntityRagdollHold );
 	lua_register(lua, "SetOcclusion" , SetOcclusion );
 	lua_register(lua, "SetPlayerWeapons", SetPlayerWeapons);
 	lua_register(lua, "FirePlayerWeapon", FirePlayerWeapon);

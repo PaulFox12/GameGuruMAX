@@ -46,6 +46,26 @@ public:
 	bool IsBoneObject(int objectID);
 	btAlignedObjectArray<DBProRagDollBone*> GetRagdollBones();
 
+	// GG: a body held at a point (BPhys_RagDollHold), the bodies' turn as if standing facing angle 0, and the body the object follows
+	int FindBone(int limbID);
+	btVector3 GetBonePosition(int boneIndex);
+	void SetRestYaw(btScalar yawDegrees);
+	void SetFollowBone(int boneIndex);
+	void Hold(int boneIndex, const btVector3& position, const btMatrix3x3& rotation, unsigned int uNowMs);
+	void Release();
+	bool IsHeld();
+	bool IsResting();
+
+private:
+	btAlignedObjectArray<btMatrix3x3> m_restRotation;
+	int m_iFollowBone;
+	int m_iHoldBone;
+	btRigidBody* m_pHoldAnchor;
+	btCollisionShape* m_pHoldAnchorShape;
+	btTypedConstraint* m_pHoldJoint;
+	btTransform m_holdFrom;
+	unsigned int m_uHoldStartMs;
+
 private:
 	void SetCullingRadius(float fRadius, float fScaledRadius, float fScaledLargestRadius);
 	void GetCullingRadius(float &outfRadius, float &outfScaledRadius, float &outfScaledLargestRadius);

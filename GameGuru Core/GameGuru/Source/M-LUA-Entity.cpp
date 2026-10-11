@@ -74,7 +74,8 @@ void entity_lua_collisionon ( void )
 		if ( ObjectExist(t.obj) == 1 ) 
 		{
 			t.entid=t.entityelement[t.e].bankindex;
-			if ( t.entityelement[t.e].usingphysicsnow == 0 ) 
+			// GG: none while a ragdoll (a knocked out or dead character), whose bodies a capsule would be made inside
+			if ( t.entityelement[t.e].usingphysicsnow == 0 && BPhys_RagdollExist(t.obj) == 0 )
 			{
 				// create physics for entity if required
 				physics_prepareentityforphysics ( );
