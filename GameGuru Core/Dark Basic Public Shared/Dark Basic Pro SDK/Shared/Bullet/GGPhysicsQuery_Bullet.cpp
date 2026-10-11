@@ -11,6 +11,11 @@
 #include "BulletCollision/NarrowPhaseCollision/btVoronoiSimplexSolver.h"
 #include "..\..\..\..\GameGuru\Include\GGPhysicsQuery.h"
 #include <mutex>
+#include <chrono>
+#include <vector>
+#include <cstdio>
+#include <cstring>
+#include <intrin.h>
 
 extern btDiscreteDynamicsWorld* g_dynamicsWorld;
 extern float gSc;
@@ -639,6 +644,156 @@ int PhysicsQuery_SleepIsland(int iObject, int iForce)
 			island[i]->forceActivationState(ISLAND_SLEEPING);
 			iCount++;
 		}
+	}
+	physicslock.unlock();
+	return iCount;
+}
+
+// the slow pairs: while armed, the dispatcher's near callback (PhysicsQuery_TimedNearCallback) times each pair's tests by
+// the processor's time stamp, and those over 20,000 ticks (0.01 ms or less) are summed for the update; the last whole
+// update's are what PhysicsQuery_SlowPairs reads. A record keeps its bodies' objects and shapes, not the bodies, which
+// may be gone by then
+struct SlowPairRecord
+{
+	int object[2];
+	char shape[2][80];
+	unsigned long long ticks;
+	int calls;
+};
+static void PhysicsQuery_DescribeShape(const btCollisionObject* pBody, char* pOut, int iSize);
+static std::unordered_map<unsigned long long, SlowPairRecord> g_SlowPairs;
+static std::unordered_map<unsigned long long, SlowPairRecord> g_SlowPairsLast;
+static bool g_bSlowPairsArmed = false;
+static std::chrono::steady_clock::time_point g_SlowPairsArmedUntil;
+static std::chrono::steady_clock::time_point g_SlowPairsClockStart;
+static unsigned long long g_uSlowPairsTicksStart = 0;
+
+void PhysicsQuery_TimedNearCallback(btBroadphasePair& collisionPair, btCollisionDispatcher& dispatcher, const btDispatcherInfo& dispatchInfo)
+{
+	if (!g_bSlowPairsArmed)
+	{
+		btCollisionDispatcher::defaultNearCallback(collisionPair, dispatcher, dispatchInfo);
+		return;
+	}
+	const unsigned long long uStart = __rdtsc();
+	btCollisionDispatcher::defaultNearCallback(collisionPair, dispatcher, dispatchInfo);
+	const unsigned long long uTicks = __rdtsc() - uStart;
+	if (uTicks < 20000) return;
+	const unsigned long long uKey = ((unsigned long long)collisionPair.m_pProxy0->m_uniqueId << 32) | (unsigned int)collisionPair.m_pProxy1->m_uniqueId;
+	SlowPairRecord& record = g_SlowPairs[uKey];
+	if (record.calls == 0)
+	{
+		const btBroadphaseProxy* pProxies[2] = { collisionPair.m_pProxy0, collisionPair.m_pProxy1 };
+		for (int b = 0; b < 2; b++)
+		{
+			const btCollisionObject* pBody = (const btCollisionObject*)pProxies[b]->m_clientObject;
+			record.object[b] = PhysicsQuery_ObjectNumber(pBody, pProxies[b]->m_collisionFilterGroup);
+			PhysicsQuery_DescribeShape(pBody, record.shape[b], sizeof(record.shape[b]));
+		}
+	}
+	record.ticks += uTicks;
+	record.calls++;
+}
+
+// at the start of each physics update: the last one's pairs are kept for PhysicsQuery_SlowPairs, and timing stops once
+// no call has come for 10 s
+void PhysicsQuery_SlowPairsUpdateStart(void)
+{
+	if (!g_bSlowPairsArmed) return;
+	g_SlowPairsLast.swap(g_SlowPairs);
+	g_SlowPairs.clear();
+	if (std::chrono::steady_clock::now() > g_SlowPairsArmedUntil)
+	{
+		g_bSlowPairsArmed = false;
+		g_SlowPairsLast.clear();
+	}
+}
+
+// a body's shape as text, with its size: what the pair's tests had to work through
+static void PhysicsQuery_DescribeShape(const btCollisionObject* pBody, char* pOut, int iSize)
+{
+	const btBroadphaseProxy* pProxy = pBody->getBroadphaseHandle();
+	const btCollisionShape* pShape = pBody->getCollisionShape();
+	if (pProxy && (pProxy->m_collisionFilterGroup & PHYSICS_LAYER_TERRAIN)) { strcpy_s(pOut, iSize, "terrain"); return; }
+	if (!pShape) { strcpy_s(pOut, iSize, "none"); return; }
+	if (pShape->getShapeType() == COMPOUND_SHAPE_PROXYTYPE)
+	{
+		const btCompoundShape* pCompound = (const btCompoundShape*)pShape;
+		int iPoints = 0;
+		for (int c = 0; c < pCompound->getNumChildShapes(); c++)
+		{
+			const btCollisionShape* pChild = pCompound->getChildShape(c);
+			if (pChild->getShapeType() == CONVEX_HULL_SHAPE_PROXYTYPE) iPoints += ((const btConvexHullShape*)pChild)->getNumPoints();
+		}
+		sprintf_s(pOut, iSize, "compound %d children, %d hull points", pCompound->getNumChildShapes(), iPoints);
+	}
+	else if (pShape->getShapeType() == CONVEX_HULL_SHAPE_PROXYTYPE)
+	{
+		sprintf_s(pOut, iSize, "hull %d points", ((const btConvexHullShape*)pShape)->getNumPoints());
+	}
+	else if (pShape->getShapeType() == TRIANGLE_MESH_SHAPE_PROXYTYPE)
+	{
+		const btStridingMeshInterface* pMesh = ((const btBvhTriangleMeshShape*)pShape)->getMeshInterface();
+		int iTriangles = 0;
+		for (int part = 0; pMesh && part < pMesh->getNumSubParts(); part++)
+		{
+			const unsigned char* pVertexBase = NULL;
+			const unsigned char* pIndexBase = NULL;
+			int iVertices = 0, iVertexStride = 0, iIndexStride = 0, iFaces = 0;
+			PHY_ScalarType vertexType, indexType;
+			pMesh->getLockedReadOnlyVertexIndexBase(&pVertexBase, iVertices, vertexType, iVertexStride, &pIndexBase, iIndexStride, iFaces, indexType, part);
+			pMesh->unLockReadOnlyVertexBase(part);
+			iTriangles += iFaces;
+		}
+		sprintf_s(pOut, iSize, "mesh %d triangles", iTriangles);
+	}
+	else
+	{
+		strcpy_s(pOut, iSize, pShape->getName());
+	}
+}
+
+int PhysicsQuery_SlowPairs(PhysicsSlowPair* pPairs, int iMax)
+{
+	physicslock.lock();
+	const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+	if (!g_bSlowPairsArmed)
+	{
+		g_bSlowPairsArmed = true;
+		g_SlowPairs.clear();
+		g_SlowPairsLast.clear();
+		g_SlowPairsClockStart = now;
+		g_uSlowPairsTicksStart = __rdtsc();
+	}
+	g_SlowPairsArmedUntil = now + std::chrono::seconds(10);
+
+	// time stamp ticks to milliseconds, from both clocks since timing began
+	const double dMs = std::chrono::duration<double, std::milli>(now - g_SlowPairsClockStart).count();
+	const double dTicks = (double)(__rdtsc() - g_uSlowPairsTicksStart);
+	const double dTicksPerMs = (dMs > 1.0 && dTicks > 0) ? dTicks / dMs : 3000000.0;
+
+	// the slowest first, picked one at a time (iMax is small)
+	std::vector<const SlowPairRecord*> records;
+	for (const auto& it : g_SlowPairsLast) records.push_back(&it.second);
+	int iCount = 0;
+	while (iCount < iMax)
+	{
+		int iBest = -1;
+		for (int i = 0; i < (int)records.size(); i++)
+		{
+			if (records[i] && (iBest < 0 || records[i]->ticks > records[iBest]->ticks)) iBest = i;
+		}
+		if (iBest < 0) break;
+		const SlowPairRecord& record = *records[iBest];
+		PhysicsSlowPair& out = pPairs[iCount++];
+		for (int b = 0; b < 2; b++)
+		{
+			out.object[b] = record.object[b];
+			strcpy_s(out.shape[b], sizeof(out.shape[b]), record.shape[b]);
+		}
+		out.ms = (float)(record.ticks / dTicksPerMs);
+		out.calls = record.calls;
+		records[iBest] = NULL;
 	}
 	physicslock.unlock();
 	return iCount;

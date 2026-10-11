@@ -785,6 +785,9 @@ void ODEStart ( void )
 
 	///use the default collision dispatcher. For parallel processing you can use a diffent dispatcher (see Extras/BulletMultiThreaded)
 	g_dispatcher = new	btCollisionDispatcher(g_collisionConfiguration);
+	// GG: each pair's tests timed while GetPhysicsSlowPairs asks (GGPhysicsQuery_Bullet.cpp), else as the default
+	extern void PhysicsQuery_TimedNearCallback(btBroadphasePair& collisionPair, btCollisionDispatcher& dispatcher, const btDispatcherInfo& dispatchInfo);
+	g_dispatcher->setNearCallback(PhysicsQuery_TimedNearCallback);
 	// GG: a broadphase with no world bounds. The axis sweep's box (x and z -500 to 1800, -20,000 to 72,000 in world units)
 	// clamped every body outside it to its edge, so far apart bodies there overlapped on one axis, made pairs and shared
 	// one simulation island that never slept; a MAX map is centred on 0 and can be far larger
@@ -1279,6 +1282,9 @@ void Update(float fTimeStep)
 	
 	//PE: Cant touch physics object while running stepsimulation.
 	physicslock.lock();
+	// GG: the last update's slow pairs kept for GetPhysicsSlowPairs (GGPhysicsQuery_Bullet.cpp)
+	extern void PhysicsQuery_SlowPairsUpdateStart(void);
+	PhysicsQuery_SlowPairsUpdateStart();
 	#ifdef FASTBULLETPHYSICS
 		//PE: fixed timestep with interpolation set at 1/60.
 		g_iPhysicsSubSteps = g_dynamicsWorld->stepSimulation(fTimeStep, 7, btScalar(1.) / btScalar(60.));

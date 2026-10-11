@@ -8211,6 +8211,45 @@ int GetPhysicsStatsTop(lua_State* L)
 	}
 	return 1;
 }
+// GetPhysicsSlowPairs([n]): a diagnostic, the body pairs whose collision tests took longest in the physics' last update,
+// slowest first, up to n (5 by default, at most 16): a table of { ms (their tests' time over the update's steps), calls
+// (how many tests), obj1, e1, shape1, obj2, e2, shape2 } (obj 0 the ground, -1 unknown; e the entity holding the object,
+// -1 none; shape with its size, e.g. "compound 80 children, 1408 hull points", "mesh 12000 triangles", "terrain"). The
+// tests are timed for 10 s after each call, so the first call after a while gives an empty table; only tests over about
+// 0.01 ms are kept
+int GetPhysicsSlowPairs(lua_State* L)
+{
+	int iMax = 5;
+	if (LUA_GETTOP(L) >= 1) iMax = (int)lua_tointeger(L, 1);
+	if (iMax < 1) iMax = 1;
+	if (iMax > 16) iMax = 16;
+	PhysicsSlowPair pairs[16];
+	int iCount = PhysicsQuery_SlowPairs(pairs, iMax);
+	lua_createtable(L, iCount, 0);
+	for (int i = 0; i < iCount; i++)
+	{
+		const PhysicsSlowPair& pair = pairs[i];
+		lua_createtable(L, 0, 8);
+		lua_pushnumber(L, pair.ms); lua_setfield(L, -2, "ms");
+		lua_pushinteger(L, pair.calls); lua_setfield(L, -2, "calls");
+		for (int b = 0; b < 2; b++)
+		{
+			int iEntity = -1;
+			if (pair.object[b] > 0)
+			{
+				for (int e = 1; e <= g.entityelementlist; e++)
+				{
+					if (t.entityelement[e].obj == pair.object[b]) { iEntity = e; break; }
+				}
+			}
+			lua_pushinteger(L, pair.object[b]); lua_setfield(L, -2, b == 0 ? "obj1" : "obj2");
+			lua_pushinteger(L, iEntity); lua_setfield(L, -2, b == 0 ? "e1" : "e2");
+			lua_pushstring(L, pair.shape[b]); lua_setfield(L, -2, b == 0 ? "shape1" : "shape2");
+		}
+		lua_rawseti(L, -2, i + 1);
+	}
+	return 1;
+}
 // GetPhysicsAwakeBodies([n]): a diagnostic, every awake moving body, those touching nothing first (a body left behind by a
 // deleted object shows here, never in GetPhysicsStatsTop), then the fastest, up to n (16 by default, at most 64): a table
 // of entries { obj (the object it stands for; a ragdoll bone gives its character's; -1 unknown), e (the entity holding that
@@ -17473,6 +17512,7 @@ void addFunctions()
 	lua_register(lua, "PhysicsOverlapBox", PhysicsOverlapBox);
 	lua_register(lua, "GetPhysicsStats", GetPhysicsStats);
 	lua_register(lua, "GetPhysicsStatsTop", GetPhysicsStatsTop);
+	lua_register(lua, "GetPhysicsSlowPairs", GetPhysicsSlowPairs);
 	lua_register(lua, "GetPhysicsAwakeBodies", GetPhysicsAwakeBodies);
 	lua_register(lua, "SetPhysicsWorldRate", SetPhysicsWorldRate);
 	lua_register(lua, "GetPhysicsWorldRate", GetPhysicsWorldRate);

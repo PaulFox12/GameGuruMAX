@@ -102,4 +102,17 @@ int PhysicsQuery_SleepIsland(int iObject, int iForce = 0);
 // Jolt: BodyInterface::IsActive and the body's velocities
 void PhysicsQuery_BodiesAtRest(const int* pObjects, int iCount, float fStill, float fFastSpeed, int* pStates);
 
+// GG: the body pairs whose collision tests took longest in the last physics update, slowest first; how many were written,
+// at most iMax. Each pair's tests are timed only for 10 s after a call, so the first call after a while finds nothing,
+// and only tests over about 0.01 ms are kept. A diagnostic, to name what a costly physics frame spends its time on. Jolt:
+// time its narrow phase per body pair, if it gives a hook for that
+struct PhysicsSlowPair
+{
+	int object[2]; // the objects the bodies stand for, 0 the ground, -1 unknown
+	float ms; // their tests' time over the update's steps
+	int calls; // how many tests (one a step)
+	char shape[2][80]; // each body's shape, with its size: "compound 80 children, 1408 hull points", "mesh 12000 triangles"
+};
+int PhysicsQuery_SlowPairs(PhysicsSlowPair* pPairs, int iMax);
+
 #endif
