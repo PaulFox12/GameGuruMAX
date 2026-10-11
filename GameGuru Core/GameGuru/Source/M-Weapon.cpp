@@ -307,10 +307,29 @@ void weapon_projectile_free ( void )
 	}
 }
 
+// GG: whether an entity's file is in a folder of foliage (Foliage, Vegetation, Trees, Bush, Bushes, Plants, Shrubs, Grass),
+// whose leaves would stop a projectile in mid air; the box test lets them through
+static bool weapon_projectile_isfoliage ( int iEntID )
+{
+	char pPath[MAX_PATH];
+	pPath[0] = '\\';
+	strncpy ( pPath + 1, t.entitybank_s[iEntID].Get(), MAX_PATH - 2 );
+	pPath[MAX_PATH - 1] = 0;
+	for ( char* pChar = pPath; *pChar; pChar++ )
+	{
+		if ( *pChar == '/' ) *pChar = '\\';
+		*pChar = (char)tolower ( (unsigned char)*pChar );
+	}
+	const char* pFolders[] = { "\\foliage\\", "\\vegetation\\", "\\trees\\", "\\bush\\", "\\bushes\\", "\\plants\\", "\\shrubs\\", "\\grass\\" };
+	for ( int i = 0; i < sizeof(pFolders) / sizeof(pFolders[0]); i++ )
+		if ( strstr ( pPath, pFolders[i] ) ) return true;
+	return false;
+}
+
 // GG: a contact projectile's path this frame against the collision boxes of entities with no physics body, where they
 // stand now: CollisionOff removes a moving vehicle's body, so the projectile's own body can't touch it. Each box is grown
-// by the projectile's half size, and one the path starts inside is passed (the thrower's own vehicle). Returns the object
-// of the first box entered (0 none), the entry point, and how far along the path it is (0 to 1)
+// by the projectile's half size, and one the path starts inside is passed (the thrower's own vehicle), as is foliage.
+// Returns the object of the first box entered (0 none), the entry point, and how far along the path it is (0 to 1)
 static int weapon_projectile_boxhit ( GGVECTOR3 vecFrom, GGVECTOR3 vecTo, float fRadius, int iIgnoreObj, GGVECTOR3* pHit, float* pAlong )
 {
 	bool CalcObjectWorld ( sObject* pObject );
@@ -348,6 +367,7 @@ static int weapon_projectile_boxhit ( GGVECTOR3 vecFrom, GGVECTOR3 vecTo, float 
 		if ( fNearest > 1 ) fNearest = 1;
 		GGVECTOR3 vecGap = vecOrigin - ( vecFrom + vecPath * fNearest );
 		if ( GGVec3Length ( &vecGap ) > fReach ) continue;
+		if ( weapon_projectile_isfoliage ( iEntID ) ) continue;
 
 		// the path in the object's own space against its box, by slabs
 		CalcObjectWorld ( pObject );
@@ -762,6 +782,44 @@ void weapon_projectile_loop ( void )
 								else
 									t.ttt=IntersectAll(g.lightmappedobjectoffset,g.lightmappedobjectoffsetfinish,0,0,0,0,0,0,-123);
 								t.tHitObj=IntersectAll(g.entityviewstartobj,g.entityviewendobj,t.tXOldPos_f,t.tYOldPos_f,t.tZOldPos_f,t.tXNewPos_f,t.tYNewPos_f,t.tZNewPos_f,t.tIgnoreObject);
+
+								// GG: the ray meets only bodies, so an entity with none (CollisionOff, a vehicle; physics off, a prop)
+								// let the projectile through: its true path this frame against their boxes too, the nearer of the
+								// box entered and the ray's hit taken, a box ending it at the entry
+								GGVECTOR3 vecFrom ( t.WeaponProjectile[t.tProj].xOldPos_f, t.WeaponProjectile[t.tProj].yOldPos_f, t.WeaponProjectile[t.tProj].zOldPos_f );
+								GGVECTOR3 vecTo ( t.tXNewPos_f, t.tYNewPos_f, t.tZNewPos_f );
+								float fRadius = 0.0f;
+								if ( t.tobj > 0 && ObjectExist ( t.tobj ) == 1 )
+								{
+									fRadius = ObjectSizeX ( t.tobj, 1 );
+									if ( ObjectSizeY ( t.tobj, 1 ) < fRadius ) fRadius = ObjectSizeY ( t.tobj, 1 );
+									if ( ObjectSizeZ ( t.tobj, 1 ) < fRadius ) fRadius = ObjectSizeZ ( t.tobj, 1 );
+									fRadius *= 0.5f;
+								}
+								GGVECTOR3 vecBoxHit ( 0, 0, 0 );
+								float fBoxAlong = 2.0f;
+								int iBoxObj = weapon_projectile_boxhit ( vecFrom, vecTo, fRadius, t.tIgnoreObject, &vecBoxHit, &fBoxAlong );
+								if ( iBoxObj > 0 )
+								{
+									float fRayAlong = 2.0f;
+									if ( t.tHitObj > 0 )
+									{
+										// the ray starts 60 units back, so a hit before this frame's path counts as at its start
+										GGVECTOR3 vecPath = vecTo - vecFrom;
+										GGVECTOR3 vecToRayHit = GGVECTOR3 ( ChecklistFValueA(6), ChecklistFValueB(6), ChecklistFValueC(6) ) - vecFrom;
+										float fPathSquared = GGVec3Dot ( &vecPath, &vecPath );
+										fRayAlong = fPathSquared > 0.000001f ? GGVec3Dot ( &vecToRayHit, &vecPath ) / fPathSquared : 0.0f;
+										if ( fRayAlong < 0.0f ) fRayAlong = 0.0f;
+									}
+									if ( fBoxAlong <= fRayAlong )
+									{
+										bContactHit = true;
+										t.tHitObj = iBoxObj;
+										fContactX = vecBoxHit.x;
+										fContactY = vecBoxHit.y;
+										fContactZ = vecBoxHit.z;
+									}
+								}
 							}
 							else
 								t.tHitObj = 0;
