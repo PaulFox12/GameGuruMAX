@@ -13157,6 +13157,31 @@ int WParticleEffectSetLayerWind(lua_State* L)
 	return 1;
 }
 
+//WParticleEffectSetWrapMotion(EffectID[,X,Y,Z]) - the motion the effect's wrapping volume layers (option bit 16) draw their streaks against, in units a second, world axes: the rider's, where the effect is moved with the camera, so a camera swinging round a still craft bends no streak. With no velocity, back to the emitter's own motion (the default). Returns how many layers it set.
+int WParticleEffectSetWrapMotion(lua_State* L)
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	Entity root = lua_tonumber(L, 1);
+	const bool bSet = n >= 4;
+	XMFLOAT3 motion = bSet ? XMFLOAT3((float)lua_tonumber(L, 2), (float)lua_tonumber(L, 3), (float)lua_tonumber(L, 4)) : XMFLOAT3(0, 0, 0);
+
+	int iLayers = 0;
+	Scene& scene = wiScene::GetScene();
+	for (int i = 0; i < scene.emitters.GetCount(); i++)
+	{
+		Entity emitter = scene.emitters.GetEntity(i);
+		HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter);
+		if (!hier || hier->parentID != root) continue;
+		scene.emitters[i].wrap_motion = motion;
+		scene.emitters[i].bWrapMotion = bSet;
+		iLayers++;
+	}
+	lua_pushinteger(L, iLayers);
+	return 1;
+}
+
 //WParticleEffectGetLayerWind(EffectID,Name) - X, Y, Z of the air's velocity for the effect's first layer named Name (as WParticleEffectSetLayerWind), nil if it has none.
 int WParticleEffectGetLayerWind(lua_State* L)
 {
@@ -18299,6 +18324,7 @@ void addFunctions()
 	lua_register(lua, "WParticleEffectGetLayers", WParticleEffectGetLayers);
 	lua_register(lua, "WParticleEffectSetLayerWind", WParticleEffectSetLayerWind);
 	lua_register(lua, "WParticleEffectGetLayerWind", WParticleEffectGetLayerWind);
+	lua_register(lua, "WParticleEffectSetWrapMotion", WParticleEffectSetWrapMotion);
 	lua_register(lua, "WParticleEffectSetColor", WParticleEffectSetColor);
 	lua_register(lua, "WParticleEffectGetColor", WParticleEffectGetColor);
 	lua_register(lua, "WParticleEffectGetBounds", WParticleEffectGetBounds);

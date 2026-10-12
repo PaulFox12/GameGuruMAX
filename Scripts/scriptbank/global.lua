@@ -2657,6 +2657,7 @@ WParticleEffectGetLayer : size, emissive, count, speed, spread, life = WParticle
 WParticleEffectGetLayers : names = WParticleEffectGetLayers ( id ) -- the effect's layer (emitter) names
 WParticleEffectSetLayerWind : layers = WParticleEffectSetLayerWind ( id, name, x, y, z ) -- the air's velocity for one layer (or every layer for "" or "*"), units a second, world axes: the layer's drag slows its particles toward it, those alive too, so they drift with it; a layer with drag 1 isn't moved; 0, 0, 0 = still air (the default); not saved; reset a reused effect with (id, "*", 0, 0, 0) (not in the stock exe: guard it)
 WParticleEffectGetLayerWind : x, y, z = WParticleEffectGetLayerWind ( id, name ) -- nil if the effect has no such layer
+WParticleEffectSetWrapMotion : layers = WParticleEffectSetWrapMotion ( id [, x, y, z] ) -- the motion the effect's wrapping volume layers (option bit 16) draw their streaks against, units a second, world axes: the rider's (a craft's or the player's), where the effect is moved with the camera, so a camera swinging round a still craft bends no streak; with no velocity, the emitter's own motion again (the default). Returns how many layers it set.
 WParticleEffectSetColor : WParticleEffectSetColor ( id, r, g, b ) -- 0 to 255 each, multiplying the effect's own colour (255,255,255 = as made)
 WParticleEffectGetColor : r, g, b = WParticleEffectGetColor ( id )
 WParticleEffectGetBounds : minx, miny, minz, maxx, maxy, maxz = WParticleEffectGetBounds ( id ) -- the world box the effect's particles are born in, as of the last frame
