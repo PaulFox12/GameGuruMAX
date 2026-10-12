@@ -81,7 +81,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_HOLDHEIGHT 2 // a road is built up or cut down to the node's height (its y) there, not at a junction
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 22 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth; 18: road markings; 19: At Junctions; 20: Solid on Crests; 21: bank planting; 22: pavements
+#define SPLINE_FILE_VERSION 23 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth; 18: road markings; 19: At Junctions; 20: Solid on Crests; 21: bank planting; 22: pavements; 23: Kerb Offset, each segment's pavements
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -101,6 +101,7 @@ struct sSplineNode
 	int junction = 0; // nodes of other splines with the same junction share this node's position
 	int segCurve = -1; // the curve of the segment from this node to the next: SPLINE_CURVE_*, or -1 the spline's
 	int segMark = -1; // the markings of the segment from this node to the next: SPLINE_SEGMARK_*, or -1 the road's
+	int segPave = -1; // the pavements of the segment from this node to the next: SPLINE_PAVE_* bits, or -1 the road's
 };
 
 // a river's water over a terrain texel: its height, and how turbulent it is there (0-1)
@@ -208,6 +209,7 @@ struct sSplineRoad
 	char paveColour[260] = ""; // the textures, as the tile's mesh was given them
 	char paveNormal[260] = "";
 	char paveSurface[260] = "";
+	float paveInset = 0.0f; // the kerb this far in from the carriageway's edge (out from it if negative)
 };
 // the markings' settings, all of a road's from markCentre to markCrestSight
 #define SPLINE_MARK_BYTES (offsetof( sSplineRoad, markCrestSight ) + sizeof(float) - offsetof( sSplineRoad, markCentre ))
@@ -373,6 +375,23 @@ static int spline_segcurve( const sSpline& s, int seg )
 	if ( seg < 0 || seg >= (int)s.nodes.size() ) return s.curve;
 	const int curve = s.nodes[ seg ].segCurve;
 	return (curve >= SPLINE_CURVE_LINEAR && curve <= SPLINE_CURVE_BEZIER) ? curve : s.curve;
+}
+
+// a road segment's pavements (SPLINE_PAVE_* bits): its own if set, else the road's; none without a width
+static int spline_segpave( const sSpline& s, int seg )
+{
+	if ( s.kind != SPLINE_KIND_ROAD || s.road.paveWidth <= 0 ) return 0;
+	const int own = seg >= 0 && seg < (int)s.nodes.size() ? s.nodes[ seg ].segPave : -1;
+	return own >= 0 ? own : s.road.paveSides;
+}
+
+// the sides a road has a pavement on anywhere
+static int spline_pavesides( const sSpline& s )
+{
+	if ( s.kind != SPLINE_KIND_ROAD || s.road.paveWidth <= 0 ) return 0;
+	int sides = s.road.paveSides;
+	for ( const sSplineNode& node : s.nodes ) if ( node.segPave > 0 ) sides |= node.segPave;
+	return sides;
 }
 
 // a node's handles: its in handle by the curve of the segment ending at it, its out handle by the one starting there
@@ -558,6 +577,7 @@ static int spline_insertnode( int si, int seg, float t )
 	node.y = spline_groundy( node.x, node.z );
 	node.segCurve = s.nodes[ seg ].segCurve;
 	node.segMark = s.nodes[ seg ].segMark;
+	node.segPave = s.nodes[ seg ].segPave;
 	if ( spline_segcurve( s, seg ) == SPLINE_CURVE_BEZIER )
 	{
 		auto lerp = [t]( float a, float b ) { return a + (b - a) * t; };
@@ -620,9 +640,12 @@ static void spline_deletespline( int si )
 static void spline_reverse( sSpline& s )
 {
 	const int n = (int)s.nodes.size();
-	std::vector<int> segCurves( n ), segMarks( n );
+	std::vector<int> segCurves( n ), segMarks( n ), segPaves( n );
 	for ( int i = 0; i < n; i++ ) segCurves[ i ] = s.nodes[ i ].segCurve;
 	for ( int i = 0; i < n; i++ ) segMarks[ i ] = s.nodes[ i ].segMark;
+	for ( int i = 0; i < n; i++ ) segPaves[ i ] = s.nodes[ i ].segPave;
+	// a pavement's left is the right the other way along
+	auto swapSides = []( int sides ) { return sides < 0 ? sides : ((sides & SPLINE_PAVE_LEFT) ? SPLINE_PAVE_RIGHT : 0) | ((sides & SPLINE_PAVE_RIGHT) ? SPLINE_PAVE_LEFT : 0); };
 	std::reverse( s.nodes.begin(), s.nodes.end() );
 	for ( int j = 0; j < n; j++ )
 	{
@@ -632,7 +655,9 @@ static void spline_reverse( sSpline& s )
 		// the segment from node j to the next was the one from old node n - 2 - j
 		node.segCurve = segCurves[ spline_wrap( s, n - 2 - j ) ];
 		node.segMark = segMarks[ spline_wrap( s, n - 2 - j ) ];
+		node.segPave = swapSides( segPaves[ spline_wrap( s, n - 2 - j ) ] );
 	}
+	s.road.paveSides = swapSides( s.road.paveSides );
 }
 
 // Bezier handles from the smooth curve, or along the segments for a straight one, so switching to Bezier keeps the shape
@@ -688,6 +713,7 @@ static void spline_merge( int si, int ni, int sj, int nj, bool bShared )
 		joint.outZ = b.nodes[0].outZ;
 		joint.segCurve = b.nodes[0].segCurve;
 		joint.segMark = b.nodes[0].segMark;
+		joint.segPave = b.nodes[0].segPave;
 		first = 1;
 	}
 	for ( size_t k = first; k < b.nodes.size(); k++ ) a.nodes.push_back( b.nodes[k] );
@@ -748,10 +774,12 @@ static uint64_t spline_signature( const sSpline& s )
 	mix( rf, sizeof(rf) );
 	mix( ri, sizeof(ri) );
 	// a pavement's ground is baked flat under it (only with one, so a road without is as it was)
-	if ( s.kind == SPLINE_KIND_ROAD && r.paveSides )
+	if ( spline_pavesides( s ) )
 	{
 		mix( &r.paveSides, sizeof(r.paveSides) );
 		mix( &r.paveWidth, sizeof(r.paveWidth) );
+		mix( &r.paveInset, sizeof(r.paveInset) );
+		for ( const sSplineNode& node : s.nodes ) mix( &node.segPave, sizeof(node.segPave) );
 	}
 	const sSplineRiver& v = s.river;
 	const float vf[6] = { v.bedWidth, v.depth, v.banks, v.smoothing, v.grassMargin, v.treeMargin };
@@ -924,6 +952,8 @@ struct sSplineShape
 	int plantGrass = 0; // a river's bank grass (selectable type + 1) in a band past the core, from plantFrom to plantTo, in patches
 	float plantFrom = 0, plantTo = 0, plantCover = 0;
 	float padLeft = 0, padRight = 0; // a flat this wide beside the core, at its edge's height, on each side (a road's pavements)
+	const std::vector<float>* pPadLeft = nullptr; // or each centre line sample's (each segment's pavements), the widest above
+	const std::vector<float>* pPadRight = nullptr;
 };
 
 // 0 to 1, a smooth noise about 1.5 m across, for the patches of a river's bank grass
@@ -995,7 +1025,9 @@ static void spline_bakeshape( sSpline& sp, const std::vector<sRoadSample>& c, co
 				if ( dist > reach && distc > reach ) continue;
 				const uint32_t key = (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix;
 				// its side: right of the way along (as the layers' sides), left otherwise
-				const float pad = dx * (wz - a.z) - dz * (wx - a.x) > 0 ? shape.padRight : shape.padLeft;
+				const bool bRight = dx * (wz - a.z) - dz * (wx - a.x) > 0;
+				const std::vector<float>* pPads = bRight ? shape.pPadRight : shape.pPadLeft;
+				const float pad = pPads ? (*pPads)[ k ] : (bRight ? shape.padRight : shape.padLeft);
 				auto it = foot.find( key );
 				if ( it == foot.end() ) foot[ key ] = { dist, a.h + (b.h - a.h) * t, k, distc, pad };
 				else
@@ -1127,7 +1159,9 @@ static void spline_bakeshape( sSpline& sp, const std::vector<sRoadSample>& c, co
 			if ( dist < best )
 			{
 				best = dist;
-				bestPad = dx * (tree.trunkZ - c[k].z) - dz * (tree.trunkX - c[k].x) > 0 ? shape.padRight : shape.padLeft;
+				const bool bRight = dx * (tree.trunkZ - c[k].z) - dz * (tree.trunkX - c[k].x) > 0;
+				const std::vector<float>* pPads = bRight ? shape.pPadRight : shape.pPadLeft;
+				bestPad = pPads ? (*pPads)[ k ] : (bRight ? shape.padRight : shape.padLeft);
 			}
 		}
 		if ( best > halfW + bestPad + shape.treeMargin + tree.diameter * 0.5f ) continue;
@@ -1265,11 +1299,31 @@ static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protecte
 	shape.edgeMaterial = r.edgeMaterial;
 	shape.grassMargin = r.grassMargin;
 	shape.treeMargin = r.treeMargin;
-	// under a pavement the ground is flat, half a metre past it (a texel is about 2 m, so its back never rises into it)
-	if ( r.paveWidth > 0 )
+	// under a pavement the ground is flat from the carriageway's edge to half a metre past it (a texel is about 2 m, so its
+	// back never rises into it), each segment's sides
+	std::vector<float> padLeft, padRight;
+	if ( spline_pavesides( sp ) )
 	{
-		if ( r.paveSides & SPLINE_PAVE_LEFT ) shape.padLeft = r.paveWidth + 20.0f;
-		if ( r.paveSides & SPLINE_PAVE_RIGHT ) shape.padRight = r.paveWidth + 20.0f;
+		const float pad = std::max( 0.0f, r.paveWidth - r.paveInset ) + 20.0f;
+		padLeft.assign( n, 0.0f );
+		padRight.assign( n, 0.0f );
+		const int segs = spline_segments( sp );
+		for ( int seg = 0; seg < segs; seg++ )
+		{
+			const int sides = spline_segpave( sp, seg );
+			const int k0 = std::max( 0, nodeSample[ seg ] );
+			const int k1 = seg + 1 < segs ? nodeSample[ seg + 1 ] : n;
+			for ( int k = k0; k < std::min( n, k1 ); k++ )
+			{
+				if ( sides & SPLINE_PAVE_LEFT ) padLeft[k] = pad;
+				if ( sides & SPLINE_PAVE_RIGHT ) padRight[k] = pad;
+			}
+			if ( sides & SPLINE_PAVE_LEFT ) shape.padLeft = pad;
+			if ( sides & SPLINE_PAVE_RIGHT ) shape.padRight = pad;
+		}
+		if ( n > 1 ) { padLeft[ n - 1 ] = padLeft[ n - 2 ]; padRight[ n - 1 ] = padRight[ n - 2 ]; }
+		shape.pPadLeft = &padLeft;
+		shape.pPadRight = &padRight;
 	}
 	spline_bakeshape( sp, c, shape, protectedTexels, pBounds );
 }
@@ -2074,12 +2128,38 @@ static bool spline_pavetexturefile( const std::string& name, const std::string& 
 // a pavement's textures from its tile entity: the entity loaded as a layer's is, and its first mesh's textures as it was
 // given them (the normal and surface, where the material keeps no name for them, the mesh's own or the colour's with
 // _normal and _surface for _color); with its size, the larger across, as the tile's when asked
+// a pavement's normal and surface beside its colour texture by the usual names (x_color: x_normal, x_surface; else x:
+// x_normal, x_surface), where it has none named
+static void spline_pavebeside( sSplineRoad& r )
+{
+	const std::string colour = r.paveColour;
+	if ( colour.empty() || (r.paveNormal[0] && r.paveSurface[0]) ) return;
+	std::string lower = colour;
+	for ( char& ch : lower ) ch = (char)tolower( (unsigned char)ch );
+	const size_t dot = lower.find_last_of( '.' );
+	const size_t at = lower.rfind( "_color" );
+	std::string before, after;
+	if ( at != std::string::npos ) { before = colour.substr( 0, at ); after = colour.substr( at + 6 ); }
+	else if ( dot != std::string::npos ) { before = colour.substr( 0, dot ); after = colour.substr( dot ); }
+	else return;
+	if ( !r.paveNormal[0] && !spline_pavetexturefile( before + "_normal" + after, "", r.paveNormal ) ) spline_pavetexturefile( before + "_color_normal" + after, "", r.paveNormal );
+	if ( !r.paveSurface[0] && !spline_pavetexturefile( before + "_surface" + after, "", r.paveSurface ) ) spline_pavetexturefile( before + "_color_surface" + after, "", r.paveSurface );
+}
+
+// a pavement's textures: from its tile entity if it has one, else its colour texture picked itself with its normal and
+// surface beside it
 static void spline_pavetextures( sSplineRoad& r, bool bSize )
 {
+	if ( !r.paveTile[0] )
+	{
+		memset( r.paveNormal, 0, sizeof(r.paveNormal) );
+		memset( r.paveSurface, 0, sizeof(r.paveSurface) );
+		spline_pavebeside( r );
+		return;
+	}
 	memset( r.paveColour, 0, sizeof(r.paveColour) );
 	memset( r.paveNormal, 0, sizeof(r.paveNormal) );
 	memset( r.paveSurface, 0, sizeof(r.paveSurface) );
-	if ( !r.paveTile[0] ) return;
 	char pPath[ MAX_PATH ];
 	sprintf_s( pPath, MAX_PATH, "entitybank\\%s", r.paveTile );
 	GG_GetRealPath( pPath, 0 );
@@ -2101,19 +2181,9 @@ static void spline_pavetextures( sSplineRoad& r, bool bSize )
 	const size_t slash = colour.find_last_of( '\\' );
 	const std::string folder = slash == std::string::npos ? "" : colour.substr( 0, slash + 1 );
 	spline_pavetexturefile( colour, folder, r.paveColour );
-	if ( !spline_pavetexturefile( normal, folder, r.paveNormal ) || !spline_pavetexturefile( surface, folder, r.paveSurface ) )
-	{
-		// beside the colour by the usual names
-		std::string lower = colour;
-		for ( char& ch : lower ) ch = (char)tolower( (unsigned char)ch );
-		const size_t at = lower.rfind( "_color" );
-		if ( at != std::string::npos )
-		{
-			const std::string before = colour.substr( 0, at ), after = colour.substr( at + 6 );
-			if ( !r.paveNormal[0] && !spline_pavetexturefile( before + "_normal" + after, "", r.paveNormal ) ) spline_pavetexturefile( before + "_color_normal" + after, "", r.paveNormal );
-			if ( !r.paveSurface[0] && !spline_pavetexturefile( before + "_surface" + after, "", r.paveSurface ) ) spline_pavetexturefile( before + "_color_surface" + after, "", r.paveSurface );
-		}
-	}
+	spline_pavetexturefile( normal, folder, r.paveNormal );
+	spline_pavetexturefile( surface, folder, r.paveSurface );
+	spline_pavebeside( r );
 	if ( bSize )
 	{
 		const float scale = t.entityprofile[ entid ].scale > 0 ? t.entityprofile[ entid ].scale / 100.0f : 1.0f;
@@ -2769,6 +2839,10 @@ struct sSplinePaveRoad
 	bool bClosed = false;
 	std::vector<float> x, z, s;
 	std::vector<float> kerbS[2], kerbH[2];
+	std::vector<uint8_t> sampleSides; // the sides paved at each sample (its segment's)
+	std::vector<int> sampleSeg; // and its segment
+	std::vector<uint8_t> segSides; // each segment's paved sides
+	std::vector<float> nodeS; // each segment's start along the line, and the line's end
 	float bounds[4];
 };
 
@@ -2778,6 +2852,8 @@ struct sSplinePaveNear
 {
 	float d = FLT_MAX, lateral = 0, h = 0;
 	float kerbS[2] = { 0, 0 };
+	float along = 0; // along the centre line
+	int k = -1; // the nearest piece
 };
 
 // a corner of a cut piece of a grid triangle (its weights of the triangle's corners), and how the edge from it to the next
@@ -2804,16 +2880,22 @@ static void spline_paveroad( int si, sSplinePaveRoad& pr )
 	const sSpline& s = g_Splines[ si ];
 	const sSplineRoad& r = s.road;
 	pr.si = si;
-	pr.halfWidth = r.width * 0.5f;
 	pr.width = std::max( 0.0f, r.paveWidth );
-	pr.sides = pr.width > 0 ? r.paveSides : 0;
+	pr.sides = spline_pavesides( s );
+	// the kerb is the outline: Kerb Offset in from the carriageway's edge on a road with pavements
+	pr.halfWidth = std::max( SPLINE_UNITS_PER_M * 0.5f, r.width * 0.5f - (pr.sides ? r.paveInset : 0.0f) );
 	pr.radius = pr.sides ? std::max( 0.0f, r.paveRadius ) : 0.0f;
 	pr.kerb = std::max( 0.0f, r.paveKerb );
 	pr.tile = std::max( 4.0f, r.paveTileSize );
 	pr.bClosed = s.closed && s.nodes.size() > 2;
 	pr.x.clear();
 	pr.z.clear();
+	pr.sampleSides.clear();
+	pr.sampleSeg.clear();
+	pr.segSides.clear();
+	pr.nodeS.clear();
 	const int segs = spline_segments( s );
+	std::vector<int> segFirst;
 	for ( int seg = 0; seg < segs; seg++ )
 	{
 		float ctl[8];
@@ -2821,12 +2903,17 @@ static void spline_paveroad( int si, sSplinePaveRoad& pr )
 		float polygon = 0;
 		for ( int k = 0; k < 3; k++ ) polygon += sqrtf( (ctl[k*2+2] - ctl[k*2]) * (ctl[k*2+2] - ctl[k*2]) + (ctl[k*2+3] - ctl[k*2+1]) * (ctl[k*2+3] - ctl[k*2+1]) );
 		const int steps = std::min( 4096, (int)(polygon / SPLINE_UNITS_PER_M) + 1 );
+		const uint8_t sides = (uint8_t)spline_segpave( s, seg );
+		pr.segSides.push_back( sides );
+		segFirst.push_back( (int)pr.x.size() );
 		for ( int k = 0; k < steps; k++ )
 		{
 			float px, pz;
 			spline_point( s, seg, (float)k / steps, &px, &pz );
 			pr.x.push_back( px );
 			pr.z.push_back( pz );
+			pr.sampleSides.push_back( sides );
+			pr.sampleSeg.push_back( seg );
 		}
 	}
 	if ( segs > 0 )
@@ -2835,10 +2922,14 @@ static void spline_paveroad( int si, sSplinePaveRoad& pr )
 		spline_point( s, segs - 1, 1.0f, &px, &pz );
 		pr.x.push_back( px );
 		pr.z.push_back( pz );
+		pr.sampleSides.push_back( pr.sampleSides.back() );
+		pr.sampleSeg.push_back( segs - 1 );
 	}
 	const int n = (int)pr.x.size();
 	pr.s.assign( n, 0.0f );
 	for ( int i = 1; i < n; i++ ) pr.s[i] = pr.s[i-1] + sqrtf( (pr.x[i] - pr.x[i-1]) * (pr.x[i] - pr.x[i-1]) + (pr.z[i] - pr.z[i-1]) * (pr.z[i] - pr.z[i-1]) );
+	for ( int first : segFirst ) pr.nodeS.push_back( pr.s[ first ] );
+	if ( n > 0 ) pr.nodeS.push_back( pr.s[ n - 1 ] );
 	float kx[2] = { 0, 0 }, kz[2] = { 0, 0 };
 	for ( int side = 0; side < 2; side++ )
 	{
@@ -2927,6 +3018,8 @@ static void spline_pavenear( const sSplinePaveRoad& pr, const std::vector<int>& 
 		out.lateral = sign * across;
 	}
 	for ( int side = 0; side < 2; side++ ) out.kerbS[side] = pr.kerbS[side][bk] + (pr.kerbS[side][bk+1] - pr.kerbS[side][bk]) * tc;
+	out.along = pr.s[ bk ] + len * bt;
+	out.k = bk;
 	const int side = sign > 0 ? 1 : 0;
 	out.h = pr.kerbH[side][bk] + (pr.kerbH[side][bk+1] - pr.kerbH[side][bk]) * tc;
 }
@@ -3036,7 +3129,8 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 	// the grid's points: each road's distance, across, kerb lengths and surface; the outline's distance (rounded corners),
 	// the surface and the kerb height blended from the roads nearest
 	std::vector<char> done( (size_t)N * N, 0 );
-	std::vector<float> fd( (size_t)C * N * N ), flat( (size_t)C * N * N ), fs0( (size_t)C * N * N ), fs1( (size_t)C * N * N );
+	std::vector<float> fd( (size_t)C * N * N ), flat( (size_t)C * N * N ), fs0( (size_t)C * N * N ), fs1( (size_t)C * N * N ), falong( (size_t)C * N * N );
+	std::vector<uint8_t> fsides( (size_t)C * N * N ); // the sides paved on the nearest piece of each road
 	std::vector<float> fD( (size_t)N * N, FLT_MAX ), fH( (size_t)N * N, 0 ), fK( (size_t)N * N, 0 );
 	std::vector<float> hRoad( C );
 	auto computePoint = [&]( int ix, int iz )
@@ -3053,6 +3147,8 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 			spline_pavenear( roads[ nearRoads[c] ], segs[c], px, pz, p );
 			const size_t at = (size_t)c * N * N + v;
 			fd[ at ] = p.d; flat[ at ] = p.lateral; fs0[ at ] = p.kerbS[0]; fs1[ at ] = p.kerbS[1];
+			falong[ at ] = p.along;
+			fsides[ at ] = p.k >= 0 ? roads[ nearRoads[c] ].sampleSides[ p.k ] : 0;
 			hRoad[c] = p.h;
 			// joined in the list's order, a corner rounded on the larger radius of the nearest road so far and this one
 			// where they meet
@@ -3164,7 +3260,39 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 						const int otherSide = side ? SPLINE_PAVE_LEFT : SPLINE_PAVE_RIGHT;
 						if ( poly.size() >= 3 ) spline_paveclip( poly, across, (own.sides & otherSide) ? SPLINE_PAVE_SEAM : SPLINE_PAVE_END, scratch );
 						pieces.clear();
-						if ( poly.size() >= 3 ) pieces.push_back( poly );
+						// along the segments paved on this side: a square stop at a node where the next isn't (by the
+						// length along the road, linear across the triangle)
+						const uint8_t bit = (uint8_t)(side ? SPLINE_PAVE_RIGHT : SPLINE_PAVE_LEFT);
+						const int pavedCorners = ((fsides[ oi + tv[0] ] & bit) ? 1 : 0) + ((fsides[ oi + tv[1] ] & bit) ? 1 : 0) + ((fsides[ oi + tv[2] ] & bit) ? 1 : 0);
+						if ( poly.size() >= 3 && pavedCorners == 3 ) pieces.push_back( poly );
+						else if ( poly.size() >= 3 && pavedCorners > 0 )
+						{
+							const float sa[3] = { falong[ oi + tv[0] ], falong[ oi + tv[1] ], falong[ oi + tv[2] ] };
+							const float sMin = std::min( std::min( sa[0], sa[1] ), sa[2] ), sMax = std::max( std::max( sa[0], sa[1] ), sa[2] );
+							const int segCount = (int)own.segSides.size();
+							for ( int a = 0; a < segCount; a++ )
+							{
+								if ( !(own.segSides[a] & bit) ) continue;
+								int b = a;
+								while ( b + 1 < segCount && (own.segSides[ b + 1 ] & bit) ) b++;
+								// the run's length along the road, open past the line's ends
+								const float lo = a == 0 ? -FLT_MAX : own.nodeS[a], hi = b == segCount - 1 ? FLT_MAX : own.nodeS[ b + 1 ];
+								a = b;
+								if ( hi < sMin || lo > sMax ) continue;
+								std::vector<sSplinePaveCut> run = poly;
+								if ( lo > -FLT_MAX )
+								{
+									const float f[3] = { sa[0] - lo, sa[1] - lo, sa[2] - lo };
+									spline_paveclip( run, f, SPLINE_PAVE_END, scratch );
+								}
+								if ( hi < FLT_MAX && run.size() >= 3 )
+								{
+									const float f[3] = { hi - sa[0], hi - sa[1], hi - sa[2] };
+									spline_paveclip( run, f, SPLINE_PAVE_END, scratch );
+								}
+								if ( run.size() >= 3 ) pieces.push_back( run );
+							}
+						}
 						// nearer this road than any other with a pavement facing it, and behind a narrower one as far as its own
 						// width from its kerb (the corner filled); beside a road without one that it meets, as far as the
 						// corner's curve (within the radius of its own carriageway)
@@ -3176,7 +3304,8 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 							const float dk[3] = { fd[ ok + tv[0] ], fd[ ok + tv[1] ], fd[ ok + tv[2] ] };
 							if ( std::min( std::min( dk[0] - di[0], dk[1] - di[1] ), dk[2] - di[2] ) >= 0 ) continue;
 							const float facing = flat[ ok + tv[0] ] + flat[ ok + tv[1] ] + flat[ ok + tv[2] ];
-							const bool bPaved = (other.sides & (facing >= 0 ? SPLINE_PAVE_RIGHT : SPLINE_PAVE_LEFT)) != 0;
+							const uint8_t facingBit = (uint8_t)(facing >= 0 ? SPLINE_PAVE_RIGHT : SPLINE_PAVE_LEFT);
+							const bool bPaved = ((fsides[ ok + tv[0] ] | fsides[ ok + tv[1] ] | fsides[ ok + tv[2] ]) & facingBit) != 0;
 							const bool bMeets = meets[ (size_t)nearRoads[ci] * roads.size() + nearRoads[ck] ] != 0;
 							float f[3];
 							for ( int j = 0; j < 3; j++ ) f[j] = (!bPaved && bMeets ? std::max( dk[j], own.radius ) : dk[j]) - di[j];
@@ -3295,10 +3424,11 @@ static uint64_t spline_pavesignature( const sSpline& s )
 	const sSplineRoad& r = s.road;
 	uint64_t h = spline_markingshape( s );
 	h = spline_hashmix( h, &r.paveSides, sizeof(r.paveSides) );
-	if ( r.paveSides )
+	if ( spline_pavesides( s ) )
 	{
-		const float f[5] = { r.paveWidth, r.paveKerb, r.paveRadius, r.paveTileSize, 0.0f };
+		const float f[5] = { r.paveWidth, r.paveKerb, r.paveRadius, r.paveTileSize, r.paveInset };
 		h = spline_hashmix( h, f, sizeof(f) );
+		for ( const sSplineNode& node : s.nodes ) h = spline_hashmix( h, &node.segPave, sizeof(node.segPave) );
 		h = spline_hashmix( h, r.paveColour, strlen( r.paveColour ) );
 		h = spline_hashmix( h, r.paveNormal, strlen( r.paveNormal ) );
 		h = spline_hashmix( h, r.paveSurface, strlen( r.paveSurface ) );
@@ -3338,10 +3468,10 @@ void spline_updatepavements( void )
 		const uint64_t sig = spline_pavesignature( s );
 		total = spline_hashmix( total, &s.id, sizeof(s.id) );
 		total = spline_hashmix( total, &sig, sizeof(sig) );
-		if ( s.road.paveSides && s.road.paveWidth > 0 )
+		if ( spline_pavesides( s ) )
 		{
 			bAnyPave = true;
-			reach = std::max( reach, s.road.paveWidth + std::max( 0.0f, s.road.paveRadius ) );
+			reach = std::max( reach, s.road.paveWidth + std::max( 0.0f, s.road.paveRadius ) + std::max( 0.0f, -s.road.paveInset ) );
 		}
 	}
 	if ( total == g_SplinePaveApplied ) return;
@@ -3374,7 +3504,7 @@ void spline_updatepavements( void )
 		now.signature = sig;
 		spline_bounds( s, s.road.width * 0.5f + reach, now.bounds );
 		auto it = g_SplinePaveBuilt.find( s.id );
-		if ( it == g_SplinePaveBuilt.end() ) { if ( !bAll || s.road.paveSides ) addDirty( now.bounds ); g_SplinePaveBuilt[ s.id ] = now; }
+		if ( it == g_SplinePaveBuilt.end() ) { if ( !bAll || spline_pavesides( s ) ) addDirty( now.bounds ); g_SplinePaveBuilt[ s.id ] = now; }
 		else if ( it->second.signature != sig ) { addDirty( it->second.bounds ); addDirty( now.bounds ); it->second = now; }
 	}
 	for ( auto it = g_SplinePaveBuilt.begin(); it != g_SplinePaveBuilt.end(); )
@@ -4926,8 +5056,9 @@ static const char* g_pSplinePresetFileHeader =
 	"; [road: Name] or [river: Name] starts a preset. Lengths are in metres, grades and scales in percent.\n"
 	"; Textures: candidates in order, the first the level's paint palette has: matN (a stock texture, terraintextures\\matN),\n"
 	";   kind:dirt (a material type: grass, stone, metal, wood, snow, dirt or sand), any part of a texture's name, or none.\n"
-	"; pavement: none, left, right or both, with pavewidth, kerb (its height), kerbradius (at corners), pavetile (an entity in\n"
-	";   the entity bank, whose textures pave it) and tilesize (how far its textures repeat).\n"
+	"; pavement: none, left, right or both, with pavewidth, kerb (its height), kerbradius (at corners), kerboffset (the kerb in\n"
+	";   from the road's edge), pavetile (an entity in the entity bank, whose textures pave it) or pavetexture (a colour image\n"
+	";   from the Files folder, its _normal and _surface beside it) and tilesize (how far its textures repeat).\n"
 	"; layer = <label> starts a layer. Its entity: candidates separated by |, the first installed: a path in the entity bank,\n"
 	";   or find:<words> (the first entity file whose name holds the words, spaces, _ and - ignored, your own first).\n"
 	"; side: both, left, right, alternate or centre. facing: mirrored (the right side along, the left back), along or random.\n";
@@ -5120,6 +5251,12 @@ static void spline_parsepresets( const char* pText, bool bUser, std::vector<sSpl
 			strcpy_s( p.road.paveTile, 260, value.c_str() );
 		}
 		else if ( key == "tilesize" ) p.road.paveTileSize = f * M;
+		else if ( key == "kerboffset" ) p.road.paveInset = f * M;
+		else if ( key == "pavetexture" )
+		{
+			memset( p.road.paveColour, 0, sizeof(p.road.paveColour) );
+			strcpy_s( p.road.paveColour, 260, value.c_str() );
+		}
 		else if ( key == "texture" || key == "bedtexture" ) p.textures[0] = value;
 		else if ( key == "edgetexture" || key == "banktexture" ) p.textures[1] = value;
 		else if ( key == "bedwidth" ) p.river.bedWidth = f * M;
@@ -5476,7 +5613,9 @@ static void spline_writepreset( std::string& out, const sSplinePreset& p )
 			metres( "pavewidth", r.paveWidth );
 			metres( "kerb", r.paveKerb );
 			metres( "kerbradius", r.paveRadius );
-			line( "pavetile", r.paveTile );
+			metres( "kerboffset", r.paveInset );
+			if ( r.paveTile[0] || !r.paveColour[0] ) line( "pavetile", r.paveTile );
+			else line( "pavetexture", r.paveColour );
 			metres( "tilesize", r.paveTileSize );
 		}
 	}
@@ -6321,6 +6460,15 @@ void spline_imgui_panel( float w )
 						spline_modified();
 					}
 					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The highlighted segment's own markings: none (a village street), or its centre line solid (a bridge, a crest) or dashed" );
+					const char* segPaves[] = { "As the Road", "None", "Left", "Right", "Both" };
+					int segPave = s.nodes[ g_iSplineSegSelected ].segPave + 1;
+					spline_row( "Segment Pavement" );
+					if ( ImGui::Combo( "##splinesegpave", &segPave, segPaves, 5 ) && segPave - 1 != s.nodes[ g_iSplineSegSelected ].segPave )
+					{
+						s.nodes[ g_iSplineSegSelected ].segPave = segPave - 1;
+						spline_modified();
+					}
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The highlighted segment's own pavements: none, or only on one side (left and right as seen from the first node);\nthey stop square at its nodes, with the road's width and tile" );
 				}
 				spline_row( "Pieces" );
 				ImGui::SliderInt( "##splinesegpieces", &g_iSplinePieces, 2, 8 );
@@ -6488,11 +6636,13 @@ void spline_imgui_panel( float w )
 					const char* sides[] = { "None", "Left", "Right", "Both" };
 					spline_row( "Sides" );
 					bChanged |= ImGui::Combo( "##splinepavesides", &r.paveSides, sides, 4 );
-					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "A kerbed pavement along its left, right or both sides (as seen from its first node, as the layers' sides).\nWhere roads meet, pavements turn the corner on the Corner Radius and never overlap: two roads' pavements meet on a diagonal seam,\nand beside a road without one a pavement runs round the corner and stops." );
-					if ( r.paveSides )
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "A kerbed pavement along its left, right or both sides (as seen from its first node, as the layers' sides);\na segment can have its own (pick it by clicking the road's curve: Segment Pavement).\nWhere roads meet, pavements turn the corner on the Corner Radius and never overlap: two roads' pavements meet on a diagonal seam,\nand beside a road without one a pavement runs round the corner and stops." );
+					if ( r.paveSides || spline_pavesides( s ) )
 					{
 						bChanged |= spline_rowmetres( "Pavement Width", "##splinepavewidth", &r.paveWidth, 0.5f, 10.0f );
 						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "From the kerb out" );
+						bChanged |= spline_rowmetres( "Kerb Offset", "##splinepaveinset", &r.paveInset, -3.0f, 3.0f, "%.2f m" );
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The kerb this far in from the road's edge, over its surface (or out from it if below 0, a strip of ground between)" );
 						bChanged |= spline_rowmetres( "Kerb Height", "##splinepavekerb", &r.paveKerb, 0.0f, 0.4f, "%.2f m" );
 						bChanged |= spline_rowmetres( "Corner Radius", "##splinepaveradius", &r.paveRadius, 0.0f, 20.0f );
 						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Where another road joins or crosses it, the kerb turns the corner on this radius" );
@@ -6543,6 +6693,33 @@ void spline_imgui_panel( float w )
 							}
 						}
 						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Choose the tile's entity file (.fpe) in the entity bank" );
+						// or a texture of its own: its colour image, the normal and surface beside it by name
+						ImGui::SetCursorPosX( fRowFieldX );
+						if ( ImGui::StyleButton( "Texture...##splinepavetexture", ImVec2( fRowRight - fRowFieldX, 0 ) ) )
+						{
+							char pStart[ MAX_PATH ] = "imagebank\\";
+							GG_GetRealPath( pStart, 0 );
+							char pFull[ MAX_PATH ];
+							if ( !_fullpath( pFull, pStart, MAX_PATH ) ) strcpy_s( pFull, MAX_PATH, pStart );
+							const char* pChosen = noc_file_dialog_open( NOC_FILE_DIALOG_OPEN, "Image\0*.dds;*.png;*.jpg;*.tga;*.bmp\0", pFull, NULL, true, "Choose a Pavement Texture (its colour)" );
+							if ( pChosen )
+							{
+								// named from the Files folder (the install's or the writable one), as an entity's textures are
+								char pLower[ MAX_PATH ];
+								strcpy_s( pLower, MAX_PATH, pChosen );
+								_strlwr_s( pLower, MAX_PATH );
+								const char* pFiles = strstr( pLower, "\\files\\" );
+								if ( pFiles )
+								{
+									memset( r.paveTile, 0, sizeof(r.paveTile) );
+									memset( r.paveColour, 0, sizeof(r.paveColour) );
+									strcpy_s( r.paveColour, 260, pChosen + (pFiles - pLower) + strlen( "\\files\\" ) );
+									spline_pavetextures( r, false );
+									bChanged = true;
+								}
+							}
+						}
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Pave it with a texture of your own, not a tile entity: choose its colour image (in a Files folder);\nits normal and surface are found beside it by name (_normal, _surface). Set the Tile Size to how far it repeats." );
 						if ( bTile )
 						{
 							spline_pavetextures( r, true );
@@ -6551,7 +6728,7 @@ void spline_imgui_panel( float w )
 						const char* pFound = strrchr( r.paveColour, '\\' );
 						ImGui::SetCursorPosX( fRowFieldX );
 						if ( r.paveColour[0] ) ImGui::TextDisabled( "%s%s", pFound ? pFound + 1 : r.paveColour, r.paveNormal[0] ? " (and its normal)" : "" );
-						else ImGui::TextDisabled( "%s", r.paveTile[0] ? "No textures found on the tile" : "No tile: plain grey" );
+						else ImGui::TextDisabled( "%s", r.paveTile[0] ? "No textures found on the tile" : "No tile or texture: plain grey" );
 						bChanged |= spline_rowmetres( "Tile Size", "##splinepavetilesize", &r.paveTileSize, 0.1f, 4.0f, "%.2f m" );
 						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The tile's textures repeat this far, along the kerb and out from it (set from the tile's size when picked)" );
 					}
@@ -6909,6 +7086,9 @@ void spline_savedata( void )
 		put( r.paveColour, 260 );
 		put( r.paveNormal, 260 );
 		put( r.paveSurface, 260 );
+		// version 23: Kerb Offset, each segment's pavements
+		put( &r.paveInset, sizeof(r.paveInset) );
+		for ( const sSplineNode& node : s.nodes ) put( &node.segPave, sizeof(node.segPave) );
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -7129,7 +7309,11 @@ void spline_loaddata( void )
 								r.paveTile[ 259 ] = r.paveColour[ 259 ] = r.paveNormal[ 259 ] = r.paveSurface[ 259 ] = 0;
 							}
 						}
-						if ( version < 22 && s.preset[0] && s.presetSignature == spline_presetsignature( s, version < 17 ? offsetof( sSplineRiver, wadeDepth ) : version < 21 ? offsetof( sSplineRiver, plantGrass ) : sizeof(sSplineRiver), version < 16 ? offsetof( sSplineLayer, layFlat ) : sizeof(sSplineLayer), version < 18 ? offsetof( sSplineRoad, markCentre ) : version < 19 ? offsetof( sSplineRoad, markJunctions ) : version < 20 ? offsetof( sSplineRoad, markCrestSight ) : offsetof( sSplineRoad, paveSides ) ) )
+						if ( version >= 23 && get( &s.road.paveInset, sizeof(s.road.paveInset) ) )
+						{
+							for ( sSplineNode& node : s.nodes ) if ( !get( &node.segPave, sizeof(node.segPave) ) ) break;
+						}
+						if ( version < 23 && s.preset[0] && s.presetSignature == spline_presetsignature( s, version < 17 ? offsetof( sSplineRiver, wadeDepth ) : version < 21 ? offsetof( sSplineRiver, plantGrass ) : sizeof(sSplineRiver), version < 16 ? offsetof( sSplineLayer, layFlat ) : sizeof(sSplineLayer), version < 18 ? offsetof( sSplineRoad, markCentre ) : version < 19 ? offsetof( sSplineRoad, markJunctions ) : version < 20 ? offsetof( sSplineRoad, markCrestSight ) : version < 22 ? offsetof( sSplineRoad, paveSides ) : offsetof( sSplineRoad, paveInset ) ) )
 						{
 							// still as its preset set it, by the settings that file had: so too by today's (Lay Flat, Wade
 							// Depth, the road's markings, lines at junctions, Solid on Crests, bank planting and pavements
