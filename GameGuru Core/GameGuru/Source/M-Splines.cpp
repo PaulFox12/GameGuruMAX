@@ -5271,6 +5271,21 @@ void spline_imgui_panel( float w )
 				g_iSplineSegSelected = -1;
 				spline_modified();
 			}
+			// to the top in one go: baked again with each spline it moved above, as that many Move Ups would
+			if ( ImGui::StyleButton( "Move to Top##splinemovetop", ImVec2( w * 0.9f + ImGui::GetStyle().ItemSpacing.x, 0 ) ) && g_iSplineSelected > 0 && g_iSplineSelected < (int)g_Splines.size() )
+			{
+				for ( int si = 0; si <= g_iSplineSelected; si++ )
+				{
+					const sSpline& moved = g_Splines[ si ];
+					if ( !moved.baked.empty() || !moved.bakedTrees.empty() ) g_SplineForceBake.insert( moved.id );
+				}
+				std::rotate( g_Splines.begin(), g_Splines.begin() + g_iSplineSelected, g_Splines.begin() + g_iSplineSelected + 1 );
+				g_iSplineSelected = 0;
+				g_iSplineNodeSelected = -1;
+				g_iSplineSegSelected = -1;
+				spline_modified();
+			}
+			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", pOrderTip );
 		}
 
 		if ( g_iSplineSelected >= 0 )
