@@ -7613,20 +7613,16 @@ void spline_savedata( void )
 	fclose( fp );
 }
 
-void spline_loaddata( void )
+// a level's map.spl read into a list of splines, nothing else changed; false when it can't be read
+static bool spline_readfile( const char* pPath, std::vector<sSpline>& out )
 {
-	spline_deleteall();
-	if ( ImGui::GetCurrentContext() ) g_iSplineLoadFrame = ImGui::GetFrameCount();
-	char pPath[ MAX_PATH ];
-	strcpy_s( pPath, MAX_PATH, (g.mysystem.levelBankTestMap_s + "map.spl").Get() );
-	GG_GetRealPath( pPath, 0 );
 	FILE* fp = NULL;
-	if ( fopen_s( &fp, pPath, "rb" ) != 0 || !fp ) return;
+	if ( fopen_s( &fp, pPath, "rb" ) != 0 || !fp ) return false;
 	uint32_t header[3] = { 0, 0, 0 };
 	if ( fread( header, sizeof(header), 1, fp ) != 1 || header[0] != SPLINE_FILE_MAGIC || header[1] < 1 )
 	{
 		fclose( fp );
-		return;
+		return false;
 	}
 	const uint32_t version = header[1];
 	std::vector<uint8_t> record;
@@ -7655,7 +7651,6 @@ void spline_loaddata( void )
 			node.x = f[0]; node.y = f[1]; node.z = f[2]; node.inX = f[3]; node.inZ = f[4]; node.outX = f[5]; node.outZ = f[6];
 			node.flags = i[0]; node.junction = i[1];
 			s.nodes.push_back( node );
-			if ( node.junction >= g_iSplineNextJunction ) g_iSplineNextJunction = node.junction + 1;
 		}
 		if ( !bOK ) continue;
 		if ( version >= 2 )
@@ -7861,10 +7856,46 @@ void spline_loaddata( void )
 			// before version 2 nothing was baked: a spline as it was saved needs no bake
 			s.bakedSignature = spline_signature( s );
 		}
-		if ( s.id >= g_iSplineNextID ) g_iSplineNextID = s.id + 1;
-		g_Splines.push_back( s );
+		out.push_back( s );
 	}
 	fclose( fp );
+	return true;
+}
+
+void spline_loaddata( void )
+{
+	spline_deleteall();
+	if ( ImGui::GetCurrentContext() ) g_iSplineLoadFrame = ImGui::GetFrameCount();
+	char pPath[ MAX_PATH ];
+	strcpy_s( pPath, MAX_PATH, (g.mysystem.levelBankTestMap_s + "map.spl").Get() );
+	GG_GetRealPath( pPath, 0 );
+	if ( !spline_readfile( pPath, g_Splines ) ) return;
+	for ( const sSpline& s : g_Splines )
+	{
+		if ( s.id >= g_iSplineNextID ) g_iSplineNextID = s.id + 1;
+		for ( const sSplineNode& node : s.nodes ) if ( node.junction >= g_iSplineNextJunction ) g_iSplineNextJunction = node.junction + 1;
+	}
 	spline_cleanjunctions();
 	g_iSplineWaterWait = 60;
+}
+
+// the files a standalone game needs for the level being exported (its map.spl in the level bank): each paved road's
+// textures, the normal and surface found beside the colour as the game finds them. The layers' entities are the level's
+// own and go with it
+void spline_addstandalonefiles( void )
+{
+	char pPath[ MAX_PATH ];
+	strcpy_s( pPath, MAX_PATH, (g.mysystem.levelBankTestMap_s + "map.spl").Get() );
+	GG_GetRealPath( pPath, 0 );
+	std::vector<sSpline> splines;
+	if ( !spline_readfile( pPath, splines ) ) return;
+	for ( const sSpline& s : splines )
+	{
+		if ( s.kind != SPLINE_KIND_ROAD || !spline_pavesides( s ) ) continue;
+		sSplineRoad textures = s.road;
+		spline_pavebeside( textures );
+		char* pFiles[3] = { textures.paveColour, textures.paveNormal, textures.paveSurface };
+		// one picked outside a Files folder (the panel warns) has no place in the game's
+		for ( char* pFile : pFiles ) if ( pFile[0] && !strchr( pFile, ':' ) ) addtocollection( pFile );
+	}
 }

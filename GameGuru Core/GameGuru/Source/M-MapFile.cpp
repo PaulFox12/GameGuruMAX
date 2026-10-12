@@ -3302,6 +3302,9 @@ int mapfile_savestandalone_stage2c ( void )
 	}
 	else
 	{
+		// GG: the spline tool's road pavements' textures
+		spline_addstandalonefiles();
+
 		if (t.visuals.customTexturesFolder.Len() > 0)
 		{
 			// Collect all .dds textures in this folder and add them to the standalone file collection

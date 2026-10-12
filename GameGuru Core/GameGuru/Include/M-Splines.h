@@ -10,6 +10,7 @@ void spline_imgui_panel ( float w );
 bool spline_iseditmode ( void );
 void spline_savedata ( void );
 void spline_loaddata ( void );
+void spline_addstandalonefiles ( void );
 void spline_deleteall ( void );
 bool spline_librarypicking ( void );
 bool spline_paintkeep ( void );
