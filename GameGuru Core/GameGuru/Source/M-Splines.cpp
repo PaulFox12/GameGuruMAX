@@ -4527,6 +4527,7 @@ static uint64_t spline_presetsignature( const sSpline& s, size_t riverBytes = si
 static void spline_applypreset( sSpline& s, const sSplinePreset& p )
 {
 	spline_unplace( s );
+	s.placedSignature = 0; // placed again, though the layers and bake may come out as they were
 	s.kind = p.kind;
 	const int textures[2] = { spline_presettexture( p.textures[0] ), spline_presettexture( p.textures[1] ) };
 	if ( p.kind == SPLINE_KIND_ROAD )
