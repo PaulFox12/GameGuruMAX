@@ -1911,6 +1911,37 @@ static void quality_applyvisuals( int level )
 	t.visuals.bEnableAnimationCulling = bCheap ? true : q.bAnimationCulling;
 }
 
+// GG: every value quality_applyvisuals (or a quality set before the level's were kept) writes, back to the level's in
+// t.gamevisuals, at the end of a test game: a preset is a play-time choice, and t.visuals becomes the level's next save.
+// Tab Tab writes both copies, so a change made there in play stays; a script's render settings write only t.visuals
+void quality_restorelevelvisuals( void )
+{
+	t.visuals.bSSREnabled = t.gamevisuals.bSSREnabled;
+	t.visuals.bFXAAEnabled = t.gamevisuals.bFXAAEnabled;
+	t.visuals.bLightShafts = t.gamevisuals.bLightShafts;
+	t.visuals.bLensFlare = t.gamevisuals.bLensFlare;
+	t.visuals.bReflectionsEnabled = t.gamevisuals.bReflectionsEnabled;
+	t.visuals.iShadowSpotCascadeResolution = t.gamevisuals.iShadowSpotCascadeResolution;
+	t.visuals.iShadowPointMax = t.gamevisuals.iShadowPointMax;
+	t.visuals.iShadowSpotMax = t.gamevisuals.iShadowSpotMax;
+	t.visuals.iShadowPointResolution = t.gamevisuals.iShadowPointResolution;
+	t.visuals.iShadowSpotResolution = t.gamevisuals.iShadowSpotResolution;
+	t.visuals.bShadowsLowestLOD = t.gamevisuals.bShadowsLowestLOD;
+	t.visuals.bProbesLowestLOD = t.gamevisuals.bProbesLowestLOD;
+	t.visuals.bReflectionsLowestLOD = t.gamevisuals.bReflectionsLowestLOD;
+	t.visuals.bEnable30FpsAnimations = t.gamevisuals.bEnable30FpsAnimations;
+	t.visuals.g_bDelayedShadows = t.gamevisuals.g_bDelayedShadows;
+	t.visuals.g_bDelayedShadowsLaptop = t.gamevisuals.g_bDelayedShadowsLaptop;
+	t.visuals.ApparentSize = t.gamevisuals.ApparentSize;
+	t.visuals.fLODMultiplier = t.gamevisuals.fLODMultiplier;
+	t.visuals.bOcclusionCulling = t.gamevisuals.bOcclusionCulling;
+	t.visuals.bEnableObjectCulling = t.gamevisuals.bEnableObjectCulling;
+	t.visuals.bEnableTerrainChunkCulling = t.gamevisuals.bEnableTerrainChunkCulling;
+	t.visuals.bEnablePointShadowCulling = t.gamevisuals.bEnablePointShadowCulling;
+	t.visuals.bEnableSpotShadowCulling = t.gamevisuals.bEnableSpotShadowCulling;
+	t.visuals.bEnableAnimationCulling = t.gamevisuals.bEnableAnimationCulling;
+}
+
 void SetGlobalGraphicsSettings( int level ) // 0=lowest, 1=medium, 2=high, 3=ultra, default to 2 (high)
 {
 	SetGlobalGraphicsSettingsEx( level, true );
@@ -15934,6 +15965,9 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.AmbienceGreen_f = t.gamevisuals.AmbienceGreen_f;
 	t.visuals.AmbienceBlue_f = t.gamevisuals.AmbienceBlue_f;
 	t.visuals.fExposure = t.gamevisuals.fExposure;
+
+	// and the test game's quality: Low and Medium scale shadows, LOD, apparent size and culling into t.visuals only
+	quality_restorelevelvisuals ( );
 
 	// and the sky: SetSkyTo writes both copies, so other pushes keep its sky in play, so put the editor's back unless a
 	// sky was picked in Tab Tab after the script's
