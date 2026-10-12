@@ -2812,13 +2812,14 @@ void spline_updatemarkings( void )
 
 // A road's pavements (Pavement): kerbed walks along its sides, from the kerb out to their width, made as meshes a chunk of
 // the map each (WickedCall_CreateCodeMesh) with a tile entity's textures. Where roads meet their carriageways are one
-// outline, its corners turned on the Corner Radius (each road's distance from its carriageway, joined as distance fields
-// join with a rounded edge), so pavements never overlap: a point's pavement is the road's whose carriageway is nearest, a
-// diagonal seam where two pavements meet at a corner; beside a road without one on that side a pavement runs round the
-// corner's curve and stops. The fields are sampled on a half metre grid and each grid triangle is cut along those lines
-// (linear across it), so the kerb, the back and the seams follow them closely. The tiles run along the kerb (the road's
-// length along its edge) and out from it; the kerb's face drops to the road, the back and a stop to the ground. Built
-// again where a road changes, in the editor and in game
+// outline, its corners (where two kerbs meet) turned on the Corner Radius (each road's distance from its carriageway,
+// joined as distance fields join with a rounded edge), so pavements never overlap: a point's pavement is the road's whose
+// carriageway is nearest, a diagonal seam where two pavements meet at a corner; beside a road without one on that side a
+// pavement runs round the corner's curve and stops; at a free end (no other road there) it stops square. The fields are
+// sampled on a half metre grid and each grid triangle is cut along those lines (linear across it), so the kerb, the back
+// and the seams follow them closely. The tiles run along the kerb and out from it: along by the road's smoothed lines
+// across it, turning round a corner from one road's to the other's, so alike pavements meet without a seam; the kerb's
+// face drops to the road, the back and a stop to the ground. Built again where a road changes, in the editor and in game
 
 #define SPLINE_PAVE_STEP 20.0f // the grid (about half a metre)
 #define SPLINE_PAVE_CELLS 100 // a chunk's side in grid steps (2000 units, about 51 m)
@@ -2830,8 +2831,8 @@ void spline_updatemarkings( void )
 #define SPLINE_PAVE_END 3 // a stop beside another road, or the side of a road without one (a face down to the ground)
 #define SPLINE_PAVE_SEAM 4 // another pavement beyond (no face)
 
-// a road as the pavements' build sees it: its centre line about a metre apart, the length along it, along each kerb there
-// (0 left, 1 right) and the road's surface at each edge
+// a road as the pavements' build sees it: its centre line about a metre apart, the length along it, its normals (to the
+// right, smoothed along it), along each kerb there (0 left, 1 right) and the road's surface at each edge
 struct sSplinePaveRoad
 {
 	int si = -1;
@@ -2839,7 +2840,9 @@ struct sSplinePaveRoad
 	int sides = 0; // SPLINE_PAVE_* bits, with a width
 	int material = -1; // into the build's materials
 	bool bClosed = false;
-	std::vector<float> x, z, s;
+	bool bFreeEnd[2] = { false, false }; // its start and end are open and away from other roads: its pavements stop there
+	float period[2] = { 0, 0 }; // a closed road's length along each kerb (a whole number of tiles), else 0
+	std::vector<float> x, z, s, nx, nz;
 	std::vector<float> kerbS[2], kerbH[2];
 	std::vector<uint8_t> sampleSides; // the sides paved at each sample (its segment's)
 	std::vector<int> sampleSeg; // and its segment
@@ -2849,14 +2852,47 @@ struct sSplinePaveRoad
 };
 
 // a point by one road: its distance from the carriageway (negative inside), across from the centre line (negative to the
-// left), the length along each kerb level with it, and the road's surface at the nearer edge
+// left), and the road's surface at the nearer edge
 struct sSplinePaveNear
 {
 	float d = FLT_MAX, lateral = 0, h = 0;
-	float kerbS[2] = { 0, 0 };
 	float along = 0; // along the centre line
 	int k = -1; // the nearest piece
 };
+
+// a corner where two roads' kerbs meet, walked from one road's kerb round its curve onto the other's. A kerb is walked
+// with its pavement on the same hand everywhere (the left kerb along the road, the right against it), and the tiles' length
+// along a kerb is taken along the walk, so round a block's kerbs they run one way. Round the corner the tiles turn from
+// the one road's to the other's; where the two pavements are alike the other's are moved a whole number of tiles to carry
+// on from the first's (the curve stretched by under half a tile), so the pattern runs on without a seam
+struct sSplinePaveCorner
+{
+	int from = -1, to = -1; // the roads, their places in the build's list
+	int fromSide = 0, toSide = 0;
+	float x = 0, z = 0; // its middle
+	float r = 0; // the radius its kerb turns on
+	float uFrom = 0, uTo = 0; // each road's length along the walk where its kerb meets the curve
+	float offset = 0; // added to the to road's length along the walk, it carries on from the from road's
+	bool bRound = true; // its kerb turns enough to be rounded (not two roads end to end)
+};
+
+// the corner of two roads, each on the side given, nearest a point (none past a few radii): where the outline's
+// distance is rounded and the tiles turn; none on the far side of a road another ends in
+static const sSplinePaveCorner* spline_pavecornerat( const sSplinePaveCorner* const* pList, size_t count, int a, int sideA, int b, int sideB, float px, float pz, float reach )
+{
+	const sSplinePaveCorner* pFound = nullptr;
+	float best = FLT_MAX;
+	for ( size_t i = 0; i < count; i++ )
+	{
+		const sSplinePaveCorner* pc = pList[i];
+		const bool bFrom = pc->from == a && pc->fromSide == sideA && pc->to == b && pc->toSide == sideB;
+		const bool bTo = pc->to == a && pc->toSide == sideA && pc->from == b && pc->fromSide == sideB;
+		if ( !bFrom && !bTo ) continue;
+		const float dist = sqrtf( (pc->x - px) * (pc->x - px) + (pc->z - pz) * (pc->z - pz) );
+		if ( dist < best && dist < pc->r * 4.0f + reach * 2.0f ) { best = dist; pFound = pc; }
+	}
+	return pFound;
+}
 
 // a corner of a cut piece of a grid triangle (its weights of the triangle's corners), and how the edge from it to the next
 // was made (0 the triangle's own, else SPLINE_PAVE_*)
@@ -2886,6 +2922,102 @@ static bool g_bSplinePaveBodies = false; // bodies were made in this physics ses
 static std::unordered_map<std::string, uint64_t> g_SplinePaveMaterials; // made once for each set of textures
 static uint64_t g_SplinePaveApplied = 0, g_SplinePavePending = 0;
 static int g_iSplinePaveStill = 0;
+
+// a road's length along its samples, its normals and kerbs. The normals are its direction averaged along it over a few
+// metres (a Gaussian, the road carried on straight past an open end), so the lines across it from samples either side
+// of a bend or a node's kink don't meet within its pavements: the tiles' lengths along it are taken along those lines
+// (spline_pavesweep), smooth round a bend where the nearest piece of its line jumps. A closed road's kerbs are stretched
+// to a whole number of tiles, so its tiles meet where it closes
+static void spline_paveroadkerbs( sSplinePaveRoad& pr )
+{
+	const int n = (int)pr.x.size();
+	const int pieces = n - 1;
+	pr.s.assign( n, 0.0f );
+	pr.nx.assign( n, 0.0f );
+	pr.nz.assign( n, 0.0f );
+	for ( int side = 0; side < 2; side++ )
+	{
+		pr.kerbS[side].assign( n, 0.0f );
+		pr.kerbH[side].assign( n, 0.0f );
+		pr.period[side] = 0;
+	}
+	if ( pieces < 1 ) return;
+	std::vector<float> pdx( pieces ), pdz( pieces ), plen( pieces );
+	for ( int k = 0; k < pieces; k++ )
+	{
+		const float dx = pr.x[k+1] - pr.x[k], dz = pr.z[k+1] - pr.z[k];
+		plen[k] = sqrtf( dx * dx + dz * dz );
+		pdx[k] = plen[k] > 0 ? dx / plen[k] : 0.0f;
+		pdz[k] = plen[k] > 0 ? dz / plen[k] : 0.0f;
+		pr.s[k+1] = pr.s[k] + plen[k];
+	}
+	const bool bLoop = pr.bClosed && pieces > 2;
+	const float sigma = std::min( SPLINE_UNITS_PER_M * 4.0f, std::max( SPLINE_UNITS_PER_M, (pr.halfWidth + pr.width) * 0.5f ) );
+	for ( int i = 0; i < n; i++ )
+	{
+		// the pieces after the sample and before it, weighted by their middles' distance from it
+		float tx = 0, tz = 0;
+		for ( int dir = 1; dir >= -1; dir -= 2 )
+		{
+			float dist = 0;
+			int k = dir > 0 ? i : i - 1;
+			bool bOffEnd = false;
+			for ( int step = 0; step < (bLoop ? pieces / 2 : pieces); step++ )
+			{
+				if ( k < 0 || k >= pieces )
+				{
+					if ( !bLoop ) { bOffEnd = true; break; }
+					k = (k + pieces) % pieces;
+				}
+				const float mid = dist + plen[k] * 0.5f;
+				if ( mid > sigma * 3.0f ) break;
+				const float w = expf( -0.5f * (mid / sigma) * (mid / sigma) ) * plen[k];
+				tx += w * pdx[k];
+				tz += w * pdz[k];
+				dist += plen[k];
+				k += dir;
+			}
+			if ( bOffEnd || (!bLoop && (k < 0 || k >= pieces)) )
+			{
+				// past an open end, the road carried on straight
+				const int e = dir > 0 ? pieces - 1 : 0;
+				const float mass = sigma * 1.2533141f * erfcf( dist / (sigma * 1.4142136f) );
+				tx += mass * pdx[e];
+				tz += mass * pdz[e];
+			}
+		}
+		const float len = sqrtf( tx * tx + tz * tz );
+		if ( len > 0 ) { tx /= len; tz /= len; }
+		else { const int k = std::min( i, pieces - 1 ); tx = pdx[k]; tz = pdz[k]; }
+		pr.nx[i] = -tz; // to the right
+		pr.nz[i] = tx;
+	}
+	for ( int side = 0; side < 2; side++ )
+	{
+		const float sign = side ? 1.0f : -1.0f;
+		float kx = 0, kz = 0;
+		for ( int i = 0; i < n; i++ )
+		{
+			const float ex = pr.x[i] + pr.nx[i] * sign * pr.halfWidth, ez = pr.z[i] + pr.nz[i] * sign * pr.halfWidth;
+			if ( i > 0 ) pr.kerbS[side][i] = pr.kerbS[side][i-1] + sqrtf( (ex - kx) * (ex - kx) + (ez - kz) * (ez - kz) );
+			kx = ex;
+			kz = ez;
+			// the carriageway's surface a little in from its edge (its bake is flat across there)
+			const float in = std::max( 0.0f, pr.halfWidth - 12.0f );
+			const float hx = pr.x[i] + pr.nx[i] * sign * in, hz = pr.z[i] + pr.nz[i] * sign * in;
+			float h = 0;
+			if ( !GGTerrain::GGTerrain_GetHeight( hx, hz, &h, 1, 1 ) || h != h ) h = spline_groundy( hx, hz );
+			pr.kerbH[side][i] = h;
+		}
+		const float length = pr.kerbS[side][ n - 1 ];
+		if ( bLoop && length > 0 )
+		{
+			pr.period[side] = std::max( 1.0f, roundf( length / pr.tile ) ) * pr.tile;
+			const float scale = pr.period[side] / length;
+			for ( float& ks : pr.kerbS[side] ) ks *= scale;
+		}
+	}
+}
 
 static void spline_paveroad( int si, sSplinePaveRoad& pr )
 {
@@ -2937,41 +3069,10 @@ static void spline_paveroad( int si, sSplinePaveRoad& pr )
 		pr.sampleSides.push_back( pr.sampleSides.back() );
 		pr.sampleSeg.push_back( segs - 1 );
 	}
+	spline_paveroadkerbs( pr );
 	const int n = (int)pr.x.size();
-	pr.s.assign( n, 0.0f );
-	for ( int i = 1; i < n; i++ ) pr.s[i] = pr.s[i-1] + sqrtf( (pr.x[i] - pr.x[i-1]) * (pr.x[i] - pr.x[i-1]) + (pr.z[i] - pr.z[i-1]) * (pr.z[i] - pr.z[i-1]) );
 	for ( int first : segFirst ) pr.nodeS.push_back( pr.s[ first ] );
 	if ( n > 0 ) pr.nodeS.push_back( pr.s[ n - 1 ] );
-	float kx[2] = { 0, 0 }, kz[2] = { 0, 0 };
-	for ( int side = 0; side < 2; side++ )
-	{
-		pr.kerbS[side].assign( n, 0.0f );
-		pr.kerbH[side].assign( n, 0.0f );
-	}
-	for ( int i = 0; i < n; i++ )
-	{
-		// across here, from the pieces either side (round the join on a closed one)
-		const int a = i > 0 ? i - 1 : (pr.bClosed && n > 2 ? n - 2 : 0);
-		const int b = i < n - 1 ? i + 1 : (pr.bClosed && n > 2 ? 1 : n - 1);
-		float tx = pr.x[b] - pr.x[a], tz = pr.z[b] - pr.z[a];
-		const float len = sqrtf( tx * tx + tz * tz );
-		if ( len > 0 ) { tx /= len; tz /= len; }
-		const float nx = -tz, nz = tx; // to the right
-		for ( int side = 0; side < 2; side++ )
-		{
-			const float sign = side ? 1.0f : -1.0f;
-			const float ex = pr.x[i] + nx * sign * pr.halfWidth, ez = pr.z[i] + nz * sign * pr.halfWidth;
-			if ( i > 0 ) pr.kerbS[side][i] = pr.kerbS[side][i-1] + sqrtf( (ex - kx[side]) * (ex - kx[side]) + (ez - kz[side]) * (ez - kz[side]) );
-			kx[side] = ex;
-			kz[side] = ez;
-			// the carriageway's surface a little in from its edge (its bake is flat across there)
-			const float in = std::max( 0.0f, pr.halfWidth - 12.0f );
-			const float hx = pr.x[i] + nx * sign * in, hz = pr.z[i] + nz * sign * in;
-			float h = 0;
-			if ( !GGTerrain::GGTerrain_GetHeight( hx, hz, &h, 1, 1 ) || h != h ) h = spline_groundy( hx, hz );
-			pr.kerbH[side][i] = h;
-		}
-	}
 	spline_bounds( s, pr.halfWidth, pr.bounds );
 }
 
@@ -3014,26 +3115,99 @@ static void spline_pavenear( const sSplinePaveRoad& pr, const std::vector<int>& 
 	out.lateral = sign * sqrtf( best2 );
 	const bool bBefore = !pr.bClosed && bk == 0 && bt < 0;
 	const bool bAfter = !pr.bClosed && bk == n - 2 && bt > 1;
-	if ( out.d < 0 && !pr.bClosed )
-	{
-		// inside, near an open end: no further in than from the end's edge (so the kerb across the end is where it is)
-		const float along = pr.s[ bk ] + len * tc;
-		out.d = std::max( out.d, -std::min( along, pr.s[ n - 1 ] - along ) );
-	}
 	if ( (bBefore || bAfter) && len > 0 )
 	{
-		// past the end: out along the road and across from its line, as a box's corner
+		// past the end: out along the road and across from its line, as a box's corner; just past a free end, as if the
+		// road went on (its pavements stop at the end, the kerbs along its sides straight to it)
 		const float along = bBefore ? -bt * len : (bt - 1.0f) * len;
 		const float across = fabsf( cross ) / len;
 		const float ax = across - pr.halfWidth;
-		out.d = sqrtf( std::max( ax, 0.0f ) * std::max( ax, 0.0f ) + along * along ) + std::min( std::max( ax, along ), 0.0f );
+		if ( pr.bFreeEnd[ bBefore ? 0 : 1 ] && along <= SPLINE_PAVE_STEP * 2.0f ) out.d = ax;
+		else out.d = sqrtf( std::max( ax, 0.0f ) * std::max( ax, 0.0f ) + along * along ) + std::min( std::max( ax, along ), 0.0f );
 		out.lateral = sign * across;
 	}
-	for ( int side = 0; side < 2; side++ ) out.kerbS[side] = pr.kerbS[side][bk] + (pr.kerbS[side][bk+1] - pr.kerbS[side][bk]) * tc;
 	out.along = pr.s[ bk ] + len * bt;
 	out.k = bk;
 	const int side = sign > 0 ? 1 : 0;
 	out.h = pr.kerbH[side][bk] + (pr.kerbH[side][bk+1] - pr.kerbH[side][bk]) * tc;
+}
+
+// where a point is along a road by the lines across it (each sample's normal, interpolated between them): the piece and
+// how far along it (past 0 or 1 beyond an open end), from the nearest piece; where two lines meet (past a tight bend's
+// pavements) the nearer
+static float spline_pavesweept( const sSplinePaveRoad& pr, int k, float px, float pz )
+{
+	// the line across at t passes through the point: (a - t e) x (n0 + t f) = 0
+	const float ax = px - pr.x[k], az = pz - pr.z[k];
+	const float ex = pr.x[k+1] - pr.x[k], ez = pr.z[k+1] - pr.z[k];
+	const float n0x = pr.nx[k], n0z = pr.nz[k];
+	const float fx = pr.nx[k+1] - n0x, fz = pr.nz[k+1] - n0z;
+	const float c0 = ax * n0z - az * n0x;
+	const float c1 = (ax * fz - az * fx) - (ex * n0z - ez * n0x);
+	const float c2 = -(ex * fz - ez * fx);
+	float roots[2];
+	int count = 0;
+	if ( fabsf( c2 ) <= fabsf( c1 ) * 1e-4f )
+	{
+		if ( c1 != 0 ) roots[ count++ ] = -c0 / c1;
+	}
+	else
+	{
+		const float disc = c1 * c1 - 4.0f * c2 * c0;
+		if ( disc < 0 ) roots[ count++ ] = -c1 / (2.0f * c2);
+		else
+		{
+			const float q = -0.5f * (c1 + (c1 >= 0 ? sqrtf( disc ) : -sqrtf( disc )));
+			roots[ count++ ] = q / c2;
+			if ( q != 0 ) roots[ count++ ] = c0 / q;
+		}
+	}
+	if ( count == 0 ) return 0.5f;
+	// the root in the piece (of two the nearer the line), else the nearest the piece
+	float best = roots[0], bestOut = FLT_MAX, bestDist = FLT_MAX;
+	for ( int j = 0; j < count; j++ )
+	{
+		const float t = roots[j];
+		const float out = t < 0 ? -t : (t > 1 ? t - 1 : 0);
+		const float qx = px - (pr.x[k] + ex * t), qz = pz - (pr.z[k] + ez * t);
+		const float dist = qx * qx + qz * qz;
+		if ( out < bestOut || (out == bestOut && dist < bestDist) ) { best = t; bestOut = out; bestDist = dist; }
+	}
+	return best;
+}
+
+static void spline_pavesweep( const sSplinePaveRoad& pr, int k, float px, float pz, int* pPiece, float* pT )
+{
+	const int pieces = (int)pr.x.size() - 1;
+	const bool bLoop = pr.bClosed && pieces > 2;
+	float t = 0.5f;
+	int last = 0;
+	for ( int iter = 0; iter < 64; iter++ )
+	{
+		t = spline_pavesweept( pr, k, px, pz );
+		const int step = t < 0 ? -1 : (t > 1 ? 1 : 0);
+		if ( step == 0 || step == -last ) break;
+		int next = k + step;
+		if ( next < 0 || next >= pieces )
+		{
+			if ( !bLoop ) break;
+			next = (next + pieces) % pieces;
+		}
+		last = step;
+		k = next;
+	}
+	// past an open end it carries on; between two pieces' lines, the nearer end
+	const bool bEnd = !bLoop && ((k == 0 && t < 0) || (k == pieces - 1 && t > 1));
+	if ( !bEnd ) t = std::min( 1.0f, std::max( 0.0f, t ) );
+	*pPiece = k;
+	*pT = t;
+}
+
+// a length along a closed road's kerb moved by whole loops to be nearest another
+static float spline_pavewrap( float u, float target, float period )
+{
+	if ( period <= 0 ) return u;
+	return u - period * roundf( (u - target) / period );
 }
 
 // two distances joined with a rounded edge of radius r (where both are within r of the outline), else the nearer
@@ -3112,8 +3286,190 @@ static void spline_pavemeets( const std::vector<sSplinePaveRoad>& roads, std::ve
 	}
 }
 
-// a chunk's pavements as one mesh (0 none): the roads near it, which of them meet, their materials
-static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSplinePaveRoad>& roads, const std::vector<char>& meets, const std::vector<uint64_t>& materials, float reach, std::vector<float>& triangles )
+// the walk's direction along a road on each side (the left kerb along it, the right against it), so the pavement is on
+// the same hand everywhere
+#define SPLINE_PAVE_WALK( side ) ((side) ? -1.0f : 1.0f)
+
+// where a road's kerb, walked, comes within a corner's radius of another road's carriageway (into its corner) or leaves it
+struct sSplinePaveTurn
+{
+	int road = -1, side = 0, other = -1, otherSide = 0;
+	bool bInto = false;
+	float x = 0, z = 0, u = 0, tx = 0, tz = 0; // where, the length along the walk there, the walk's direction
+};
+
+// the roads' joins: which open ends are free (no other road's carriageway within a metre of the end), and the corners
+// where their kerbs meet (each road's kerbs walked by each road they meet, a turn into the other's corner paired with the
+// nearest turn out of it on the other road's kerb facing back)
+static void spline_pavejoins( std::vector<sSplinePaveRoad>& roads, const std::vector<char>& meets, std::vector<sSplinePaveCorner>& corners )
+{
+	const size_t n = roads.size();
+	corners.clear();
+	std::vector<int> pieces;
+	std::vector<char> freeEnds( n * 2, 0 );
+	float maxRadius = 0;
+	for ( size_t a = 0; a < n; a++ ) roads[a].bFreeEnd[0] = roads[a].bFreeEnd[1] = false;
+	for ( size_t a = 0; a < n; a++ )
+	{
+		const sSplinePaveRoad& ra = roads[a];
+		maxRadius = std::max( maxRadius, ra.radius );
+		if ( ra.bClosed || ra.x.size() < 2 ) continue;
+		for ( int e = 0; e < 2; e++ )
+		{
+			const float ex = e ? ra.x.back() : ra.x.front(), ez = e ? ra.z.back() : ra.z.front();
+			const float rect[4] = { ex, ez, ex, ez };
+			bool bJoined = false;
+			for ( size_t b = 0; b < n && !bJoined; b++ )
+			{
+				const sSplinePaveRoad& rb = roads[b];
+				const float reach = rb.halfWidth + SPLINE_UNITS_PER_M * 2.0f;
+				if ( b == a || rb.x.size() < 2 ) continue;
+				if ( rb.bounds[0] - reach > ex || rb.bounds[2] + reach < ex || rb.bounds[1] - reach > ez || rb.bounds[3] + reach < ez ) continue;
+				spline_pavesegments( rb, rect, reach, pieces );
+				if ( pieces.empty() ) continue;
+				sSplinePaveNear p;
+				spline_pavenear( rb, pieces, ex, ez, p );
+				if ( p.d <= SPLINE_UNITS_PER_M ) bJoined = true;
+			}
+			freeEnds[ a * 2 + e ] = bJoined ? 0 : 1;
+		}
+	}
+	for ( size_t a = 0; a < n; a++ ) for ( int e = 0; e < 2; e++ ) roads[a].bFreeEnd[e] = freeEnds[ a * 2 + e ] != 0;
+
+	// the turns: each road's kerbs walked by each road it meets, the other road's pieces in cells
+	std::vector<sSplinePaveTurn> turns;
+	std::unordered_map<int64_t, std::vector<int>> cells;
+	auto cellKey = []( int x, int z ) { return ((int64_t)x << 32) | (uint32_t)z; };
+	for ( size_t b = 0; b < n; b++ )
+	{
+		const sSplinePaveRoad& rb = roads[b];
+		if ( rb.x.size() < 2 ) continue;
+		const float cell = rb.halfWidth + maxRadius + SPLINE_UNITS_PER_M * 2.0f;
+		cells.clear();
+		for ( int k = 0; k + 1 < (int)rb.x.size(); k++ ) cells[ cellKey( (int)floorf( (rb.x[k] + rb.x[k+1]) * 0.5f / cell ), (int)floorf( (rb.z[k] + rb.z[k+1]) * 0.5f / cell ) ) ].push_back( k );
+		for ( size_t a = 0; a < n; a++ )
+		{
+			const sSplinePaveRoad& ra = roads[a];
+			if ( a == b || !meets[ a * n + b ] || ra.x.size() < 2 ) continue;
+			const float r = std::max( ra.radius, rb.radius );
+			if ( r <= 0 ) continue;
+			for ( int side = 0; side < 2; side++ )
+			{
+				const float sign = side ? 1.0f : -1.0f, walk = SPLINE_PAVE_WALK( side );
+				float prevD = 0, prevX = 0, prevZ = 0;
+				int prevSide = 0;
+				for ( int i = 0; i < (int)ra.x.size(); i++ )
+				{
+					// the other road's carriageway's distance from this kerb point (far, past a cell)
+					const float kx = ra.x[i] + ra.nx[i] * sign * ra.halfWidth, kz = ra.z[i] + ra.nz[i] * sign * ra.halfWidth;
+					float d = r + cell;
+					int otherSide = 0;
+					if ( kx > rb.bounds[0] - cell && kx < rb.bounds[2] + cell && kz > rb.bounds[1] - cell && kz < rb.bounds[3] + cell )
+					{
+						pieces.clear();
+						const int cx = (int)floorf( kx / cell ), cz = (int)floorf( kz / cell );
+						for ( int dz = -1; dz <= 1; dz++ )
+						{
+							for ( int dx = -1; dx <= 1; dx++ )
+							{
+								auto it = cells.find( cellKey( cx + dx, cz + dz ) );
+								if ( it != cells.end() ) pieces.insert( pieces.end(), it->second.begin(), it->second.end() );
+							}
+						}
+						if ( !pieces.empty() )
+						{
+							sSplinePaveNear p;
+							spline_pavenear( rb, pieces, kx, kz, p );
+							d = std::min( p.d, r + cell );
+							otherSide = p.lateral >= 0 ? 1 : 0;
+						}
+					}
+					if ( i > 0 && (prevD < r) != (d < r) )
+					{
+						const float t = (prevD - r) / (prevD - d);
+						sSplinePaveTurn turn;
+						turn.road = (int)a;
+						turn.side = side;
+						turn.other = (int)b;
+						turn.otherSide = d < r ? otherSide : prevSide;
+						// in the walk's order, into the corner where it comes within the radius
+						turn.bInto = walk > 0 ? d < r : prevD < r;
+						turn.x = prevX + (kx - prevX) * t;
+						turn.z = prevZ + (kz - prevZ) * t;
+						turn.u = walk * (ra.kerbS[side][ i - 1 ] + (ra.kerbS[side][i] - ra.kerbS[side][ i - 1 ]) * t);
+						const float len = sqrtf( (kx - prevX) * (kx - prevX) + (kz - prevZ) * (kz - prevZ) );
+						if ( len > 0 ) { turn.tx = walk * (kx - prevX) / len; turn.tz = walk * (kz - prevZ) / len; }
+						turns.push_back( turn );
+					}
+					prevD = d;
+					prevX = kx;
+					prevZ = kz;
+					prevSide = otherSide;
+				}
+			}
+		}
+	}
+
+	// each turn into a corner paired with the nearest turn out of it on the other's kerb, nearest pairs first
+	std::unordered_map<int64_t, std::vector<int>> outOf;
+	for ( int j = 0; j < (int)turns.size(); j++ ) if ( !turns[j].bInto ) outOf[ ((int64_t)turns[j].road << 32) | (uint32_t)turns[j].other ].push_back( j );
+	struct sPair { float dist; int into, out; };
+	std::vector<sPair> pairs;
+	for ( int i = 0; i < (int)turns.size(); i++ )
+	{
+		const sSplinePaveTurn& in = turns[i];
+		if ( !in.bInto ) continue;
+		auto it = outOf.find( ((int64_t)in.other << 32) | (uint32_t)in.road );
+		if ( it == outOf.end() ) continue;
+		const float r = std::max( roads[ in.road ].radius, roads[ in.other ].radius );
+		for ( int j : it->second )
+		{
+			const sSplinePaveTurn& out = turns[j];
+			if ( out.side != in.otherSide || out.otherSide != in.side ) continue;
+			const float dist = sqrtf( (out.x - in.x) * (out.x - in.x) + (out.z - in.z) * (out.z - in.z) );
+			if ( dist <= r * 4.0f + SPLINE_UNITS_PER_M * 2.0f ) pairs.push_back( { dist, i, j } );
+		}
+	}
+	std::sort( pairs.begin(), pairs.end(), []( const sPair& p, const sPair& q ) { return p.dist < q.dist; } );
+	std::vector<char> used( turns.size(), 0 );
+	for ( const sPair& pair : pairs )
+	{
+		if ( used[ pair.into ] || used[ pair.out ] ) continue;
+		used[ pair.into ] = used[ pair.out ] = 1;
+		const sSplinePaveTurn& in = turns[ pair.into ];
+		const sSplinePaveTurn& out = turns[ pair.out ];
+		const sSplinePaveRoad& rf = roads[ in.road ];
+		const sSplinePaveRoad& rt = roads[ out.road ];
+		sSplinePaveCorner corner;
+		corner.from = in.road;
+		corner.fromSide = in.side;
+		corner.to = out.road;
+		corner.toSide = out.side;
+		corner.x = (in.x + out.x) * 0.5f;
+		corner.z = (in.z + out.z) * 0.5f;
+		corner.r = std::max( rf.radius, rt.radius );
+		corner.uFrom = in.u;
+		corner.uTo = out.u;
+		// the curve's length: an arc through the two ends turning as the kerbs do
+		const float turn = acosf( std::min( 1.0f, std::max( -1.0f, in.tx * out.tx + in.tz * out.tz ) ) );
+		const float arc = turn > 1e-3f ? pair.dist * (turn * 0.5f) / sinf( turn * 0.5f ) : pair.dist;
+		corner.bRound = turn >= 0.2f;
+		corner.offset = corner.uFrom + arc - corner.uTo;
+		const bool bFromPaved = rf.material >= 0 && (rf.sides & (in.side ? SPLINE_PAVE_RIGHT : SPLINE_PAVE_LEFT));
+		const bool bToPaved = rt.material >= 0 && (rt.sides & (out.side ? SPLINE_PAVE_RIGHT : SPLINE_PAVE_LEFT));
+		if ( bFromPaved && bToPaved && rf.material == rt.material && fabsf( rf.tile - rt.tile ) < 0.01f )
+		{
+			// alike: a whole number of tiles, the curve not squeezed below half its length
+			float tiles = roundf( corner.offset / rf.tile );
+			if ( tiles * rf.tile - corner.uFrom + corner.uTo < arc * 0.5f ) tiles += 1.0f;
+			corner.offset = tiles * rf.tile;
+		}
+		corners.push_back( corner );
+	}
+}
+
+// a chunk's pavements as one mesh (0 none): the roads near it, which of them meet, their corners, their materials
+static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSplinePaveRoad>& roads, const std::vector<char>& meets, const std::vector<sSplinePaveCorner>& corners, const std::vector<uint64_t>& materials, float reach, std::vector<float>& triangles )
 {
 	const float size = SPLINE_PAVE_STEP * SPLINE_PAVE_CELLS;
 	const float rect[4] = { cx * size, cz * size, (cx + 1) * size, (cz + 1) * size };
@@ -3137,12 +3493,26 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 	if ( !bAnyPave ) return 0;
 	const int C = (int)nearRoads.size();
 	const int N = SPLINE_PAVE_CELLS + 1;
+	std::vector<int> nearIndex( roads.size(), -1 );
+	for ( int c = 0; c < C; c++ ) nearIndex[ nearRoads[c] ] = c;
 
-	// the grid's points: each road's distance, across, kerb lengths and surface; the outline's distance (rounded corners),
-	// the surface and the kerb height blended from the roads nearest
+	// the corners near it
+	std::vector<const sSplinePaveCorner*> nearCorners;
+	for ( const sSplinePaveCorner& corner : corners )
+	{
+		if ( nearIndex[ corner.from ] < 0 || nearIndex[ corner.to ] < 0 ) continue;
+		const float gate = corner.r * 4.0f + reach * 2.0f;
+		if ( corner.x + gate < rect[0] || corner.x - gate > rect[2] || corner.z + gate < rect[1] || corner.z - gate > rect[3] ) continue;
+		nearCorners.push_back( &corner );
+	}
+
+	// the grid's points: each road's distance, across, along (the nearest piece's and swept), kerb lengths swept and
+	// surface; the outline's distance (rounded corners), the surface and the kerb height blended from the roads nearest;
+	// each paved road's tiles' length along each kerb's walk (turned round a corner)
 	std::vector<char> done( (size_t)N * N, 0 );
-	std::vector<float> fd( (size_t)C * N * N ), flat( (size_t)C * N * N ), fs0( (size_t)C * N * N ), fs1( (size_t)C * N * N ), falong( (size_t)C * N * N );
-	std::vector<uint8_t> fsides( (size_t)C * N * N ); // the sides paved on the nearest piece of each road
+	std::vector<float> fd( (size_t)C * N * N ), flat( (size_t)C * N * N ), falong( (size_t)C * N * N ), fsweep( (size_t)C * N * N );
+	std::vector<float> fk0( (size_t)C * N * N ), fk1( (size_t)C * N * N ), fu0( (size_t)C * N * N ), fu1( (size_t)C * N * N );
+	std::vector<uint8_t> fsides( (size_t)C * N * N ); // the sides paved where each road's swept line is
 	std::vector<float> fD( (size_t)N * N, FLT_MAX ), fH( (size_t)N * N, 0 ), fK( (size_t)N * N, 0 );
 	std::vector<float> hRoad( C );
 	auto computePoint = [&]( int ix, int iz )
@@ -3155,17 +3525,34 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 		int arg = -1;
 		for ( int c = 0; c < C; c++ )
 		{
+			const sSplinePaveRoad& pr = roads[ nearRoads[c] ];
 			sSplinePaveNear p;
-			spline_pavenear( roads[ nearRoads[c] ], segs[c], px, pz, p );
+			spline_pavenear( pr, segs[c], px, pz, p );
 			const size_t at = (size_t)c * N * N + v;
-			fd[ at ] = p.d; flat[ at ] = p.lateral; fs0[ at ] = p.kerbS[0]; fs1[ at ] = p.kerbS[1];
+			fd[ at ] = p.d; flat[ at ] = p.lateral;
 			falong[ at ] = p.along;
-			fsides[ at ] = p.k >= 0 ? roads[ nearRoads[c] ].sampleSides[ p.k ] : 0;
+			fsweep[ at ] = 0; fk0[ at ] = 0; fk1[ at ] = 0; fsides[ at ] = 0;
+			if ( p.k >= 0 )
+			{
+				int k = p.k;
+				float t = 0;
+				spline_pavesweep( pr, p.k, px, pz, &k, &t );
+				fsweep[ at ] = pr.s[k] + (pr.s[ k + 1 ] - pr.s[k]) * t;
+				fk0[ at ] = pr.kerbS[0][k] + (pr.kerbS[0][ k + 1 ] - pr.kerbS[0][k]) * t;
+				fk1[ at ] = pr.kerbS[1][k] + (pr.kerbS[1][ k + 1 ] - pr.kerbS[1][k]) * t;
+				fsides[ at ] = pr.sampleSides[k];
+			}
 			hRoad[c] = p.h;
 			// joined in the list's order, a corner rounded on the larger radius of the nearest road so far and this one
-			// where they meet
+			// where their kerbs meet in one
+			const sSplinePaveCorner* pRound = nullptr;
+			if ( arg >= 0 && meets[ (size_t)nearRoads[ arg ] * roads.size() + nearRoads[c] ] )
+			{
+				const int argSide = flat[ (size_t)arg * N * N + v ] >= 0 ? 1 : 0;
+				pRound = spline_pavecornerat( nearCorners.data(), nearCorners.size(), nearRoads[ arg ], argSide, nearRoads[c], p.lateral >= 0 ? 1 : 0, px, pz, reach );
+			}
 			if ( arg < 0 ) D = p.d;
-			else if ( !meets[ (size_t)nearRoads[ arg ] * roads.size() + nearRoads[c] ] ) D = std::min( D, p.d );
+			else if ( !pRound || !pRound->bRound ) D = std::min( D, p.d );
 			else D = spline_paveround( D, p.d, std::max( roads[ nearRoads[ arg ] ].radius, roads[ nearRoads[c] ].radius ) );
 			if ( p.d < dMin ) { dMin = p.d; arg = c; }
 		}
@@ -3182,6 +3569,54 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 		}
 		fH[ v ] = wSum > 0 ? hSum / wSum : 0;
 		fK[ v ] = kW > 0 ? kSum / kW : 0;
+
+		// each paved road's length along each kerb's walk; within a corner's radius of another road it meets, turned from
+		// the corner's first road's to the other's by the angle round it (as the outline's distance is rounded), wholly
+		// the other's past its own road's radius (where a pavement runs round to a road without one)
+		for ( int c = 0; c < C; c++ )
+		{
+			const sSplinePaveRoad& pr = roads[ nearRoads[c] ];
+			if ( !pr.sides ) continue;
+			const size_t at = (size_t)c * N * N + v;
+			for ( int side = 0; side < 2; side++ )
+			{
+				float u = SPLINE_PAVE_WALK( side ) * (side ? fk1[ at ] : fk0[ at ]);
+				int other = -1;
+				float otherD = FLT_MAX;
+				if ( (flat[ at ] >= 0 ? 1 : 0) == side )
+				{
+					for ( int k = 0; k < C; k++ )
+					{
+						const float r = std::max( pr.radius, roads[ nearRoads[k] ].radius );
+						const float dk = fd[ (size_t)k * N * N + v ];
+						if ( k == c || r <= 0 || dk >= r || dk >= otherD ) continue;
+						if ( !meets[ (size_t)nearRoads[c] * roads.size() + nearRoads[k] ] ) continue;
+						other = k;
+						otherD = dk;
+					}
+				}
+				const sSplinePaveCorner* pCorner = nullptr;
+				if ( other >= 0 )
+				{
+					const int otherSide = flat[ (size_t)other * N * N + v ] >= 0 ? 1 : 0;
+					pCorner = spline_pavecornerat( nearCorners.data(), nearCorners.size(), nearRoads[c], side, nearRoads[ other ], otherSide, px, pz, reach );
+				}
+				if ( pCorner )
+				{
+					const int cf = nearIndex[ pCorner->from ], ct = nearIndex[ pCorner->to ];
+					const size_t af = (size_t)cf * N * N + v, ato = (size_t)ct * N * N + v;
+					float uFrom = SPLINE_PAVE_WALK( pCorner->fromSide ) * (pCorner->fromSide ? fk1[ af ] : fk0[ af ]);
+					float uTo = SPLINE_PAVE_WALK( pCorner->toSide ) * (pCorner->toSide ? fk1[ ato ] : fk0[ ato ]);
+					uFrom = spline_pavewrap( uFrom, pCorner->uFrom, roads[ pCorner->from ].period[ pCorner->fromSide ] );
+					uTo = spline_pavewrap( uTo, pCorner->uTo, roads[ pCorner->to ].period[ pCorner->toSide ] );
+					const float wFrom = pCorner->r - fd[ af ], wTo = pCorner->r - fd[ ato ];
+					const float f = 1.0f - atan2f( wFrom, wTo ) / 1.5707963f;
+					u = (1.0f - f) * uFrom + f * (uTo + pCorner->offset);
+					if ( pCorner->to == nearRoads[c] ) u -= pCorner->offset;
+				}
+				(side ? fu1 : fu0)[ at ] = u;
+			}
+		}
 	};
 
 	// only the blocks a pavement can reach
@@ -3271,15 +3706,24 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 						const float across[3] = { sign * flat[ oi + tv[0] ], sign * flat[ oi + tv[1] ], sign * flat[ oi + tv[2] ] };
 						const int otherSide = side ? SPLINE_PAVE_LEFT : SPLINE_PAVE_RIGHT;
 						if ( poly.size() >= 3 ) spline_paveclip( poly, across, (own.sides & otherSide) ? SPLINE_PAVE_SEAM : SPLINE_PAVE_END, scratch );
+						// a square stop at a free end, level with the carriageway's
+						const float ends[3] = { falong[ oi + tv[0] ], falong[ oi + tv[1] ], falong[ oi + tv[2] ] };
+						if ( poly.size() >= 3 && own.bFreeEnd[0] && std::min( std::min( ends[0], ends[1] ), ends[2] ) < 0 ) spline_paveclip( poly, ends, SPLINE_PAVE_END, scratch );
+						const float length = own.s.empty() ? 0.0f : own.s.back();
+						if ( poly.size() >= 3 && own.bFreeEnd[1] && std::max( std::max( ends[0], ends[1] ), ends[2] ) > length )
+						{
+							const float f[3] = { length - ends[0], length - ends[1], length - ends[2] };
+							spline_paveclip( poly, f, SPLINE_PAVE_END, scratch );
+						}
 						pieces.clear();
 						// along the segments paved on this side: a square stop at a node where the next isn't (by the
-						// length along the road, linear across the triangle)
+						// length along the road's swept lines, linear across the triangle)
 						const uint8_t bit = (uint8_t)(side ? SPLINE_PAVE_RIGHT : SPLINE_PAVE_LEFT);
 						const int pavedCorners = ((fsides[ oi + tv[0] ] & bit) ? 1 : 0) + ((fsides[ oi + tv[1] ] & bit) ? 1 : 0) + ((fsides[ oi + tv[2] ] & bit) ? 1 : 0);
 						if ( poly.size() >= 3 && pavedCorners == 3 ) pieces.push_back( poly );
 						else if ( poly.size() >= 3 && pavedCorners > 0 )
 						{
-							const float sa[3] = { falong[ oi + tv[0] ], falong[ oi + tv[1] ], falong[ oi + tv[2] ] };
+							const float sa[3] = { fsweep[ oi + tv[0] ], fsweep[ oi + tv[1] ], fsweep[ oi + tv[2] ] };
 							const float sMin = std::min( std::min( sa[0], sa[1] ), sa[2] ), sMax = std::max( std::max( sa[0], sa[1] ), sa[2] );
 							const int segCount = (int)own.segSides.size();
 							for ( int a = 0; a < segCount; a++ )
@@ -3343,10 +3787,14 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 							}
 							pieces.erase( std::remove_if( pieces.begin(), pieces.end(), []( const std::vector<sSplinePaveCut>& p ) { return p.size() < 3; } ), pieces.end() );
 						}
+						// the tiles' length along the kerb's walk at the triangle's corners (a closed road's kept within half a loop
+						// of each other: its loop is a whole number of tiles)
+						const float* pU = side ? fu1.data() : fu0.data();
+						float uTri[3] = { pU[ oi + tv[0] ], pU[ oi + tv[1] ], pU[ oi + tv[2] ] };
+						for ( int j = 1; j < 3; j++ ) uTri[j] = spline_pavewrap( uTri[j], uTri[0], own.period[side] );
 						for ( const std::vector<sSplinePaveCut>& poly : pieces )
 						{
 							// the piece's corners: on the pavement's top, its tiles along the kerb and out from it
-							const float* pKerbS = side ? fs1.data() : fs0.data();
 							const int m = own.material;
 							const size_t count = poly.size();
 							std::vector<float> P( count * 3 ), UV( count * 2 ), H( count ), S( count );
@@ -3359,7 +3807,7 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 								{
 									x += b[j] * tx[j]; z += b[j] * tz[j];
 									D += b[j] * Dv[j]; Hk += b[j] * fH[ tv[j] ]; K += b[j] * fK[ tv[j] ];
-									ks += b[j] * pKerbS[ oi + tv[j] ];
+									ks += b[j] * uTri[j];
 								}
 								P[ k * 3 + 0 ] = x;
 								P[ k * 3 + 1 ] = Hk + K + SPLINE_PAVE_FALL * std::max( 0.0f, D );
@@ -3615,6 +4063,8 @@ void spline_updatepavements( void )
 	}
 	std::vector<char> meets;
 	spline_pavemeets( roads, meets );
+	std::vector<sSplinePaveCorner> corners;
+	spline_pavejoins( roads, meets, corners );
 	for ( const auto& chunk : chunkList )
 	{
 		const int64_t key = spline_pavechunkkey( chunk.first, chunk.second );
@@ -3626,7 +4076,7 @@ void spline_updatepavements( void )
 			g_SplinePaveChunks.erase( it );
 		}
 		sSplinePaveChunk built;
-		built.object = spline_buildpavechunk( chunk.first, chunk.second, roads, meets, materials, reach, built.triangles );
+		built.object = spline_buildpavechunk( chunk.first, chunk.second, roads, meets, corners, materials, reach, built.triangles );
 		if ( built.object ) g_SplinePaveChunks[ key ] = std::move( built );
 	}
 	g_SplinePaveApplied = total;
