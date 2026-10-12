@@ -4741,6 +4741,39 @@ static bool spline_saveaspreset( sSpline& s, const char* pName )
 	return bSaved;
 }
 
+// the level's other splines set from the preset of this name (of the spline's kind), and how many of them were edited since
+static int spline_presetusers( const sSpline& s, const char* pName, int* pEdited )
+{
+	int users = 0;
+	*pEdited = 0;
+	for ( const sSpline& other : g_Splines )
+	{
+		if ( &other == &s || other.kind != s.kind || _stricmp( other.preset, pName ) != 0 ) continue;
+		users++;
+		if ( spline_presetsignature( other ) != other.presetSignature ) (*pEdited)++;
+	}
+	return users;
+}
+
+// after Save as Preset, the level's other splines set from the preset of that name are set from it again (their nodes
+// and frozen layers stay); those edited since too unless left. They bake and place again by themselves, and the change
+// is one undo step with the save's
+static int spline_updatepresetusers( const sSpline& s, const char* pName, bool bEdited )
+{
+	const int at = spline_findpreset( g_SplinePresets, s.kind, pName );
+	if ( at < 0 ) return 0;
+	const sSplinePreset p = g_SplinePresets[ at ];
+	int updated = 0;
+	for ( sSpline& other : g_Splines )
+	{
+		if ( &other == &s || other.kind != s.kind || _stricmp( other.preset, pName ) != 0 ) continue;
+		if ( !bEdited && spline_presetsignature( other ) != other.presetSignature ) continue;
+		spline_applypreset( other, p );
+		updated++;
+	}
+	return updated;
+}
+
 // the Preset row (a road's or a river's), and Save as Preset
 static void spline_rowpreset( sSpline& s )
 {
@@ -4766,27 +4799,66 @@ static void spline_rowpreset( sSpline& s )
 	}
 	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", s.kind == SPLINE_KIND_ROAD ? "Sets the road's width, shape, textures and layers (streetlights, decals) from a preset; change any of them after.\nTextures come from this level's paint palette, entities from your entity bank (your own first)." : "Sets the river's size, water, textures and layers (rocks) from a preset; change any of them after.\nTextures come from this level's paint palette, entities from your entity bank (your own first)." );
 	static char saveName[ 64 ] = "";
+	static bool bConfirmUsers = false;
+	static bool bUpdateEdited = true;
 	ImGui::SetCursorPosX( fRowFieldX );
 	if ( ImGui::StyleButton( "Save as Preset...##splinesavepreset", ImVec2( fRowRight - fRowFieldX, 0 ) ) )
 	{
 		strcpy_s( saveName, 64, s.preset );
+		bConfirmUsers = false;
+		bUpdateEdited = true;
 		ImGui::OpenPopup( "##splinesavepresetpopup" );
 	}
 	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Keep these settings, textures and layers as a preset of your own (editors\\splinepresets.txt in your writable Files folder)" );
 	if ( ImGui::BeginPopup( "##splinesavepresetpopup" ) )
 	{
+		// the level's other splines set from a preset of this name are updated with it, once the user agrees
+		const std::string trimmed = spline_trim( saveName );
+		int edited = 0;
+		const int users = trimmed.size() > 0 ? spline_presetusers( s, trimmed.c_str(), &edited ) : 0;
+		if ( bConfirmUsers && users > 0 )
+		{
+			const bool bRoad = s.kind == SPLINE_KIND_ROAD;
+			ImGui::PushTextWrapPos( ImGui::GetCursorPosX() + 320.0f );
+			ImGui::Text( "%d other %s in this level %s set from \"%s\".", users, bRoad ? ( users == 1 ? "road" : "roads" ) : ( users == 1 ? "river" : "rivers" ), users == 1 ? "was" : "were", trimmed.c_str() );
+			ImGui::TextUnformatted( users == 1 ? "Saving sets it from the preset again: these settings, textures and layers. Its nodes, and any frozen layers, stay." : "Saving sets them from the preset again: these settings, textures and layers. Their nodes, and any frozen layers, stay." );
+			ImGui::PopTextWrapPos();
+			if ( edited > 0 )
+			{
+				char label[ 96 ];
+				sprintf_s( label, 96, "Also the %d edited since (their edits are lost)##splineupdateedited", edited );
+				ImGui::Checkbox( label, &bUpdateEdited );
+			}
+			if ( ImGui::StyleButton( "Save and Update##splinesaveupdate", ImVec2( 130.0f, 0 ) ) )
+			{
+				if ( spline_saveaspreset( s, trimmed.c_str() ) ) spline_updatepresetusers( s, trimmed.c_str(), bUpdateEdited );
+				spline_modified();
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if ( ImGui::StyleButton( "Back##splinesaveback", ImVec2( 80.0f, 0 ) ) ) bConfirmUsers = false;
+			ImGui::SameLine();
+			if ( ImGui::StyleButton( "Cancel##splinesaveupdatecancel", ImVec2( 80.0f, 0 ) ) ) ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			return;
+		}
+		bConfirmUsers = false;
 		ImGui::TextUnformatted( "Preset name" );
 		ImGui::SetNextItemWidth( 260.0f );
 		ImGui::InputText( "##splinepresetname", saveName, 64 );
 		const int mine = spline_findpreset( g_SplineUserPresets, s.kind, saveName );
 		if ( mine >= 0 ) ImGui::TextUnformatted( "Replaces your preset of that name." );
 		else if ( spline_findpreset( g_SplineBuiltInPresets, s.kind, saveName ) >= 0 ) ImGui::TextUnformatted( "Replaces the built-in preset of that name, for you." );
-		if ( ImGui::StyleButton( "Save##splinepresetsave", ImVec2( 80.0f, 0 ) ) && spline_trim( saveName ).size() > 0 )
+		if ( users > 0 ) ImGui::Text( "%d other %s here %s set from it: Save asks before updating %s.", users, s.kind == SPLINE_KIND_ROAD ? ( users == 1 ? "road" : "roads" ) : ( users == 1 ? "river" : "rivers" ), users == 1 ? "was" : "were", users == 1 ? "it" : "them" );
+		if ( ImGui::StyleButton( "Save##splinepresetsave", ImVec2( 80.0f, 0 ) ) && trimmed.size() > 0 )
 		{
-			const std::string name = spline_trim( saveName );
-			spline_saveaspreset( s, name.c_str() );
-			spline_modified();
-			ImGui::CloseCurrentPopup();
+			if ( users > 0 ) bConfirmUsers = true;
+			else
+			{
+				spline_saveaspreset( s, trimmed.c_str() );
+				spline_modified();
+				ImGui::CloseCurrentPopup();
+			}
 		}
 		if ( mine >= 0 )
 		{
