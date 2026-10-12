@@ -6426,6 +6426,8 @@ void RefreshEntityFolder(char* folder_s, void *pFolder)
 			delete m_pFiles;
 			m_pFiles = m_pnextFiles;
 		}
+		// GG: a folder left with no files of its type keeps no list, rather than the one just deleted
+		pNewFolder->m_pFirstFile = NULL;
 
 		SetDir(folder_s);
 
