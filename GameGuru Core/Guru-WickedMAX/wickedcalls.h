@@ -405,3 +405,8 @@ struct WickedCallWaterLook
 uint64_t WickedCall_CreateWaterSurface(const float* pPositions, const float* pUVs, uint32_t vertCount, const uint32_t* pIndices, uint32_t indexCount, const WickedCallWaterLook& look, const float* pUVs2 = 0);
 void WickedCall_SetWaterSurfaceLook(uint64_t entity, const WickedCallWaterLook& look);
 void WickedCall_DeleteWaterSurface(uint64_t entity);
+uint64_t WickedCall_CreateCodeMaterial(const char* pColour, const char* pNormal, const char* pSurface);
+void WickedCall_DeleteCodeMaterial(uint64_t material);
+uint64_t WickedCall_CreateCodeMesh(const float* pPositions, const float* pNormals, const float* pUVs, uint32_t vertCount, const uint32_t* pIndices, const uint32_t* pSubsetIndexCounts, const uint64_t* pSubsetMaterials, uint32_t subsetCount, bool bCastShadow);
+void WickedCall_DeleteCodeMesh(uint64_t entity);
+void WickedCall_GetMeshTextureNames(uint64_t meshIndex, std::string& colour, std::string& normal, std::string& surface);

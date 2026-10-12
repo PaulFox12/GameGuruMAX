@@ -10414,3 +10414,110 @@ void WickedCall_DeleteWaterSurface(uint64_t entity)
 	}
 	g_WickedCallWaterSurfaces.erase(it);
 }
+
+// GG: meshes made in code (the spline tool's pavements): an object of one mesh, a subset per material, and materials made
+// from texture files as an entity's are loaded. Each is kept, so a delete only removes what is still that object or
+// material (a level change may have cleared them, and their ids may have been reused)
+static std::unordered_map<uint64_t, wiECS::Entity> g_WickedCallCodeMeshes;
+static std::unordered_map<uint64_t, bool> g_WickedCallCodeMaterials;
+
+uint64_t WickedCall_CreateCodeMaterial(const char* pColour, const char* pNormal, const char* pSurface)
+{
+	Scene& scene = wiScene::GetScene();
+	wiECS::Entity entity = scene.Entity_CreateMaterial("ggcodemesh_material");
+	MaterialComponent& material = *scene.materials.GetComponent(entity);
+	const char* names[3] = { pColour, pNormal, pSurface };
+	const int slots[3] = { MaterialComponent::BASECOLORMAP, MaterialComponent::NORMALMAP, MaterialComponent::SURFACEMAP };
+	for (int i = 0; i < 3; i++)
+	{
+		if (!names[i] || !names[i][0]) continue;
+		material.textures[slots[i]].resource = WickedCall_LoadImage(names[i]);
+		// named only once loaded, so Wicked never tries the file again itself
+		if (material.textures[slots[i]].resource) material.textures[slots[i]].name = names[i];
+	}
+	// as an entity's: the surface map's roughness and metalness taken whole, else a rough non-metal
+	const bool bSurface = material.textures[MaterialComponent::SURFACEMAP].resource != nullptr;
+	if (!material.textures[MaterialComponent::BASECOLORMAP].resource) material.baseColor = XMFLOAT4(0.55f, 0.55f, 0.52f, 1.0f);
+	material.roughness = bSurface ? 1.0f : 0.8f;
+	material.metalness = bSurface ? 1.0f : 0.0f;
+	material.reflectance = 0.04f;
+	material.SetDirty();
+	g_WickedCallCodeMaterials[(uint64_t)entity] = true;
+	return (uint64_t)entity;
+}
+
+void WickedCall_DeleteCodeMaterial(uint64_t material)
+{
+	auto it = g_WickedCallCodeMaterials.find(material);
+	if (it == g_WickedCallCodeMaterials.end()) return;
+	Scene& scene = wiScene::GetScene();
+	const NameComponent* pName = scene.names.GetComponent((wiECS::Entity)material);
+	if (scene.materials.GetComponent((wiECS::Entity)material) && pName && pName->name == "ggcodemesh_material") scene.Entity_Remove((wiECS::Entity)material);
+	g_WickedCallCodeMaterials.erase(it);
+}
+
+// positions, normals and uvs per vertex (3, 3 and 2 floats); the indices in runs, one per subset, each drawn with its material
+uint64_t WickedCall_CreateCodeMesh(const float* pPositions, const float* pNormals, const float* pUVs, uint32_t vertCount, const uint32_t* pIndices, const uint32_t* pSubsetIndexCounts, const uint64_t* pSubsetMaterials, uint32_t subsetCount, bool bCastShadow)
+{
+	uint32_t indexCount = 0;
+	for (uint32_t i = 0; i < subsetCount; i++) indexCount += pSubsetIndexCounts[i];
+	if (vertCount == 0 || indexCount == 0) return 0;
+	Scene& scene = wiScene::GetScene();
+	wiECS::Entity objectEntity = scene.Entity_CreateObject("ggcodemesh");
+	wiECS::Entity meshEntity = scene.Entity_CreateMesh("ggcodemesh_mesh");
+	ObjectComponent& object = *scene.objects.GetComponent(objectEntity);
+	MeshComponent& mesh = *scene.meshes.GetComponent(meshEntity);
+	object.meshID = meshEntity;
+	object.SetCastShadow(bCastShadow);
+	mesh.vertex_positions.resize(vertCount);
+	mesh.vertex_normals.resize(vertCount);
+	mesh.vertex_uvset_0.resize(vertCount);
+	for (uint32_t i = 0; i < vertCount; i++)
+	{
+		mesh.vertex_positions[i] = XMFLOAT3(pPositions[i * 3 + 0], pPositions[i * 3 + 1], pPositions[i * 3 + 2]);
+		mesh.vertex_normals[i] = XMFLOAT3(pNormals[i * 3 + 0], pNormals[i * 3 + 1], pNormals[i * 3 + 2]);
+		mesh.vertex_uvset_0[i] = XMFLOAT2(pUVs[i * 2 + 0], pUVs[i * 2 + 1]);
+	}
+	uint32_t offset = 0;
+	for (uint32_t i = 0; i < subsetCount; i++)
+	{
+		if (pSubsetIndexCounts[i] == 0) continue;
+		mesh.subsets.push_back(MeshComponent::MeshSubset());
+		mesh.subsets.back().materialID = (wiECS::Entity)pSubsetMaterials[i];
+		mesh.subsets.back().indexOffset = offset;
+		mesh.subsets.back().indexCount = pSubsetIndexCounts[i];
+		offset += pSubsetIndexCounts[i];
+	}
+	mesh.indices.assign(pIndices, pIndices + indexCount);
+	mesh.CreateRenderData();
+	g_WickedCallCodeMeshes[(uint64_t)objectEntity] = meshEntity;
+	return (uint64_t)objectEntity;
+}
+
+void WickedCall_DeleteCodeMesh(uint64_t entity)
+{
+	auto it = g_WickedCallCodeMeshes.find(entity);
+	if (it == g_WickedCallCodeMeshes.end()) return;
+	Scene& scene = wiScene::GetScene();
+	ObjectComponent* pObject = scene.objects.GetComponent((wiECS::Entity)entity);
+	if (pObject && pObject->meshID == it->second)
+	{
+		scene.Entity_Remove((wiECS::Entity)entity);
+		scene.Entity_Remove(it->second);
+	}
+	g_WickedCallCodeMeshes.erase(it);
+}
+
+// the texture files a mesh's first material was given (an entity's, as loaded), "" where none
+void WickedCall_GetMeshTextureNames(uint64_t meshIndex, std::string& colour, std::string& normal, std::string& surface)
+{
+	colour = normal = surface = "";
+	Scene& scene = wiScene::GetScene();
+	const MeshComponent* pMesh = scene.meshes.GetComponent((wiECS::Entity)meshIndex);
+	if (!pMesh || pMesh->subsets.empty()) return;
+	const MaterialComponent* pMaterial = scene.materials.GetComponent(pMesh->subsets[0].materialID);
+	if (!pMaterial) return;
+	colour = pMaterial->textures[MaterialComponent::BASECOLORMAP].name;
+	normal = pMaterial->textures[MaterialComponent::NORMALMAP].name;
+	surface = pMaterial->textures[MaterialComponent::SURFACEMAP].name;
+}

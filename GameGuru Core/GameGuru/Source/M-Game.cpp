@@ -4662,9 +4662,10 @@ void game_main_loop ( void )
 	if ( g_bGamePaused == false ) g_bInGameCPUFrameComplete = true;
 
 	// the rivers' water (the spline tool) keeps up with its rivers and the main water's look, the roads' painted markings
-	// with the roads
+	// and pavements with the roads
 	spline_updatewater ( );
 	spline_updatemarkings ( );
+	spline_updatepavements ( );
 
 	// the engine probes' totals (GetEngineProbe) are per game frame
 	extern void WickedCall_ProbeFrame(void);
