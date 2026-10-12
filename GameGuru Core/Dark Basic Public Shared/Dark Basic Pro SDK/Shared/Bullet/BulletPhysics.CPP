@@ -3904,6 +3904,7 @@ int ODECreateStaticTriangleMeshData ( const float* pPositions, int iTriangleCoun
 	b.pBody = new btRigidBody ( rbInfo );
 	b.pBody->setUserPointer ( (void*)(intptr_t)iMaterial );
 	b.pBody->setUserIndex ( -1 );
+	b.pBody->setUserIndex2 ( 1 ); // a surface built from a spline (PHYSICS_SURFACE_SPLINE, PhysicsRay's surface)
 	const short sCollidesWith = COL_OBJECT | COL_OBJECT_DYNAMIC | COL_CAPSULECHAR | COL_TERRAIN;
 	g_dynamicsWorld->addRigidBody ( b.pBody, COL_TERRAIN, sCollidesWith );
 	const int iHandle = g_iNextStaticTriangleBody++;

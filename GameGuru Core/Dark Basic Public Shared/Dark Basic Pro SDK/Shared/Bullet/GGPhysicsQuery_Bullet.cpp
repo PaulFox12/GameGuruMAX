@@ -36,6 +36,12 @@ static int PhysicsQuery_ObjectNumber(const btCollisionObject* pObject, short iGr
 	return ODEFindObjectNumberOfBody(pObject);
 }
 
+// the kind of surface a body is: its creation's second index where it set one (ODECreateStaticTriangleMeshData)
+static int PhysicsQuery_Surface(const btCollisionObject* pObject)
+{
+	return pObject->getUserIndex2() > 0 ? pObject->getUserIndex2() : PHYSICS_SURFACE_OTHER;
+}
+
 // the layers are the bodies' own collision groups (COL_TERRAIN, COL_OBJECT, COL_CAPSULECHAR, COL_OBJECT_DYNAMIC)
 static bool PhysicsQuery_Wanted(btBroadphaseProxy* pProxy, int iLayers, const int* pIgnore, int iIgnoreCount)
 {
@@ -232,6 +238,7 @@ bool PhysicsQuery_Ray(const float* pFrom, const float* pTo, int iLayers, const i
 {
 	pHit->hit = false;
 	pHit->object = 0;
+	pHit->surface = PHYSICS_SURFACE_OTHER;
 	if (!g_dynamicsWorld) return false;
 	btVector3 from(pFrom[0] / gSc, pFrom[1] / gSc, pFrom[2] / gSc);
 	btVector3 to(pTo[0] / gSc, pTo[1] / gSc, pTo[2] / gSc);
@@ -251,6 +258,7 @@ bool PhysicsQuery_Ray(const float* pFrom, const float* pTo, int iLayers, const i
 	pHit->normal[2] = callback.m_hitNormalWorld.z();
 	const btBroadphaseProxy* pProxy = callback.m_collisionObject->getBroadphaseHandle();
 	pHit->object = PhysicsQuery_ObjectNumber(callback.m_collisionObject, pProxy ? pProxy->m_collisionFilterGroup : 0);
+	pHit->surface = PhysicsQuery_Surface(callback.m_collisionObject);
 	return true;
 }
 
@@ -258,6 +266,7 @@ bool PhysicsQuery_SweepBox(const float* pCentre, const float* pHalf, float fYawD
 {
 	pHit->hit = false;
 	pHit->object = 0;
+	pHit->surface = PHYSICS_SURFACE_OTHER;
 	if (!g_dynamicsWorld) return false;
 	btBoxShape box(btVector3(fabsf(pHalf[0]) / gSc, fabsf(pHalf[1]) / gSc, fabsf(pHalf[2]) / gSc));
 	btTransform from = PhysicsQuery_BoxTransform(pCentre, fYawDegrees);
@@ -318,6 +327,7 @@ bool PhysicsQuery_SweepBox(const float* pCentre, const float* pHalf, float fYawD
 	pHit->normal[2] = callback.m_hitNormalWorld.z();
 	const btBroadphaseProxy* pProxy = callback.m_hitCollisionObject->getBroadphaseHandle();
 	pHit->object = PhysicsQuery_ObjectNumber(callback.m_hitCollisionObject, pProxy ? pProxy->m_collisionFilterGroup : 0);
+	pHit->surface = PhysicsQuery_Surface(callback.m_hitCollisionObject);
 	return true;
 }
 

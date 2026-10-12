@@ -7901,7 +7901,7 @@ static bool LuaPhysicsIsTreeCylinder(int iObject)
 	return iObject >= g.virtualtreeobjectstart && iObject < g.virtualtreeobjectstart + PHYSICS_VIRTUALTREE_MAX;
 }
 
-// hit, x, y, z, nx, ny, nz, obj, fraction, tree, treetype (iTreeType for a map-wide trunk, else the cylinder's)
+// hit, x, y, z, nx, ny, nz, obj, fraction, tree, treetype (iTreeType for a map-wide trunk, else the cylinder's), surface
 static int LuaPushPhysicsHit(lua_State* L, const PhysicsHit& hit, bool bTree, int iTreeType)
 {
 	bool bTreeHit = hit.hit && (bTree || LuaPhysicsIsTreeCylinder(hit.object));
@@ -7914,14 +7914,16 @@ static int LuaPushPhysicsHit(lua_State* L, const PhysicsHit& hit, bool bTree, in
 	lua_pushnumber(L, hit.hit ? hit.fraction : 1.0f);
 	lua_pushinteger(L, bTreeHit ? 1 : 0);
 	lua_pushinteger(L, bTreeHit ? iTreeType : -1);
-	return 11;
+	lua_pushinteger(L, (hit.hit && !bTreeHit) ? hit.surface : PHYSICS_SURFACE_OTHER);
+	return 12;
 }
 
 // PhysicsRay(x1, y1, z1, x2, y2, z2 [, layers [, ignore]]): the nearest body the segment meets in the physics world, with no
 // force applied (PhysicsRayCast pushes what it hits and returns moving bodies only). layers add up: 1 the ground (and
 // entities built as terrain colliders), 2 static entities, 4 characters, 8 moving bodies (11 unless set); ignore is an
 // object number or a table of up to 8. Returns hit, x, y, z, nx, ny, nz, obj (0 the ground or a tree, -1 a character
-// capsule), fraction, tree (1 for a trunk) and treetype (the trunk's tree type, GetTreeTypeName, -1 if none). The physics world has the ground only as detailed as the terrain round the
+// capsule), fraction, tree (1 for a trunk), treetype (the trunk's tree type, GetTreeTypeName, -1 if none) and surface (1 a
+// surface built from a spline, a road's pavement, which is ground with obj 0; else 0). The physics world has the ground only as detailed as the terrain round the
 // camera, no body for collisionmode 11 or 12, and trunks only round the camera (RayTrees has them everywhere)
 int PhysicsRay(lua_State* L)
 {

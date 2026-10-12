@@ -14,6 +14,10 @@
 #define PHYSICS_LAYER_DEFAULT (PHYSICS_LAYER_TERRAIN | PHYSICS_LAYER_STATIC | PHYSICS_LAYER_DYNAMIC)
 #define PHYSICS_QUERY_MAX_IGNORE 8
 
+// what kind of surface a hit is on
+#define PHYSICS_SURFACE_OTHER 0 // the ground, or anything else
+#define PHYSICS_SURFACE_SPLINE 1 // a surface built from a spline: a road's pavement (in the ground's layer, object 0)
+
 struct PhysicsHit
 {
 	bool hit;
@@ -21,6 +25,7 @@ struct PhysicsHit
 	float point[3];
 	float normal[3];
 	int object; // the object number of what was hit; 0 the ground, -1 a character capsule or a body with no object
+	int surface; // PHYSICS_SURFACE_*
 };
 
 // the nearest body the segment from pFrom to pTo meets. Jolt: NarrowPhaseQuery::CastRay, the layers as an object layer
