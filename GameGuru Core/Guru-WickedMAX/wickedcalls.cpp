@@ -7062,6 +7062,32 @@ bool WickedCall_DecalRayTargetsRay(const float* pFrom, const float* pDir, float 
 	return true;
 }
 
+// GG: the nearest surface of one object's own meshes along a ray (pDir of unit length), up to fLength, met from the ray's
+// side as every pick takes it: true with its distance and normal. The model of a vehicle with no physics body
+// (CollisionOff), which the physics ray can't meet; an object made with no collision (mode 11) is never met
+bool WickedCall_ObjectRay(sObject* pObject, const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal)
+{
+	if (!pObject || !pObject->ppFrameList) return false;
+	Scene& scene = wiScene::GetScene();
+	static std::vector<uint32_t> targets;
+	targets.clear();
+	for (int iF = 0; iF < pObject->iFrameCount; iF++)
+	{
+		sFrame* pFrame = pObject->ppFrameList[iF];
+		if (!pFrame || pFrame->wickedobjindex == 0) continue;
+		size_t i = scene.objects.GetIndex(pFrame->wickedobjindex);
+		if (i < scene.objects.GetCount() && scene.objects.GetEntity(i) == pFrame->wickedobjindex) targets.push_back((uint32_t)i);
+	}
+	if (targets.empty()) return false;
+	RAY pickRay(XMFLOAT3(pFrom[0], pFrom[1], pFrom[2]), XMFLOAT3(pDir[0], pDir[1], pDir[2]));
+	pickRay.TMax = fLength;
+	wiScene::PickResult hit = wiScene::PickObjects(pickRay, targets.data(), (uint32_t)targets.size(), RENDERTYPE_OPAQUE | RENDERTYPE_TRANSPARENT, ~0u);
+	if (hit.entity == INVALID_ENTITY || hit.distance > fLength) return false;
+	*pDistance = hit.distance;
+	pNormal[0] = hit.normal.x; pNormal[1] = hit.normal.y; pNormal[2] = hit.normal.z;
+	return true;
+}
+
 // the objects a script's region rays test (WickedCall_BeginRegionRays): scene object indices, with their entities so an
 // index the scene has since given to another object is skipped; they hold for the frame they were found in
 std::vector<uint32_t> g_RegionRayTargets;

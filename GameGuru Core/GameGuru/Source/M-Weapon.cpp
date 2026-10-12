@@ -328,12 +328,14 @@ static bool weapon_projectile_isfoliage ( int iEntID )
 
 // GG: a contact projectile's path this frame against the collision boxes of entities with no physics body, where they
 // stand now: CollisionOff removes a moving vehicle's body, so the projectile's own body can't touch it. Each box is grown
-// by the projectile's half size, and one the path starts inside is passed (the thrower's own vehicle), as is foliage.
-// Returns the object of the first box entered (0 none), the entry point, how far along the path it is (0 to 1), and the
-// normal of the face entered
+// by the projectile's half size; foliage is passed. A box the path starts inside (the thrower's own vehicle, or a
+// helicopter's, which spans its rotor disc, with the thrower under it) has its own model tested instead, a surface
+// counting only when met from outside, so a throw out of the vehicle the thrower is in leaves it. Returns the object
+// hit first (0 none), the point, how far along the path it is (0 to 1), and the normal of the surface met
 static int weapon_projectile_boxhit ( GGVECTOR3 vecFrom, GGVECTOR3 vecTo, float fRadius, int iIgnoreObj, GGVECTOR3* pHit, float* pAlong, GGVECTOR3* pNormal )
 {
 	bool CalcObjectWorld ( sObject* pObject );
+	bool WickedCall_ObjectRay ( sObject* pObject, const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal );
 	GGVECTOR3 vecPath = vecTo - vecFrom;
 	float fPathSquared = GGVec3Dot ( &vecPath, &vecPath );
 	if ( fPathSquared < 0.000001f ) return 0;
@@ -403,7 +405,25 @@ static int weapon_projectile_boxhit ( GGVECTOR3 vecFrom, GGVECTOR3 vecTo, float 
 			if ( fT2 < fExit ) fExit = fT2;
 			if ( fEnter > fExit ) bMissed = true;
 		}
-		if ( bMissed || fEnter < 0 || fEnter > 1 || fEnter >= fBest ) continue;
+		if ( bMissed || fEnter > 1 || fExit < 0 ) continue;
+		if ( fEnter < 0 )
+		{
+			// starts inside the box: its own model along the path
+			float fPathLength = sqrt ( fPathSquared );
+			float fFrom[3] = { vecFrom.x, vecFrom.y, vecFrom.z };
+			float fDir[3] = { vecPath.x / fPathLength, vecPath.y / fPathLength, vecPath.z / fPathLength };
+			float fDistance = 0.0f;
+			float fModelNormal[3] = { 0, 0, 0 };
+			if ( !WickedCall_ObjectRay ( pObject, fFrom, fDir, fPathLength, &fDistance, fModelNormal ) ) continue;
+			float fModelAlong = fDistance / fPathLength;
+			if ( fModelAlong >= fBest ) continue;
+			fBest = fModelAlong;
+			iHitObj = iObj;
+			*pHit = vecFrom + vecPath * fModelAlong;
+			*pNormal = GGVECTOR3 ( fModelNormal[0], fModelNormal[1], fModelNormal[2] );
+			continue;
+		}
+		if ( fEnter >= fBest ) continue;
 		fBest = fEnter;
 		iHitObj = iObj;
 		*pHit = vecFrom + vecPath * fEnter;
