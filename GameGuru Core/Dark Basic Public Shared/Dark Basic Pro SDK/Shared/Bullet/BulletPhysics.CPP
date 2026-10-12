@@ -898,6 +898,10 @@ void ODEEnd ( void )
 	///-----cleanup_start-----
 	if ( g_dynamicsWorld )
 	{
+		// GG: the static bodies made from triangles (ODECreateStaticTriangleMeshData), with their shapes and meshes
+		extern void ODEDeleteAllStaticTriangleMeshData ( void );
+		ODEDeleteAllStaticTriangleMeshData();
+
 		// remove character controller if any
 		if (m_character)
 		{
@@ -3856,6 +3860,71 @@ void ODECreateStaticTerrain ( int iObjectNumber, int iWidth, int iLength, DWORD 
 void ODEUpdateStaticTerrain ( int iObjectNumber, int iWidth, int iLength, LPSTR dwMemBlockPtr, int iX1, int iZ1, int iX2, int iZ2 )
 {
 	UpdateTerrain ( iObjectNumber, 0, iWidth, iLength, dwMemBlockPtr, iX1, iZ1, iX2, iZ2 );
+}
+
+// GG: static bodies made from triangles of the world's own (the spline tool's pavements), not an object's: in the ground's
+// group with no object, so the player, rays and contacts take them as ground (object 0), their material for footsteps and
+// impacts; each kept by a handle until deleted, or until the world ends (ODEEnd deletes what is left first)
+struct sStaticTriangleBody
+{
+	btTriangleMesh* pMesh = NULL;
+	btBvhTriangleMeshShape* pShape = NULL;
+	btDefaultMotionState* pMotion = NULL;
+	btRigidBody* pBody = NULL;
+};
+static std::unordered_map<int, sStaticTriangleBody> g_StaticTriangleBodies;
+static int g_iNextStaticTriangleBody = 1;
+
+static void DeleteStaticTriangleBody ( sStaticTriangleBody& b )
+{
+	if ( g_dynamicsWorld && b.pBody ) g_dynamicsWorld->removeRigidBody ( b.pBody );
+	SAFE_DELETE ( b.pBody );
+	SAFE_DELETE ( b.pMotion );
+	SAFE_DELETE ( b.pShape );
+	SAFE_DELETE ( b.pMesh );
+}
+
+// the triangles' corners, x y z each in world units, three a triangle; 0 when there is no world or nothing to make
+int ODECreateStaticTriangleMeshData ( const float* pPositions, int iTriangleCount, int iMaterial )
+{
+	if ( !g_dynamicsWorld || !pPositions || iTriangleCount <= 0 ) return 0;
+	std::lock_guard<std::recursive_mutex> lock ( physicslock );
+	sStaticTriangleBody b;
+	b.pMesh = new btTriangleMesh ( true, false );
+	for ( int t = 0; t < iTriangleCount; t++ )
+	{
+		const float* p = pPositions + t * 9;
+		b.pMesh->addTriangle ( btVector3 ( p[0] / gSc, p[1] / gSc, p[2] / gSc ), btVector3 ( p[3] / gSc, p[4] / gSc, p[5] / gSc ), btVector3 ( p[6] / gSc, p[7] / gSc, p[8] / gSc ), false );
+	}
+	b.pShape = new btBvhTriangleMeshShape ( b.pMesh, true );
+	btTransform transform;
+	transform.setIdentity();
+	b.pMotion = new btDefaultMotionState ( transform );
+	btRigidBody::btRigidBodyConstructionInfo rbInfo ( 0, b.pMotion, b.pShape, btVector3 ( 0, 0, 0 ) );
+	b.pBody = new btRigidBody ( rbInfo );
+	b.pBody->setUserPointer ( (void*)(intptr_t)iMaterial );
+	b.pBody->setUserIndex ( -1 );
+	const short sCollidesWith = COL_OBJECT | COL_OBJECT_DYNAMIC | COL_CAPSULECHAR | COL_TERRAIN;
+	g_dynamicsWorld->addRigidBody ( b.pBody, COL_TERRAIN, sCollidesWith );
+	const int iHandle = g_iNextStaticTriangleBody++;
+	g_StaticTriangleBodies[ iHandle ] = b;
+	return iHandle;
+}
+
+void ODEDeleteAllStaticTriangleMeshData ( void )
+{
+	std::lock_guard<std::recursive_mutex> lock ( physicslock );
+	for ( auto& entry : g_StaticTriangleBodies ) DeleteStaticTriangleBody ( entry.second );
+	g_StaticTriangleBodies.clear();
+}
+
+void ODEDeleteStaticTriangleMeshData ( int iHandle )
+{
+	auto it = g_StaticTriangleBodies.find ( iHandle );
+	if ( it == g_StaticTriangleBodies.end() ) return;
+	std::lock_guard<std::recursive_mutex> lock ( physicslock );
+	DeleteStaticTriangleBody ( it->second );
+	g_StaticTriangleBodies.erase ( it );
 }
 void ODECreateStaticCapsule ( int iObjectNumber, float fCollisionScaling, float fCollisionScalingXZ)
 {

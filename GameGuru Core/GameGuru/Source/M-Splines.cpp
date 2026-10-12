@@ -2870,7 +2870,17 @@ struct sSplinePaveBuilt
 	float bounds[4] = { 1e30f, 1e30f, -1e30f, -1e30f };
 };
 static std::unordered_map<int, sSplinePaveBuilt> g_SplinePaveBuilt; // by spline id: what its pavements were last built for
-static std::unordered_map<int64_t, uint64_t> g_SplinePaveChunks; // each chunk's object
+// a chunk of the pavements: its object, its triangles (x y z of each corner, for its collision) and its body while a game's
+// physics runs (ODECreateStaticTriangleMeshData, ground to the player, rays and contacts), 0 none
+struct sSplinePaveChunk
+{
+	uint64_t object = 0;
+	std::vector<float> triangles;
+	int body = 0;
+};
+static std::unordered_map<int64_t, sSplinePaveChunk> g_SplinePaveChunks;
+static bool g_bSplinePaveBodies = false; // bodies were made in this physics session
+#define SPLINE_PAVE_MATERIAL 1 // the bodies' material: stone (footsteps, impacts)
 static std::unordered_map<std::string, uint64_t> g_SplinePaveMaterials; // made once for each set of textures
 static uint64_t g_SplinePaveApplied = 0, g_SplinePavePending = 0;
 static int g_iSplinePaveStill = 0;
@@ -3101,7 +3111,7 @@ static void spline_pavemeets( const std::vector<sSplinePaveRoad>& roads, std::ve
 }
 
 // a chunk's pavements as one mesh (0 none): the roads near it, which of them meet, their materials
-static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSplinePaveRoad>& roads, const std::vector<char>& meets, const std::vector<uint64_t>& materials, float reach )
+static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSplinePaveRoad>& roads, const std::vector<char>& meets, const std::vector<uint64_t>& materials, float reach, std::vector<float>& triangles )
 {
 	const float size = SPLINE_PAVE_STEP * SPLINE_PAVE_CELLS;
 	const float rect[4] = { cx * size, cz * size, (cx + 1) * size, (cz + 1) * size };
@@ -3415,6 +3425,7 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 		subsetMaterials.push_back( materials[m] );
 	}
 	if ( indices.empty() ) return 0;
+	triangles = allPos;
 	return WickedCall_CreateCodeMesh( allPos.data(), allNor.data(), allUV.data(), (uint32_t)(allPos.size() / 3), indices.data(), counts.data(), subsetMaterials.data(), (uint32_t)counts.size(), false );
 }
 
@@ -3443,9 +3454,39 @@ static int64_t spline_pavechunkkey( int cx, int cz )
 	return ((int64_t)cx << 32) | (uint32_t)cz;
 }
 
+// a chunk's body gone (a level change, a chunk built again)
+static void spline_deletepavebody( sSplinePaveChunk& chunk )
+{
+	if ( chunk.body && g.gphysicssessionactive ) ODEDeleteStaticTriangleMeshData( chunk.body );
+	chunk.body = 0;
+}
+
+// the chunks' bodies made when a game's physics runs (the first frame of its session, and a chunk built during it), and
+// forgotten when it ends (ODEEnd deleted them)
+static void spline_pavephysics( void )
+{
+	if ( !g.gphysicssessionactive )
+	{
+		if ( g_bSplinePaveBodies ) for ( auto& entry : g_SplinePaveChunks ) entry.second.body = 0;
+		g_bSplinePaveBodies = false;
+		return;
+	}
+	for ( auto& entry : g_SplinePaveChunks )
+	{
+		sSplinePaveChunk& chunk = entry.second;
+		if ( chunk.body || chunk.triangles.size() < 9 ) continue;
+		chunk.body = ODECreateStaticTriangleMeshData( chunk.triangles.data(), (int)(chunk.triangles.size() / 9), SPLINE_PAVE_MATERIAL );
+		g_bSplinePaveBodies = true;
+	}
+}
+
 static void spline_deletepavements( void )
 {
-	for ( const auto& chunk : g_SplinePaveChunks ) WickedCall_DeleteCodeMesh( chunk.second );
+	for ( auto& chunk : g_SplinePaveChunks )
+	{
+		WickedCall_DeleteCodeMesh( chunk.second.object );
+		spline_deletepavebody( chunk.second );
+	}
 	for ( const auto& material : g_SplinePaveMaterials ) WickedCall_DeleteCodeMaterial( material.second );
 	g_SplinePaveChunks.clear();
 	g_SplinePaveMaterials.clear();
@@ -3458,6 +3499,7 @@ static void spline_deletepavements( void )
 // second after the last change, once the terrain is ready; called every frame in the editor and in game
 void spline_updatepavements( void )
 {
+	spline_pavephysics();
 	if ( !GGTerrain::GGTerrain_IsReady() || g_iSplineWaterWait > 0 ) return;
 	uint64_t total = 0xcbf29ce484222325ULL;
 	float reach = 0;
@@ -3574,13 +3616,17 @@ void spline_updatepavements( void )
 		auto it = g_SplinePaveChunks.find( key );
 		if ( it != g_SplinePaveChunks.end() )
 		{
-			WickedCall_DeleteCodeMesh( it->second );
+			WickedCall_DeleteCodeMesh( it->second.object );
+			spline_deletepavebody( it->second );
 			g_SplinePaveChunks.erase( it );
 		}
-		const uint64_t object = spline_buildpavechunk( chunk.first, chunk.second, roads, meets, materials, reach );
-		if ( object ) g_SplinePaveChunks[ key ] = object;
+		sSplinePaveChunk built;
+		built.object = spline_buildpavechunk( chunk.first, chunk.second, roads, meets, materials, reach, built.triangles );
+		if ( built.object ) g_SplinePaveChunks[ key ] = std::move( built );
 	}
 	g_SplinePaveApplied = total;
+	// bodies for the chunks built now, while a game's physics runs
+	spline_pavephysics();
 }
 
 // places the spline's layers along it, taking away what they placed before (a frozen layer's stay). None goes on another
