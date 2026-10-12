@@ -10508,6 +10508,17 @@ void WickedCall_DeleteCodeMesh(uint64_t entity)
 	g_WickedCallCodeMeshes.erase(it);
 }
 
+// GG: the emitters marked for half resolution (a layer's wpe_filler_3 bit 8) drawn at it, or at full resolution
+void WickedCall_SetParticleHalfResolution(bool bOn)
+{
+	wiRenderer::SetParticleHalfResolutionEnabled(bOn);
+}
+
+bool WickedCall_GetParticleHalfResolution(void)
+{
+	return wiRenderer::GetParticleHalfResolutionEnabled();
+}
+
 // the texture files a mesh's first material was given (an entity's, as loaded), "" where none
 void WickedCall_GetMeshTextureNames(uint64_t meshIndex, std::string& colour, std::string& normal, std::string& surface)
 {

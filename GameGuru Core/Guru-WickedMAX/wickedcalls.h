@@ -410,3 +410,5 @@ void WickedCall_DeleteCodeMaterial(uint64_t material);
 uint64_t WickedCall_CreateCodeMesh(const float* pPositions, const float* pNormals, const float* pUVs, uint32_t vertCount, const uint32_t* pIndices, const uint32_t* pSubsetIndexCounts, const uint64_t* pSubsetMaterials, uint32_t subsetCount, bool bCastShadow);
 void WickedCall_DeleteCodeMesh(uint64_t entity);
 void WickedCall_GetMeshTextureNames(uint64_t meshIndex, std::string& colour, std::string& normal, std::string& surface);
+void WickedCall_SetParticleHalfResolution(bool bOn);
+bool WickedCall_GetParticleHalfResolution(void);

@@ -14849,6 +14849,22 @@ int SetMaxApparentSize(lua_State* L)
 	LuaRenderSettings_SetMaxApparentSize((float)lua_tonumber(L, 1));
 	return 0;
 }
+// SetParticleHalfResolution(on): the particle layers marked for half resolution (their option bit 8) drawn at it, a
+// quarter of the pixels laid over the scene (1, the default), or at full resolution as the rest (0)
+int SetParticleHalfResolution(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	extern void WickedCall_SetParticleHalfResolution(bool bOn);
+	WickedCall_SetParticleHalfResolution(lua_tonumber(L, 1) != 0);
+	return 0;
+}
+// GetParticleHalfResolution(): 1 when the marked particle layers are drawn at half resolution, else 0
+int GetParticleHalfResolution(lua_State* L)
+{
+	extern bool WickedCall_GetParticleHalfResolution(void);
+	lua_pushnumber(L, WickedCall_GetParticleHalfResolution() ? 1 : 0);
+	return 1;
+}
 // SetShadowResolution(sun [, spot [, point]]): shadow map sizes, 0 (none) to 2048; a change recreates the maps (a hitch)
 int SetShadowResolution(lua_State* L)
 {
@@ -18543,6 +18559,8 @@ void addFunctions()
 	lua_register(lua, "SetReflectionsLowestLOD", SetReflectionsLowestLOD);
 	lua_register(lua, "SetAnimations30Fps", SetAnimations30Fps);
 	lua_register(lua, "SetMaxApparentSize", SetMaxApparentSize);
+	lua_register(lua, "SetParticleHalfResolution", SetParticleHalfResolution);
+	lua_register(lua, "GetParticleHalfResolution", GetParticleHalfResolution);
 	lua_register(lua, "SetShadowResolution", SetShadowResolution);
 	lua_register(lua, "SetShadowLights", SetShadowLights);
 	lua_register(lua, "SetShadowCascades", SetShadowCascades);

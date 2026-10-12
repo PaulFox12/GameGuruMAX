@@ -2557,6 +2557,8 @@ SetProbesLowestLOD : SetProbesLowestLOD ( on ) -- environment probes drawn from 
 SetReflectionsLowestLOD : SetReflectionsLowestLOD ( on ) -- reflections drawn from each model's lowest LOD
 SetAnimations30Fps : SetAnimations30Fps ( on ) -- far characters animate at 30 frames a second
 SetMaxApparentSize : SetMaxApparentSize ( v ) -- objects smaller on screen than v (0.000001 to 0.2, the editor's value / 10000) aren't drawn
+SetParticleHalfResolution : SetParticleHalfResolution ( on ) -- the particle layers marked for half resolution (their option bit 8) drawn at it, a quarter of the pixels laid over the scene (1, the default), or at full resolution (0)
+GetParticleHalfResolution : r = GetParticleHalfResolution ( ) -- 1 when the marked particle layers are drawn at half resolution, else 0
 SetShadowResolution : SetShadowResolution ( sun [, spot [, point] ] ) -- shadow map sizes, 0 (none) to 2048; a change recreates the maps (a hitch), so set it from a menu, not every frame
 SetShadowLights : SetShadowLights ( spotMax [, pointMax] ) -- how many spot and point lights cast shadows at once, 0 to 16
 SetShadowCascades : SetShadowCascades ( n [, split1, split2, split3, split4] ) -- the sun's shadow cascades in use, 1 to 5 (past the last, no sun shadow), and the view depths the first four end at (380, 950, 7500, 30000 unless set; used only if all four are given, above 0 and rising); a moved split sharpens or blurs that cascade, and the depth bias was tuned to the stock splits, so acne or light leaks may show
