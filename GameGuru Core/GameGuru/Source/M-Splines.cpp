@@ -337,6 +337,8 @@ static int g_iSplineLoadFrame = -1000;
 static std::unordered_set<int> g_SplineForceBake;
 // the object library is open to pick a layer's entity
 static bool g_bLibraryPickEntity = false;
+// the last pavement texture picked was outside a Files folder (not used)
+static bool g_bPaveTextureOutside = false;
 // drawing: nodes are being added to the selected spline, so a click on another spline's node or curve joins it
 static bool bDrawing = false;
 static bool g_bSplineHoldNewNodes = false; // nodes added to a road hold the height where they are placed
@@ -3598,7 +3600,10 @@ void spline_updatepavements( void )
 				uint64_t material = made != g_SplinePaveMaterials.end() ? made->second : 0;
 				if ( !material )
 				{
-					material = WickedCall_CreateCodeMaterial( r.paveColour, r.paveNormal, r.paveSurface );
+					// the normal and surface beside the colour by name where none is kept (a road set before they were found)
+					sSplineRoad textures = r;
+					spline_pavebeside( textures );
+					material = WickedCall_CreateCodeMaterial( textures.paveColour, textures.paveNormal, textures.paveSurface );
 					g_SplinePaveMaterials[ key ] = material;
 				}
 				it = materialIndex.emplace( key, (int)materials.size() ).first;
@@ -4618,7 +4623,10 @@ static void spline_rowlayers( sSpline& s, float w )
 			GG_GetRealPath( pStart, 0 );
 			char pFull[ MAX_PATH ];
 			if ( !_fullpath( pFull, pStart, MAX_PATH ) ) strcpy_s( pFull, MAX_PATH, pStart );
+			// the dialog leaves the current folder where the file was picked: put back, as every path here is from it
+			cstr tOldDir = GetDir();
 			const char* pChosen = noc_file_dialog_open( NOC_FILE_DIALOG_OPEN, "Entity\0*.fpe\0", pFull, NULL, true, "Choose an Entity" );
+			SetDir( tOldDir.Get() );
 			if ( pChosen )
 			{
 				char pLower[ MAX_PATH ];
@@ -6723,7 +6731,9 @@ void spline_imgui_panel( float w )
 							GG_GetRealPath( pStart, 0 );
 							char pFull[ MAX_PATH ];
 							if ( !_fullpath( pFull, pStart, MAX_PATH ) ) strcpy_s( pFull, MAX_PATH, pStart );
+							cstr tOldDir = GetDir();
 							const char* pChosen = noc_file_dialog_open( NOC_FILE_DIALOG_OPEN, "Entity\0*.fpe\0", pFull, NULL, true, "Choose a Tile" );
+							SetDir( tOldDir.Get() );
 							if ( pChosen )
 							{
 								char pLower[ MAX_PATH ];
@@ -6747,7 +6757,9 @@ void spline_imgui_panel( float w )
 							GG_GetRealPath( pStart, 0 );
 							char pFull[ MAX_PATH ];
 							if ( !_fullpath( pFull, pStart, MAX_PATH ) ) strcpy_s( pFull, MAX_PATH, pStart );
+							cstr tOldDir = GetDir();
 							const char* pChosen = noc_file_dialog_open( NOC_FILE_DIALOG_OPEN, "Image\0*.dds;*.png;*.jpg;*.tga;*.bmp\0", pFull, NULL, true, "Choose a Pavement Texture (its colour)" );
+							SetDir( tOldDir.Get() );
 							if ( pChosen )
 							{
 								// named from the Files folder (the install's or the writable one), as an entity's textures are
@@ -6755,6 +6767,7 @@ void spline_imgui_panel( float w )
 								strcpy_s( pLower, MAX_PATH, pChosen );
 								_strlwr_s( pLower, MAX_PATH );
 								const char* pFiles = strstr( pLower, "\\files\\" );
+								g_bPaveTextureOutside = pFiles == nullptr;
 								if ( pFiles )
 								{
 									memset( r.paveTile, 0, sizeof(r.paveTile) );
@@ -6764,6 +6777,14 @@ void spline_imgui_panel( float w )
 									bChanged = true;
 								}
 							}
+						}
+						// one picked outside a Files folder isn't used (a game finds its files from there)
+						if ( g_bPaveTextureOutside )
+						{
+							ImGui::SetCursorPosX( fRowFieldX );
+							ImGui::PushTextWrapPos( fRowRight );
+							ImGui::TextColored( ImVec4( 1.0f, 0.6f, 0.2f, 1.0f ), "%s", "That image isn't in a Files folder: copy it (and its _normal and _surface) into Files\\texturebank or Files\\imagebank first." );
+							ImGui::PopTextWrapPos();
 						}
 						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Pave it with a texture of your own, not a tile entity: choose its colour image (in a Files folder);\nits normal and surface are found beside it by name (_normal, _surface). Set the Tile Size to how far it repeats." );
 						if ( bTile )
