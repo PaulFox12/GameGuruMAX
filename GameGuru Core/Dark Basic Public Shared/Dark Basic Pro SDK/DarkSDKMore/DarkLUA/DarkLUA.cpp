@@ -13966,6 +13966,21 @@ int GetRagdollAllDeaths ( lua_State *L )
 	return 1;
 }
 
+// GetEntityRagdollForcePending(e): 1 while a SetEntityRagdollForce on e is still to be pushed (held from the kill until
+// its ragdoll exists, then pushed over the next frames as it fades), else 0. A build with it keeps a force set before
+// the ragdoll exists
+int GetEntityRagdollForcePending ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int iEntityIndex = lua_tointeger(L, 1);
+	int iPending = 0;
+	if ( iEntityIndex > 0 && iEntityIndex < (int)t.entityelement.size() ) iPending = t.entityelement[iEntityIndex].ragdollifiedforcevalue_f > 1.0f ? 1 : 0;
+	lua_pushinteger ( L, iPending );
+	return 1;
+}
+
 // SetEntityRagdoll(e, 1 [, dx, dy, dz, force]): a living character (ragdoll = 1 in its .fpe) becomes a ragdoll but keeps its
 // health and script, pushed along dx,dy,dz by force (as SetEntityRagdollForce's); its entity position follows the pelvis.
 // SetEntityRagdoll(e, 0 [, angle]): he stands where his body lies, facing angle or the way he gets up (face up, toward
@@ -18353,6 +18368,7 @@ void addFunctions()
 	lua_register(lua, "GetEntityImmunity" , GetEntityImmunity );
 	lua_register(lua, "SetRagdollAllDeaths" , SetRagdollAllDeaths );
 	lua_register(lua, "GetRagdollAllDeaths" , GetRagdollAllDeaths );
+	lua_register(lua, "GetEntityRagdollForcePending" , GetEntityRagdollForcePending );
 	lua_register(lua, "SetEntityRagdoll" , SetEntityRagdoll );
 	lua_register(lua, "GetEntityRagdollPose" , GetEntityRagdollPose );
 	lua_register(lua, "SetEntityRagdollHold" , SetEntityRagdollHold );

@@ -1563,13 +1563,17 @@ void entity_loop ( void )
 							ragdoll_setcollisionmask (t.entityelement[t.ttte].eleprof.colondeath);
 							t.tphye = t.ttte; t.tphyobj = t.entityelement[t.ttte].obj; 
 							ragdoll_create();
-							// prep ragdolified vars for zero force, just collapse
+							// prep ragdolified vars for zero force, just collapse; GG: unless a force was set since the kill (a script's
+							// SetEntityRagdollForce straight after it, before the ragdoll existed), kept to be pushed now it does
 							t.entityelement[t.ttte].ragdollified = 1;
-							t.entityelement[t.ttte].ragdollifiedforcex_f = 0.8f;
-							t.entityelement[t.ttte].ragdollifiedforcey_f = 0.0f;
-							t.entityelement[t.ttte].ragdollifiedforcez_f = 0.8f;
-							t.entityelement[t.ttte].ragdollifiedforcevalue_f = 0.0f;
-							t.entityelement[t.ttte].ragdollifiedforcelimb = 0;
+							if (t.entityelement[t.ttte].ragdollifiedforcevalue_f <= 1.0f)
+							{
+								t.entityelement[t.ttte].ragdollifiedforcex_f = 0.8f;
+								t.entityelement[t.ttte].ragdollifiedforcey_f = 0.0f;
+								t.entityelement[t.ttte].ragdollifiedforcez_f = 0.8f;
+								t.entityelement[t.ttte].ragdollifiedforcevalue_f = 0.0f;
+								t.entityelement[t.ttte].ragdollifiedforcelimb = 0;
+							}
 						}
 						t.entityelement[t.e].ragdollplusactivate = 0;
 						t.entityelement[t.e].ragdollplusweapontypeused = 0;

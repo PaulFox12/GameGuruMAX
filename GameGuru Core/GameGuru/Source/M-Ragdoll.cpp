@@ -124,7 +124,7 @@ void CalculateCombinedFromQuatsInOriginal(sFrame* pFrame, GGMATRIX* parentMatrix
 	}
 }
 
-void ragdoll_create ( void )
+static void ragdoll_create_core ( void )
 {
 	// try different BIP designations (ideally BIP01_)
 	bool bProducedRagdoll = false;
@@ -577,6 +577,22 @@ void ragdoll_create ( void )
 		// once we have a working ragdoll, we leave
 		if ( bProducedRagdoll==true ) return;
 	}
+}
+
+// GG: each creation timed into the log (a blast's deaths can make several in one frame)
+void ragdoll_create ( void )
+{
+	LARGE_INTEGER freq, start, end;
+	QueryPerformanceFrequency ( &freq );
+	QueryPerformanceCounter ( &start );
+	const int iObj = t.tphyobj;
+	const bool bHad = BPhys_RagdollExist ( iObj ) != 0;
+	ragdoll_create_core ();
+	QueryPerformanceCounter ( &end );
+	if ( bHad ) return;
+	char pMsg[128];
+	sprintf_s ( pMsg, "ragdoll_create obj %d: %s in %.2f ms", iObj, BPhys_RagdollExist ( iObj ) ? "made" : "none", (double)(end.QuadPart - start.QuadPart) * 1000.0 / (double)freq.QuadPart );
+	timestampactivity ( 0, pMsg );
 }
 
 void ragdoll_destroy ( void )
