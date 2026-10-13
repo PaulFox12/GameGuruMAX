@@ -4191,6 +4191,9 @@ void game_preparelevel_finally ( void )
 	// and its deaths take the death animations until a script sets SetRagdollAllDeaths
 	extern bool g_bRagdollAllDeaths;
 	g_bRagdollAllDeaths = false;
+	// and starts at most 3 deaths a frame (SetRagdollCreatesPerFrame)
+	extern int g_iRagdollCreatesPerFrame;
+	g_iRagdollCreatesPerFrame = 3;
 	// and no character knocked out (SetEntityRagdoll)
 	ragdoll_knockoutclear ( );
 	// while it runs, a mesh an object still uses is kept from a remove, and Guru-Crash.log told who asked (wickedcalls.cpp)

@@ -13979,6 +13979,26 @@ int GetRagdollAllDeaths ( lua_State *L )
 	return 1;
 }
 
+// SetRagdollCreatesPerFrame(n): at most n deaths start (a ragdoll made, about a millisecond each, or a death animation)
+// in a frame, the nearest the player first, the rest a frame or two later, their forces kept; 0 no limit. 3 at each
+// level start
+int SetRagdollCreatesPerFrame ( lua_State *L )
+{
+	lua = L;
+	if ( LUA_GETTOP(L) < 1 ) return 0;
+	extern int g_iRagdollCreatesPerFrame;
+	g_iRagdollCreatesPerFrame = (int)lua_tointeger(L, 1);
+	return 0;
+}
+
+int GetRagdollCreatesPerFrame ( lua_State *L )
+{
+	lua = L;
+	extern int g_iRagdollCreatesPerFrame;
+	lua_pushinteger ( L, g_iRagdollCreatesPerFrame );
+	return 1;
+}
+
 // GetEntityRagdollForcePending(e): 1 while a SetEntityRagdollForce on e is still to be pushed (held from the kill until
 // its ragdoll exists, then pushed over the next frames as it fades), else 0. A build with it keeps a force set before
 // the ragdoll exists
@@ -18382,6 +18402,8 @@ void addFunctions()
 	lua_register(lua, "SetRagdollAllDeaths" , SetRagdollAllDeaths );
 	lua_register(lua, "GetRagdollAllDeaths" , GetRagdollAllDeaths );
 	lua_register(lua, "GetEntityRagdollForcePending" , GetEntityRagdollForcePending );
+	lua_register(lua, "SetRagdollCreatesPerFrame" , SetRagdollCreatesPerFrame );
+	lua_register(lua, "GetRagdollCreatesPerFrame" , GetRagdollCreatesPerFrame );
 	lua_register(lua, "SetEntityRagdoll" , SetEntityRagdoll );
 	lua_register(lua, "GetEntityRagdollPose" , GetEntityRagdollPose );
 	lua_register(lua, "SetEntityRagdollHold" , SetEntityRagdollHold );
