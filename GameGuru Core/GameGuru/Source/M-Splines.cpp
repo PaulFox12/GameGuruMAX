@@ -2874,6 +2874,7 @@ struct sSplinePaveCorner
 	float uFrom = 0, uTo = 0; // each road's length along the walk where its kerb meets the curve
 	float offset = 0; // added to the to road's length along the walk, it carries on from the from road's
 	bool bRound = true; // its kerb turns enough to be rounded (not two roads end to end)
+	float alongside = 0; // how far its roads run side by side (its kerb turning back on itself, a fork's nose), 0 to 1
 };
 
 // the corner of two roads, each on the side given, nearest a point (none past a few radii): where the outline's
@@ -3298,6 +3299,24 @@ struct sSplinePaveTurn
 	float x = 0, z = 0, u = 0, tx = 0, tz = 0; // where, the length along the walk there, the walk's direction
 };
 
+// the length of a corner's rounded kerb (spline_paveround: a circle of radius r on the two roads' distances) between where
+// it leaves the two kerbs, their walks turning by an angle of cosine c: a quarter circle where the kerbs meet square, and
+// drawn out along the roads where they come together at a narrow angle (a fork's nose, about twice a circle's arc there)
+static float spline_pavecurvelength( float r, float c )
+{
+	c = std::min( 0.99f, std::max( -0.995f, c ) );
+	const float i1 = 1.0f / (1.0f + c), i2 = 1.0f / (1.0f - c);
+	const int steps = 32;
+	float sum = 0;
+	for ( int i = 0; i < steps; i++ )
+	{
+		const float phi = -0.7853982f + 1.5707963f * (i + 0.5f) / steps;
+		const float s = sinf( phi ), co = cosf( phi );
+		sum += sqrtf( s * s * i1 + co * co * i2 );
+	}
+	return r * sum * 1.5707963f / steps;
+}
+
 // the roads' joins: which open ends are free (no other road's carriageway within a metre of the end), and the corners
 // where their kerbs meet (each road's kerbs walked by each road they meet, a turn into the other's corner paired with the
 // nearest turn out of it on the other road's kerb facing back)
@@ -3450,9 +3469,14 @@ static void spline_pavejoins( std::vector<sSplinePaveRoad>& roads, const std::ve
 		corner.r = std::max( rf.radius, rt.radius );
 		corner.uFrom = in.u;
 		corner.uTo = out.u;
-		// the curve's length: an arc through the two ends turning as the kerbs do
+		// the curve's length: an arc through the two ends turning as the kerbs do; where the kerb turns back on itself
+		// (past 126 to 140 degrees, two roads side by side) the rounded kerb's own length, drawn out along the roads (the
+		// arc was half a fork's nose, its tiles stretched round it)
 		const float turn = acosf( std::min( 1.0f, std::max( -1.0f, in.tx * out.tx + in.tz * out.tz ) ) );
-		const float arc = turn > 1e-3f ? pair.dist * (turn * 0.5f) / sinf( turn * 0.5f ) : pair.dist;
+		float arc = turn > 1e-3f ? pair.dist * (turn * 0.5f) / sinf( turn * 0.5f ) : pair.dist;
+		const float back = std::min( 1.0f, std::max( 0.0f, (turn - 2.2f) / 0.25f ) );
+		corner.alongside = back * back * (3.0f - 2.0f * back);
+		if ( corner.alongside > 0 ) arc += (spline_pavecurvelength( corner.r, cosf( turn ) ) - arc) * corner.alongside;
 		corner.bRound = turn >= 0.2f;
 		corner.offset = corner.uFrom + arc - corner.uTo;
 		const bool bFromPaved = rf.material >= 0 && (rf.sides & (in.side ? SPLINE_PAVE_RIGHT : SPLINE_PAVE_LEFT));
@@ -3611,8 +3635,15 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 					uTo = spline_pavewrap( uTo, pCorner->uTo, roads[ pCorner->to ].period[ pCorner->toSide ] );
 					const float wFrom = pCorner->r - fd[ af ], wTo = pCorner->r - fd[ ato ];
 					const float f = 1.0f - atan2f( wFrom, wTo ) / 1.5707963f;
-					u = (1.0f - f) * uFrom + f * (uTo + pCorner->offset);
-					if ( pCorner->to == nearRoads[c] ) u -= pCorner->offset;
+					// two roads side by side: back from the nose, where the two lengths differ by much (the walks run opposite
+					// ways), each road keeps its own and the two meet in a seam between them; turned there, the tiles fanned
+					// out across the whole island
+					const bool bTo = pCorner->to == nearRoads[c];
+					const float differ = fabsf( uTo + pCorner->offset - uFrom );
+					const float keep = pCorner->alongside * std::min( 1.0f, std::max( 0.0f, (differ - pCorner->r - pr.tile) / pCorner->r ) );
+					const float g = bTo ? f + keep * (1.0f - f) : f * (1.0f - keep);
+					u = (1.0f - g) * uFrom + g * (uTo + pCorner->offset);
+					if ( bTo ) u -= pCorner->offset;
 				}
 				(side ? fu1 : fu0)[ at ] = u;
 			}
