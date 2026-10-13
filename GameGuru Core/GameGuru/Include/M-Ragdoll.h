@@ -21,6 +21,7 @@ int ragdoll_wake ( int e, bool bAngleGiven, float fAngle );
 bool ragdoll_isknockedout ( int e );
 int ragdoll_hold ( int e, float fX, float fY, float fZ, float fAX, float fAY, float fAZ, const char* pLimbName );
 void ragdoll_release ( int e );
+int ragdoll_setholdreference ( int e, const char* pClip, float fFraction );
 bool ragdoll_getpose ( int e, float* pX, float* pY, float* pZ, float* pHeadAngle, int* pFaceUp, int* pResting, int* pHeld );
 void ragdoll_knockoutloop ( void );
 void ragdoll_knockoutclear ( void );

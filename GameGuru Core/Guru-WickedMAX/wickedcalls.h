@@ -256,6 +256,8 @@ void WickedCall_GetFrameWorldPos(sFrame* pFrame, float* pfX, float* pfY, float* 
 void WickedCall_GetGluedLimbWorldPos(sObject* pObject, int iLimbID, float* pfX, float* pfY, float* pfZ);
 void WickedCall_GetLimbDataEx(sObject* pObject, int iLimbID, bool bAdjustLimb, float fX, float fY, float fZ, float fAX, float fAY, float fAZ, float* pX, float* pY, float* pZ, float* pQAX, float* pQAY, float* pQAZ, float* pQAW);
 void WickedCall_GetLimbLocalPosAndRot(sObject* pObject, int iLimbID, float* pX, float* pY, float* pZ, float* pQAX, float* pQAY, float* pQAZ, float* pQAW);
+void WickedCall_GetLimbLocalAndWorld(sObject* pObject, int iLimbID, float* pLocal, float* pWorld);
+bool WickedCall_GetLimbWorldsAtFrame(sObject* pObject, float fFrame, const float* pMadeLocals, const float* pMadeWorlds, float* pWorlds);
 void WickedCall_GetLimbData(sObject* pObject, int iLimbID, float* pX, float* pY, float* pZ, float* pQAX, float* pQAY, float* pQAZ, float* pQAW);
 void WickedCall_UpdateMeshVertexData(sMesh* pMesh);
 void WickedCall_UpdateMeshVertexData(sMesh* pMesh, bool bNormals);

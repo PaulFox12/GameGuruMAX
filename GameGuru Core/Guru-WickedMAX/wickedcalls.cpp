@@ -3676,6 +3676,152 @@ void WickedCall_GetLimbLocalPosAndRot(sObject* pObject, int iLimbID, float* pX, 
 	}
 }
 
+// GG: a limb's local position, rotation and scale (10 floats) and its world matrix (16 floats, row by row) as last
+// updated; a limb with no transform gets no turn or move
+void WickedCall_GetLimbLocalAndWorld(sObject* pObject, int iLimbID, float* pLocal, float* pWorld)
+{
+	const float fNone[10] = { 0, 0, 0, 0, 0, 0, 1, 1, 1, 1 };
+	for (int i = 0; i < 10; i++) pLocal[i] = fNone[i];
+	XMStoreFloat4x4((XMFLOAT4X4*)pWorld, XMMatrixIdentity());
+	if (!pObject || iLimbID < 0 || iLimbID >= pObject->iFrameCount) return;
+	sFrame* pFrame = pObject->ppFrameList[iLimbID];
+	if (!pFrame || pFrame->wickedobjindex == 0) return;
+	TransformComponent* pTransform = wiScene::GetScene().transforms.GetComponent(pFrame->wickedobjindex);
+	if (!pTransform) return;
+	pLocal[0] = pTransform->translation_local.x;
+	pLocal[1] = pTransform->translation_local.y;
+	pLocal[2] = pTransform->translation_local.z;
+	pLocal[3] = pTransform->rotation_local.x;
+	pLocal[4] = pTransform->rotation_local.y;
+	pLocal[5] = pTransform->rotation_local.z;
+	pLocal[6] = pTransform->rotation_local.w;
+	pLocal[7] = pTransform->scale_local.x;
+	pLocal[8] = pTransform->scale_local.y;
+	pLocal[9] = pTransform->scale_local.z;
+	*(XMFLOAT4X4*)pWorld = pTransform->world;
+}
+
+// GG: every limb's world matrix (16 floats each, row by row) with the object's animation at a frame, worked out apart
+// from the scene, which it leaves as it is. A limb the animation moves takes its channels' values at that frame (as
+// the animation update samples them, its fixed frames kept), the rest their locals as given (pMadeLocals, 10 floats
+// each); a limb whose parent is no limb hangs from where that parent was when pMadeLocals and pMadeWorlds were taken.
+// False when the object has no animation
+bool WickedCall_GetLimbWorldsAtFrame(sObject* pObject, float fFrame, const float* pMadeLocals, const float* pMadeWorlds, float* pWorlds)
+{
+	if (!pObject || !pObject->pAnimationSet || pObject->iFrameCount <= 0) return false;
+	Scene& scene = wiScene::GetScene();
+	AnimationComponent* pAnim = scene.animations.GetComponent(pObject->pAnimationSet->wickedanimentityindex);
+	if (!pAnim) return false;
+	const int iLimbs = pObject->iFrameCount;
+	std::vector<XMFLOAT3> translation(iLimbs), scale(iLimbs);
+	std::vector<XMFLOAT4> rotation(iLimbs);
+	std::unordered_map<Entity, int> limbOf;
+	for (int i = 0; i < iLimbs; i++)
+	{
+		const float* pLocal = pMadeLocals + (i * 10);
+		translation[i] = XMFLOAT3(pLocal[0], pLocal[1], pLocal[2]);
+		rotation[i] = XMFLOAT4(pLocal[3], pLocal[4], pLocal[5], pLocal[6]);
+		scale[i] = XMFLOAT3(pLocal[7], pLocal[8], pLocal[9]);
+		sFrame* pFrame = pObject->ppFrameList[i];
+		if (pFrame && pFrame->wickedobjindex > 0) limbOf[pFrame->wickedobjindex] = i;
+	}
+
+	// each channel's value at the frame, from the keys either side of it (a cubic spline's values without its tangents)
+	for (const AnimationComponent::AnimationChannel& channel : pAnim->channels)
+	{
+		if (channel.path == AnimationComponent::AnimationChannel::Path::WEIGHTS) continue;
+		std::unordered_map<Entity, int>::iterator it = limbOf.find(channel.target);
+		if (it == limbOf.end()) continue;
+		if (channel.samplerIndex < 0 || channel.samplerIndex >= (int)pAnim->samplers.size()) continue;
+		const AnimationComponent::AnimationSampler& sampler = pAnim->samplers[channel.samplerIndex];
+		const AnimationDataComponent* pData = scene.animation_datas.GetComponent(sampler.data);
+		if (!pData || pData->keyframe_times.empty()) continue;
+		const int iKeys = (int)pData->keyframe_times.size();
+		int iRight = 0;
+		while (iRight < iKeys && pData->keyframe_times[iRight] < fFrame) iRight++;
+		if (iRight >= iKeys) iRight = iKeys - 1;
+		int iLeft = std::max(0, iRight - 1);
+		if (channel.iUsePreFrame >= 10000 && channel.path == AnimationComponent::AnimationChannel::Path::ROTATION)
+		{
+			iLeft = std::min(channel.iUsePreFrame - 10000, iKeys - 1);
+			iRight = iLeft;
+		}
+		float fT = 0;
+		if (iLeft != iRight && sampler.mode != AnimationComponent::AnimationSampler::Mode::STEP)
+		{
+			float fSpan = pData->keyframe_times[iRight] - pData->keyframe_times[iLeft];
+			if (fSpan > 0) fT = std::min(std::max((fFrame - pData->keyframe_times[iLeft]) / fSpan, 0.0f), 1.0f);
+		}
+		const bool bCubic = (sampler.mode == AnimationComponent::AnimationSampler::Mode::CUBICSPLINE);
+		const int iStride = bCubic ? 3 : 1;
+		const int iOffset = bCubic ? 1 : 0;
+		const int iWidth = (channel.path == AnimationComponent::AnimationChannel::Path::ROTATION) ? 4 : 3;
+		if (pData->keyframe_data.size() < (size_t)(((iRight * iStride) + iOffset + 1) * iWidth)) continue;
+		const float* pLeft = pData->keyframe_data.data() + (((iLeft * iStride) + iOffset) * iWidth);
+		const float* pRight = pData->keyframe_data.data() + (((iRight * iStride) + iOffset) * iWidth);
+		int iLimb = it->second;
+		if (channel.path == AnimationComponent::AnimationChannel::Path::ROTATION)
+		{
+			XMVECTOR vRotation = XMQuaternionNormalize(XMQuaternionSlerp(XMLoadFloat4((const XMFLOAT4*)pLeft), XMLoadFloat4((const XMFLOAT4*)pRight), fT));
+			XMStoreFloat4(&rotation[iLimb], vRotation);
+		}
+		else
+		{
+			XMVECTOR vValue = XMVectorLerp(XMLoadFloat3((const XMFLOAT3*)pLeft), XMLoadFloat3((const XMFLOAT3*)pRight), fT);
+			if (channel.path == AnimationComponent::AnimationChannel::Path::TRANSLATION) XMStoreFloat3(&translation[iLimb], vValue);
+			else XMStoreFloat3(&scale[iLimb], vValue);
+		}
+	}
+
+	// each limb's world from its parent's, as the hierarchy update makes it, parents first
+	std::vector<char> done(iLimbs, 0);
+	for (int iPass = 0; iPass < iLimbs; iPass++)
+	{
+		bool bAny = false;
+		for (int i = 0; i < iLimbs; i++)
+		{
+			if (done[i]) continue;
+			sFrame* pFrame = pObject->ppFrameList[i];
+			XMMATRIX world;
+			if (!pFrame || pFrame->wickedobjindex == 0)
+			{
+				world = XMLoadFloat4x4((const XMFLOAT4X4*)(pMadeWorlds + (i * 16)));
+			}
+			else
+			{
+				int iParent = -1;
+				HierarchyComponent* pHierarchy = scene.hierarchy.GetComponent(pFrame->wickedobjindex);
+				if (pHierarchy)
+				{
+					std::unordered_map<Entity, int>::iterator itParent = limbOf.find(pHierarchy->parentID);
+					if (itParent != limbOf.end()) iParent = itParent->second;
+				}
+				if (iParent >= 0 && !done[iParent]) continue;
+				XMMATRIX local = XMMatrixScalingFromVector(XMLoadFloat3(&scale[i])) * XMMatrixRotationQuaternion(XMLoadFloat4(&rotation[i])) * XMMatrixTranslationFromVector(XMLoadFloat3(&translation[i]));
+				XMMATRIX parentWorld;
+				if (iParent >= 0)
+				{
+					parentWorld = XMLoadFloat4x4((const XMFLOAT4X4*)(pWorlds + (iParent * 16)));
+				}
+				else
+				{
+					const float* pLocal = pMadeLocals + (i * 10);
+					XMMATRIX madeLocal = XMMatrixScaling(pLocal[7], pLocal[8], pLocal[9]) * XMMatrixRotationQuaternion(XMVectorSet(pLocal[3], pLocal[4], pLocal[5], pLocal[6])) * XMMatrixTranslation(pLocal[0], pLocal[1], pLocal[2]);
+					parentWorld = XMMatrixInverse(nullptr, madeLocal) * XMLoadFloat4x4((const XMFLOAT4X4*)(pMadeWorlds + (i * 16)));
+				}
+				world = local * parentWorld;
+			}
+			XMStoreFloat4x4((XMFLOAT4X4*)(pWorlds + (i * 16)), world);
+			done[i] = 1;
+			bAny = true;
+		}
+		if (!bAny) break;
+	}
+	for (int i = 0; i < iLimbs; i++)
+		if (!done[i]) memcpy(pWorlds + (i * 16), pMadeWorlds + (i * 16), sizeof(float) * 16);
+	return true;
+}
+
 void WickedCall_GetLimbData(sObject* pObject, int iLimbID, float* pX, float* pY, float* pZ, float* pQAX, float* pQAY, float* pQAZ, float* pQAW)
 {
 	WickedCall_GetLimbDataEx(pObject, iLimbID, false, 0, 0, 0, 0, 0, 0, pX, pY, pZ, pQAX, pQAY, pQAZ, pQAW);

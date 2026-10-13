@@ -14144,6 +14144,28 @@ int GetEntityRagdollHoldStiffness ( lua_State *L )
 	return 5;
 }
 
+// SetEntityRagdollHoldReference(e [, clip [, frame]]): e's ragdoll while held is draped from the pose of e's own
+// animation clip (a name as SetAnimationName takes) at frame (0 its first frame, 1 its last; 0), each body as its limbs
+// are there, not the pose it was made in; the stiffness's folds, knee fold (-1 keeps the reference's knees) and the
+// joint limits then apply as before. With no clip, the pose it was made in again. Set again after each
+// SetEntityRagdoll(e, 1). 1 when set, 0 when e is no ragdoll or has no such clip
+int SetEntityRagdollHoldReference ( lua_State *L )
+{
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int e = lua_tointeger(L, 1);
+	int iDone = 0;
+	if ( LuaEntityIDValid ( L, e, 1 ) )
+	{
+		const char* pClip = ( n >= 2 && lua_isstring(L, 2) ) ? lua_tostring(L, 2) : "";
+		float fFraction = ( n >= 3 ) ? lua_tonumber(L, 3) : 0.0f;
+		iDone = ragdoll_setholdreference ( e, pClip, fFraction );
+	}
+	lua_pushinteger ( L, iDone );
+	return 1;
+}
+
 int SetAttachmentVisible ( lua_State *L )
 {
 	lua = L;
@@ -18413,6 +18435,7 @@ void addFunctions()
 	lua_register(lua, "SetEntityRagdollHold" , SetEntityRagdollHold );
 	lua_register(lua, "SetEntityRagdollHoldStiffness" , SetEntityRagdollHoldStiffness );
 	lua_register(lua, "GetEntityRagdollHoldStiffness" , GetEntityRagdollHoldStiffness );
+	lua_register(lua, "SetEntityRagdollHoldReference" , SetEntityRagdollHoldReference );
 	lua_register(lua, "SetOcclusion" , SetOcclusion );
 	lua_register(lua, "SetPlayerWeapons", SetPlayerWeapons);
 	lua_register(lua, "FirePlayerWeapon", FirePlayerWeapon);

@@ -113,6 +113,8 @@ DARKSDK int			BPhys_RagDollIsResting(int ragdollID);
 DARKSDK bool		BPhys_RagDollSetHoldStiffness(int ragdollID, float fStiffness, float fDamping, float fWaistFold, float fHipFold, float fKneeFold);
 DARKSDK bool		BPhys_RagDollGetHoldStiffness(int ragdollID, float* pStiffness, float* pDamping, float* pWaistFold, float* pHipFold, float* pKneeFold);
 DARKSDK int			BPhys_RagDollGetHoldKnees(int ragdollID, float* pMade, float* pHeld, int iMax);
+DARKSDK bool		BPhys_RagDollSetHoldReference(int ragdollID, const float* pMadeWorlds, const float* pReferenceWorlds, int iLimbs);
+DARKSDK int			BPhys_RagDollHasHoldReference(int ragdollID);
 
 // Destruction commands
 DARKSDK void		ODEDestroyObject						( int iObjectNumber );

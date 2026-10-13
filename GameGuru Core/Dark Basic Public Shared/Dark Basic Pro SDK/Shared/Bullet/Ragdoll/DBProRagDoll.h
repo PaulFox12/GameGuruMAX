@@ -60,6 +60,8 @@ public:
 	void SetHoldStiffness(btScalar fStiffness, btScalar fDamping, btScalar fWaistFold, btScalar fHipFold, btScalar fKneeFold);
 	void GetHoldStiffness(btScalar* pStiffness, btScalar* pDamping, btScalar* pWaistFold, btScalar* pHipFold, btScalar* pKneeFold);
 	int GetHoldKnees(btScalar* pMade, btScalar* pHeld, int iMax);
+	bool SetHoldReference(const float* pMadeWorlds, const float* pReferenceWorlds, int iLimbs);
+	bool HasHoldReference();
 
 private:
 	void RelaxHeldJoints(btRigidBody* pBody);
@@ -109,8 +111,10 @@ private:
 
 	// the drape a held ragdoll is pulled to: each body's transform from the held body, how hard, its swing damped, and
 	// the folds at the joints of the held body (above it, toward the chest by fWaistFold; below, by fHipFold) and at
-	// the knees beyond (bent to fKneeFold, none when negative)
+	// the knees beyond (bent to fKneeFold, none when negative); it starts from the pose the ragdoll was made in or, when
+	// one is set, a reference pose (SetHoldReference)
 	btAlignedObjectArray<btTransform> m_createTransform;
+	btAlignedObjectArray<btTransform> m_referenceTransform;
 	btScalar m_fRestYaw;
 	btAlignedObjectArray<sJointLink> m_jointLinks;
 	btAlignedObjectArray<btTransform> m_holdPose;

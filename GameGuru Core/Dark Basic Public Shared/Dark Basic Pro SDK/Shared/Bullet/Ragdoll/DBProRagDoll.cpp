@@ -892,7 +892,8 @@ static bool RagdollBodyHangsFrom(const btAlignedObjectArray<int>& parentOf, int 
 }
 
 // GG: the drape a held ragdoll is pulled to, each body's transform from the held one: the pose it was made from (a
-// knockout's, standing), each part hanging from a joint of the held body turned about that joint's pivot on his right
+// knockout's, standing) or a reference pose when one is set (SetHoldReference), each part hanging from a joint of the
+// held body turned about that joint's pivot on his right
 // to his front, by the waist fold for a part above the joint and the hip fold below (a fireman's carry, face down),
 // with a knee fold each knee beyond bent to it, then every joint put within its limits
 void DBProRagDoll::BuildHoldPose(int boneIndex)
@@ -908,8 +909,9 @@ void DBProRagDoll::BuildHoldPose(int boneIndex)
 		for (int i = 0; i < iBones; i++) m_holdPose[i] = heldInverse * m_ragDollBoneArray[i]->GetRigidBody()->getWorldTransform();
 		return;
 	}
-	btTransform heldInverse = m_createTransform[boneIndex].inverse();
-	for (int i = 0; i < iBones; i++) m_holdPose[i] = heldInverse * m_createTransform[i];
+	const btAlignedObjectArray<btTransform>& base = (m_referenceTransform.size() == iBones) ? m_referenceTransform : m_createTransform;
+	btTransform heldInverse = base[boneIndex].inverse();
+	for (int i = 0; i < iBones; i++) m_holdPose[i] = heldInverse * base[i];
 	btMatrix3x3 facing;
 	facing.setEulerYPR(0, btRadians(m_fRestYaw), 0);
 	btVector3 upLocal = heldInverse.getBasis() * btVector3(0, 1, 0);
@@ -951,7 +953,7 @@ void DBProRagDoll::BuildHoldPose(int boneIndex)
 	{
 		int iStart = reached[r];
 		if (parentOf[iStart] != boneIndex) continue;
-		btVector3 pivotLocal = heldInverse * m_jointLinks[linkOf[iStart]].pivot;
+		btVector3 pivotLocal = m_createTransform[boneIndex].inverse() * m_jointLinks[linkOf[iStart]].pivot;
 		btVector3 centre(0, 0, 0);
 		int iCount = 0;
 		for (int i = 0; i < iBones; i++)
@@ -1236,6 +1238,69 @@ int DBProRagDoll::GetHoldKnees(btScalar* pMade, btScalar* pHeld, int iMax)
 		pHeld[k] = m_holdKnees[k].fHeld;
 	}
 	return iCount;
+}
+
+// GG: a limb's world matrix (16 floats, row by row, as the scene keeps it) as a transform in the ragdoll's units, its
+// scale taken out
+static btTransform RagdollLimbTransform(const float* pWorld)
+{
+	btScalar scaleFactor = 40.0f;
+	btVector3 axisX(pWorld[0], pWorld[1], pWorld[2]);
+	btVector3 axisY(pWorld[4], pWorld[5], pWorld[6]);
+	btVector3 axisZ(pWorld[8], pWorld[9], pWorld[10]);
+	if (axisX.length2() > SIMD_EPSILON) axisX.normalize();
+	if (axisY.length2() > SIMD_EPSILON) axisY.normalize();
+	if (axisZ.length2() > SIMD_EPSILON) axisZ.normalize();
+	btMatrix3x3 basis(axisX.x(), axisY.x(), axisZ.x(), axisX.y(), axisY.y(), axisZ.y(), axisX.z(), axisY.z(), axisZ.z());
+	return btTransform(basis, btVector3(pWorld[12], pWorld[13], pWorld[14]) / scaleFactor);
+}
+
+// GG: the pose the drape starts from, from each limb's world matrix as the ragdoll was made and in a reference pose
+// (an animation's frame): each body turned and moved as its first limb is from the one to the other, then swung about
+// its start limb to reach toward its end limb as in the reference (a body over several limbs, the spine's, follows
+// their bend). With none, or limbs that don't cover its bodies, the pose it was made in. Held now, at once. False
+// when a reference given was not taken
+bool DBProRagDoll::SetHoldReference(const float* pMadeWorlds, const float* pReferenceWorlds, int iLimbs)
+{
+	m_referenceTransform.clear();
+	bool bGiven = (pMadeWorlds && pReferenceWorlds && iLimbs > 0);
+	if (bGiven && m_createTransform.size() == m_ragDollBoneArray.size())
+	{
+		for (int i = 0; i < m_ragDollBoneArray.size(); i++)
+		{
+			DBProRagDollBone* pBone = m_ragDollBoneArray[i];
+			int iLimb = (pBone->dbproLimbIDs.size() > 0) ? pBone->dbproLimbIDs[0] : pBone->GetEndLimbID();
+			int iStart = pBone->GetStartLimbID();
+			int iEnd = pBone->GetEndLimbID();
+			if (iLimb < 0 || iLimb >= iLimbs || iStart < 0 || iStart >= iLimbs || iEnd < 0 || iEnd >= iLimbs)
+			{
+				m_referenceTransform.clear();
+				break;
+			}
+			btTransform follow = RagdollLimbTransform(pReferenceWorlds + (iLimb * 16)) * RagdollLimbTransform(pMadeWorlds + (iLimb * 16)).inverse();
+			btVector3 madeStart = follow * RagdollLimbTransform(pMadeWorlds + (iStart * 16)).getOrigin();
+			btVector3 madeEnd = follow * RagdollLimbTransform(pMadeWorlds + (iEnd * 16)).getOrigin();
+			btVector3 referenceStart = RagdollLimbTransform(pReferenceWorlds + (iStart * 16)).getOrigin();
+			btVector3 referenceEnd = RagdollLimbTransform(pReferenceWorlds + (iEnd * 16)).getOrigin();
+			btQuaternion swing = btQuaternion::getIdentity();
+			if ((madeEnd - madeStart).length2() > SIMD_EPSILON && (referenceEnd - referenceStart).length2() > SIMD_EPSILON)
+				swing = shortestArcQuatNormalize2(madeEnd - madeStart, referenceEnd - referenceStart);
+			btTransform toStart(btQuaternion::getIdentity(), referenceStart);
+			btTransform fromStart(btQuaternion::getIdentity(), -madeStart);
+			m_referenceTransform.push_back(toStart * btTransform(swing, btVector3(0, 0, 0)) * fromStart * follow * m_createTransform[i]);
+		}
+	}
+	if (m_pHoldJoint)
+	{
+		BuildHoldPose(m_iHoldBone);
+		SetHeldBodies(true);
+	}
+	return bGiven ? HasHoldReference() : true;
+}
+
+bool DBProRagDoll::HasHoldReference()
+{
+	return m_referenceTransform.size() > 0 && m_referenceTransform.size() == m_ragDollBoneArray.size();
 }
 
 // GG: the object's position follows this body from the next update (-1 stops it)

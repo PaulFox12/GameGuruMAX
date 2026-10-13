@@ -104,6 +104,14 @@ void ragdoll_setcollisionmask ( int iMode )
 	}
 }
 
+// GG: each ragdoll's limbs as it was made (local position, rotation and scale; world matrix), by its object
+struct sRagdollMadeLimbs
+{
+	std::vector<float> locals;
+	std::vector<float> worlds;
+};
+static std::map<int, sRagdollMadeLimbs> g_RagdollMadeLimbs;
+
 void CalculateCombinedFromQuatsInOriginal(sFrame* pFrame, GGMATRIX* parentMatrix)
 {
 	if (pFrame)
@@ -163,6 +171,13 @@ static void ragdoll_create_core ( void )
 						RotateLimbQuat (t.tobj, pFrame->iID, fX, fY, fZ, fQuatX, fQuatY, fQuatZ, fQuatW);
 					}
 				}
+
+				// GG: and each limb as the ragdoll is made from it, for a hold drawn from another pose (ragdoll_setholdreference)
+				sRagdollMadeLimbs& made = g_RagdollMadeLimbs[t.tphyobj];
+				made.locals.resize(pObject->iFrameCount * 10);
+				made.worlds.resize(pObject->iFrameCount * 16);
+				for (int f = 0; f < pObject->iFrameCount; f++)
+					WickedCall_GetLimbLocalAndWorld(pObject, f, &made.locals[f * 10], &made.worlds[f * 16]);
 			}
 			// code below will use vecDirection (from matCombined) to work out limb initial rotations
 			// so we need to make sure matCombined are set up to reflect the world matrices for the model
@@ -598,8 +613,9 @@ void ragdoll_create ( void )
 void ragdoll_destroy ( void )
 {
 	// receives tphyobj
-	if ( t.tphyobj>0 ) 
+	if ( t.tphyobj>0 )
 	{
+		g_RagdollMadeLimbs.erase ( t.tphyobj );
 		if ( ObjectExist(t.tphyobj) == 1 ) ResetObjectPivot ( t.tphyobj );
 		for ( t.ri = 0 ; t.ri <= g.RagdollsMax; t.ri++ )
 		{
@@ -964,11 +980,12 @@ int ragdoll_hold ( int e, float fX, float fY, float fZ, float fAX, float fAY, fl
 	bool bHeld = BPhys_RagDollHold ( iObj, iBone, fX, fY, fZ, fAX, fAY, fAZ, timeGetTime() );
 	if ( bHeld && !bWasHeld )
 	{
-		// GG: each hold's knees into the log, their bend as made and in the drape (one knocked out kneeling has his bent)
+		// GG: each hold's knees into the log, their bend in the pose the drape starts from (as made, one knocked out
+		// kneeling has his bent, or the reference) and in the drape
 		float fMade[4], fHeld[4];
 		int iKnees = BPhys_RagDollGetHoldKnees ( iObj, fMade, fHeld, 4 );
 		char pMsg[256];
-		int iLen = sprintf_s ( pMsg, "ragdoll_hold obj %d: %d knees", iObj, iKnees );
+		int iLen = sprintf_s ( pMsg, "ragdoll_hold obj %d (%s): %d knees", iObj, BPhys_RagDollHasHoldReference ( iObj ) ? "reference" : "as made", iKnees );
 		for ( int k = 0; k < iKnees && iLen > 0 && iLen < (int)sizeof(pMsg) - 40; k++ )
 			iLen += sprintf_s ( pMsg + iLen, sizeof(pMsg) - iLen, ", made %.0f held %.0f deg", fMade[k], fHeld[k] );
 		timestampactivity ( 0, pMsg );
@@ -981,6 +998,36 @@ void ragdoll_release ( int e )
 	if ( e <= 0 || e > g.entityelementlist ) return;
 	int iObj = t.entityelement[e].obj;
 	if ( iObj > 0 && BPhys_RagdollExist ( iObj ) == 1 ) BPhys_RagDollRelease ( iObj );
+}
+
+// GG: the pose a held ragdoll's drape starts from: e's own animation clip at a point through it (0 its first frame, 1
+// its last), each body turned and moved as its limbs are from the pose the ragdoll was made in to that one; with no
+// clip, the pose it was made in again. 1 when set
+int ragdoll_setholdreference ( int e, const char* pClip, float fFraction )
+{
+	if ( e <= 0 || e > g.entityelementlist ) return 0;
+	int iObj = t.entityelement[e].obj;
+	if ( iObj <= 0 || ObjectExist ( iObj ) == 0 || BPhys_RagdollExist ( iObj ) == 0 ) return 0;
+	if ( !pClip || !pClip[0] ) return BPhys_RagDollSetHoldReference ( iObj, NULL, NULL, 0 ) ? 1 : 0;
+	float fStart = -1, fFinish = -1;
+	extern int entity_lua_getanimationname ( int e, cstr FindThisName_s, float* fFoundStart, float* fFoundFinish );
+	if ( entity_lua_getanimationname ( e, cstr((char*)pClip), &fStart, &fFinish ) <= 0 || fStart < 0 ) return 0;
+	sObject* pObject = GetObjectData ( iObj );
+	std::map<int, sRagdollMadeLimbs>::iterator it = g_RagdollMadeLimbs.find ( iObj );
+	if ( !pObject || it == g_RagdollMadeLimbs.end() ) return 0;
+	const sRagdollMadeLimbs& made = it->second;
+	int iLimbs = pObject->iFrameCount;
+	if ( (int)made.locals.size() != iLimbs * 10 || (int)made.worlds.size() != iLimbs * 16 ) return 0;
+	if ( fFraction < 0.0f ) fFraction = 0.0f;
+	if ( fFraction > 1.0f ) fFraction = 1.0f;
+	float fFrame = fStart + ( ( fFinish - fStart ) * fFraction );
+	std::vector<float> reference ( iLimbs * 16 );
+	if ( !WickedCall_GetLimbWorldsAtFrame ( pObject, fFrame, made.locals.data(), made.worlds.data(), reference.data() ) ) return 0;
+	bool bSet = BPhys_RagDollSetHoldReference ( iObj, made.worlds.data(), reference.data(), iLimbs );
+	char pMsg[256];
+	sprintf_s ( pMsg, "ragdoll_holdreference obj %d: %s frame %.1f (%.1f to %.1f) %s", iObj, pClip, fFrame, fStart, fFinish, bSet ? "set" : "refused" );
+	timestampactivity ( 0, pMsg );
+	return bSet ? 1 : 0;
 }
 
 // each frame after physics: a knocked out character's entity is where his body is, and he stays out of the character

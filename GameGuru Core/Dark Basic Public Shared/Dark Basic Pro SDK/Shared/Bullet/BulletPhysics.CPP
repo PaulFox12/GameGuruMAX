@@ -4462,6 +4462,21 @@ int BPhys_RagDollGetHoldKnees(int ragdollID, float* pMade, float* pHeld, int iMa
 	return iCount;
 }
 
+// GG: the pose a held ragdoll's drape starts from, from each limb's world matrix (16 floats, row by row, world units)
+// as the ragdoll was made and in a reference pose; with none, the pose it was made in
+bool BPhys_RagDollSetHoldReference(int ragdollID, const float* pMadeWorlds, const float* pReferenceWorlds, int iLimbs)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( !ragdoll ) return false;
+	return ragdoll->SetHoldReference(pMadeWorlds, pReferenceWorlds, iLimbs);
+}
+
+int BPhys_RagDollHasHoldReference(int ragdollID)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	return ( ragdoll && ragdoll->HasHoldReference() ) ? 1 : 0;
+}
+
 // Force commands
 
 void ODESetLinearVelocity ( int iObject, float fX, float fY, float fZ )
