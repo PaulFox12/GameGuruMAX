@@ -9780,6 +9780,19 @@ int SetSunDirection(lua_State *L)
 	return 0;
 }
 
+// SetSunShadowDirection(ax, ay, az): the sun's shadows from these angles (as SetSunDirection's), so its light can turn
+// every frame and its shadows in steps; with no angles the shadows follow SetSunDirection again (as at each level start)
+int SetSunShadowDirection(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 3)
+	{
+		WickedCall_SetSunShadowDirection(false, 0, 0, 0);
+		return 0;
+	}
+	WickedCall_SetSunShadowDirection(true, (float)lua_tonumber(L, 1), (float)lua_tonumber(L, 2), (float)lua_tonumber(L, 3));
+	return 0;
+}
+
 #ifdef STORYBOARD
 
 //Storyboaard
@@ -18572,6 +18585,7 @@ void addFunctions()
 
 	// Sun
 	lua_register(lua, "SetSunDirection", SetSunDirection);
+	lua_register(lua, "SetSunShadowDirection", SetSunShadowDirection);
 	lua_register(lua, "SetSunLightingColor", SetSunLightingColor);
 	lua_register(lua, "SetSunIntensity", SetSunIntensity);
 	lua_register(lua, "GetSunIntensity", GetSunIntensity);

@@ -2376,6 +2376,7 @@ IsPlayerInGame: IsPlayerInGame() -- return 1 if the player is in the game
 SetLevelFadeoutEnabled: SetLevelFadeoutEnabled(mode) -- sets the fade out system mode to zero or one
 
 SetSunDirection: SetSunDirection(x,y,z) -- rotate the sun directional light in X, Y and Z degrees (roll, pitch and yaw)
+SetSunShadowDirection : SetSunShadowDirection ( [x, y, z] ) -- the sun's shadows from these angles (as SetSunDirection's), so its light and disc can turn every frame and its shadows in steps; with no angles the shadows follow SetSunDirection again (as at each level start and the end of a test game)
 SetSunLightingColor: SetSunLightingColor(r,g,b) -- set the R,G,B color of the sun color
 SetSunIntensity: SetSunIntensity(intensity) -- set the intensity value of the sun color
 SetExposure: SetExposure(value) -- set the exposure value of the post processing system

@@ -276,6 +276,7 @@ int WickedCall_GetSpotShadowLights(bool bDebug);
 void WickedCall_SetEditorCameraLight(bool bSwitchOn);
 void WickedCall_SetSpriteBoundBox(bool bShow,float fX1, float fY1,float fX2, float fY2);
 void WickedCall_SetSunDirection(float fAx, float fAy, float fAz);
+void WickedCall_SetSunShadowDirection(bool bSet, float fAx, float fAy, float fAz);
 void WickedCall_SetSunColors(float fRed, float fGreen, float fBlue, float fEnergy, float fFov, float fShadowBias);
 void WickedCall_SetVisualizerEnabled(bool bVisualizer);
 void WickedCall_SunSetVolumetricsEnabled(bool bVolumetrics);

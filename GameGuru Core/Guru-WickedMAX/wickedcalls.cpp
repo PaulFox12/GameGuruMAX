@@ -7935,6 +7935,15 @@ void WickedCall_SetSunDirection(float fAx, float fAy, float fAz)
 	transformSunLight->RotateRollPitchYaw(rotationinrads);
 }
 
+// the sun's shadows from angles of their own (as WickedCall_SetSunDirection takes them, the same rotation made the same
+// way), or with bSet false from the sun's again
+void WickedCall_SetSunShadowDirection(bool bSet, float fAx, float fAy, float fAz)
+{
+	TransformComponent rotation;
+	if (bSet) rotation.RotateRollPitchYaw(XMFLOAT3(fAx * (3.141592654f / 180.0f), fAy * (3.141592654f / 180.0f), fAz * (3.141592654f / 180.0f)));
+	wiRenderer::SetSunShadowRotation(bSet, rotation.rotation_local);
+}
+
 void WickedCall_SetSunColors(float fRed, float fGreen, float fBlue,float fEnergy,float fFov, float fShadowBias)
 {
 	LightComponent* lightSun = wiScene::GetScene().lights.GetComponent(g_entitySunLight);

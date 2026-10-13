@@ -7723,6 +7723,8 @@ void LuaPostEffects_Clear(void* pVisualsToRestore)
 {
 	sLuaPostEffects old = g_LuaPostEffects;
 	g_LuaPostEffects = sLuaPostEffects();
+	// the sun's shadows follow the sun again (SetSunShadowDirection)
+	WickedCall_SetSunShadowDirection(false, 0, 0, 0);
 	visualstype* visuals = (visualstype*)pVisualsToRestore;
 	if (!visuals || !master_renderer) return;
 	if (old.iBloom >= 0 || old.fBloomStrength >= 0 || old.fBloomThreshold >= 0 || old.fBloomRadius >= 0 || old.fBloomCap >= 0)
