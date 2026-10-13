@@ -960,7 +960,20 @@ int ragdoll_hold ( int e, float fX, float fY, float fZ, float fAX, float fAY, fl
 	if ( pLimbName && pLimbName[0] ) iBone = BPhys_RagDollFindBone ( iObj, getlimbbyname ( iObj, (char*)pLimbName ) );
 	if ( iBone < 0 ) return 0;
 	BPhys_RagDollSetFollowBone ( iObj, iPelvisBone );
-	return BPhys_RagDollHold ( iObj, iBone, fX, fY, fZ, fAX, fAY, fAZ, timeGetTime() ) ? 1 : 0;
+	bool bWasHeld = BPhys_RagDollIsHeld ( iObj ) == 1;
+	bool bHeld = BPhys_RagDollHold ( iObj, iBone, fX, fY, fZ, fAX, fAY, fAZ, timeGetTime() );
+	if ( bHeld && !bWasHeld )
+	{
+		// GG: each hold's knees into the log, their bend as made and in the drape (one knocked out kneeling has his bent)
+		float fMade[4], fHeld[4];
+		int iKnees = BPhys_RagDollGetHoldKnees ( iObj, fMade, fHeld, 4 );
+		char pMsg[256];
+		int iLen = sprintf_s ( pMsg, "ragdoll_hold obj %d: %d knees", iObj, iKnees );
+		for ( int k = 0; k < iKnees && iLen > 0 && iLen < (int)sizeof(pMsg) - 40; k++ )
+			iLen += sprintf_s ( pMsg + iLen, sizeof(pMsg) - iLen, ", made %.0f held %.0f deg", fMade[k], fHeld[k] );
+		timestampactivity ( 0, pMsg );
+	}
+	return bHeld ? 1 : 0;
 }
 
 void ragdoll_release ( int e )

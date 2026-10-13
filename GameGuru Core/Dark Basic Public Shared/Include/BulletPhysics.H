@@ -110,8 +110,9 @@ DARKSDK bool		BPhys_RagDollHold(int ragdollID, int boneIndex, float fX, float fY
 DARKSDK void		BPhys_RagDollRelease(int ragdollID);
 DARKSDK int			BPhys_RagDollIsHeld(int ragdollID);
 DARKSDK int			BPhys_RagDollIsResting(int ragdollID);
-DARKSDK bool		BPhys_RagDollSetHoldStiffness(int ragdollID, float fStiffness, float fDamping, float fWaistFold, float fHipFold);
-DARKSDK bool		BPhys_RagDollGetHoldStiffness(int ragdollID, float* pStiffness, float* pDamping, float* pWaistFold, float* pHipFold);
+DARKSDK bool		BPhys_RagDollSetHoldStiffness(int ragdollID, float fStiffness, float fDamping, float fWaistFold, float fHipFold, float fKneeFold);
+DARKSDK bool		BPhys_RagDollGetHoldStiffness(int ragdollID, float* pStiffness, float* pDamping, float* pWaistFold, float* pHipFold, float* pKneeFold);
+DARKSDK int			BPhys_RagDollGetHoldKnees(int ragdollID, float* pMade, float* pHeld, int iMax);
 
 // Destruction commands
 DARKSDK void		ODEDestroyObject						( int iObjectNumber );

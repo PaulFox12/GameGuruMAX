@@ -57,8 +57,9 @@ public:
 	bool IsResting();
 	void HoldFrame(btScalar frameTime);
 	void HoldStep(btScalar timeStep);
-	void SetHoldStiffness(btScalar fStiffness, btScalar fDamping, btScalar fWaistFold, btScalar fHipFold);
-	void GetHoldStiffness(btScalar* pStiffness, btScalar* pDamping, btScalar* pWaistFold, btScalar* pHipFold);
+	void SetHoldStiffness(btScalar fStiffness, btScalar fDamping, btScalar fWaistFold, btScalar fHipFold, btScalar fKneeFold);
+	void GetHoldStiffness(btScalar* pStiffness, btScalar* pDamping, btScalar* pWaistFold, btScalar* pHipFold, btScalar* pKneeFold);
+	int GetHoldKnees(btScalar* pMade, btScalar* pHeld, int iMax);
 
 private:
 	void RelaxHeldJoints(btRigidBody* pBody);
@@ -67,6 +68,7 @@ private:
 	int BoneOfBody(const btRigidBody* pBody);
 	void BuildHoldPose(int boneIndex);
 	bool HoldPoseJointTurn(int iLink, int iChild, btTransform& turn);
+	bool HoldPoseKneeBend(int iHipLink, int iKneeLink, int iThigh, int iShin, const btVector3& right, btScalar& fBend, btVector3& axis, btVector3& pivot);
 	void SetHeldBodies(bool bHeld);
 	void SetHeldCollision(bool bHeld);
 
@@ -93,17 +95,32 @@ private:
 		btTypedConstraint* pJoint;
 	};
 
+	// a knee of a held ragdoll: the joint beyond a hip of the held body, its bodies, and its bend in degrees as the
+	// ragdoll was made and in the drape
+	struct sHoldKnee
+	{
+		int iHipLink;
+		int iKneeLink;
+		int iThigh;
+		int iShin;
+		btScalar fMade;
+		btScalar fHeld;
+	};
+
 	// the drape a held ragdoll is pulled to: each body's transform from the held body, how hard, its swing damped, and
-	// the folds at the joints of the held body (above it, toward the chest by fWaistFold; below, by fHipFold)
+	// the folds at the joints of the held body (above it, toward the chest by fWaistFold; below, by fHipFold) and at
+	// the knees beyond (bent to fKneeFold, none when negative)
 	btAlignedObjectArray<btTransform> m_createTransform;
 	btScalar m_fRestYaw;
 	btAlignedObjectArray<sJointLink> m_jointLinks;
 	btAlignedObjectArray<btTransform> m_holdPose;
+	btAlignedObjectArray<sHoldKnee> m_holdKnees;
 	btAlignedObjectArray<btScalar> m_heldFriction;
 	btScalar m_fHoldStiffness;
 	btScalar m_fHoldDamping;
 	btScalar m_fHoldWaistFold;
 	btScalar m_fHoldHipFold;
+	btScalar m_fHoldKneeFold;
 
 	struct sHeldJointLimits
 	{

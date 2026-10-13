@@ -68,6 +68,7 @@ DBProRagDoll::DBProRagDoll(int ragdollID) : BaseItem(ragdollID)
 	m_fHoldDamping = 0.6f;
 	m_fHoldWaistFold = 60.0f;
 	m_fHoldHipFold = 60.0f;
+	m_fHoldKneeFold = -1.0f;
 	m_bHoldEased = false;
 	m_bHoldSteppedEased = false;
 	m_bHoldDrawnKnown = false;
@@ -893,11 +894,12 @@ static bool RagdollBodyHangsFrom(const btAlignedObjectArray<int>& parentOf, int 
 // GG: the drape a held ragdoll is pulled to, each body's transform from the held one: the pose it was made from (a
 // knockout's, standing), each part hanging from a joint of the held body turned about that joint's pivot on his right
 // to his front, by the waist fold for a part above the joint and the hip fold below (a fireman's carry, face down),
-// then every joint put within its limits
+// with a knee fold each knee beyond bent to it, then every joint put within its limits
 void DBProRagDoll::BuildHoldPose(int boneIndex)
 {
 	const int iBones = m_ragDollBoneArray.size();
 	m_holdPose.resize(iBones);
+	m_holdKnees.clear();
 	if (boneIndex < 0 || boneIndex >= iBones) return;
 	if (m_createTransform.size() != iBones)
 	{
@@ -942,6 +944,9 @@ void DBProRagDoll::BuildHoldPose(int boneIndex)
 
 	// the part hanging from each joint of the held body (that body and every one beyond it): above the joint (the
 	// torso) it folds by the waist fold, below it (a leg) by the hip fold, both toward his front
+	btAlignedObjectArray<int> partBelow;
+	partBelow.resize(iBones);
+	for (int i = 0; i < iBones; i++) partBelow[i] = 0;
 	for (int r = 1; r < reached.size(); r++)
 	{
 		int iStart = reached[r];
@@ -957,6 +962,7 @@ void DBProRagDoll::BuildHoldPose(int boneIndex)
 		}
 		centre /= btScalar(iCount);
 		bool bAbove = (centre - pivotLocal).dot(upLocal) > 0;
+		partBelow[iStart] = bAbove ? 0 : 1;
 		btScalar fFold = bAbove ? btRadians(m_fHoldWaistFold) : -btRadians(m_fHoldHipFold);
 		btTransform toPivot(btQuaternion::getIdentity(), pivotLocal);
 		btTransform fold(btQuaternion(rightLocal, fFold), btVector3(0, 0, 0));
@@ -964,6 +970,34 @@ void DBProRagDoll::BuildHoldPose(int boneIndex)
 		btTransform turn = toPivot * fold * fromPivot;
 		for (int i = 0; i < iBones; i++)
 			if (RagdollBodyHangsFrom(parentOf, i, iStart)) m_holdPose[i] = turn * m_holdPose[i];
+	}
+
+	// each knee (a hinge beyond a joint of the held body with the part below it, a hip) with its bend as made, which
+	// the folds keep (a knockout standing has his legs straight, one kneeling his knees bent); with a knee fold, the
+	// shin and what hangs from it turned about the knee to that bend, whatever the bend it was made with
+	for (int r = 1; r < reached.size(); r++)
+	{
+		int iShin = reached[r];
+		int iThigh = parentOf[iShin];
+		if (iThigh < 0 || parentOf[iThigh] != boneIndex || partBelow[iThigh] == 0) continue;
+		sHoldKnee knee;
+		knee.iHipLink = linkOf[iThigh];
+		knee.iKneeLink = linkOf[iShin];
+		knee.iThigh = iThigh;
+		knee.iShin = iShin;
+		btScalar fBend;
+		btVector3 axis, pivot;
+		if (!HoldPoseKneeBend(knee.iHipLink, knee.iKneeLink, iThigh, iShin, rightLocal, fBend, axis, pivot)) continue;
+		knee.fMade = btDegrees(fBend);
+		knee.fHeld = knee.fMade;
+		m_holdKnees.push_back(knee);
+		if (m_fHoldKneeFold < 0) continue;
+		btTransform toPivot(btQuaternion::getIdentity(), pivot);
+		btTransform bend(btQuaternion(axis, btNormalizeAngle(btRadians(m_fHoldKneeFold) - fBend)), btVector3(0, 0, 0));
+		btTransform fromPivot(btQuaternion::getIdentity(), -pivot);
+		btTransform turn = toPivot * bend * fromPivot;
+		for (int i = 0; i < iBones; i++)
+			if (RagdollBodyHangsFrom(parentOf, i, iShin)) m_holdPose[i] = turn * m_holdPose[i];
 	}
 
 	// and every joint put within its limits, a little inside, by turning the part beyond it: a pose from an animation
@@ -977,6 +1011,43 @@ void DBProRagDoll::BuildHoldPose(int boneIndex)
 		for (int i = 0; i < iBones; i++)
 			if (RagdollBodyHangsFrom(parentOf, i, iBody)) m_holdPose[i] = turn * m_holdPose[i];
 	}
+
+	// and each knee's bend in the drape, as the limits left it
+	for (int k = 0; k < m_holdKnees.size(); k++)
+	{
+		sHoldKnee& knee = m_holdKnees[k];
+		btScalar fBend;
+		btVector3 axis, pivot;
+		if (HoldPoseKneeBend(knee.iHipLink, knee.iKneeLink, knee.iThigh, knee.iShin, rightLocal, fBend, axis, pivot)) knee.fHeld = btDegrees(fBend);
+	}
+}
+
+// GG: a knee's bend in the drape, from the thigh (its hip to the knee) to the shin (the knee toward the foot, as the
+// bone was made) about the knee's hinge axis turned to his right, so a knee bent toward his back is positive (0
+// straight, 90 a right angle); and that axis and the knee's pivot. False when the hinge does not bend the leg toward
+// his back or front
+bool DBProRagDoll::HoldPoseKneeBend(int iHipLink, int iKneeLink, int iThigh, int iShin, const btVector3& right, btScalar& fBend, btVector3& axis, btVector3& pivot)
+{
+	if (iHipLink < 0 || iHipLink >= m_jointLinks.size() || iKneeLink < 0 || iKneeLink >= m_jointLinks.size()) return false;
+	const sJointLink& kneeLink = m_jointLinks[iKneeLink];
+	if (!kneeLink.pJoint || kneeLink.pJoint->getConstraintType() != HINGE_CONSTRAINT_TYPE) return false;
+	btHingeConstraint* pHinge = (btHingeConstraint*)kneeLink.pJoint;
+	btTransform thighFromMade = m_holdPose[iThigh] * m_createTransform[iThigh].inverse();
+	btTransform shinFromMade = m_holdPose[iShin] * m_createTransform[iShin].inverse();
+	btVector3 hip = thighFromMade * m_jointLinks[iHipLink].pivot;
+	pivot = thighFromMade * kneeLink.pivot;
+	axis = (m_holdPose[kneeLink.iBoneA] * pHinge->getAFrame()).getBasis().getColumn(2);
+	btScalar fAcross = axis.dot(right);
+	if (btFabs(fAcross) < btScalar(0.5)) return false;
+	if (fAcross < 0) axis = -axis;
+	btVector3 thigh = pivot - hip;
+	btVector3 shin = shinFromMade.getBasis() * m_ragDollBoneArray[iShin]->GetNormilizedVector();
+	if (shin.dot(m_holdPose[iShin].getOrigin() - pivot) < 0) shin = -shin;
+	thigh -= axis * thigh.dot(axis);
+	shin -= axis * shin.dot(axis);
+	if (thigh.length2() < SIMD_EPSILON || shin.length2() < SIMD_EPSILON) return false;
+	fBend = btAtan2(thigh.cross(shin).dot(axis), thigh.dot(shin));
+	return true;
 }
 
 // GG: the turn of the part of a drape beyond a joint (iChild, on the side away from the held body, and what hangs
@@ -1129,14 +1200,16 @@ void DBProRagDoll::SetHeldBodies(bool bHeld)
 	if (!bHeld) m_heldFriction.clear();
 }
 
-// GG: how hard a held ragdoll is pulled to its drape (0 hangs free, 1 rigid), its swing's damping (0 to 1), and the
-// folds in degrees at the held body's joints; held now, at once
-void DBProRagDoll::SetHoldStiffness(btScalar fStiffness, btScalar fDamping, btScalar fWaistFold, btScalar fHipFold)
+// GG: how hard a held ragdoll is pulled to its drape (0 hangs free, 1 rigid), its swing's damping (0 to 1), the folds
+// in degrees at the held body's joints, and the bend of the knees beyond (negative leaves them as made); held now,
+// at once
+void DBProRagDoll::SetHoldStiffness(btScalar fStiffness, btScalar fDamping, btScalar fWaistFold, btScalar fHipFold, btScalar fKneeFold)
 {
 	m_fHoldStiffness = btMin(btMax(fStiffness, btScalar(0.0)), btScalar(1.0));
 	m_fHoldDamping = btMin(btMax(fDamping, btScalar(0.0)), btScalar(1.0));
 	m_fHoldWaistFold = fWaistFold;
 	m_fHoldHipFold = fHipFold;
+	m_fHoldKneeFold = (fKneeFold < 0) ? btScalar(-1.0) : fKneeFold;
 	if (m_pHoldJoint)
 	{
 		BuildHoldPose(m_iHoldBone);
@@ -1144,12 +1217,25 @@ void DBProRagDoll::SetHoldStiffness(btScalar fStiffness, btScalar fDamping, btSc
 	}
 }
 
-void DBProRagDoll::GetHoldStiffness(btScalar* pStiffness, btScalar* pDamping, btScalar* pWaistFold, btScalar* pHipFold)
+void DBProRagDoll::GetHoldStiffness(btScalar* pStiffness, btScalar* pDamping, btScalar* pWaistFold, btScalar* pHipFold, btScalar* pKneeFold)
 {
 	*pStiffness = m_fHoldStiffness;
 	*pDamping = m_fHoldDamping;
 	*pWaistFold = m_fHoldWaistFold;
 	*pHipFold = m_fHoldHipFold;
+	*pKneeFold = m_fHoldKneeFold;
+}
+
+// GG: the held ragdoll's knees, each one's bend in degrees as made and in the drape (BuildHoldPose); how many
+int DBProRagDoll::GetHoldKnees(btScalar* pMade, btScalar* pHeld, int iMax)
+{
+	int iCount = btMin(m_holdKnees.size(), iMax);
+	for (int k = 0; k < iCount; k++)
+	{
+		pMade[k] = m_holdKnees[k].fMade;
+		pHeld[k] = m_holdKnees[k].fHeld;
+	}
+	return iCount;
 }
 
 // GG: the object's position follows this body from the next update (-1 stops it)

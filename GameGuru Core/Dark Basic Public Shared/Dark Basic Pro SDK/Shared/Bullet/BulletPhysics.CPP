@@ -4423,26 +4423,43 @@ int BPhys_RagDollIsResting(int ragdollID)
 	return ( ragdoll && ragdoll->IsResting() ) ? 1 : 0;
 }
 
-// GG: how hard a held ragdoll is pulled to its drape (0 to 1), its swing's damping (0 to 1), the folds in degrees
-bool BPhys_RagDollSetHoldStiffness(int ragdollID, float fStiffness, float fDamping, float fWaistFold, float fHipFold)
+// GG: how hard a held ragdoll is pulled to its drape (0 to 1), its swing's damping (0 to 1), the folds in degrees and
+// the knees' bend (negative: as made)
+bool BPhys_RagDollSetHoldStiffness(int ragdollID, float fStiffness, float fDamping, float fWaistFold, float fHipFold, float fKneeFold)
 {
 	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
 	if ( !ragdoll ) return false;
-	ragdoll->SetHoldStiffness(fStiffness, fDamping, fWaistFold, fHipFold);
+	ragdoll->SetHoldStiffness(fStiffness, fDamping, fWaistFold, fHipFold, fKneeFold);
 	return true;
 }
 
-bool BPhys_RagDollGetHoldStiffness(int ragdollID, float* pStiffness, float* pDamping, float* pWaistFold, float* pHipFold)
+bool BPhys_RagDollGetHoldStiffness(int ragdollID, float* pStiffness, float* pDamping, float* pWaistFold, float* pHipFold, float* pKneeFold)
 {
 	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
 	if ( !ragdoll ) return false;
-	btScalar fStiffness, fDamping, fWaistFold, fHipFold;
-	ragdoll->GetHoldStiffness(&fStiffness, &fDamping, &fWaistFold, &fHipFold);
+	btScalar fStiffness, fDamping, fWaistFold, fHipFold, fKneeFold;
+	ragdoll->GetHoldStiffness(&fStiffness, &fDamping, &fWaistFold, &fHipFold, &fKneeFold);
 	*pStiffness = fStiffness;
 	*pDamping = fDamping;
 	*pWaistFold = fWaistFold;
 	*pHipFold = fHipFold;
+	*pKneeFold = fKneeFold;
 	return true;
+}
+
+// GG: a held ragdoll's knees, each one's bend in degrees as made and in its drape; how many
+int BPhys_RagDollGetHoldKnees(int ragdollID, float* pMade, float* pHeld, int iMax)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( !ragdoll || iMax <= 0 ) return 0;
+	btScalar fMade[8], fHeld[8];
+	int iCount = ragdoll->GetHoldKnees(fMade, fHeld, btMin(iMax, 8));
+	for ( int k = 0; k < iCount; k++ )
+	{
+		pMade[k] = fMade[k];
+		pHeld[k] = fHeld[k];
+	}
+	return iCount;
 }
 
 // Force commands
