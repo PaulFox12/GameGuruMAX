@@ -3651,16 +3651,19 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 		uv[m].push_back( u );
 		uv[m].push_back( vv );
 	};
-	// a triangle the right way up (its front faces along n)
+	// a triangle the right way up (its front faces along n), its tiles moved by whole tiles to start near 0: a mesh keeps
+	// its texture coordinates as half floats, coarse past a few hundred tiles (a long road's length along its kerb: in
+	// half tile steps past 512, where the texture stood still in bands), and each triangle has its own corners
 	auto emitTriangle = [&]( int m, const float* a, const float* b, const float* c, const float* uva, const float* uvb, const float* uvc, const float* n )
 	{
 		const float e1[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] }, e2[3] = { c[0] - a[0], c[1] - a[1], c[2] - a[2] };
 		const float cr[3] = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
 		const float facing = cr[0] * n[0] + cr[1] * n[1] + cr[2] * n[2];
 		if ( fabsf( facing ) < 1e-6f ) return;
-		emit( m, a, n, uva[0], uva[1] );
-		if ( facing < 0 ) { emit( m, b, n, uvb[0], uvb[1] ); emit( m, c, n, uvc[0], uvc[1] ); }
-		else { emit( m, c, n, uvc[0], uvc[1] ); emit( m, b, n, uvb[0], uvb[1] ); }
+		const float bu = floorf( std::min( std::min( uva[0], uvb[0] ), uvc[0] ) ), bv = floorf( std::min( std::min( uva[1], uvb[1] ), uvc[1] ) );
+		emit( m, a, n, uva[0] - bu, uva[1] - bv );
+		if ( facing < 0 ) { emit( m, b, n, uvb[0] - bu, uvb[1] - bv ); emit( m, c, n, uvc[0] - bu, uvc[1] - bv ); }
+		else { emit( m, c, n, uvc[0] - bu, uvc[1] - bv ); emit( m, b, n, uvb[0] - bu, uvb[1] - bv ); }
 	};
 	for ( int iz = 0; iz < SPLINE_PAVE_CELLS; iz++ )
 	{
