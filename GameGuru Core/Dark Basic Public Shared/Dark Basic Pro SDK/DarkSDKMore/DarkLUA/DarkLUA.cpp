@@ -3580,6 +3580,30 @@ static int LUA_GETTOP(lua_State* L)
  int FreezeEntity(lua_State *L) { return FreezeEntityCore ( L, 1 ); }
  int UnFreezeEntity(lua_State *L) { return FreezeEntityCore ( L, 0 ); }
 
+ // SetEntityVelocity(e, vx, vy, vz): e's physics body moving at that velocity (units a second), woken;
+ // SetEntityAngularVelocity(e, wx, wy, wz): spinning at that rate (degrees a second) about the world's x, y and z axes,
+ // woken. A frozen entity (FreezeEntity) or one with no body is left as it is
+ int SetEntityVelocityCore ( lua_State *L, int iAngular )
+ {
+	lua = L;
+	int n = LUA_GETTOP(L);
+	if ( n < 4 ) return 0;
+	int iEntityIndex = lua_tonumber(L, 1);
+	if ( !LuaEntityIDValid ( L, iEntityIndex, 1 ) ) return 0;
+	int iObjectNumber = t.entityelement[iEntityIndex].obj;
+	if ( iObjectNumber <= 0 ) return 0;
+	float fX = lua_tonumber(L, 2);
+	float fY = lua_tonumber(L, 3);
+	float fZ = lua_tonumber(L, 4);
+	if ( iAngular == 1 )
+		ODESetAngularVelocityRadians ( iObjectNumber, GGToRadian(fX), GGToRadian(fY), GGToRadian(fZ) );
+	else
+		ODESetLinearVelocity ( iObjectNumber, fX, fY, fZ );
+	return 0;
+ }
+ int SetEntityVelocity(lua_State *L) { return SetEntityVelocityCore ( L, 0 ); }
+ int SetEntityAngularVelocity(lua_State *L) { return SetEntityVelocityCore ( L, 1 ); }
+
  // SleepEntity(e): puts a physics entity's body to sleep with every moving body touching it, directly or through others
  // (its island), their velocities zeroed, as a body settled at rest sleeps; they wake as any sleeping body does (a blast,
  // a hit, a velocity set, an awake body touching them). Returns how many bodies slept: 0 when e has no moving body, or its
@@ -17497,6 +17521,8 @@ void addFunctions()
 	lua_register(lua, "FreezeEntity", FreezeEntity);
 	lua_register(lua, "UnFreezeEntity", UnFreezeEntity);
 	lua_register(lua, "SleepEntity", SleepEntity);
+	lua_register(lua, "SetEntityVelocity", SetEntityVelocity);
+	lua_register(lua, "SetEntityAngularVelocity", SetEntityAngularVelocity);
 
 	// Terrain
 	lua_register(lua, "GetTerrainHeight", GetTerrainHeight);

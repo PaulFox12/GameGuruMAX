@@ -4571,6 +4571,20 @@ void ODESetAngularVelocity (int iObject, float fX, float fY, float fZ)
 	pPhyObject->body->setAngularVelocity(btVector3(fX / gSc, fY / gSc, fZ / gSc));
 }
 
+// GG: a body's spin in radians per second about the world's axes (ODESetAngularVelocity scales its rates down as it
+// does lengths, by gSc, and its callers are tuned to that); a frozen body keeps still
+void ODESetAngularVelocityRadians (int iObject, float fX, float fY, float fZ)
+{
+	sObjectList* pPhyObject = ODEFindID (iObject);
+	if (pPhyObject == NULL) return;
+	if (pPhyObject->body == NULL) return;
+	if (pPhyObject->iResponseMode > 0) return;
+	physicslock.lock();
+	pPhyObject->body->activate();
+	pPhyObject->body->setAngularVelocity(btVector3(fX, fY, fZ));
+	physicslock.unlock();
+}
+
 void ODESetAngularFactor (int iObject)
 {
 	sObjectList* pPhyObject = ODEFindID (iObject);
