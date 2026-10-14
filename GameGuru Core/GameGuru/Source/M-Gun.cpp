@@ -118,6 +118,9 @@ void gun_loaddata ( void )
 		g.firemodes[t.gunid][t.i].settings.dofintensity=0;
 		g.firemodes[t.gunid][t.i].settings.zoomhidecrosshair=0;
 
+		// GG: an NPC's projectile spread, in degrees either way (darkai_shooteffect); below zero, the whole degrees it had
+		g.firemodes[t.gunid][t.i].settings.npcaimspread=-1.0f;
+
 		// by default gunspec defaults there is no spot light for gun
 		g.firemodes[t.gunid][t.i].settings.usespotlighting=0;
 
@@ -394,6 +397,8 @@ void gun_loaddata ( void )
 					if( matched )  g.firemodes[t.gunid][0].settings.meleeforce = t.value1;
 					cmpStrConst( t_field_s, "npcignorereload" );
 					if( matched )  g.firemodes[t.gunid][0].settings.npcignorereload = t.value1;
+					cmpStrConst( t_field_s, "npcaimspread" );
+					if( matched )  g.firemodes[t.gunid][0].settings.npcaimspread = t.value1;
 					cmpStrConst( t_field_s, "zoomhidecrosshair" );
 					if( matched )  g.firemodes[t.gunid][0].settings.zoomhidecrosshair = t.value1;
 					cmpStrConst( t_field_s, "doesnotuseammo" );

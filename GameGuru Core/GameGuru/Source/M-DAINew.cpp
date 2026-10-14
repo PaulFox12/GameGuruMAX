@@ -2565,14 +2565,37 @@ void darkai_shooteffect (void)
 			t.tdy_f = t.tplayery_f - t.flaky_f;
 			t.tdz_f = t.tplayerz_f - t.flakz_f;
 			t.tdd_f = Sqrt(abs(t.tdx_f*t.tdx_f) + abs(t.tdz_f*t.tdz_f));
-			t.flakangle_f = atan2deg(t.tdx_f, t.tdz_f) + (Rnd(4) - 2);
-			t.flakpitch_f = ((t.tdy_f / t.tdd_f)*-35.0) + Rnd(4) - 2;
 			t.ttzentid = t.entityelement[t.te].bankindex;
 
 			// create and launch projectile
 			int iStoreGunID = t.gunid;
 			t.gunid = t.tgunid;
 			t.tProjectileType_s = t.gun[t.gunid].projectile_s; weapon_getprojectileid ();
+
+			// GG: a projectile with no real physics flies straight but for its own turn (the RPG's noses down 2 degrees a
+			// second), so it is pointed along the line to the target and led by half that turn over its flight, to arrive
+			// on it; one with real physics keeps the old pitch. The spread is the gun's npcaimspread degrees either way
+			// on each axis, or whole degrees from -2 to 2 if it doesn't set one
+			float fSpread = g.firemodes[t.tgunid][0].settings.npcaimspread;
+			float fYawNoise = (float)(Rnd(4) - 2);
+			float fPitchNoise = (float)(Rnd(4) - 2);
+			if (fSpread >= 0.0f)
+			{
+				fYawNoise = ((float)Rnd(10000) / 5000.0f - 1.0f) * fSpread;
+				fPitchNoise = ((float)Rnd(10000) / 5000.0f - 1.0f) * fSpread;
+			}
+			t.flakangle_f = atan2deg(t.tdx_f, t.tdz_f) + fYawNoise;
+			t.flakpitch_f = ((t.tdy_f / t.tdd_f)*-35.0) + fPitchNoise;
+			if (t.tProjectileType > 0 && t.WeaponProjectileBase[t.tProjectileType].usingRealPhysics == 0)
+			{
+				float fRise = t.tdy_f - t.WeaponProjectileBase[t.tProjectileType].vert_f;
+				float fSpeed = (t.WeaponProjectileBase[t.tProjectileType].speedMin_f + t.WeaponProjectileBase[t.tProjectileType].speedMax_f) / 2.0f;
+				float fFlight = fSpeed > 0.0f ? Sqrt(t.tdd_f*t.tdd_f + fRise*fRise) / fSpeed : 0.0f;
+				float fTurnX = (t.WeaponProjectileBase[t.tProjectileType].speedTurnMinX_f + t.WeaponProjectileBase[t.tProjectileType].speedTurnMaxX_f) / 2.0f;
+				float fTurnY = (t.WeaponProjectileBase[t.tProjectileType].speedTurnMinY_f + t.WeaponProjectileBase[t.tProjectileType].speedTurnMaxY_f) / 2.0f;
+				t.flakangle_f = atan2deg(t.tdx_f, t.tdz_f) - fTurnY * fFlight / 2.0f + fYawNoise;
+				t.flakpitch_f = -atan2deg(fRise, t.tdd_f) + fTurnX * fFlight / 2.0f + fPitchNoise;
+			}
 			t.tSourceEntity = t.te; t.tTracerFlag = 0;
 			t.tStartX_f = t.flakx_f; t.tStartY_f = t.flaky_f; t.tStartZ_f = t.flakz_f;
 			t.tAngX_f = t.flakpitch_f; t.tAngY_f = t.flakangle_f; t.tAngZ_f = 0;

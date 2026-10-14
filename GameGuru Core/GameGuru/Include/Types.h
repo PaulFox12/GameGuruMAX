@@ -7423,6 +7423,7 @@ struct gunsettingstype
 	int force;
 	int meleeforce;
 	int npcignorereload;
+	float npcaimspread;
 	int dofdistance;
 	int dofintensity;
 	int zoomhidecrosshair;
@@ -7478,6 +7479,7 @@ struct gunsettingstype
 		 dofintensity = 0;
 		 dofdistance = 0;
 		 npcignorereload = 0;
+		 npcaimspread = -1.0f;
 		 meleeforce = 0;
 		 force = 0;
 		 addtospare = 0;
