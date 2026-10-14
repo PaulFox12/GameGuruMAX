@@ -201,7 +201,7 @@ bool WickedCall_SentRay4(float originx, float originy, float originz, float dire
 bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly, sObject* pIgnore1 = NULL, sObject* pIgnore2 = NULL);
 int WickedCall_FindDecalRayTargets(const float* pMin, const float* pMax);
 bool WickedCall_DecalRayTargetsRay(const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal);
-bool WickedCall_ObjectRay(sObject* pObject, const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal);
+bool WickedCall_ObjectRay(sObject* pObject, const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal, int* pLimb);
 int WickedCall_BeginRegionRays(float fX, float fY, float fZ, float fRadius);
 void WickedCall_EndRegionRays(void);
 bool WickedCall_RegionRay(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, const int* pIgnore, int iIgnoreCount, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit);

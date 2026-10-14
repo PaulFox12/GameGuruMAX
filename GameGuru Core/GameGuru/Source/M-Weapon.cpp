@@ -326,16 +326,17 @@ static bool weapon_projectile_isfoliage ( int iEntID )
 	return false;
 }
 
-// GG: a contact projectile's path this frame against the collision boxes of entities with no physics body, where they
-// stand now: CollisionOff removes a moving vehicle's body, so the projectile's own body can't touch it. Each box is grown
-// by the projectile's half size; foliage is passed. A box the path starts inside (the thrower's own vehicle, or a
-// helicopter's, which spans its rotor disc, with the thrower under it) has its own model tested instead, a surface
-// counting only when met from outside, so a throw out of the vehicle the thrower is in leaves it. Returns the object
-// hit first (0 none), the point, how far along the path it is (0 to 1), and the normal of the surface met
-static int weapon_projectile_boxhit ( GGVECTOR3 vecFrom, GGVECTOR3 vecTo, float fRadius, int iIgnoreObj, GGVECTOR3* pHit, float* pAlong, GGVECTOR3* pNormal )
+// GG: a contact projectile's path this frame against the entities with no physics body, where they stand now:
+// CollisionOff removes a moving vehicle's body, so the projectile's own body can't touch it. Each one's collision box,
+// grown by the projectile's half size, finds those the path could meet (foliage is passed), and its drawn model along the
+// path is what it meets: a helicopter's box spans its rotor disc, so a path through the box beside the hull and blades
+// flies on. A surface counts only when met from outside, so a throw out of the vehicle the thrower is in leaves it.
+// Returns the object hit first (0 none), the point, how far along the path it is (0 to 1), the normal of the surface met
+// and its limb
+static int weapon_projectile_boxhit ( GGVECTOR3 vecFrom, GGVECTOR3 vecTo, float fRadius, int iIgnoreObj, GGVECTOR3* pHit, float* pAlong, GGVECTOR3* pNormal, int* pLimb )
 {
 	bool CalcObjectWorld ( sObject* pObject );
-	bool WickedCall_ObjectRay ( sObject* pObject, const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal );
+	bool WickedCall_ObjectRay ( sObject* pObject, const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal, int* pLimb );
 	GGVECTOR3 vecPath = vecTo - vecFrom;
 	float fPathSquared = GGVec3Dot ( &vecPath, &vecPath );
 	if ( fPathSquared < 0.000001f ) return 0;
@@ -387,8 +388,6 @@ static int weapon_projectile_boxhit ( GGVECTOR3 vecFrom, GGVECTOR3 vecTo, float 
 		const float fLow[3] = { vecMin.x - fLocalRadius, vecMin.y - fLocalRadius, vecMin.z - fLocalRadius };
 		const float fHigh[3] = { vecMax.x + fLocalRadius, vecMax.y + fLocalRadius, vecMax.z + fLocalRadius };
 		float fEnter = -1.0e30f, fExit = 1.0e30f;
-		int iEnterAxis = 1;
-		float fEnterSide = 1.0f;
 		bool bMissed = false;
 		for ( int a = 0; a < 3 && !bMissed; a++ )
 		{
@@ -400,54 +399,45 @@ static int weapon_projectile_boxhit ( GGVECTOR3 vecFrom, GGVECTOR3 vecTo, float 
 			float fT1 = ( fLow[a] - fStart[a] ) / fDelta[a];
 			float fT2 = ( fHigh[a] - fStart[a] ) / fDelta[a];
 			if ( fT1 > fT2 ) { float fSwap = fT1; fT1 = fT2; fT2 = fSwap; }
-			// moving up an axis it comes in through the low face, whose normal points down that axis
-			if ( fT1 > fEnter ) { fEnter = fT1; iEnterAxis = a; fEnterSide = fDelta[a] > 0 ? -1.0f : 1.0f; }
+			if ( fT1 > fEnter ) fEnter = fT1;
 			if ( fT2 < fExit ) fExit = fT2;
 			if ( fEnter > fExit ) bMissed = true;
 		}
-		if ( bMissed || fEnter > 1 || fExit < 0 ) continue;
-		if ( fEnter < 0 )
-		{
-			// starts inside the box: its own model along the path
-			float fPathLength = sqrt ( fPathSquared );
-			float fFrom[3] = { vecFrom.x, vecFrom.y, vecFrom.z };
-			float fDir[3] = { vecPath.x / fPathLength, vecPath.y / fPathLength, vecPath.z / fPathLength };
-			float fDistance = 0.0f;
-			float fModelNormal[3] = { 0, 0, 0 };
-			if ( !WickedCall_ObjectRay ( pObject, fFrom, fDir, fPathLength, &fDistance, fModelNormal ) ) continue;
-			float fModelAlong = fDistance / fPathLength;
-			if ( fModelAlong >= fBest ) continue;
-			fBest = fModelAlong;
-			iHitObj = iObj;
-			*pHit = vecFrom + vecPath * fModelAlong;
-			*pNormal = GGVECTOR3 ( fModelNormal[0], fModelNormal[1], fModelNormal[2] );
-			continue;
-		}
-		if ( fEnter >= fBest ) continue;
-		fBest = fEnter;
-		iHitObj = iObj;
-		*pHit = vecFrom + vecPath * fEnter;
+		if ( bMissed || fEnter > 1 || fExit < 0 || fEnter >= fBest ) continue;
 
-		// the face's normal in the world, by the inverse's transpose so a scaled box keeps its faces' normals
-		GGVECTOR3 vecLocalNormal ( iEnterAxis == 0 ? fEnterSide : 0.0f, iEnterAxis == 1 ? fEnterSide : 0.0f, iEnterAxis == 2 ? fEnterSide : 0.0f );
-		GGMATRIX matInverseTranspose;
-		GGMatrixTranspose ( &matInverseTranspose, &matInverse );
-		GGVec3TransformNormal ( pNormal, &vecLocalNormal, &matInverseTranspose );
-		GGVec3Normalize ( pNormal, pNormal );
+		// its own model along the path, its hull and the limbs drawn now (a rotor's blades or its blurred disc)
+		float fPathLength = sqrt ( fPathSquared );
+		float fFrom[3] = { vecFrom.x, vecFrom.y, vecFrom.z };
+		float fDir[3] = { vecPath.x / fPathLength, vecPath.y / fPathLength, vecPath.z / fPathLength };
+		float fDistance = 0.0f;
+		float fModelNormal[3] = { 0, 0, 0 };
+		int iModelLimb = -1;
+		if ( !WickedCall_ObjectRay ( pObject, fFrom, fDir, fPathLength, &fDistance, fModelNormal, &iModelLimb ) ) continue;
+		float fModelAlong = fDistance / fPathLength;
+		if ( fModelAlong >= fBest ) continue;
+		fBest = fModelAlong;
+		iHitObj = iObj;
+		*pHit = vecFrom + vecPath * fModelAlong;
+		*pNormal = GGVECTOR3 ( fModelNormal[0], fModelNormal[1], fModelNormal[2] );
+		*pLimb = iModelLimb;
 	}
 	*pAlong = fBest;
 	return iHitObj;
 }
 
 // GG: the surface a projectile ended on, for weapon_projectileresult_make (which takes it): its normal facing back along
-// the flight (0,0,0 when it ended on none), and whether the projectile's file stands its explosion effect on it
+// the flight (0,0,0 when it ended on none), the limb of the entity's model it met (-1 when not known), and whether the
+// projectile's file stands its explosion effect on it
 static GGVECTOR3 g_vecProjectileResultNormal ( 0, 0, 0 );
+static int g_iProjectileResultLimb = -1;
 static bool g_bProjectileResultOnNormal = false;
 
-// GG: the projectile event's surface normal, g_projectileevent_nx/ny/nz (M-LUA.cpp)
+// GG: the projectile event's surface normal and limb, g_projectileevent_nx/ny/nz and g_projectileevent_limb (M-LUA.cpp)
 float g_fProjectileEventNormal[3] = { 0, 0, 0 };
-static void weapon_projectile_setresultnormal ( GGVECTOR3 vecNormal, GGVECTOR3 vecTravel )
+int g_iProjectileEventLimb = -1;
+static void weapon_projectile_setresultnormal ( GGVECTOR3 vecNormal, GGVECTOR3 vecTravel, int iLimb )
 {
+	g_iProjectileResultLimb = iLimb;
 	g_vecProjectileResultNormal = GGVECTOR3 ( 0, 0, 0 );
 	float fLength = GGVec3Length ( &vecNormal );
 	if ( fLength > 0.001f )
@@ -629,7 +619,7 @@ void weapon_projectile_loop ( void )
 				t.tSoundID = t.WeaponProjectile[t.tProj].soundDeath;
 				t.tSourceEntity = t.WeaponProjectile[t.tProj].sourceEntity;
 				t.tHitObj = 0;
-				weapon_projectile_setresultnormal ( GGVECTOR3 ( 0, 0, 0 ), GGVECTOR3 ( 0, 0, 0 ) );
+				weapon_projectile_setresultnormal ( GGVECTOR3 ( 0, 0, 0 ), GGVECTOR3 ( 0, 0, 0 ), -1 );
 				weapon_projectileresult_make (custom_decal_explosion);
 				weapon_projectile_destroy ( );
 				t.tthisprojectileexploded=1;
@@ -680,7 +670,7 @@ void weapon_projectile_loop ( void )
 						t.tSoundID = t.WeaponProjectile[t.tProj].soundDeath;
 						t.tSourceEntity = t.WeaponProjectile[t.tProj].sourceEntity;
 						t.tHitObj = 0;
-						weapon_projectile_setresultnormal ( GGVECTOR3 ( 0, 0, 0 ), GGVECTOR3 ( 0, 0, 0 ) );
+						weapon_projectile_setresultnormal ( GGVECTOR3 ( 0, 0, 0 ), GGVECTOR3 ( 0, 0, 0 ), -1 );
 						weapon_projectileresult_make (custom_decal_explosion);
 						weapon_projectile_destroy ( );
 						t.tthisprojectileexploded=1;
@@ -730,7 +720,7 @@ void weapon_projectile_loop ( void )
 							t.tHitObj = 0;
 							// the ground's normal from the ray that met it
 							GGVECTOR3 vecTravel ( t.tXNewPos_f - t.tXOldPos_f, t.tYNewPos_f - t.tYOldPos_f, t.tZNewPos_f - t.tZOldPos_f );
-							weapon_projectile_setresultnormal ( GGVECTOR3 ( ODEGetRayNormalX(), ODEGetRayNormalY(), ODEGetRayNormalZ() ), vecTravel );
+							weapon_projectile_setresultnormal ( GGVECTOR3 ( ODEGetRayNormalX(), ODEGetRayNormalY(), ODEGetRayNormalZ() ), vecTravel, -1 );
 							weapon_projectileresult_make (custom_decal_explosion);
 							weapon_projectile_destroy ( );
 							t.tthisprojectileexploded=1;
@@ -795,6 +785,7 @@ void weapon_projectile_loop ( void )
 							float fContactX = 0, fContactY = 0, fContactZ = 0;
 							GGVECTOR3 vecContactNormal ( 0, 0, 0 );
 							GGVECTOR3 vecRayNormal ( 0, 0, 0 );
+							int iContactLimb = -1;
 							if ( t.WeaponProjectileBase[t.tProjType].resultBounce>0 && t.WeaponProjectileBase[t.tProjType].usingRealPhysics>0 )
 							{
 								// GG: a real physics one ends where its body first touched another (ODEWatchProjectileContact), the
@@ -803,7 +794,7 @@ void weapon_projectile_loop ( void )
 								bContactHit = iTouched >= 0;
 								t.tHitObj = iTouched > 0 ? iTouched : 0;
 
-								// and the boxes of entities with no body (a moving vehicle), if its path entered one first
+								// and the models of entities with no body (a moving vehicle), if its path met one first
 								GGVECTOR3 vecFrom ( t.WeaponProjectile[t.tProj].xOldPos_f, t.WeaponProjectile[t.tProj].yOldPos_f, t.WeaponProjectile[t.tProj].zOldPos_f );
 								GGVECTOR3 vecTo ( t.tXNewPos_f, t.tYNewPos_f, t.tZNewPos_f );
 								float fRadius = ObjectSizeX ( t.tobj, 1 );
@@ -813,7 +804,8 @@ void weapon_projectile_loop ( void )
 								GGVECTOR3 vecBoxHit ( 0, 0, 0 );
 								GGVECTOR3 vecBoxNormal ( 0, 0, 0 );
 								float fBoxAlong = 2.0f;
-								int iBoxObj = weapon_projectile_boxhit ( vecFrom, vecTo, fRadius, t.tIgnoreObject, &vecBoxHit, &fBoxAlong, &vecBoxNormal );
+								int iBoxLimb = -1;
+								int iBoxObj = weapon_projectile_boxhit ( vecFrom, vecTo, fRadius, t.tIgnoreObject, &vecBoxHit, &fBoxAlong, &vecBoxNormal, &iBoxLimb );
 								if ( iBoxObj > 0 )
 								{
 									float fContactAlong = 2.0f;
@@ -832,6 +824,7 @@ void weapon_projectile_loop ( void )
 										fContactY = vecBoxHit.y;
 										fContactZ = vecBoxHit.z;
 										vecContactNormal = vecBoxNormal;
+										iContactLimb = iBoxLimb;
 									}
 								}
 							}
@@ -845,8 +838,8 @@ void weapon_projectile_loop ( void )
 								if ( t.tHitObj > 0 ) vecRayNormal = GGVECTOR3 ( ChecklistFValueA(7), ChecklistFValueB(7), ChecklistFValueC(7) );
 
 								// GG: the ray meets only bodies, so an entity with none (CollisionOff, a vehicle; physics off, a prop)
-								// let the projectile through: its true path this frame against their boxes too, the nearer of the
-								// box entered and the ray's hit taken, a box ending it at the entry
+								// let the projectile through: its true path this frame against their models too, the nearer of the
+								// model met and the ray's hit taken
 								GGVECTOR3 vecFrom ( t.WeaponProjectile[t.tProj].xOldPos_f, t.WeaponProjectile[t.tProj].yOldPos_f, t.WeaponProjectile[t.tProj].zOldPos_f );
 								GGVECTOR3 vecTo ( t.tXNewPos_f, t.tYNewPos_f, t.tZNewPos_f );
 								float fRadius = 0.0f;
@@ -860,7 +853,8 @@ void weapon_projectile_loop ( void )
 								GGVECTOR3 vecBoxHit ( 0, 0, 0 );
 								GGVECTOR3 vecBoxNormal ( 0, 0, 0 );
 								float fBoxAlong = 2.0f;
-								int iBoxObj = weapon_projectile_boxhit ( vecFrom, vecTo, fRadius, t.tIgnoreObject, &vecBoxHit, &fBoxAlong, &vecBoxNormal );
+								int iBoxLimb = -1;
+								int iBoxObj = weapon_projectile_boxhit ( vecFrom, vecTo, fRadius, t.tIgnoreObject, &vecBoxHit, &fBoxAlong, &vecBoxNormal, &iBoxLimb );
 								if ( iBoxObj > 0 )
 								{
 									float fRayAlong = 2.0f;
@@ -881,6 +875,7 @@ void weapon_projectile_loop ( void )
 										fContactY = vecBoxHit.y;
 										fContactZ = vecBoxHit.z;
 										vecContactNormal = vecBoxNormal;
+										iContactLimb = iBoxLimb;
 									}
 								}
 							}
@@ -997,10 +992,12 @@ void weapon_projectile_loop ( void )
 									t.tradius_f = t.WeaponProjectileBase[t.tProjType].damageRadius_f;
 									t.tSoundID = t.WeaponProjectile[t.tProj].soundDeath;
 									t.tSourceEntity = t.WeaponProjectile[t.tProj].sourceEntity;
-									// the surface's normal: the contact's or box face's, else the ray's; none for a burst beside a character
+									// the surface's normal: the contact's or the bodiless entity's model's, else the ray's; none for a burst
+									// beside a character. The model's limb when it was the bodiless entity's
 									GGVECTOR3 vecTravel ( t.tXNewPos_f - t.tXOldPos_f, t.tYNewPos_f - t.tYOldPos_f, t.tZNewPos_f - t.tZOldPos_f );
 									GGVECTOR3 vecSurfaceNormal = bDirectHitOnObjectItself ? GGVECTOR3 ( 0, 0, 0 ) : ( bContactHit ? vecContactNormal : vecRayNormal );
-									weapon_projectile_setresultnormal ( vecSurfaceNormal, vecTravel );
+									int iSurfaceLimb = ( bContactHit && !bDirectHitOnObjectItself && t.tHitObj > 0 ) ? iContactLimb : -1;
+									weapon_projectile_setresultnormal ( vecSurfaceNormal, vecTravel, iSurfaceLimb );
 									weapon_projectileresult_make (custom_decal_explosion);
 									weapon_projectile_destroy ( );
 									t.tthisprojectileexploded=1;
@@ -2009,8 +2006,10 @@ void weapon_projectileresult_make (int customdecal )
 
 	// GG: the surface it ended on (weapon_projectile_setresultnormal), taken so any later call starts with none
 	GGVECTOR3 vecResultNormal = g_vecProjectileResultNormal;
+	int iResultLimb = g_iProjectileResultLimb;
 	bool bEffectOnNormal = g_bProjectileResultOnNormal;
 	g_vecProjectileResultNormal = GGVECTOR3 ( 0, 0, 0 );
+	g_iProjectileResultLimb = -1;
 	g_bProjectileResultOnNormal = false;
 
 	// the player's hit record: an entry for each entity a player projectile's hit or blast damages
@@ -2160,6 +2159,7 @@ void weapon_projectileresult_make (int customdecal )
 				g_fProjectileEventNormal[0] = vecResultNormal.x;
 				g_fProjectileEventNormal[1] = vecResultNormal.y;
 				g_fProjectileEventNormal[2] = vecResultNormal.z;
+				g_iProjectileEventLimb = -1;
 			}
 
 			// trigger direct damage if hit an entity
@@ -2183,6 +2183,7 @@ void weapon_projectileresult_make (int customdecal )
 							if ( strlen ( t.tProjectileName_s.Get() ) > 0 )
 							{
 								g.projectileEventType_entityhit = t.ttte;
+								g_iProjectileEventLimb = iResultLimb;
 							}
 							break;
 						}

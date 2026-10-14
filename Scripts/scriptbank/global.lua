@@ -184,6 +184,8 @@ g_projectileevent_entityhit = 0
 g_projectileevent_nx = 0
 g_projectileevent_ny = 0
 g_projectileevent_nz = 0
+-- the limb (as GetEntityLimbName numbers them) of g_projectileevent_entityhit's model it ended on, when that model was tested (an entity with no physics body: a helicopter's hull, its rotor or blurred disc limb, a vehicle with CollisionOff); -1 when not known
+g_projectileevent_limb = -1
 
 function GameLoopInit(invincible,sth,rra,rsp,rde)
  g_gameloop_StartHealth = sth

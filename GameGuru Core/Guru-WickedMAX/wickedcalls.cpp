@@ -7209,9 +7209,10 @@ bool WickedCall_DecalRayTargetsRay(const float* pFrom, const float* pDir, float 
 }
 
 // GG: the nearest surface of one object's own meshes along a ray (pDir of unit length), up to fLength, met from the ray's
-// side as every pick takes it: true with its distance and normal. The model of a vehicle with no physics body
-// (CollisionOff), which the physics ray can't meet; an object made with no collision (mode 11) is never met
-bool WickedCall_ObjectRay(sObject* pObject, const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal)
+// side as every pick takes it: true with its distance, normal and limb (frame). The model of a vehicle with no physics
+// body (CollisionOff), which the physics ray can't meet; hidden limbs and an object made with no collision (mode 11) are
+// never met
+bool WickedCall_ObjectRay(sObject* pObject, const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal, int* pLimb)
 {
 	if (!pObject || !pObject->ppFrameList) return false;
 	Scene& scene = wiScene::GetScene();
@@ -7231,6 +7232,12 @@ bool WickedCall_ObjectRay(sObject* pObject, const float* pFrom, const float* pDi
 	if (hit.entity == INVALID_ENTITY || hit.distance > fLength) return false;
 	*pDistance = hit.distance;
 	pNormal[0] = hit.normal.x; pNormal[1] = hit.normal.y; pNormal[2] = hit.normal.z;
+	*pLimb = -1;
+	for (int iF = 0; iF < pObject->iFrameCount; iF++)
+	{
+		sFrame* pFrame = pObject->ppFrameList[iF];
+		if (pFrame && pFrame->wickedobjindex == hit.entity) { *pLimb = iF; break; }
+	}
 	return true;
 }
 

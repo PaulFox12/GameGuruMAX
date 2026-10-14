@@ -78,6 +78,8 @@ void lua_init ( void )
 	g.projectileEventType_entityhit = 0;
 	extern float g_fProjectileEventNormal[3];
 	g_fProjectileEventNormal[0] = g_fProjectileEventNormal[1] = g_fProjectileEventNormal[2] = 0.0f;
+	extern int g_iProjectileEventLimb;
+	g_iProjectileEventLimb = -1;
 
 	//LB: more clearances
 	t.plrkeyForceKeystate = 0;
@@ -719,6 +721,9 @@ void lua_loop_begin ( void )
 	LuaSetFloat("g_projectileevent_nx", g_fProjectileEventNormal[0]);
 	LuaSetFloat("g_projectileevent_ny", g_fProjectileEventNormal[1]);
 	LuaSetFloat("g_projectileevent_nz", g_fProjectileEventNormal[2]);
+	// GG: the limb of g_projectileevent_entityhit's model it ended on, when that model was tested; -1 when not known
+	extern int g_iProjectileEventLimb;
+	LuaSetInt("g_projectileevent_limb", g_iProjectileEventLimb);
 
 	// at new LUA loop start, can activate any newly created spawned entities currently in limbo
 	bool bBringNewOnesToLife = false;
