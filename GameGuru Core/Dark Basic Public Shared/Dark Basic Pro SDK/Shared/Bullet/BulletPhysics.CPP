@@ -1097,6 +1097,7 @@ void Update(float fTimeStep)
 				// update DBPro object position and rotation to match physics
 				pObject->position.vecPosition = GGVECTOR3(matWorld._41, matWorld._42, matWorld._43);
 
+				// angles from the rotation alone, the world matrix carries the scale
 				GGVECTOR3 vecRotate = GGVECTOR3(0, 0, 0);
 				if (pObject->position.bApplyPivot && g_PhyObjectList[j].bPivotInBody)
 				{
@@ -1104,12 +1105,12 @@ void Update(float fTimeStep)
 					float fDet;
 					GGMATRIX matPivotInverse;
 					GGMatrixInverse(&matPivotInverse, &fDet, &pObject->position.matPivot);
-					GGMATRIX matWithoutPivot = matPivotInverse * matWorld;
+					GGMATRIX matWithoutPivot = matPivotInverse * matRotation;
 					BULLETAnglesFromMatrix(&matWithoutPivot, &vecRotate);
 				}
 				else
 				{
-					BULLETAnglesFromMatrix(&matWorld, &vecRotate);
+					BULLETAnglesFromMatrix(&matRotation, &vecRotate);
 				}
 				pObject->position.vecRotate = vecRotate;
 				pObject->collision.bColCenterUpdated = true;
