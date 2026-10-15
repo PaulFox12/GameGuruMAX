@@ -46,6 +46,11 @@ cbuffer TreeCB : register( b2 )
 	float    tree_lodDistShadow;
 	float    tree_lodTransition;
 	float    tree_lodTransitionShadow;
+
+	// GG: per-tree variety: the tint's strength 0 to 1 and whether billboards mirror (SetTreeVariety)
+	float    tree_varietyTint;
+	float    tree_varietyMirror;
+	float2   tree_varietyPad;
 };
 
 uint GetTreeType( uint data ) { return (data >> 11) & 0x3F; }
@@ -65,6 +70,30 @@ float TreeLODFade( float3 treePos, float3 viewPos, float lodDist, float transiti
 float TreeDither( float2 pixel )
 {
 	return frac( 52.9829189 * frac( dot( pixel, float2( 0.06711056, 0.00583715 ) ) ) );
+}
+
+// GG: per-tree variety. A hash of the tree's position (its instance offset, the same in every buffer that holds the tree)
+// gives each tree a mirror bit and a tint, so a stand of one type stops reading as one stamped picture. Each vertex shader
+// puts the hash in bits 24-31 of the data word it passes on, which nothing else uses (the scale ends at bit 23), so the
+// billboard and the full detail tree carry the same tint across their cross fade
+uint TreeVarietyHash( float3 offset )
+{
+	uint h = uint( int( floor( offset.x ) ) ) * 0x8da6b343u ^ uint( int( floor( offset.z ) ) ) * 0xd8163841u;
+	h ^= h >> 13;
+	h *= 0x5bd1e995u;
+	h ^= h >> 15;
+	return (h >> 8) & 0xFF;
+}
+uint TreeVarietyData( uint data, float3 offset ) { return (data & 0x00FFFFFF) | (TreeVarietyHash( offset ) << 24); }
+bool TreeVarietyMirror( uint data ) { return tree_varietyMirror > 0 && (data & 0x01000000); }
+// the tint: a brightness within 8 % either way and a lean of up to 6 % toward olive, both scaled by the amount
+float3 TreeVarietyTint( uint data, float amount )
+{
+	uint v = data >> 24;
+	float bright = ((v >> 1) & 0xF) / 15.0 * 2.0 - 1.0;
+	float lean = ((v >> 5) & 0x7) / 7.0;
+	float3 tint = 1.0 + 0.08 * bright * amount;
+	return tint * lerp( 1.0, float3( 1.06, 1.03, 0.90 ), lean * amount );
 }
 
 float TreeSwaySpeed()

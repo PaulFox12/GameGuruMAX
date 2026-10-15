@@ -15739,6 +15739,25 @@ int GetTreeShadowMeshLOD(lua_State* L)
 	lua_pushnumber(L, GGTrees::GGTrees_GetShadowMeshLOD(1));
 	return 2;
 }
+// SetTreeVariety(tint [, mirror]) - the engine trees' per-tree variety, from a hash of each tree's position: tint 0 to 1 is
+// how far its own brightness (within 8 %) and olive lean (up to 6 %) go, mirror 1 flips about half the billboards; a
+// negative or omitted value keeps the current one. By default 1 and 1; back to them when a test game ends
+int SetTreeVariety(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	float fTint = lua_tonumber(L, 1);
+	int iMirror = (n >= 2) ? lua_tonumber(L, 2) : -1;
+	GGTrees::GGTrees_SetVariety(fTint, iMirror);
+	return 0;
+}
+// GetTreeVariety() - the two values SetTreeVariety sets, as in force
+int GetTreeVariety(lua_State* L)
+{
+	lua_pushnumber(L, GGTrees::ggtrees_global_params.variety_tint);
+	lua_pushnumber(L, GGTrees::ggtrees_global_params.variety_mirror);
+	return 2;
+}
 int GetTreeShadowCascades(lua_State* L)
 {
 	lua_pushnumber(L, GGTrees::ggtrees_global_params.tree_shadow_range);
@@ -18789,6 +18808,8 @@ void addFunctions()
 	lua_register(lua, "SetTreeShadowMeshLOD", SetTreeShadowMeshLOD);
 	lua_register(lua, "GetTreeShadowMeshLOD", GetTreeShadowMeshLOD);
 	lua_register(lua, "GetTreeShadowCascades", GetTreeShadowCascades);
+	lua_register(lua, "SetTreeVariety", SetTreeVariety);
+	lua_register(lua, "GetTreeVariety", GetTreeVariety);
 	lua_register(lua, "RayTrees", RayTrees);
 	lua_register(lua, "GetTreesNear", GetTreesNear);
 	lua_register(lua, "GetTreeTypeName", GetTreeTypeName);

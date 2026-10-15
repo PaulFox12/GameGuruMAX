@@ -63,9 +63,11 @@ VertexOut main( VertexIn IN )
 
 	OUT.worldPos = pos.xyz;
 	OUT.clip = dot( pos, g_xCamera_ClipPlane );
-	OUT.uv.x = IN.position.x + 0.5;
+	// GG: per-tree variety: a mirrored card reads its image right to left
+	uint data = TreeVarietyData( IN.data, IN.offset );
+	OUT.uv.x = TreeVarietyMirror( data ) ? 0.5 - IN.position.x : IN.position.x + 0.5;
 	OUT.uv.y = 1 - IN.position.y;
-	OUT.data = IN.data;
+	OUT.data = data;
 		
 	OUT.lodFade = TreeLODFade( IN.offset, g_xCamera_CamPos, tree_lodDist, tree_lodTransition );
     return OUT;

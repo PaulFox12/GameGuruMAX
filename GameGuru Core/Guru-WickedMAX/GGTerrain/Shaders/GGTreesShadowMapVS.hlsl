@@ -50,9 +50,11 @@ VertexOut main( VertexIn IN )
 	// GG: a billboard wholly nearer than the start of its fade is discarded at every pixel, so drop it here
 	float reach = GetTreeScale( IN.data ) * length( float2( 0.5 * tree_type[ treeType ].scaleX, tree_type[ treeType ].scaleY ) );
 	if ( distance( IN.offset, tree_playerPos ) + reach < tree_lodDistShadow ) OUT.position = float4( 0, 0, -1, 1 );
-	OUT.uv.x = IN.position.x + 0.5;
+	// GG: per-tree variety: a mirrored card reads its image right to left
+	uint data = TreeVarietyData( IN.data, IN.offset );
+	OUT.uv.x = TreeVarietyMirror( data ) ? 0.5 - IN.position.x : IN.position.x + 0.5;
 	OUT.uv.y = 1 - IN.position.y;
-	OUT.data = IN.data;
+	OUT.data = data;
     
 	OUT.lodFade = TreeLODFade( IN.offset, tree_playerPos, tree_lodDistShadow, tree_lodTransitionShadow );
 	return OUT;

@@ -2599,9 +2599,18 @@ int GGTrees_GetShadowMeshLOD( int further )
 	return (ggtrees_lua_overrides.shadow_mesh_lod_cascade1 >= 0) ? ggtrees_lua_overrides.shadow_mesh_lod_cascade1 : 0;
 }
 
+void GGTrees_SetVariety( float tint, int mirror )
+{
+	if ( tint >= 0 ) ggtrees_global_params.variety_tint = (tint > 1.0f) ? 1.0f : tint;
+	if ( mirror >= 0 ) ggtrees_global_params.variety_mirror = (mirror > 0) ? 1 : 0;
+}
+
 void GGTrees_ClearLuaOverrides()
 {
 	ggtrees_lua_overrides = GGTreesLuaOverrides();
+	GGTreesParams defaults;
+	ggtrees_global_params.variety_tint = defaults.variety_tint;
+	ggtrees_global_params.variety_mirror = defaults.variety_mirror;
 }
 
 void GGTrees_ResetDistances()
@@ -3547,6 +3556,8 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 	treeConstantData.tree_lodDistShadow = ggtrees_global_params.lod_dist_shadow;
 	treeConstantData.tree_lodTransition = ggtrees_global_params.lod_transition;
 	treeConstantData.tree_lodTransitionShadow = ggtrees_global_params.lod_transition_shadow;
+	treeConstantData.tree_varietyTint = ggtrees_global_params.variety_tint;
+	treeConstantData.tree_varietyMirror = (float) ggtrees_global_params.variety_mirror;
 
 	wiRenderer::GetDevice()->UpdateBuffer(&treeConstantBuffer, &treeConstantData, cmd, sizeof(TreeCB));
 

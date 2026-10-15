@@ -244,6 +244,7 @@ GBuffer main( PixelIn IN )
 	float3 normal = texTreeNormal.Sample( samplerTrilinearClamp, float3(IN.uv, treeType) ).rgb;
 	normal = normal * 2 - 1;
 	normal.y = abs(normal.y);
+	if ( TreeVarietyMirror( IN.data ) ) normal.x = -normal.x; // GG: a mirrored card's map, mirrored too
 
 	float normX = normal.x * cosAng - normal.z * sinAng;
 	float normZ = -normal.x * sinAng - normal.z * cosAng;
@@ -266,6 +267,7 @@ GBuffer main( PixelIn IN )
 	// de-gamma is now done automatically by hardware due to sRGB texture
 	//baseColor.rgb = pow( baseColor.rgb, 2.2 ); // de-gamma
 
+	baseColor.rgb *= TreeVarietyTint( IN.data, tree_varietyTint ); // GG: per-tree variety
 	surface.createMetalness( 0, 1, 1, GGTREES_REFLECTANCE, baseColor.rgb, true );
 	
 	const float2 pixel = IN.position.xy;

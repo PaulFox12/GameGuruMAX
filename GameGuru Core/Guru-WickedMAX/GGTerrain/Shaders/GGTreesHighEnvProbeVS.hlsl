@@ -30,7 +30,7 @@ VertexOut main( VertexIn IN )
 	const uint index = GetTreeVariation( IN.data );
 	const uint cubeFaceID = IN.data & 0xFF;
 
-	OUT.data = IN.data;
+	OUT.data = TreeVarietyData( IN.data, IN.offset ); // GG: per-tree variety, the hash in the top bits
 
 	float2x2 rotMat = { tree_rotMat[ index ].x, tree_rotMat[ index ].y, tree_rotMat[ index ].z, tree_rotMat[ index ].w };
 

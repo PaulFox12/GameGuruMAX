@@ -126,6 +126,7 @@ float4 main( PixelIn IN ) : SV_TARGET
 	// de-gamma is now done automatically by hardware due to sRGB texture
 	//baseColor = pow( baseColor.rgb, 2.2 ); // de-gamma
 
+	baseColor *= TreeVarietyTint( IN.data, tree_varietyTint * 0.5 ); // GG: per-tree variety, bark at half
 	surface.createMetalness( 0, 1, 1, GGTREES_REFLECTANCE, baseColor, true );
 	
 	const float2 pixel = IN.position.xy;

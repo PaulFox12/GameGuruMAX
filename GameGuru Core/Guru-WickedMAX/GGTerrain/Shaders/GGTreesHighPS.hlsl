@@ -235,6 +235,7 @@ GBuffer main( PixelIn IN )
 	// de-gamma is now done automatically by hardware due to sRGB texture
 	//baseColor.rgb = pow( baseColor.rgb, 2.2 ); // de-gamma
 
+	baseColor.rgb *= TreeVarietyTint( IN.data, tree_varietyTint * 0.5 ); // GG: per-tree variety, bark at half
 	surface.createMetalness( 0, 1, 1, GGTREES_REFLECTANCE, baseColor.rgb, true );
 	
 	const float2 pixel = IN.position.xy;
