@@ -43,7 +43,7 @@ namespace GGTrees
 
 		int hide_until_update = 0;
 
-		// GG: per-tree variety: the tint's strength 0 to 1 and whether billboards mirror (SetTreeVariety); back to these
+		// GG: per-tree variety: the tint's strength 0 to 2 and whether billboards mirror (SetTreeVariety); back to these
 		// when a test game ends
 		float variety_tint = 1.0f;
 		int variety_mirror = 1;
@@ -121,7 +121,7 @@ namespace GGTrees
 	// (a lighter mesh only where it has fewer triangles); by default 0 and 2
 	void GGTrees_SetLuaShadowMeshLOD( int cascade1, int further );
 	int GGTrees_GetShadowMeshLOD( int further );
-	// the per-tree variety's tint strength (0 to 1) and billboard mirroring (0 or 1); a negative value keeps the current one
+	// the per-tree variety's tint strength (0 to 2) and billboard mirroring (0 or 1); a negative value keeps the current one
 	void GGTrees_SetVariety( float tint, int mirror );
 	void GGTrees_ApplyLuaOverrides();
 	void GGTrees_ClearLuaOverrides();

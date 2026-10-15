@@ -15739,9 +15739,10 @@ int GetTreeShadowMeshLOD(lua_State* L)
 	lua_pushnumber(L, GGTrees::GGTrees_GetShadowMeshLOD(1));
 	return 2;
 }
-// SetTreeVariety(tint [, mirror]) - the engine trees' per-tree variety, from a hash of each tree's position: tint 0 to 1 is
-// how far its own brightness (within 8 %) and olive lean (up to 6 %) go, mirror 1 flips about half the billboards; a
-// negative or omitted value keeps the current one. By default 1 and 1; back to them when a test game ends
+// SetTreeVariety(tint [, mirror]) - the engine trees' per-tree variety, from a hash of each tree's position: tint 0 to 2 is
+// how far its own brightness (within 15 % at 1) and lean toward olive or a cool green (up to 6 % at 1) go, mirror 1 flips
+// about half the billboards; a negative or omitted value keeps the current one. By default 1 and 1; back to them when a
+// test game ends
 int SetTreeVariety(lua_State* L)
 {
 	int n = LUA_GETTOP(L);

@@ -47,7 +47,7 @@ cbuffer TreeCB : register( b2 )
 	float    tree_lodTransition;
 	float    tree_lodTransitionShadow;
 
-	// GG: per-tree variety: the tint's strength 0 to 1 and whether billboards mirror (SetTreeVariety)
+	// GG: per-tree variety: the tint's strength 0 to 2 and whether billboards mirror (SetTreeVariety)
 	float    tree_varietyTint;
 	float    tree_varietyMirror;
 	float2   tree_varietyPad;
@@ -86,14 +86,16 @@ uint TreeVarietyHash( float3 offset )
 }
 uint TreeVarietyData( uint data, float3 offset ) { return (data & 0x00FFFFFF) | (TreeVarietyHash( offset ) << 24); }
 bool TreeVarietyMirror( uint data ) { return tree_varietyMirror > 0 && (data & 0x01000000); }
-// the tint: a brightness within 8 % either way and a lean of up to 6 % toward olive, both scaled by the amount
+// the tint: a brightness within 15 % either way and a lean of up to 6 % toward olive or as far toward a cool green, both
+// scaled by the amount; the two leans are each other's inverse, so a stand's average colour stays where it was
 float3 TreeVarietyTint( uint data, float amount )
 {
 	uint v = data >> 24;
 	float bright = ((v >> 1) & 0xF) / 15.0 * 2.0 - 1.0;
-	float lean = ((v >> 5) & 0x7) / 7.0;
-	float3 tint = 1.0 + 0.08 * bright * amount;
-	return tint * lerp( 1.0, float3( 1.06, 1.03, 0.90 ), lean * amount );
+	float lean = ((v >> 5) & 0x7) / 7.0 * 2.0 - 1.0;
+	float3 tint = 1.0 + 0.15 * bright * amount;
+	tint *= lerp( 1.0, float3( 1.06, 1.03, 0.90 ), saturate( lean ) * amount );
+	return tint * lerp( 1.0, float3( 0.95, 0.98, 1.10 ), saturate( -lean ) * amount );
 }
 
 float TreeSwaySpeed()

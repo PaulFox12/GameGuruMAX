@@ -2601,7 +2601,7 @@ int GGTrees_GetShadowMeshLOD( int further )
 
 void GGTrees_SetVariety( float tint, int mirror )
 {
-	if ( tint >= 0 ) ggtrees_global_params.variety_tint = (tint > 1.0f) ? 1.0f : tint;
+	if ( tint >= 0 ) ggtrees_global_params.variety_tint = (tint > 2.0f) ? 2.0f : tint;
 	if ( mirror >= 0 ) ggtrees_global_params.variety_mirror = (mirror > 0) ? 1 : 0;
 }
 
