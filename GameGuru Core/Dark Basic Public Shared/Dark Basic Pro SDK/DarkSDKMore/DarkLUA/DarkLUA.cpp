@@ -2853,6 +2853,32 @@ static int LUA_GETTOP(lua_State* L)
 	 lua_pushnumber(L, fAlpha * 100.0f);
 	 return 1;
  }
+ // GetEntityAxes(e): the world directions of e's model's own forward (z) and up (y) axes as it is drawn, each of unit
+ // length: fx, fy, fz, ux, uy, uz. A tumbled body's pose with no angle order to follow; nothing if e has no object
+ int GetEntityAxes ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 1 ) return 0;
+	 int e = lua_tointeger(L, 1);
+	 if ( !LuaEntityIDValid ( L, e, 1 ) ) return 0;
+	 int iObj = t.entityelement[e].obj;
+	 if ( iObj <= 0 || ObjectExist ( iObj ) == 0 ) return 0;
+	 sObject* pObject = GetObjectData ( iObj );
+	 if ( !pObject ) return 0;
+	 const GGMATRIX& matWorld = pObject->position.matWorld;
+	 GGVECTOR3 vecForward ( matWorld._31, matWorld._32, matWorld._33 );
+	 GGVECTOR3 vecUp ( matWorld._21, matWorld._22, matWorld._23 );
+	 if ( GGVec3Length ( &vecForward ) < 0.000001f || GGVec3Length ( &vecUp ) < 0.000001f ) return 0;
+	 GGVec3Normalize ( &vecForward, &vecForward );
+	 GGVec3Normalize ( &vecUp, &vecUp );
+	 lua_pushnumber(L, vecForward.x);
+	 lua_pushnumber(L, vecForward.y);
+	 lua_pushnumber(L, vecForward.z);
+	 lua_pushnumber(L, vecUp.x);
+	 lua_pushnumber(L, vecUp.y);
+	 lua_pushnumber(L, vecUp.z);
+	 return 6;
+ }
 
  // Entity Animation
  int SetEntityAnimation(lua_State *L)
@@ -17477,6 +17503,7 @@ void addFunctions()
 	lua_register(lua, "GetEntityLimbBone", GetEntityLimbBone);
 	lua_register(lua, "SetEntityLimbAlpha", SetEntityLimbAlpha);
 	lua_register(lua, "GetEntityLimbAlpha", GetEntityLimbAlpha);
+	lua_register(lua, "GetEntityAxes", GetEntityAxes);
 
 	lua_register(lua, "SetEntitySpawnAtStart", SetEntitySpawnAtStart);
 	lua_register(lua, "GetEntitySpawnAtStart", GetEntitySpawnAtStart);

@@ -1265,6 +1265,8 @@ static void ODEObjectPoseFromBody ( sObjectList* pEntry, sObject* pObject, const
 	GGMatrixTranslation(&matCenterColOffset, -fXOffset, -fYOffset, -fZOffset);
 	GGMATRIX matWorld = pObject->position.matScale * matCenterColOffset * matRotation * matTranslation;
 
+	// GG: the angles from the rotation alone; the world matrix carries the object's scale, which the decode took as part
+	// of the turn (a wreck at scale 160 lying at yaw 271 read 144)
 	GGVECTOR3 vecRotate = GGVECTOR3(0, 0, 0);
 	if (pObject->position.bApplyPivot && pEntry->bPivotInBody)
 	{
@@ -1273,12 +1275,12 @@ static void ODEObjectPoseFromBody ( sObjectList* pEntry, sObject* pObject, const
 		float fDet;
 		GGMATRIX matPivotInverse;
 		GGMatrixInverse(&matPivotInverse, &fDet, &pObject->position.matPivot);
-		GGMATRIX matWithoutPivot = matPivotInverse * matWorld;
+		GGMATRIX matWithoutPivot = matPivotInverse * matRotation;
 		BULLETAnglesFromMatrix(&matWithoutPivot, &vecRotate);
 	}
 	else
 	{
-		BULLETAnglesFromMatrix(&matWorld, &vecRotate);
+		BULLETAnglesFromMatrix(&matRotation, &vecRotate);
 	}
 	*pWorld = matWorld;
 	*pRotate = vecRotate;
