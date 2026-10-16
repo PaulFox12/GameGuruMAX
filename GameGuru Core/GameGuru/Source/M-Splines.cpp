@@ -276,6 +276,12 @@ struct sSplineBakeTree
 	uint32_t data = 0;
 };
 
+// a sample of the centre line as baked: where, the surface there, and the pavement's flat beside the core
+struct sSplineBakeSample
+{
+	float x, z, h, pad;
+};
+
 struct sSpline
 {
 	int id = 0;
@@ -296,6 +302,7 @@ struct sSpline
 	std::vector<sSplineBakeTexel> baked;
 	std::vector<sSplineBakeTree> bakedTrees;
 	std::vector<sSplineBakeTree> plantedTrees; // the trees its bake planted (a river's banks), hidden again when it is taken out
+	std::vector<sSplineBakeSample> bakedLine; // the centre line as baked (spline_bakeline), the kerb pass's surface
 	std::vector<sSplineLayer> layers;
 	std::vector<sSplinePlaced> placed;
 	uint64_t placedSignature = 0; // the layers and the bake they were placed for
@@ -848,6 +855,7 @@ static void spline_restore( sSpline& s, float* pBounds )
 	s.baked.clear();
 	s.bakedTrees.clear();
 	s.plantedTrees.clear();
+	s.bakedLine.clear();
 }
 
 struct sRoadSample
@@ -1240,6 +1248,21 @@ static void spline_planttrees( sSpline& sp, const std::vector<sRoadSample>& c, c
 	}
 }
 
+// keeps the centre line as baked on the spline: the surface along it and the pavement's flat at each sample, for the kerb
+// pass (spline_bakekerbs)
+static void spline_bakeline( sSpline& sp, const std::vector<sRoadSample>& c, const sSplineShape& shape )
+{
+	sp.bakedLine.resize( c.size() );
+	for ( size_t i = 0; i < c.size(); i++ )
+	{
+		sSplineBakeSample& b = sp.bakedLine[i];
+		b.x = c[i].x;
+		b.z = c[i].z;
+		b.h = c[i].h;
+		b.pad = shape.pPadLeft && shape.pPadRight ? std::max( (*shape.pPadLeft)[i], (*shape.pPadRight)[i] ) : std::max( shape.padLeft, shape.padRight );
+	}
+}
+
 // a road: the ground averaged, pinned to the ground at open ends and junctions (so it meets an earlier road's surface),
 // held to the maximum grade; flat across the carriageway with an optional crown
 static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protectedTexels, float* pBounds )
@@ -1327,6 +1350,7 @@ static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protecte
 		shape.pPadLeft = &padLeft;
 		shape.pPadRight = &padRight;
 	}
+	spline_bakeline( sp, c, shape );
 	spline_bakeshape( sp, c, shape, protectedTexels, pBounds );
 }
 
@@ -1381,6 +1405,7 @@ static void spline_bakeriver( int si, std::unordered_set<uint32_t>& protectedTex
 	shape.plantFrom = v.plantGrassFrom;
 	shape.plantTo = std::max( v.plantGrassFrom, v.plantGrassTo );
 	shape.plantCover = v.plantGrassCover;
+	spline_bakeline( sp, c, shape );
 	spline_bakeshape( sp, c, shape, protectedTexels, pBounds );
 	spline_planttrees( sp, c, protectedTexels, pBounds );
 }
@@ -1419,6 +1444,8 @@ static void spline_joined( std::vector<char>& in )
 }
 
 // restores the splines in the group (last first) and bakes the roads among them (in list order)
+static void spline_bakekerbs( const std::vector<char>& in, std::unordered_set<uint32_t>& protectedTexels, float* pBounds );
+
 static void spline_bakegroup( const std::vector<char>& in )
 {
 	float bounds[4] = { FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX };
@@ -1446,6 +1473,7 @@ static void spline_bakegroup( const std::vector<char>& in )
 		s.bakedSignature = spline_signature( s );
 		s.bakeCount++;
 	}
+	spline_bakekerbs( in, protectedTexels, bounds );
 	spline_refresh( bounds );
 }
 
@@ -3492,15 +3520,13 @@ static void spline_pavejoins( std::vector<sSplinePaveRoad>& roads, const std::ve
 	}
 }
 
-// a chunk's pavements as one mesh (0 none): the roads near it, which of them meet, their corners, their materials
-static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSplinePaveRoad>& roads, const std::vector<char>& meets, const std::vector<sSplinePaveCorner>& corners, const std::vector<uint64_t>& materials, float reach, std::vector<float>& triangles )
+// the roads near a rectangle, in the list's order (their places in it, and each one's place among them), their pieces
+// near it, and the corners near it between them; false where none of the roads has pavements
+static bool spline_paveroadsnear( const std::vector<sSplinePaveRoad>& roads, const std::vector<sSplinePaveCorner>& corners, const float* rect, float reach, std::vector<int>& nearRoads, std::vector<int>& nearIndex, std::vector<std::vector<int>>& segs, std::vector<const sSplinePaveCorner*>& nearCorners, float* pMaxWidth )
 {
-	const float size = SPLINE_PAVE_STEP * SPLINE_PAVE_CELLS;
-	const float rect[4] = { cx * size, cz * size, (cx + 1) * size, (cz + 1) * size };
-
-	// the roads near it, in the list's order, and their pieces near it
-	std::vector<int> nearRoads;
-	std::vector<std::vector<int>> segs;
+	nearRoads.clear();
+	segs.clear();
+	nearCorners.clear();
 	bool bAnyPave = false;
 	float maxWidth = 0;
 	for ( int ri = 0; ri < (int)roads.size(); ri++ )
@@ -3514,14 +3540,10 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 		segs.push_back( pieces );
 		if ( pr.sides ) { bAnyPave = true; maxWidth = std::max( maxWidth, pr.width ); }
 	}
-	if ( !bAnyPave ) return 0;
-	const int C = (int)nearRoads.size();
-	const int N = SPLINE_PAVE_CELLS + 1;
-	std::vector<int> nearIndex( roads.size(), -1 );
-	for ( int c = 0; c < C; c++ ) nearIndex[ nearRoads[c] ] = c;
-
-	// the corners near it
-	std::vector<const sSplinePaveCorner*> nearCorners;
+	if ( pMaxWidth ) *pMaxWidth = maxWidth;
+	if ( !bAnyPave ) return false;
+	nearIndex.assign( roads.size(), -1 );
+	for ( int c = 0; c < (int)nearRoads.size(); c++ ) nearIndex[ nearRoads[c] ] = c;
 	for ( const sSplinePaveCorner& corner : corners )
 	{
 		if ( nearIndex[ corner.from ] < 0 || nearIndex[ corner.to ] < 0 ) continue;
@@ -3529,6 +3551,51 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 		if ( corner.x + gate < rect[0] || corner.x - gate > rect[2] || corner.z + gate < rect[1] || corner.z - gate > rect[3] ) continue;
 		nearCorners.push_back( &corner );
 	}
+	return true;
+}
+
+// the kerb's outline at a point: each near road's distance and side (nears, in the near roads' order), the nearest of them
+// (its place among them, -1 none) and the outline's distance, negative inside: the roads joined in the list's order, a
+// corner rounded on the larger radius of the nearest road so far and this one where their kerbs meet in one
+static float spline_paveoutlineat( const std::vector<sSplinePaveRoad>& roads, const std::vector<int>& nearRoads, const std::vector<std::vector<int>>& segs, const std::vector<char>& meets, const sSplinePaveCorner* const* pCorners, size_t cornerCount, float reach, float px, float pz, std::vector<sSplinePaveNear>& nears, int* pArg )
+{
+	const int C = (int)nearRoads.size();
+	nears.resize( C );
+	float D = FLT_MAX, dMin = FLT_MAX;
+	int arg = -1;
+	for ( int c = 0; c < C; c++ )
+	{
+		sSplinePaveNear& p = nears[c];
+		spline_pavenear( roads[ nearRoads[c] ], segs[c], px, pz, p );
+		const sSplinePaveCorner* pRound = nullptr;
+		if ( arg >= 0 && meets[ (size_t)nearRoads[ arg ] * roads.size() + nearRoads[c] ] )
+		{
+			const int argSide = nears[ arg ].lateral >= 0 ? 1 : 0;
+			pRound = spline_pavecornerat( pCorners, cornerCount, nearRoads[ arg ], argSide, nearRoads[c], p.lateral >= 0 ? 1 : 0, px, pz, reach );
+		}
+		if ( arg < 0 ) D = p.d;
+		else if ( !pRound || !pRound->bRound ) D = std::min( D, p.d );
+		else D = spline_paveround( D, p.d, std::max( roads[ nearRoads[ arg ] ].radius, roads[ nearRoads[c] ].radius ) );
+		if ( p.d < dMin ) { dMin = p.d; arg = c; }
+	}
+	*pArg = arg;
+	return D;
+}
+
+// a chunk's pavements as one mesh (0 none): the roads near it, which of them meet, their corners, their materials
+static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSplinePaveRoad>& roads, const std::vector<char>& meets, const std::vector<sSplinePaveCorner>& corners, const std::vector<uint64_t>& materials, float reach, std::vector<float>& triangles )
+{
+	const float size = SPLINE_PAVE_STEP * SPLINE_PAVE_CELLS;
+	const float rect[4] = { cx * size, cz * size, (cx + 1) * size, (cz + 1) * size };
+
+	// the roads near it, in the list's order, their pieces near it, and the corners near it
+	std::vector<int> nearRoads, nearIndex;
+	std::vector<std::vector<int>> segs;
+	std::vector<const sSplinePaveCorner*> nearCorners;
+	float maxWidth = 0;
+	if ( !spline_paveroadsnear( roads, corners, rect, reach, nearRoads, nearIndex, segs, nearCorners, &maxWidth ) ) return 0;
+	const int C = (int)nearRoads.size();
+	const int N = SPLINE_PAVE_CELLS + 1;
 
 	// the grid's points: each road's distance, across, along (the nearest piece's and swept), kerb lengths swept and
 	// surface; the outline's distance (rounded corners), the surface and the kerb height blended from the roads nearest;
@@ -3539,19 +3606,20 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 	std::vector<uint8_t> fsides( (size_t)C * N * N ); // the sides paved where each road's swept line is
 	std::vector<float> fD( (size_t)N * N, FLT_MAX ), fH( (size_t)N * N, 0 ), fK( (size_t)N * N, 0 );
 	std::vector<float> hRoad( C );
+	std::vector<sSplinePaveNear> nears;
 	auto computePoint = [&]( int ix, int iz )
 	{
 		const size_t v = (size_t)iz * N + ix;
 		if ( done[ v ] ) return;
 		done[ v ] = 1;
 		const float px = rect[0] + ix * SPLINE_PAVE_STEP, pz = rect[1] + iz * SPLINE_PAVE_STEP;
-		float D = FLT_MAX, dMin = FLT_MAX;
 		int arg = -1;
+		const float D = spline_paveoutlineat( roads, nearRoads, segs, meets, nearCorners.data(), nearCorners.size(), reach, px, pz, nears, &arg );
+		const float dMin = arg >= 0 ? nears[ arg ].d : FLT_MAX;
 		for ( int c = 0; c < C; c++ )
 		{
 			const sSplinePaveRoad& pr = roads[ nearRoads[c] ];
-			sSplinePaveNear p;
-			spline_pavenear( pr, segs[c], px, pz, p );
+			const sSplinePaveNear& p = nears[c];
 			const size_t at = (size_t)c * N * N + v;
 			fd[ at ] = p.d; flat[ at ] = p.lateral;
 			falong[ at ] = p.along;
@@ -3567,18 +3635,6 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 				fsides[ at ] = pr.sampleSides[k];
 			}
 			hRoad[c] = p.h;
-			// joined in the list's order, a corner rounded on the larger radius of the nearest road so far and this one
-			// where their kerbs meet in one
-			const sSplinePaveCorner* pRound = nullptr;
-			if ( arg >= 0 && meets[ (size_t)nearRoads[ arg ] * roads.size() + nearRoads[c] ] )
-			{
-				const int argSide = flat[ (size_t)arg * N * N + v ] >= 0 ? 1 : 0;
-				pRound = spline_pavecornerat( nearCorners.data(), nearCorners.size(), nearRoads[ arg ], argSide, nearRoads[c], p.lateral >= 0 ? 1 : 0, px, pz, reach );
-			}
-			if ( arg < 0 ) D = p.d;
-			else if ( !pRound || !pRound->bRound ) D = std::min( D, p.d );
-			else D = spline_paveround( D, p.d, std::max( roads[ nearRoads[ arg ] ].radius, roads[ nearRoads[c] ].radius ) );
-			if ( p.d < dMin ) { dMin = p.d; arg = c; }
 		}
 		fD[ v ] = D;
 		float wSum = 0, hSum = 0, kSum = 0, kW = 0;
@@ -3911,6 +3967,136 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 	if ( indices.empty() ) return 0;
 	triangles = allPos;
 	return WickedCall_CreateCodeMesh( allPos.data(), allNor.data(), allUV.data(), (uint32_t)(allPos.size() / 3), indices.data(), counts.data(), subsetMaterials.data(), (uint32_t)counts.size(), false );
+}
+
+// The ground out to the kerb. Under a pavement and in front of its kerb the ground is the road's, as its carriageway is:
+// a negative Kerb Offset's strip along a road, and at a junction the fillet between the straight carriageways and the kerb
+// turned on the Corner Radius, lie on no road's carriageway (each is measured square from its own centre line), so the
+// bake left them the ground's and the grass showed between the road and the kerb. After a group's bake every texel inside
+// the kerb's outline as the pavements' build draws it (spline_paveoutlineat) and on no carriageway is made the nearest
+// road's: flat at its surface (as under a pavement), its material, the grass cleared, recorded as its carriageway so it
+// is put back with it and kept from a later road's shoulders
+static void spline_bakekerbs( const std::vector<char>& in, std::unordered_set<uint32_t>& protectedTexels, float* pBounds )
+{
+	float* pH = GGTerrain::GGTerrain_GetHeightEditMap();
+	uint8_t* pT = GGTerrain::GGTerrain_GetHeightEditTypeMap();
+	uint8_t* pM = GGTerrain::GGTerrain_GetMaterialMap();
+	uint8_t* pG = GGGrass::GGGrass_GetGrassMap();
+	const float E = GGTerrain::GGTerrain_GetEditableSize();
+	if ( !pH || !pT || E <= 0 ) return;
+	const float texel = E * 2.0f / SPLINE_MAP_SIZE;
+
+	// the area: the roads baked now that have pavements, out to their kerbs' corners; the reach as the pavements' build has it
+	float area[4] = { FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX };
+	float reach = 0;
+	for ( size_t si = 0; si < g_Splines.size(); si++ )
+	{
+		const sSpline& s = g_Splines[ si ];
+		if ( s.kind != SPLINE_KIND_ROAD || s.nodes.size() < 2 || s.road.width <= 0 || !spline_pavesides( s ) ) continue;
+		const float out = std::max( 0.0f, s.road.paveRadius ) + std::max( 0.0f, -s.road.paveInset );
+		reach = std::max( reach, s.road.paveWidth + out );
+		if ( !in[ si ] ) continue;
+		float b[4];
+		spline_bounds( s, s.road.width * 0.5f + out + texel * 2.0f, b );
+		area[0] = std::min( area[0], b[0] ); area[1] = std::min( area[1], b[1] );
+		area[2] = std::max( area[2], b[2] ); area[3] = std::max( area[3], b[3] );
+	}
+	if ( area[0] > area[2] ) return;
+	reach += SPLINE_PAVE_STEP * 2.0f;
+
+	// the roads near it, which of them meet, and their corners
+	std::vector<sSplinePaveRoad> roads;
+	for ( int si = 0; si < (int)g_Splines.size(); si++ )
+	{
+		const sSpline& s = g_Splines[ si ];
+		if ( s.kind != SPLINE_KIND_ROAD || s.nodes.size() < 2 || s.road.width <= 0 ) continue;
+		float b[4];
+		spline_bounds( s, s.road.width * 0.5f + reach, b );
+		if ( !spline_overlap( b, area ) ) continue;
+		sSplinePaveRoad pr;
+		spline_paveroad( si, pr );
+		if ( pr.x.size() >= 2 ) roads.push_back( std::move( pr ) );
+	}
+	if ( roads.empty() ) return;
+	std::vector<char> meets;
+	spline_pavemeets( roads, meets );
+	std::vector<sSplinePaveCorner> corners;
+	spline_pavejoins( roads, meets, corners );
+
+	// the texels, a pavement chunk's rectangle at a time (its near roads and corners gathered once)
+	const float size = SPLINE_PAVE_STEP * SPLINE_PAVE_CELLS;
+	std::vector<int> nearRoads, nearIndex;
+	std::vector<std::vector<int>> segs;
+	std::vector<const sSplinePaveCorner*> nearCorners;
+	std::vector<sSplinePaveNear> nears;
+	const int cx0 = (int)floorf( area[0] / size ), cz0 = (int)floorf( area[1] / size );
+	const int cx1 = (int)floorf( area[2] / size ), cz1 = (int)floorf( area[3] / size );
+	for ( int cz = cz0; cz <= cz1; cz++ )
+	{
+		for ( int cx = cx0; cx <= cx1; cx++ )
+		{
+			const float rect[4] = { cx * size, cz * size, (cx + 1) * size, (cz + 1) * size };
+			if ( !spline_paveroadsnear( roads, corners, rect, reach, nearRoads, nearIndex, segs, nearCorners, nullptr ) ) continue;
+			const int C = (int)nearRoads.size();
+			const int ix0 = std::max( 0, (int)ceilf( (rect[0] / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE ) );
+			const int iz0 = std::max( 0, (int)ceilf( (rect[1] / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE ) );
+			const int ix1 = std::min( SPLINE_MAP_SIZE - 1, (int)ceilf( (rect[2] / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE ) - 1 );
+			const int iz1 = std::min( SPLINE_MAP_SIZE - 1, (int)ceilf( (rect[3] / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE ) - 1 );
+			for ( int iz = iz0; iz <= iz1; iz++ )
+			{
+				for ( int ix = ix0; ix <= ix1; ix++ )
+				{
+					const uint32_t key = (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix;
+					if ( protectedTexels.count( key ) ) continue;
+					const float wx = ((float)ix / SPLINE_MAP_SIZE * 2.0f - 1.0f) * E;
+					const float wz = ((float)iz / SPLINE_MAP_SIZE * 2.0f - 1.0f) * E;
+					int arg = -1;
+					const float D = spline_paveoutlineat( roads, nearRoads, segs, meets, nearCorners.data(), nearCorners.size(), reach, wx, wz, nears, &arg );
+					if ( arg < 0 || D > 0 ) continue;
+					// on no carriageway (the bake made those): outside every road's own width
+					bool bCore = false;
+					for ( int c = 0; c < C && !bCore; c++ )
+					{
+						const sSplinePaveRoad& pr = roads[ nearRoads[c] ];
+						if ( nears[c].d + pr.halfWidth <= g_Splines[ pr.si ].road.width * 0.5f ) bCore = true;
+					}
+					if ( bCore ) continue;
+					// the nearest road's, one baked now: its surface there from its baked centre line, less the crown as under a pavement
+					const sSplinePaveRoad& pr = roads[ nearRoads[ arg ] ];
+					if ( !in[ pr.si ] ) continue;
+					sSpline& sp = g_Splines[ pr.si ];
+					float best2 = FLT_MAX, h = 0;
+					for ( const sSplineBakeSample& b : sp.bakedLine )
+					{
+						const float dx = b.x - wx, dz = b.z - wz, d2 = dx * dx + dz * dz;
+						if ( d2 < best2 ) { best2 = d2; h = b.h; }
+					}
+					if ( best2 == FLT_MAX ) continue;
+					h -= sp.road.crown;
+					const uint32_t hIndex = (SPLINE_MAP_SIZE - 1 - iz) * SPLINE_MAP_SIZE + ix;
+					sSplineBakeTexel b;
+					b.x = (uint16_t)ix;
+					b.z = (uint16_t)iz;
+					b.heightBefore = pH[ hIndex ];
+					b.typeBefore = pT[ hIndex ];
+					b.matBefore = pM ? pM[ key ] : 0;
+					b.grassBefore = pG ? pG[ key ] : 0;
+					pH[ hIndex ] = GGTerrain::GGTerrain_HeightToEdit( h );
+					pT[ hIndex ] = 1;
+					b.flags = SPLINE_TEXEL_CARRIAGEWAY | SPLINE_TEXEL_HEIGHT;
+					if ( pM && sp.road.material > 0 ) { pM[ key ] = (uint8_t)sp.road.material; b.flags |= SPLINE_TEXEL_MATERIAL; }
+					if ( pG ) { pG[ key ] &= 0x80; b.flags |= SPLINE_TEXEL_GRASS; }
+					b.heightAfter = pH[ hIndex ];
+					b.typeAfter = pT[ hIndex ];
+					b.matAfter = pM ? pM[ key ] : 0;
+					b.grassAfter = pG ? pG[ key ] : 0;
+					sp.baked.push_back( b );
+					protectedTexels.insert( key );
+					spline_texelbounds( ix, iz, pBounds );
+				}
+			}
+		}
+	}
 }
 
 // what a road's pavements, or those it cuts, are built from: its line and width, its pavements' settings, its bake
