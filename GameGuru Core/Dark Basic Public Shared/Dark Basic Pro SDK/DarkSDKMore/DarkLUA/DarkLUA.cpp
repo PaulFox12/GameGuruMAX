@@ -3279,6 +3279,16 @@ static int LUA_GETTOP(lua_State* L)
  // A clone the script turns collision off for at once (an AI helicopter) skipped a body made and thrown away
  static bool g_bSpawnWithoutBody = false;
 
+// a clone's own copy of one of its template's sounds (the buffer shared, the 3D state kept), or the template's id
+// when there is nothing to clone or the clone fails; a video (a negative id) is shared
+int SpawnCloneSound(int iTemplateSound, char* pFile)
+{
+	if (iTemplateSound <= 0 || SoundExist(iTemplateSound) == 0) return iTemplateSound;
+	int iCloneSound = loadinternalsoundcorecloneflag(pFile, 1, iTemplateSound);
+	if (iCloneSound == 0) return iTemplateSound;
+	return iCloneSound;
+}
+
  int SpawnNewEntityCore(int iEntityIndex)
  {
 	#ifdef OPTICK_ENABLE
@@ -3342,13 +3352,16 @@ static int LUA_GETTOP(lua_State* L)
 	t.entityelement[t.e].scalex = t.entityelement[iEntityIndex].scalex;
 	t.entityelement[t.e].scaley = t.entityelement[iEntityIndex].scaley;
 	t.entityelement[t.e].scalez = t.entityelement[iEntityIndex].scalez;
-	t.entityelement[t.e].soundset = t.entityelement[iEntityIndex].soundset;
-	t.entityelement[t.e].soundset1 = t.entityelement[iEntityIndex].soundset1;
-	t.entityelement[t.e].soundset2 = t.entityelement[iEntityIndex].soundset2;
-	t.entityelement[t.e].soundset3 = t.entityelement[iEntityIndex].soundset3;
-	t.entityelement[t.e].soundset4 = t.entityelement[iEntityIndex].soundset4;
-	t.entityelement[t.e].soundset5 = t.entityelement[iEntityIndex].soundset5;
-	t.entityelement[t.e].soundset6 = t.entityelement[iEntityIndex].soundset6;
+	// each clone gets its own voice: with the template's sound ids copied, a salvo of clones was one sound jumping to
+	// whichever clone played it last, and deleting a clone freed the template's sound for every clone after it
+	t.entityelement[t.e].soundset = SpawnCloneSound(t.entityelement[iEntityIndex].soundset, t.entityelement[t.e].eleprof.soundset_s.Get());
+	t.entityelement[t.e].soundset1 = SpawnCloneSound(t.entityelement[iEntityIndex].soundset1, t.entityelement[t.e].eleprof.soundset1_s.Get());
+	t.entityelement[t.e].soundset2 = SpawnCloneSound(t.entityelement[iEntityIndex].soundset2, t.entityelement[t.e].eleprof.soundset2_s.Get());
+	t.entityelement[t.e].soundset3 = SpawnCloneSound(t.entityelement[iEntityIndex].soundset3, t.entityelement[t.e].eleprof.soundset3_s.Get());
+	t.entityelement[t.e].soundset4 = SpawnCloneSound(t.entityelement[iEntityIndex].soundset4, t.entityelement[t.e].eleprof.soundset4a_s.Get());
+	t.entityelement[t.e].soundset5 = SpawnCloneSound(t.entityelement[iEntityIndex].soundset5, t.entityelement[t.e].eleprof.soundset5_s.Get());
+	t.entityelement[t.e].soundset6 = SpawnCloneSound(t.entityelement[iEntityIndex].soundset6, t.entityelement[t.e].eleprof.soundset6_s.Get());
+	SpawnProbe_Mark(SPAWNSTEP_SOUNDS);
 	t.entityelement[t.e].iAllowBuletHole = t.entityelement[iEntityIndex].iAllowBuletHole;
 	// clones always show at start
 	t.entityelement[t.e].eleprof.spawnatstart = 1;

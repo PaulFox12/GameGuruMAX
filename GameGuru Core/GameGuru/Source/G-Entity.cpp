@@ -4618,7 +4618,7 @@ void SpawnProbe_CallEnd ( const char* pName, long long llStart )
 void SpawnProbe_Stop ( char* pText, int iSize )
 {
 	static const char* pNames[SPAWNSTEP_COUNT] = { "profile", "add core", "before the clone", "clone", "animations and shadows",
-		"prepare (materials)", "depth and LOD", "position", "lights", "emitter", "flatten", "add rest", "physics" };
+		"prepare (materials)", "depth and LOD", "position", "lights", "emitter", "flatten", "add rest", "sounds", "physics" };
 	g_bSpawnProbeActive = false;
 	int iLen = sprintf_s(pText, iSize, "%.1f ms:", SpawnProbe_MsSince(g_SpawnProbeStart.QuadPart, NULL));
 	for (int i = 0; i < SPAWNSTEP_COUNT && iLen > 0 && iLen < iSize - 40; i++)
