@@ -48,6 +48,13 @@ namespace GGTrees
 		float variety_tint = 1.0f;
 		int variety_mirror = 1;
 
+		// GG: the leaves' and the bark's brightness, 0 to 2 (SetTreeShade), and the crown shading's amount, 0 to 1, and mode,
+		// 0 occlusion or 1 on the colour (SetTreeCrownShade); back to these when a test game ends
+		float shade_leaves = 1.0f;
+		float shade_bark = 1.0f;
+		float crown_shade = 0.0f;
+		int crown_mode = 0;
+
 	};
 
 	// these values must not be modified outside the tree module
@@ -123,6 +130,10 @@ namespace GGTrees
 	int GGTrees_GetShadowMeshLOD( int further );
 	// the per-tree variety's tint strength (0 to 2) and billboard mirroring (0 or 1); a negative value keeps the current one
 	void GGTrees_SetVariety( float tint, int mirror );
+	// the leaves' and the bark's brightness (0 to 2), and the crown shading's amount (0 to 1) and mode (0 occlusion, 1 on the
+	// colour); a negative value keeps the current one
+	void GGTrees_SetShade( float leaves, float bark );
+	void GGTrees_SetCrownShade( float amount, int mode );
 	void GGTrees_ApplyLuaOverrides();
 	void GGTrees_ClearLuaOverrides();
 	void GGTrees_ClearLuaDistances(); // a script's tree distances and transitions forgotten, the quality's or the level's back

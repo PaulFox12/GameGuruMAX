@@ -240,8 +240,12 @@ GBuffer main( PixelIn IN )
 	// de-gamma is now done automatically by hardware due to sRGB texture
 	//baseColor.rgb = pow( baseColor.rgb, 2.2 ); // de-gamma
 
-	baseColor.rgb *= TreeVarietyTint( IN.data, tree_varietyTint ); // GG: per-tree variety
-	surface.createMetalness( 0, 1, 1, GGTREES_REFLECTANCE, baseColor.rgb, true );
+	baseColor.rgb *= tree_shadeLeaves * TreeVarietyTint( IN.data, tree_varietyTint ); // GG: the leaves' brightness, per-tree variety
+	// GG: crown shading, as occlusion (the sky's and bounced light only) or on the colour itself
+	float crown = TreeCrownShade( treeType, IN.origPos, tree_crownShade );
+	float occlusion = 1;
+	if ( tree_crownMode > 0 ) baseColor.rgb *= crown; else occlusion = crown;
+	surface.createMetalness( 0, 1, occlusion, GGTREES_REFLECTANCE, baseColor.rgb, true );
 	
 	const float2 pixel = IN.position.xy;
 	const float2 ScreenCoord = pixel * g_xFrame_InternalResolution_rcp;

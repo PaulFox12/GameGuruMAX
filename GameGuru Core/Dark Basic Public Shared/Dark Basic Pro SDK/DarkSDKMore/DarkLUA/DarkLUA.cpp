@@ -15759,6 +15759,45 @@ int GetTreeVariety(lua_State* L)
 	lua_pushnumber(L, GGTrees::ggtrees_global_params.variety_mirror);
 	return 2;
 }
+// SetTreeShade(leaves [, bark]) - the engine trees' brightness, 0 to 2, on the leaves (the billboards too) and the bark; bark
+// left out takes the leaves' value, a negative value keeps the current one. By default 1 and 1; back to them when a test
+// game ends
+int SetTreeShade(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	float fLeaves = lua_tonumber(L, 1);
+	float fBark = (n >= 2) ? lua_tonumber(L, 2) : fLeaves;
+	GGTrees::GGTrees_SetShade(fLeaves, fBark);
+	return 0;
+}
+// GetTreeShade() - the two values SetTreeShade sets, as in force
+int GetTreeShade(lua_State* L)
+{
+	lua_pushnumber(L, GGTrees::ggtrees_global_params.shade_leaves);
+	lua_pushnumber(L, GGTrees::ggtrees_global_params.shade_bark);
+	return 2;
+}
+// SetTreeCrownShade(amount [, mode]) - shading of a full detail tree's crown from its shape: darkest deep inside and low in
+// the crown, the top rim left bright; amount 0 to 1 (bark takes half), mode 0 as occlusion (the sky's and bounced light
+// only, the sun unchanged) or 1 on the colour itself; a negative or omitted value keeps the current one. By default 0 and
+// 0; back to them when a test game ends. Billboards carry their own baked shading
+int SetTreeCrownShade(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	float fAmount = lua_tonumber(L, 1);
+	int iMode = (n >= 2) ? lua_tonumber(L, 2) : -1;
+	GGTrees::GGTrees_SetCrownShade(fAmount, iMode);
+	return 0;
+}
+// GetTreeCrownShade() - the two values SetTreeCrownShade sets, as in force
+int GetTreeCrownShade(lua_State* L)
+{
+	lua_pushnumber(L, GGTrees::ggtrees_global_params.crown_shade);
+	lua_pushnumber(L, GGTrees::ggtrees_global_params.crown_mode);
+	return 2;
+}
 int GetTreeShadowCascades(lua_State* L)
 {
 	lua_pushnumber(L, GGTrees::ggtrees_global_params.tree_shadow_range);
@@ -18811,6 +18850,10 @@ void addFunctions()
 	lua_register(lua, "GetTreeShadowCascades", GetTreeShadowCascades);
 	lua_register(lua, "SetTreeVariety", SetTreeVariety);
 	lua_register(lua, "GetTreeVariety", GetTreeVariety);
+	lua_register(lua, "SetTreeShade", SetTreeShade);
+	lua_register(lua, "GetTreeShade", GetTreeShade);
+	lua_register(lua, "SetTreeCrownShade", SetTreeCrownShade);
+	lua_register(lua, "GetTreeCrownShade", GetTreeCrownShade);
 	lua_register(lua, "RayTrees", RayTrees);
 	lua_register(lua, "GetTreesNear", GetTreesNear);
 	lua_register(lua, "GetTreeTypeName", GetTreeTypeName);

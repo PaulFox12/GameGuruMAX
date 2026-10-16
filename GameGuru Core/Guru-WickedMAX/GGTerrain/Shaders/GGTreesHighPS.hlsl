@@ -235,8 +235,11 @@ GBuffer main( PixelIn IN )
 	// de-gamma is now done automatically by hardware due to sRGB texture
 	//baseColor.rgb = pow( baseColor.rgb, 2.2 ); // de-gamma
 
-	baseColor.rgb *= TreeVarietyTint( IN.data, tree_varietyTint * 0.5 ); // GG: per-tree variety, bark at half
-	surface.createMetalness( 0, 1, 1, GGTREES_REFLECTANCE, baseColor.rgb, true );
+	baseColor.rgb *= tree_shadeBark * TreeVarietyTint( IN.data, tree_varietyTint * 0.5 ); // GG: the bark's brightness, per-tree variety at half
+	float crown = TreeCrownShade( treeType, IN.origPos, tree_crownShade * 0.5 ); // GG: crown shading at half
+	float occlusion = 1;
+	if ( tree_crownMode > 0 ) baseColor.rgb *= crown; else occlusion = crown;
+	surface.createMetalness( 0, 1, occlusion, GGTREES_REFLECTANCE, baseColor.rgb, true );
 	
 	const float2 pixel = IN.position.xy;
 	const float2 ScreenCoord = pixel * g_xFrame_InternalResolution_rcp;

@@ -2605,12 +2605,28 @@ void GGTrees_SetVariety( float tint, int mirror )
 	if ( mirror >= 0 ) ggtrees_global_params.variety_mirror = (mirror > 0) ? 1 : 0;
 }
 
+void GGTrees_SetShade( float leaves, float bark )
+{
+	if ( leaves >= 0 ) ggtrees_global_params.shade_leaves = (leaves > 2.0f) ? 2.0f : leaves;
+	if ( bark >= 0 ) ggtrees_global_params.shade_bark = (bark > 2.0f) ? 2.0f : bark;
+}
+
+void GGTrees_SetCrownShade( float amount, int mode )
+{
+	if ( amount >= 0 ) ggtrees_global_params.crown_shade = (amount > 1.0f) ? 1.0f : amount;
+	if ( mode >= 0 ) ggtrees_global_params.crown_mode = (mode > 0) ? 1 : 0;
+}
+
 void GGTrees_ClearLuaOverrides()
 {
 	ggtrees_lua_overrides = GGTreesLuaOverrides();
 	GGTreesParams defaults;
 	ggtrees_global_params.variety_tint = defaults.variety_tint;
 	ggtrees_global_params.variety_mirror = defaults.variety_mirror;
+	ggtrees_global_params.shade_leaves = defaults.shade_leaves;
+	ggtrees_global_params.shade_bark = defaults.shade_bark;
+	ggtrees_global_params.crown_shade = defaults.crown_shade;
+	ggtrees_global_params.crown_mode = defaults.crown_mode;
 }
 
 void GGTrees_ResetDistances()
@@ -3541,11 +3557,39 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 	treeConstantData.tree_rotMatShadow.z = -dirX * invV;
 	treeConstantData.tree_rotMatShadow.w = dirZ * invV;
 
+	// GG: each type's crown extent for the crown shading, from its LOD0 branches mesh, measured once
+	static float crownMinY[numTreeTypes], crownMaxY[numTreeTypes], crownRadius[numTreeTypes];
+	static bool crownMeasured = false;
+	if (!crownMeasured)
+	{
+		for (uint32_t i = 0; i < numTreeTypes; i++)
+		{
+			crownMinY[i] = 0; crownMaxY[i] = g_GGTrees[i].height; crownRadius[i] = 0;
+			const TreeMeshHigh* pBranches = g_GGTrees[i].branches;
+			if (pBranches && pBranches->numVertices > 0)
+			{
+				crownMinY[i] = pBranches->pVertices[0].y; crownMaxY[i] = crownMinY[i];
+				for (uint32_t v = 0; v < pBranches->numVertices; v++)
+				{
+					const VertexTreeHigh& vert = pBranches->pVertices[v];
+					if (vert.y < crownMinY[i]) crownMinY[i] = vert.y;
+					if (vert.y > crownMaxY[i]) crownMaxY[i] = vert.y;
+					float r = sqrtf(vert.x * vert.x + vert.z * vert.z);
+					if (r > crownRadius[i]) crownRadius[i] = r;
+				}
+			}
+		}
+		crownMeasured = true;
+	}
+
 	for (uint32_t i = 0; i < numTreeTypes; i++)
 	{
 		float height = g_GGTrees[i].height;
 		treeConstantData.tree_type[i].scaleX = g_GGTrees[i].billboardScaleX * height;
 		treeConstantData.tree_type[i].scaleY = g_GGTrees[i].height;
+		treeConstantData.tree_type[i].crownMinY = crownMinY[i];
+		treeConstantData.tree_type[i].crownMaxY = crownMaxY[i];
+		treeConstantData.tree_type[i].crownRadius = crownRadius[i];
 	}
 
 	treeConstantData.tree_playerPos.x = camX;
@@ -3558,6 +3602,10 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 	treeConstantData.tree_lodTransitionShadow = ggtrees_global_params.lod_transition_shadow;
 	treeConstantData.tree_varietyTint = ggtrees_global_params.variety_tint;
 	treeConstantData.tree_varietyMirror = (float) ggtrees_global_params.variety_mirror;
+	treeConstantData.tree_shadeLeaves = ggtrees_global_params.shade_leaves;
+	treeConstantData.tree_shadeBark = ggtrees_global_params.shade_bark;
+	treeConstantData.tree_crownShade = ggtrees_global_params.crown_shade;
+	treeConstantData.tree_crownMode = (float) ggtrees_global_params.crown_mode;
 
 	wiRenderer::GetDevice()->UpdateBuffer(&treeConstantBuffer, &treeConstantData, cmd, sizeof(TreeCB));
 

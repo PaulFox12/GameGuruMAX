@@ -21,8 +21,13 @@ struct TreeType
 {
 	float scaleX;
 	float scaleY;
+	// GG: the crown's extent in the model's own units, from the LOD0 branches mesh (SetTreeCrownShade)
+	float crownMinY;
+	float crownMaxY;
+	float crownRadius;
 	float padding1;
 	float padding2;
+	float padding3;
 };
 
 static const VAR_UNIT numTreeTypes = 38;
@@ -50,7 +55,14 @@ cbuffer TreeCB : register( b2 )
 	// GG: per-tree variety: the tint's strength 0 to 2 and whether billboards mirror (SetTreeVariety)
 	float    tree_varietyTint;
 	float    tree_varietyMirror;
-	float2   tree_varietyPad;
+	// GG: the leaves' and the bark's brightness, 0 to 2 (SetTreeShade)
+	float    tree_shadeLeaves;
+	float    tree_shadeBark;
+
+	// GG: crown shading, 0 to 1, as occlusion (mode 0) or on the albedo (mode 1) (SetTreeCrownShade)
+	float    tree_crownShade;
+	float    tree_crownMode;
+	float2   tree_crownPad;
 };
 
 uint GetTreeType( uint data ) { return (data >> 11) & 0x3F; }
@@ -96,6 +108,17 @@ float3 TreeVarietyTint( uint data, float amount )
 	float3 tint = 1.0 + 0.15 * bright * amount;
 	tint *= lerp( 1.0, float3( 1.06, 1.03, 0.90 ), saturate( lean ) * amount );
 	return tint * lerp( 1.0, float3( 0.95, 0.98, 1.10 ), saturate( -lean ) * amount );
+}
+
+// GG: crown shading for a full detail tree's leaf or bark pixel from its place in the model (origPos): darkest deep inside
+// the crown and low in it, the sunlit top rim left at 1; amount 0 gives 1 everywhere
+float TreeCrownShade( uint treeType, float3 origPos, float amount )
+{
+	TreeType t = tree_type[ treeType ];
+	float hc = saturate( (origPos.y - t.crownMinY) / max( t.crownMaxY - t.crownMinY, 1.0 ) );
+	float rc = saturate( length( origPos.xz ) / max( t.crownRadius, 1.0 ) );
+	float shade = 1.0 - amount * (0.45 * smoothstep( 0.2, 1.0, 1.0 - rc ) + 0.35 * smoothstep( 0.3, 1.0, 1.0 - hc ));
+	return max( shade, 0.35 );
 }
 
 float TreeSwaySpeed()
