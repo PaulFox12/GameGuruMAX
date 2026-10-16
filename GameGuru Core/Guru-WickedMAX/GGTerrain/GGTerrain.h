@@ -310,6 +310,7 @@ uint64_t GGTerrain_GetHeightFingerprint();
 float* GGTerrain_GetHeightEditMap();
 uint8_t* GGTerrain_GetHeightEditTypeMap();
 uint8_t* GGTerrain_GetMaterialMap();
+int GGTerrain_GetMostPaintedMaterial(); // GG: the painted material (1 to 32, as the map holds them) the map has most of, 0 none
 float GGTerrain_HeightToEdit( float y );
 void GGTerrain_MaterialMapChanged( float minX, float minZ, float maxX, float maxZ );
 int GGTerrain_GetNormal( float x, float z, float* outNx, float* outNy, float* outNz );

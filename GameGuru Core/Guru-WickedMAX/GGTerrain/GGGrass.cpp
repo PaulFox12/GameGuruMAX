@@ -763,6 +763,24 @@ uint8_t* GGGrass_GetGrassMap() { return pGrassMap; }
 void (*pfnGrassPaintHook)( int minX, int minZ, int maxX, int maxZ ) = 0; // GG: told the texels each brush frame wrote (GGGrass_SetPaintHook)
 void GGGrass_SetPaintHook( void (*pfnHook)( int minX, int minZ, int maxX, int maxZ ) ) { pfnGrassPaintHook = pfnHook; }
 
+// GG: the selectable types the grass map holds (a bit each, as paint_type), so the palette can open on what the level uses:
+// each type in the map by its source type, and the auto grass as the first
+void GGGrass_GetUsedTypes( uint64_t* pTypes )
+{
+	*pTypes = 0;
+	if ( !pGrassMap ) return;
+	uint64_t real = 0;
+	bool bAuto = false;
+	for ( uint32_t i = 0; i < GGGRASS_MAP_SIZE * GGGRASS_MAP_SIZE; i++ )
+	{
+		const uint32_t v = pGrassMap[i] & 0x7F;
+		if ( v == 1 ) bAuto = true;
+		else if ( v >= 2 && v - 2 < GGGRASS_NUM_TYPES ) real |= 1ULL << (v - 2);
+	}
+	if ( bAuto ) *pTypes |= 1;
+	for ( uint32_t t = 0; t < GGGRASS_NUM_TYPES; t++ ) if ( real & (1ULL << t) ) *pTypes |= 1ULL << grassSourceTypes[ t ];
+}
+
 int GGGrass_UpdateInstances()
 {
 	if (!gggrass_initialised) return 0;

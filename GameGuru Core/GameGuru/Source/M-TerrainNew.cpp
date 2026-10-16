@@ -3361,6 +3361,26 @@ int imgui_get_selections(std::vector<cstr> selections, std::vector<cstr> selecti
 	return(retval);
 }
 
+// GG: the palettes open on what the level uses: once a level is loaded, the grass types its grass map holds, the types of
+// its trees and the painted material it has most of become the Grass, Tree and Terrain palettes' paint selections, where
+// the level has any (an empty level keeps its biome's). The selections are the editor's, not the level's, so they had
+// stayed as the session last had them
+void terrain_deriveselections ( void )
+{
+	uint64_t grass = 0;
+	GGGrass_GetUsedTypes ( &grass );
+	if ( grass )
+	{
+		gggrass_global_params.paint_type = grass;
+		for ( int iL = 0; iL < GGGRASS_NUM_SELECTABLE_TYPES; iL++ ) bCurrentGrassTextureForPaint[iL] = ((grass >> iL) & 1) != 0;
+	}
+	uint64_t trees = 0;
+	GGTrees_GetUsedTypes ( &trees );
+	if ( trees ) ggtrees_global_params.paint_tree_bitfield = trees;
+	const int material = GGTerrain_GetMostPaintedMaterial ();
+	if ( material > 0 && material <= 32 && t.visuals.sTerrainTextures[material - 1] != "" ) iCurrentTextureForPaint = material - 1;
+}
+
 void imgui_Customize_Terrain(int mode)
 {
 	int wflags = ImGuiTreeNodeFlags_DefaultOpen;

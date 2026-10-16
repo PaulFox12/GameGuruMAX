@@ -1944,6 +1944,20 @@ bool GGTrees_GetTreeSlot( uint32_t id, GGTreeSlot* pOut )
 void (*pfnTreePaintHook)( float minX, float minZ, float maxX, float maxZ ) = 0; // GG: told the area the brush added or sprayed in (GGTrees_SetPaintHook)
 void GGTrees_SetPaintHook( void (*pfnHook)( float minX, float minZ, float maxX, float maxZ ) ) { pfnTreePaintHook = pfnHook; }
 
+// GG: the types of the trees standing (a bit each, as paint_tree_bitfield), so the palette can open on what the level uses
+void GGTrees_GetUsedTypes( uint64_t* pTypes )
+{
+	*pTypes = 0;
+	if ( !ggtrees_initialised ) return;
+	for ( uint32_t i = 0; i < numTotalTrees; i++ )
+	{
+		InstanceTree* pInstance = &pAllTrees[i];
+		if ( !pInstance->IsVisible() || pInstance->IsInvalid() ) continue;
+		const uint32_t type = (uint32_t)pInstance->GetType();
+		if ( type < numTreeTypes && type < 64 ) *pTypes |= 1ULL << type;
+	}
+}
+
 void GGTrees_HideTree( uint32_t id )
 {
 	if ( id >= numTotalTrees ) return;

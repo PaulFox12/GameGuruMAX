@@ -110,6 +110,7 @@ namespace GGTrees
 	bool GGTrees_GetTreeSlot( uint32_t id, GGTreeSlot* pOut );
 	// GG: called after the brush adds a tree or sprays, with the area it touched
 	void GGTrees_SetPaintHook( void (*pfnHook)( float minX, float minZ, float maxX, float maxZ ) );
+	void GGTrees_GetUsedTypes( uint64_t* pTypes ); // GG: the types of the trees standing, a bit each as paint_tree_bitfield
 	
 	uint32_t GGTrees_GetDataSize(); // number of floats required in data array
 	void GGTrees_GetEmptyData( float* data ); // data as GGTrees_GetData, with every tree hidden and unplaced

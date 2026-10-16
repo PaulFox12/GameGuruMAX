@@ -10924,6 +10924,18 @@ uint64_t GGTerrain_GetHeightFingerprint()
 float* GGTerrain_GetHeightEditMap() { return pHeightMapEdit; }
 uint8_t* GGTerrain_GetHeightEditTypeMap() { return pHeightMapEditType; }
 uint8_t* GGTerrain_GetMaterialMap() { return pMaterialMap; }
+
+// GG: the painted material the map has most of (1 to 32, as the map holds them; 0 none painted), so the palette can open on
+// what the level uses
+int GGTerrain_GetMostPaintedMaterial()
+{
+	if ( !pMaterialMap ) return 0;
+	uint32_t counts[ 256 ] = { 0 };
+	for ( uint32_t i = 0; i < GGTERRAIN_MATERIALMAP_SIZE * GGTERRAIN_MATERIALMAP_SIZE; i++ ) counts[ pMaterialMap[i] ]++;
+	int best = 0;
+	for ( int m = 1; m <= GGTERRAIN_MAX_SOURCE_TEXTURES; m++ ) if ( counts[m] > 0 && (best == 0 || counts[m] > counts[best]) ) best = m;
+	return best;
+}
 void GGTerrain_SetPaintKeep( const uint32_t* (*pfnKeep)( void ) ) { pfnPaintKeep = pfnKeep; }
 void GGTerrain_SetSculptKeep( const uint32_t* (*pfnKeep)( void ) ) { pfnSculptKeep = pfnKeep; }
 

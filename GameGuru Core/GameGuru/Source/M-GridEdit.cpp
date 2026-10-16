@@ -25163,6 +25163,7 @@ void gridedit_load_map ( void )
 		timestampactivity(0, "Create Terrain");
 		terrain_createactualterrain ( );
 		terrain_loaddata ( );
+		terrain_deriveselections ( );
 
 		if (bKeepWindowsResponding)
 			EmptyMessages();
