@@ -83,6 +83,8 @@ namespace GGGrass
 	// GG: the grass map for a tool that writes it directly: 4096 x 4096 over the editable area, index z * 4096 + x; low 7 bits
 	// 0 none, 1 auto, 2+ a type, bit 7 flattened. GGGrass_UpdateInstances after writing
 	uint8_t* GGGrass_GetGrassMap();
+	// GG: called after each grass brush frame with the map texels it wrote (x, z, to x, z, inclusive), before the instances update
+	void GGGrass_SetPaintHook( void (*pfnHook)( int minX, int minZ, int maxX, int maxZ ) );
 	void GGGrass_DeferInstanceUpdates( int defer ); // 1 to start, 0 to end: flat area changes in between update the grass instances once, at the end
 	void GGGrass_SetKillBox( int slot, float x, float y, float z, float halfX, float halfY, float halfZ, float yawDegrees ); // no blade is drawn inside, slot 0 to GGGRASS_MAX_KILLBOXES-1
 	void GGGrass_ClearKillBox( int slot ); // -1 clears them all

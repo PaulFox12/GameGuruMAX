@@ -2490,6 +2490,10 @@ void imgui_terrain_loop_v3(void)
 					}
 					if (ImGui::IsItemHovered()) ImGui::SetTooltip("When painting grass, the style will be automatically chosen to blend with the terrain. This option is synced with the paint texture tickbox");
 
+					bool bKeep = spline_grasskeep();
+					if (ImGui::Checkbox("Keep Off Roads and Rivers##grasskeep", &bKeep)) spline_setgrasskeep(bKeep);
+					if (ImGui::IsItemHovered()) ImGui::SetTooltip("Painting leaves the Clear Grass margins of the roads and rivers made with Roads and Rivers clear.\nThe grass painted there is kept: lower a road's Clear Grass and it grows up to the new margin");
+
 					extern void ControlAdvancedSetting(int&, const char*, bool* = nullptr);
 					ControlAdvancedSetting(pref.iEnableAdvancedGrass, "Advanced Grass Settings");
 				}
@@ -2499,6 +2503,11 @@ void imgui_terrain_loop_v3(void)
 
 					ImGui::TextCenter("Tree Density");
 					ImGui::SliderInt("##TreeDensity", &ggtrees_global_params.paint_density, 0, 100);
+
+					bool bKeep = spline_treekeep();
+					if (ImGui::Checkbox("Keep Off Roads and Rivers##treekeep", &bKeep)) spline_settreekeep(bKeep);
+					if (ImGui::IsItemHovered()) ImGui::SetTooltip("Painting leaves the Clear Trees margins of the roads and rivers made with Roads and Rivers clear.\nA tree painted there is hidden, and shows again if the road's Clear Trees is lowered past it");
+
 					ImGui::TextCenter("Tree Height");
 					ImGui::PushItemWidth(-10);
 					if (ImGui::MaxSliderInputRangeFloatDirect("##TreeRandomHeight", &fTreeRandomMin, &fTreeRandomMax, 0.0, 255.0, "Set Tree Random Height Interval"))

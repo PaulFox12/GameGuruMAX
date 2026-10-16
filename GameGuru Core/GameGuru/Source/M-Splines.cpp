@@ -302,7 +302,10 @@ struct sSpline
 	std::vector<sSplineBakeTexel> baked;
 	std::vector<sSplineBakeTree> bakedTrees;
 	std::vector<sSplineBakeTree> plantedTrees; // the trees its bake planted (a river's banks), hidden again when it is taken out
-	std::vector<sSplineBakeSample> bakedLine; // the centre line as baked (spline_bakeline), the kerb pass's surface
+	std::vector<sSplineBakeSample> bakedLine; // the centre line as baked (spline_bakeline), the kerb pass's surface and the brushes' Keep Off Roads and Rivers
+	float bakedHalfCore = 0, bakedTreeMargin = 0; // the core's half width and Clear Trees as baked
+	int bakedBounds[4] = { 0, 0, -1, -1 }; // the texels its bake records cover (x, z, to x, z), for the records they were found over
+	size_t bakedBoundsFor = (size_t)-1;
 	std::vector<sSplineLayer> layers;
 	std::vector<sSplinePlaced> placed;
 	uint64_t placedSignature = 0; // the layers and the bake they were placed for
@@ -1261,6 +1264,50 @@ static void spline_bakeline( sSpline& sp, const std::vector<sRoadSample>& c, con
 		b.h = c[i].h;
 		b.pad = shape.pPadLeft && shape.pPadRight ? std::max( (*shape.pPadLeft)[i], (*shape.pPadRight)[i] ) : std::max( shape.padLeft, shape.padRight );
 	}
+	sp.bakedHalfCore = shape.halfCore;
+	sp.bakedTreeMargin = shape.treeMargin;
+}
+
+// the centre line of a spline baked before the level was loaded (its bake is saved, its line is not): the line again from
+// its nodes, with the road's pavement flat and the settings as they are, until its next bake keeps the real thing
+static void spline_ensureline( sSpline& sp )
+{
+	if ( !sp.bakedLine.empty() || sp.baked.empty() ) return;
+	const float E = GGTerrain::GGTerrain_GetEditableSize();
+	if ( E <= 0 ) return;
+	std::vector<sRoadSample> c;
+	std::vector<int> nodeSample;
+	if ( !spline_centreline( sp, E * 2.0f / SPLINE_MAP_SIZE * 0.25f, c, nodeSample ) ) return;
+	sSplineShape shape;
+	if ( sp.kind == SPLINE_KIND_ROAD )
+	{
+		shape.halfCore = sp.road.width * 0.5f;
+		shape.treeMargin = sp.road.treeMargin;
+		if ( spline_pavesides( sp ) ) shape.padLeft = shape.padRight = std::max( 0.0f, sp.road.paveWidth - sp.road.paveInset ) + 20.0f;
+	}
+	else if ( sp.kind == SPLINE_KIND_RIVER )
+	{
+		shape.halfCore = sp.river.bedWidth * 0.5f;
+		shape.treeMargin = sp.river.treeMargin;
+	}
+	else return;
+	spline_bakeline( sp, c, shape );
+}
+
+// the texels a spline's bake records cover, found again when their count has changed
+static void spline_bakedbounds( sSpline& s )
+{
+	if ( s.bakedBoundsFor == s.baked.size() ) return;
+	s.bakedBounds[0] = s.bakedBounds[1] = SPLINE_MAP_SIZE;
+	s.bakedBounds[2] = s.bakedBounds[3] = -1;
+	for ( const sSplineBakeTexel& b : s.baked )
+	{
+		s.bakedBounds[0] = std::min( s.bakedBounds[0], (int)b.x );
+		s.bakedBounds[1] = std::min( s.bakedBounds[1], (int)b.z );
+		s.bakedBounds[2] = std::max( s.bakedBounds[2], (int)b.x );
+		s.bakedBounds[3] = std::max( s.bakedBounds[3], (int)b.z );
+	}
+	s.bakedBoundsFor = s.baked.size();
 }
 
 // a road: the ground averaged, pinned to the ground at open ends and junctions (so it meets an earlier road's surface),
@@ -5094,6 +5141,105 @@ void spline_setsculptkeep( bool bOn )
 	if ( !bOn ) std::vector<uint32_t>().swap( g_SplineSculptKeep );
 }
 
+// The grass and tree brushes leaving the roads' and rivers' margins alone (Paint Grass and Paint Trees, Keep Off Roads and
+// Rivers), told by the grass and tree modules what each brush frame touched (GGGrass_SetPaintHook, GGTrees_SetPaintHook).
+// Grass: a texel a bake cleared (Clear Grass) or planted (a river's banks) that the brush just changed takes the bake's
+// value again, and what the brush put there becomes the bake's before. So the stroke never shows in the margin, and
+// lowering Clear Grass, which bakes the road again (spline_restore putting the before back where the bake's value still
+// stands), uncovers the painted grass up to the new margin. Trees: one the brush showed or added within Clear Trees is
+// hidden and recorded as the bake hides them (spline_bakeshape), shown again the same way when the margin shrinks.
+static bool g_bSplineGrassKeep = true, g_bSplineTreeKeep = true;
+
+static void spline_keepoffgrass( int minX, int minZ, int maxX, int maxZ )
+{
+	if ( !g_bSplineGrassKeep ) return;
+	uint8_t* pG = GGGrass::GGGrass_GetGrassMap();
+	if ( !pG ) return;
+	for ( sSpline& s : g_Splines )
+	{
+		if ( s.baked.empty() ) continue;
+		spline_bakedbounds( s );
+		if ( s.bakedBounds[2] < minX || s.bakedBounds[0] > maxX || s.bakedBounds[3] < minZ || s.bakedBounds[1] > maxZ ) continue;
+		for ( sSplineBakeTexel& b : s.baked )
+		{
+			if ( !(b.flags & SPLINE_TEXEL_GRASS) || b.x < minX || b.x > maxX || b.z < minZ || b.z > maxZ ) continue;
+			const uint32_t mIndex = (uint32_t)b.z * SPLINE_MAP_SIZE + b.x;
+			if ( (pG[ mIndex ] & 0x7F) == (b.grassAfter & 0x7F) ) continue;
+			b.grassBefore = pG[ mIndex ];
+			pG[ mIndex ] = (pG[ mIndex ] & 0x80) | (b.grassAfter & 0x7F);
+		}
+	}
+}
+
+static void spline_keepofftrees( float minX, float minZ, float maxX, float maxZ )
+{
+	if ( !g_bSplineTreeKeep ) return;
+	std::vector<GGTrees::GGTreeSlot> trees;
+	GGTrees::GGTrees_GetTreesInRect( minX, minZ, maxX, maxZ, trees );
+	if ( trees.empty() ) return;
+	std::vector<char> done( trees.size(), 0 );
+	const float rect[4] = { minX, minZ, maxX, maxZ };
+	bool bAny = false;
+	for ( sSpline& s : g_Splines )
+	{
+		if ( s.baked.empty() || (s.kind != SPLINE_KIND_ROAD && s.kind != SPLINE_KIND_RIVER) ) continue;
+		spline_ensureline( s );
+		if ( s.bakedLine.empty() ) continue;
+		float pad = 0;
+		for ( const sSplineBakeSample& p : s.bakedLine ) pad = std::max( pad, p.pad );
+		const float reach = s.bakedHalfCore + pad + s.bakedTreeMargin + 200.0f;
+		float b[4];
+		spline_bounds( s, reach, b );
+		if ( !spline_overlap( b, rect ) ) continue;
+		// the trunk's distance from the line by its samples (a quarter texel apart; every fourth, a texel, with half of that allowed)
+		const float texel = GGTerrain::GGTerrain_GetEditableSize() * 2.0f / SPLINE_MAP_SIZE;
+		for ( size_t ti = 0; ti < trees.size(); ti++ )
+		{
+			if ( done[ ti ] ) continue;
+			const GGTrees::GGTreeSlot& tree = trees[ ti ];
+			if ( tree.trunkX < b[0] || tree.trunkX > b[2] || tree.trunkZ < b[1] || tree.trunkZ > b[3] ) continue;
+			float best2 = FLT_MAX, bestPad = 0;
+			for ( size_t i = 0; i < s.bakedLine.size(); i += 4 )
+			{
+				const sSplineBakeSample& p = s.bakedLine[i];
+				const float dx = p.x - tree.trunkX, dz = p.z - tree.trunkZ, d2 = dx * dx + dz * dz;
+				if ( d2 < best2 ) { best2 = d2; bestPad = p.pad; }
+			}
+			if ( sqrtf( best2 ) - texel * 0.5f > s.bakedHalfCore + bestPad + s.bakedTreeMargin + tree.diameter * 0.5f ) continue;
+			GGTrees::GGTrees_HideTree( tree.id );
+			sSplineBakeTree record;
+			record.id = tree.id;
+			record.x = tree.x;
+			record.z = tree.z;
+			record.data = tree.data;
+			s.bakedTrees.push_back( record );
+			done[ ti ] = 1;
+			bAny = true;
+		}
+	}
+	if ( bAny ) GGTrees::GGTrees_RefreshRect( minX, minZ, maxX, maxZ );
+}
+
+bool spline_grasskeep( void )
+{
+	return g_bSplineGrassKeep;
+}
+
+void spline_setgrasskeep( bool bOn )
+{
+	g_bSplineGrassKeep = bOn;
+}
+
+bool spline_treekeep( void )
+{
+	return g_bSplineTreeKeep;
+}
+
+void spline_settreekeep( bool bOn )
+{
+	g_bSplineTreeKeep = bOn;
+}
+
 static float fRowLabelX = 0, fRowFieldX = 0, fRowRight = 0;
 
 // the rows' columns from where the cursor is now (under a heading, indented with it)
@@ -6884,6 +7030,13 @@ void spline_undodelete( void* pEventData )
 // the editor, every frame: with the Roads and Rivers panel not drawn, a spline's undo or redo still bakes and places
 void spline_editorupdate( void )
 {
+	static bool bHooked = false;
+	if ( !bHooked )
+	{
+		bHooked = true;
+		GGGrass::GGGrass_SetPaintHook( spline_keepoffgrass );
+		GGTrees::GGTrees_SetPaintHook( spline_keepofftrees );
+	}
 	if ( ImGui::GetFrameCount() - g_iSplinePanelFrame <= 2 ) return;
 	spline_bakechanged();
 	spline_placechanged();

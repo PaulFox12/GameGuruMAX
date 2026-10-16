@@ -108,6 +108,8 @@ namespace GGTrees
 	// GGTrees_GetTreeSlot reads a slot back (false when hidden), so a tool can tell whether its tree is still there
 	int GGTrees_AddTree( float x, float z, uint32_t type, uint32_t scale );
 	bool GGTrees_GetTreeSlot( uint32_t id, GGTreeSlot* pOut );
+	// GG: called after the brush adds a tree or sprays, with the area it touched
+	void GGTrees_SetPaintHook( void (*pfnHook)( float minX, float minZ, float maxX, float maxZ ) );
 	
 	uint32_t GGTrees_GetDataSize(); // number of floats required in data array
 	void GGTrees_GetEmptyData( float* data ); // data as GGTrees_GetData, with every tree hidden and unplaced

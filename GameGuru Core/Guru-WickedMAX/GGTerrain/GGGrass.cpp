@@ -760,6 +760,8 @@ const char* GGGrass_GetTextureSource( int slice, int* pChanged )
 
 // only call this when grass heights need to be updated, e.g. when the terrain has changed
 uint8_t* GGGrass_GetGrassMap() { return pGrassMap; }
+void (*pfnGrassPaintHook)( int minX, int minZ, int maxX, int maxZ ) = 0; // GG: told the texels each brush frame wrote (GGGrass_SetPaintHook)
+void GGGrass_SetPaintHook( void (*pfnHook)( int minX, int minZ, int maxX, int maxZ ) ) { pfnGrassPaintHook = pfnHook; }
 
 int GGGrass_UpdateInstances()
 {
@@ -1894,6 +1896,7 @@ void GGGrass_Update_Painting( RAY ray )
 				}
 			}
 
+			if ( pfnGrassPaintHook && ggterrain_extra_params.edit_mode == GGTERRAIN_EDIT_GRASS ) pfnGrassPaintHook( startX, startY, endX - 1, endY - 1 );
 			//wiRenderer::GetDevice()->UpdateTexture( &texGrassMap, 0, 0, NULL, pGrassMap, GGGRASS_MAP_SIZE, -1 );
 		}
 

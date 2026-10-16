@@ -1941,6 +1941,9 @@ bool GGTrees_GetTreeSlot( uint32_t id, GGTreeSlot* pOut )
 	return true;
 }
 
+void (*pfnTreePaintHook)( float minX, float minZ, float maxX, float maxZ ) = 0; // GG: told the area the brush added or sprayed in (GGTrees_SetPaintHook)
+void GGTrees_SetPaintHook( void (*pfnHook)( float minX, float minZ, float maxX, float maxZ ) ) { pfnTreePaintHook = pfnHook; }
+
 void GGTrees_HideTree( uint32_t id )
 {
 	if ( id >= numTotalTrees ) return;
@@ -2904,6 +2907,7 @@ void GGTrees_Update_Painting( RAY ray )
 					undoData.userMoved = true;
 					undoData.type = pAllTrees[index].GetType();
 					GGTrees_CreateUndoRedoAction(eUndoSys_Terrain_AddTree, eUndoSys_UndoList, true, &undoData);
+					if ( pfnTreePaintHook ) pfnTreePaintHook( pickX - 1.0f, pickZ - 1.0f, pickX + 1.0f, pickZ + 1.0f );
 				}
 			} break;
 		}
@@ -3008,6 +3012,7 @@ void GGTrees_Update_Painting( RAY ray )
 
 				pChunk->Update();
 			}
+			if ( pfnTreePaintHook && ggtrees_global_params.paint_mode == GGTREES_PAINT_SPRAY ) pfnTreePaintHook( minX, minZ, maxX, maxZ );
 		}
 
 		if ( ggtrees_global_params.paint_mode == GGTREES_PAINT_MOVE && ggtrees_internal_params.tree_selected != 0xFFFFFFFF )
