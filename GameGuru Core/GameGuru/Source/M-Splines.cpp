@@ -81,7 +81,7 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_NODE_HOLDHEIGHT 2 // a road is built up or cut down to the node's height (its y) there, not at a junction
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 23 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth; 18: road markings; 19: At Junctions; 20: Solid on Crests; 21: bank planting; 22: pavements; 23: Kerb Offset, each segment's pavements
+#define SPLINE_FILE_VERSION 24 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth; 18: road markings; 19: At Junctions; 20: Solid on Crests; 21: bank planting; 22: pavements; 23: Kerb Offset, each segment's pavements; 24: nothing new in the file: a level saved before it bakes its paved roads again once it is loaded (the ground out to the kerb)
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -7987,7 +7987,7 @@ void spline_savedata( void )
 }
 
 // a level's map.spl read into a list of splines, nothing else changed; false when it can't be read
-static bool spline_readfile( const char* pPath, std::vector<sSpline>& out )
+static bool spline_readfile( const char* pPath, std::vector<sSpline>& out, uint32_t* pVersion = nullptr )
 {
 	FILE* fp = NULL;
 	if ( fopen_s( &fp, pPath, "rb" ) != 0 || !fp ) return false;
@@ -7998,6 +7998,7 @@ static bool spline_readfile( const char* pPath, std::vector<sSpline>& out )
 		return false;
 	}
 	const uint32_t version = header[1];
+	if ( pVersion ) *pVersion = version;
 	std::vector<uint8_t> record;
 	for ( uint32_t k = 0; k < header[2]; k++ )
 	{
@@ -8242,11 +8243,15 @@ void spline_loaddata( void )
 	char pPath[ MAX_PATH ];
 	strcpy_s( pPath, MAX_PATH, (g.mysystem.levelBankTestMap_s + "map.spl").Get() );
 	GG_GetRealPath( pPath, 0 );
-	if ( !spline_readfile( pPath, g_Splines ) ) return;
+	uint32_t version = 0;
+	if ( !spline_readfile( pPath, g_Splines, &version ) ) return;
 	for ( const sSpline& s : g_Splines )
 	{
 		if ( s.id >= g_iSplineNextID ) g_iSplineNextID = s.id + 1;
 		for ( const sSplineNode& node : s.nodes ) if ( node.junction >= g_iSplineNextJunction ) g_iSplineNextJunction = node.junction + 1;
+		// a level saved before version 24 was baked without the ground out to the kerb (spline_bakekerbs): its paved roads
+		// bake again once the load settles, with the roads joined to them; saved, it is version 24 and bakes no more for this
+		if ( version < 24 && s.kind == SPLINE_KIND_ROAD && !s.baked.empty() && spline_pavesides( s ) ) g_SplineForceBake.insert( s.id );
 	}
 	spline_cleanjunctions();
 	g_iSplineWaterWait = 60;
