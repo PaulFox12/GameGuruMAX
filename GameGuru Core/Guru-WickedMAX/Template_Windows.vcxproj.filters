@@ -602,6 +602,9 @@
     <ClCompile Include="GameGuruMain.cpp">
       <Filter>GameGuruEngine</Filter>
     </ClCompile>
+    <ClCompile Include="AutomationHarness.cpp">
+      <Filter>GameGuruEngine</Filter>
+    </ClCompile>
     <ClCompile Include="..\GameGuru\Source\Common.cpp">
       <Filter>GameGuruEngine\GameGuruSourceCode</Filter>
     </ClCompile>

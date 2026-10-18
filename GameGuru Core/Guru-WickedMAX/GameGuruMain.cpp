@@ -14,6 +14,7 @@
 #include "GGTerrain/GGGrass.h"
 #include "tracers/TracerManager.h"
 #include "ripples/RippleManager.h"
+#include "AutomationHarness.h"
 using namespace Tracers;
 
 // For profiling
@@ -116,6 +117,9 @@ extern void ConstantNonDisplayUpdate(void);
 
 bool GuruLoopLogic ( void )
 {
+	// a command from a driving script, if one is waiting
+	AutoHarness_CheckForCommand ( );
+
 	// not until main has started
 	if (g_bNoGGUntilGameGuruMainCalled == false)
 	{
