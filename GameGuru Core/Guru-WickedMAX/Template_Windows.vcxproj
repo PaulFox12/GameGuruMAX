@@ -240,7 +240,7 @@
       </Command>
     </PostBuildEvent>
     <FxCompile>
-      <AdditionalIncludeDirectories>D:\max\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>-rootsig-define GAMEGURU_ROOTSIGNATURE %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
   </ItemDefinitionGroup>
@@ -282,7 +282,7 @@
       </Command>
     </PostBuildEvent>
     <FxCompile>
-      <AdditionalIncludeDirectories>D:\max\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>-rootsig-define GAMEGURU_ROOTSIGNATURE %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
   </ItemDefinitionGroup>
@@ -324,7 +324,7 @@
       </Command>
     </PostBuildEvent>
     <FxCompile>
-      <AdditionalIncludeDirectories>D:\max\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>-rootsig-define GAMEGURU_ROOTSIGNATURE %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
   </ItemDefinitionGroup>
@@ -365,7 +365,7 @@
       <Command>signtool sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /f "$(SIGN_CERT)" -p $(SIGN_PASSWORD) "$(TargetPath)"</Command>
     </PostBuildEvent>
     <FxCompile>
-      <AdditionalIncludeDirectories>D:\max\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>-rootsig-define GAMEGURU_ROOTSIGNATURE %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
   </ItemDefinitionGroup>
@@ -407,7 +407,7 @@
       </Command>
     </PostBuildEvent>
     <FxCompile>
-      <AdditionalIncludeDirectories>D:\max\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>-rootsig-define GAMEGURU_ROOTSIGNATURE %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
   </ItemDefinitionGroup>
@@ -449,7 +449,7 @@
       </Command>
     </PostBuildEvent>
     <FxCompile>
-      <AdditionalIncludeDirectories>D:\max\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>-rootsig-define GAMEGURU_ROOTSIGNATURE %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
   </ItemDefinitionGroup>
@@ -490,7 +490,7 @@
       <Command>signtool sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /f "$(SIGN_CERT)" -p $(SIGN_PASSWORD) "$(TargetPath)"</Command>
     </PostBuildEvent>
     <FxCompile>
-      <AdditionalIncludeDirectories>D:\max\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>-rootsig-define GAMEGURU_ROOTSIGNATURE %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
   </ItemDefinitionGroup>
@@ -533,7 +533,7 @@
       </Command>
     </PostBuildEvent>
     <FxCompile>
-      <AdditionalIncludeDirectories>D:\max\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\WickedEngineDX12\WickedEngine\shaders;GGTerrain\Shaders;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>-rootsig-define GAMEGURU_ROOTSIGNATURE %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
   </ItemDefinitionGroup>
