@@ -17,6 +17,8 @@
 #endif
 
 // GDI+ for early splash screen (shown during WickedEngine initialization)
+#include <algorithm>
+using std::min; using std::max; // the GDI+ headers call min and max, which NOMINMAX takes from the Windows 10 SDK
 #include <gdiplus.h>
 #pragma comment(lib, "gdiplus")
 

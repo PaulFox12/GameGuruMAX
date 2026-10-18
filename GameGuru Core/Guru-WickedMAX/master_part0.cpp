@@ -18,6 +18,8 @@
 #include "GameGuruMain.h"
 #include <direct.h>
 #include <shellapi.h>
+#include <algorithm>
+using std::min; using std::max; // the GDI+ headers call min and max, which NOMINMAX takes from the Windows 10 SDK
 #include <gdiplus.h>
 #include "GGVR.h"
 #include "gameguru.h"

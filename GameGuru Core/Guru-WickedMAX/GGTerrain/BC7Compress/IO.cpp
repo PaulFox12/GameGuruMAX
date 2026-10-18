@@ -4,6 +4,8 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#include <algorithm>
+using std::min; using std::max; // the GDI+ headers call min and max, which NOMINMAX takes from the Windows 10 SDK
 #pragma warning(push)
 #pragma warning(disable : 4458)
 #include <gdiplus.h>
