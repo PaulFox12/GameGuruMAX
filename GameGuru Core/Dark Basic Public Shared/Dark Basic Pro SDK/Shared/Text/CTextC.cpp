@@ -88,8 +88,9 @@ void ValidateWorkString(char* pString)
 
 int	Asc ( char* dwSrcStr )
 {
+	// unsigned, so bytes above 127 (UTF-8, accented letters) give 128-255 rather than a negative index
 	if(dwSrcStr)
-		return (int)*dwSrcStr;
+		return (int)(unsigned char)*dwSrcStr;
 	else
 		return 0;
 }
