@@ -8019,6 +8019,33 @@ static bool AutoHarness_CensusCommands(const char* cmd, const char* arg, char* r
 		result[resultSize - 1] = 0;
 		return true;
 	}
+	if (_stricmp(cmd, "DUMP_RAYBLOCK") == 0)
+	{
+		// DUMP_RAYBLOCK: the object that swallowed the last pick (IntersectAllEx's closest hit outside the entity object
+		// range, reported to the caller as a plain miss), with where it is and what it is
+		extern DWORD g_ggLastRayBlockedBy;
+		extern int g_iCurrentGunObj;
+		DWORD iObj = g_ggLastRayBlockedBy;
+		int written = _snprintf(result, resultSize, "OK: DUMP_RAYBLOCK blockedby=%u gunobj=%d entityrange=%d..%d\n",
+			(unsigned)iObj, g_iCurrentGunObj, g.entityviewstartobj, g.entityviewendobj);
+		if (iObj > 0 && ObjectExist((int)iObj) == 1)
+		{
+			sObject* pObj = GetObjectData((int)iObj);
+			const char* pName = "";
+			if (pObj && pObj->ppFrameList && pObj->iFrameCount > 0 && pObj->ppFrameList[0])
+			{
+				const wi::scene::NameComponent* pNC = wi::scene::GetScene().names.GetComponent(pObj->ppFrameList[0]->wickedobjindex);
+				if (pNC) pName = pNC->name.c_str();
+			}
+			int iOwner = 0;
+			for (int e = 1; e <= g.entityelementlist; e++) if (t.entityelement[e].obj == (int)iObj) { iOwner = e; break; }
+			written += _snprintf(result + written, resultSize - written, "  object %u at %.0f,%.0f,%.0f radius %.0f visible=%d frames=%d name=%s owner entity=%d\n",
+				(unsigned)iObj, pObj->position.vecPosition.x, pObj->position.vecPosition.y, pObj->position.vecPosition.z, pObj->collision.fRadius,
+				GetVisible((int)iObj), pObj->iFrameCount, pName, iOwner);
+		}
+		result[resultSize - 1] = 0;
+		return true;
+	}
 	if (_stricmp(cmd, "DUMP_LODSTATS") == 0)
 	{
 		// DUMP_LODSTATS: the meshes by LOD count, and the objects with LODs by the LOD they draw at this frame
