@@ -100,6 +100,7 @@ namespace GGTrees
 	void GGTrees_SetTreePosition( uint32_t treeID, float x, float z );
 	
 	uint32_t GGTrees_GetDataSize(); // number of floats required in data array
+	void GGTrees_GetEmptyData( float* data ); // data as GGTrees_GetData, with every tree hidden and unplaced
 	int GGTrees_GetData( float* data ); // data must be allocated with GGTrees_GetSculptDataSize() floats, returns 1 on success
 	int GGTrees_SetData( float* data ); // number of floats must be equal to GGTrees_GetSculptDataSize(), returns 1 on success
 	int GGTrees_GetSnapshot(uint8_t* data);
@@ -119,6 +120,7 @@ namespace GGTrees
 	void GGTrees_ChangeDensity(int density);
 	void GGTrees_RepopulateInstances();
 	int GGTrees_UpdateInstances(int accurate);
+	void GGTrees_InvalidateHeights( float minX, float minZ, float maxX, float maxZ ); // call when the terrain height changes
 	void GGTrees_HideAll();
 	void GGTrees_DebugDumpPool( const char* path ); // DIAG: pool census + orphan detector (reload-corruption hunt)
 	void GGTrees_DeselectHighlightedTree(void);

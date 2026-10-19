@@ -144,20 +144,26 @@ struct GGTree
 float treeMaxHeight = 1; // calculated at run time
 
 // tree instances
-const float treeArea = 200000.0f; // from edge to edge in world units, i.e. 2000 = -1000 to 1000
-const uint32_t numTotalTrees = 400000;
+// from edge to edge in world units, i.e. 2000 = -1000 to 1000. Covers the editable area of the terrain, never less
+// than the original 200000, see GGTrees_GetRequiredArea()
+#define GGTREES_MIN_AREA 200000.0f
+#define GGTREES_MAX_AREA 400000.0f
+float treeArea = GGTREES_MIN_AREA;
+// Hired Gun: 700,000 slots (stock 400,000) so a large level can be covered at forest density. The tree file is named
+// after its size (8400004.tre); a level with only a 400,000 slot file (4800004.tre) loads into the first slots
+const uint32_t numTotalTrees = 700000;
 const uint32_t treeSplit = 16;
 
 const uint32_t numTreeChunks = treeSplit * treeSplit;
 const uint32_t numTreesPerChunk = numTotalTrees / numTreeChunks;
-const float treeAreaPerChunk = treeArea / treeSplit;
+float treeAreaPerChunk = treeArea / treeSplit;
 
 uint32_t treeHighlighted = 0xFFFFFFFF;
 
 // Dirty stamp for the Wicked tree pool (part2): bumped whenever tree instance
 // data changes so the pool re-runs its nearest-N selection next frame. The
 // paint/spray/erase/flatten paths mutate pAllTrees flags IN PLACE via the
-// setters below (numTotalTrees is a fixed 400K — the count never changes), so
+// setters below (numTotalTrees is fixed — the count never changes), so
 // the setters bump this on any REAL state change. Change-detected so redundant
 // same-value calls (and hover highlighting, which is excluded entirely) can't
 // retrigger the rescan every frame. Also bumped at GGTrees_UpdateInstances
@@ -374,6 +380,10 @@ GPUBuffer bufferInstancesHighEnvProbe[ numTreeTypes ];
 
 InstanceTree pAllTrees[ numTotalTrees ] = { 0 };
 UnorderedArray<uint32_t> pInvisibleTrees;
+
+// 1 when the tree's height is known. Trees outside the terrain LOD set get their height from the slower terrain
+// function once, and keep it until the terrain under them changes, see GGTrees_InvalidateHeights()
+uint8_t pTreeHeightValid[ numTotalTrees ] = { 0 };
 
 // Tree map for reference visualization (same size as grass/material maps)
 #define GGTREES_MAP_SIZE 4096
@@ -1123,9 +1133,87 @@ TreeChunk* GGTrees_GetChunk( float x, float z )
 	return &pTreeChunks[ index ];
 }
 
+// the tree area covers the editable area of the terrain, so levels up to +-100000 keep the original area and layout
+float GGTrees_GetRequiredArea()
+{
+	float area = ggterrain_global_render_params2.editable_size * 2;
+	if ( area < GGTREES_MIN_AREA ) area = GGTREES_MIN_AREA;
+	if ( area > GGTREES_MAX_AREA ) area = GGTREES_MAX_AREA;
+	return area;
+}
+
+void GGTrees_SetArea( float area )
+{
+	treeArea = area;
+	treeAreaPerChunk = treeArea / treeSplit;
+}
+
+// puts every tree in the chunk at its position, trees outside the tree area are hidden
+void GGTrees_SortIntoChunks()
+{
+	for( uint32_t i = 0; i < numTreeChunks; i++ )
+	{
+		pTreeChunks[ i ].pInstances.Clear();
+	}
+	pInvisibleTrees.Clear();
+
+	for( uint32_t i = 0; i < numTotalTrees; i++ )
+	{
+		InstanceTree* pInstance = &pAllTrees[ i ];
+		TreeChunk* pChunk = GGTrees_GetChunk( pInstance->x, pInstance->z );
+		if ( pChunk ) pChunk->pInstances.AddItem( pInstance );
+		else pInstance->SetVisible( 0 );
+
+		if ( !pInstance->IsVisible() ) pInvisibleTrees.AddItem( i );
+	}
+}
+
+// height and normal Y from the terrain function, for trees outside the terrain LOD set. Much slower than the LOD lookup
+int GGTrees_GetTerrainHeight( float x, float z, float* height, float* ny )
+{
+	const float step = 25.0f;
+	float h, hx0, hx1, hz0, hz1;
+	if ( !GGTerrain_GetHeight( x, z, &h, 1 ) ) return 0;
+	GGTerrain_GetHeight( x - step, z, &hx0, 1 );
+	GGTerrain_GetHeight( x + step, z, &hx1, 1 );
+	GGTerrain_GetHeight( x, z - step, &hz0, 1 );
+	GGTerrain_GetHeight( x, z + step, &hz1, 1 );
+
+	float dx = hx1 - hx0;
+	float dz = hz1 - hz0;
+	*height = h;
+	*ny = (step * 2) / sqrt( dx*dx + dz*dz + step*step*4 );
+	return 1;
+}
+
+// the terrain in this area has changed, trees outside the terrain LOD set must find their height again
+void GGTrees_InvalidateHeights( float minX, float minZ, float maxX, float maxZ )
+{
+	if (!ggtrees_initialised) return;
+	for( uint32_t i = 0; i < numTreeChunks; i++ )
+	{
+		TreeChunk* pChunk = &pTreeChunks[ i ];
+		if ( pChunk->pInstances.NumItems() == 0 ) continue;
+
+		AABB aabb;
+		pChunk->GetBounds( &aabb );
+		if ( minX > aabb._max.x || minZ > aabb._max.z || maxX < aabb._min.x || maxZ < aabb._min.z ) continue;
+
+		for( uint32_t j = 0; j < pChunk->pInstances.NumItems(); j++ )
+		{
+			InstanceTree* pInstance = pChunk->pInstances[ j ];
+			if ( pInstance->x < minX || pInstance->x > maxX || pInstance->z < minZ || pInstance->z > maxZ ) continue;
+			pTreeHeightValid[ pInstance - pAllTrees ] = 0;
+		}
+	}
+}
+
 void GGTrees_RepopulateInstances()
 {
 	GGTrees_InvalidateBillboardAtlases();   // GGMAX 3.53: new instance set = new atlas
+	GGTrees_SetArea( GGTrees_GetRequiredArea() );
+	memset( pTreeHeightValid, 0, sizeof(pTreeHeightValid) );
+
 	for( uint32_t i = 0; i < numTreeChunks; i++ )
 	{
 		pTreeChunks[ i ].pInstances.Clear();
@@ -1152,7 +1240,7 @@ void GGTrees_RepopulateInstances()
 	float halfArea = treeArea * 0.5f;
 
 	// start with sorted array
-	uint32_t treeLocation[ numTotalTrees ];
+	std::vector<uint32_t> treeLocation( numTotalTrees );
 	for( uint32_t z = 0; z < iGridZ; z++ )
 	{
 		for( uint32_t x = 0; x < iGridX; x++ )
@@ -1325,19 +1413,28 @@ int GGTrees_UpdateInstances( int accurate )
 	if (!ggtrees_initialised) return 0;
 	if ( !GGTerrain_IsReady() ) return 0;
 
+	// the editable area has grown past the tree area, e.g. the level size was changed in the editor
+	float area = GGTrees_GetRequiredArea();
+	if ( area > treeArea )
+	{
+		GGTrees_SetArea( area );
+		GGTrees_SortIntoChunks();
+	}
+
 	for( uint32_t j = 0; j < numTotalTrees; j++ )
 	{
 		InstanceTree* pInstance = &pAllTrees[ j ];
 
 		float height, nx, ny, nz;
-		if ( !GGTerrain_GetNormal( pInstance->x, pInstance->z, &nx, &ny, &nz ) )
+		if ( !GGTerrain_GetNormal( pInstance->x, pInstance->z, &nx, &ny, &nz )
+		  || !GGTerrain_GetHeight( pInstance->x, pInstance->z, &height, accurate ) )
 		{
-			continue;
+			// outside the terrain LOD set, use the terrain function once for trees on the level
+			if ( pTreeHeightValid[ j ] ) continue;
+			if ( !GGTrees_GetChunk( pInstance->x, pInstance->z ) ) continue;
+			if ( !GGTrees_GetTerrainHeight( pInstance->x, pInstance->z, &height, &ny ) ) continue;
 		}
-		if ( !GGTerrain_GetHeight( pInstance->x, pInstance->z, &height, accurate ) ) 
-		{
-			continue;
-		}
+		pTreeHeightValid[ j ] = 1;
 
 		float adjustment = (1 - ny) * 75 * pInstance->GetScaleFloat();
 		pInstance->y = height - 10 - adjustment;
@@ -1794,9 +1891,11 @@ bool GGTrees_GetDefaultDataV2(char *filename)
 {
 	if (!filename) return(false);
 	bool bRet = false;
-	char *data = new char[4800004];
+	uint32_t dataSize = GGTrees_GetDataSize() * 4;
+	char *data = new char[dataSize];
 	if (data)
 	{
+		GGTrees_GetEmptyData((float*)data);
 		if (FileExist(filename) == 1)
 		{
 			// Open file to be read
@@ -1805,7 +1904,7 @@ bool GGTrees_GetDefaultDataV2(char *filename)
 			{
 				// Read file into memory
 				DWORD bytesread;
-				ReadFile(hreadfile, data, 4800004, &bytesread, NULL);
+				ReadFile(hreadfile, data, dataSize, &bytesread, NULL);
 				CloseHandle(hreadfile);
 				GGTrees::GGTrees_SetData((float*)data);
 				bRet = true;
@@ -1916,6 +2015,24 @@ uint32_t GGTrees_GetDataSize()
 
 #define GGTREES_CURRENT_VERSION 3
 
+// fills data with every tree hidden and outside any tree area, so a smaller tree file read over it leaves the
+// remaining slots unused
+void GGTrees_GetEmptyData( float* data )
+{
+	uint32_t* dataInt = (uint32_t*) data;
+	dataInt[ 0 ] = GGTREES_CURRENT_VERSION;
+
+	data++;
+	dataInt++;
+
+	for( uint32_t i = 0; i < numTotalTrees; i++ )
+	{
+		data[ i * 3 + 0 ] = GGTREES_MAX_AREA;
+		data[ i * 3 + 1 ] = GGTREES_MAX_AREA;
+		dataInt[ i * 3 + 2 ] = 0;
+	}
+}
+
 int GGTrees_GetData( float* data )
 {
 	if (!ggtrees_initialised) return 0;
@@ -1987,6 +2104,11 @@ int GGTrees_SetData( float* data )
 	// Defined in GGTrees_part2.cpp, which is #included after this file into GGTrees.cpp, so it needs
 	// the forward declaration above. Without this the previous level's type assets stayed resident.
 	GGTrees_ReleaseLevelAssets();
+
+	// the terrain settings are loaded first, so the tree area matches this level
+	GGTrees_SetArea( GGTrees_GetRequiredArea() );
+	memset( pTreeHeightValid, 0, sizeof(pTreeHeightValid) );
+
 	for( uint32_t i = 0; i < numTreeChunks; i++ )
 	{
 		pTreeChunks[ i ].pInstances.Clear();
@@ -2166,6 +2288,7 @@ void GGTrees_SetTreePosition( uint32_t treeID, float x, float z )
 	GGTrees_MarkProxyChunkDirtyAt( pInstance->x, pInstance->z );
 	pInstance->x = x;
 	pInstance->z = z;
+	pTreeHeightValid[ treeID ] = 0;
 	g_treeInstanceStamp++;
 	GGTrees_MarkProxyChunkDirtyAt( x, z );
 
