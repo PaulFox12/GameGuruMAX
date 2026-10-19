@@ -166,8 +166,10 @@ void DBProRagDollBone::CreateBone()
 		GetAngleFromPoint (	positionVec.getX(), positionVec.getY(), positionVec.getZ(),	jointVec2.getX(), jointVec2.getY(), jointVec2.getZ(), &fAX, &fAY, &fAZ);
 
 		// apply same rotation but quicker
+		// GG: its angles given Z, Y, X as the debug capsule's are below: given X first, a bone near upright (a leg, the
+		// spine, the head) had its capsule turned across the bone, not along it
 		btMatrix3x3 boneRotation;
-		boneRotation.setEulerYPR(btScalar(btRadians(fAX)), btScalar(btRadians(fAY)), btScalar(btRadians(fAZ)));
+		boneRotation.setEulerYPR(btScalar(btRadians(fAZ)), btScalar(btRadians(fAY)), btScalar(btRadians(fAX)));
 		boneTrans.setBasis(boneRotation);
 
 		//LB: and restore when finished creating this 'light weight' bone object
@@ -198,6 +200,7 @@ void DBProRagDollBone::CreateBone()
 	if (boneVolume < 500) boneVolume = btScalar(500);
 	m_collisionShape = new btCapsuleShapeZ(btScalar(diameter/scaleFactor/2),btScalar((height - diameter)/scaleFactor));
 	rigidBody = localCreateRigidBody(boneVolume, boneTrans, m_collisionShape, dbproRagDollBoneID, collisionGroup, collisionMask);
+	rigidBody->setUserIndex(dbproObjectID); // the object it stands for (GGPhysicsQuery)
 	initialRotation = rigidBody->getWorldTransform().getBasis();
 }
 

@@ -41,6 +41,9 @@ DARKSDK void		ODECreateStaticTriangleMesh			    ( int iObjectNumber, int iLimbNu
 DARKSDK void        ODECreateStaticTriangleMesh             ( int iObjectNumber, int iLimbNumber, int iCollisionScaling, int iHullReductionMode );
 DARKSDK void		ODECreateStaticTerrain					( int iObjectNumber, int iWidth, int iLength, LPSTR dwMemBlockPtr );
 DARKSDK void		ODEUpdateStaticTerrain					( int iObjectNumber, int iWidth, int iLength, LPSTR dwMemBlockPtr, int iX1, int iZ1, int iX2, int iZ2 );
+DARKSDK int		ODECreateStaticTriangleMeshData			( const float* pPositions, int iTriangleCount, int iMaterial );
+DARKSDK void		ODEDeleteStaticTriangleMeshData			( int iHandle );
+DARKSDK void		ODEDeleteAllStaticTriangleMeshData		( void );
 DARKSDK void		ODECreateStaticCapsule					( int iObjectNumber, float fCollisionScaling, float fCollisionScalingXZ);
 DARKSDK void		ODECreateDynamicSphere					( int iObjectNumber, float fWeight, float fFriction, float fRestitution );
 DARKSDK void		ODECreateDynamicBox					    ( int iObjectNumber );
@@ -98,6 +101,20 @@ DARKSDK int			BPhys_RagDollShowBones(int ragdollID);
 DARKSDK void		BPhys_RagDollSetDamping(float linear, float angular);
 DARKSDK void		BPhys_RagDollSetSleepingThresholds(float linear, float angular);
 DARKSDK void		BPhys_RagDollSetDeactivationTime(float time);
+// GG: a ragdoll body held at a point, the body moving a limb, where it is, and the body the object follows
+DARKSDK int			BPhys_RagDollFindBone(int ragdollID, int limbID);
+DARKSDK bool		BPhys_RagDollGetBonePosition(int ragdollID, int boneIndex, float* pX, float* pY, float* pZ);
+DARKSDK void		BPhys_RagDollSetRestYaw(int ragdollID, float fYaw);
+DARKSDK void		BPhys_RagDollSetFollowBone(int ragdollID, int boneIndex);
+DARKSDK bool		BPhys_RagDollHold(int ragdollID, int boneIndex, float fX, float fY, float fZ, float fAX, float fAY, float fAZ, unsigned int uNowMs);
+DARKSDK void		BPhys_RagDollRelease(int ragdollID);
+DARKSDK int			BPhys_RagDollIsHeld(int ragdollID);
+DARKSDK int			BPhys_RagDollIsResting(int ragdollID);
+DARKSDK bool		BPhys_RagDollSetHoldStiffness(int ragdollID, float fStiffness, float fDamping, float fWaistFold, float fHipFold, float fKneeFold);
+DARKSDK bool		BPhys_RagDollGetHoldStiffness(int ragdollID, float* pStiffness, float* pDamping, float* pWaistFold, float* pHipFold, float* pKneeFold);
+DARKSDK int			BPhys_RagDollGetHoldKnees(int ragdollID, float* pMade, float* pHeld, int iMax);
+DARKSDK bool		BPhys_RagDollSetHoldReference(int ragdollID, const float* pMadeWorlds, const float* pReferenceWorlds, int iLimbs);
+DARKSDK int			BPhys_RagDollHasHoldReference(int ragdollID);
 
 // Destruction commands
 DARKSDK void		ODEDestroyObject						( int iObjectNumber );
@@ -133,6 +150,7 @@ DARKSDK int			ODEGetRayObjectHit					( );
 DARKSDK void		ODESetActive							( int iObjectNumber, int iMode );
 DARKSDK void		ODESetBodyPosition						( int iObjectNumber, float fX, float fY, float fZ );
 DARKSDK void		ODESetBodyResponse						( int iObjectNumber, int iResponseMode );
+DARKSDK void		ODESetBodyIncludesPivot					( int iObjectNumber, int iIncludes );
 DARKSDK void		ODESetBodyAngle							( int iObjectNumber, float fX, float fY, float fZ );
 DARKSDK void		ODESetNoGravity                         ( int iObjectNumber, int iGravity );
 DARKSDK void        ODESetBodyScaling                       ( int iObjectNumber, float fX, float fY, float fZ );
@@ -141,6 +159,8 @@ DARKSDK void        ODESetBodyScaling                       ( int iObjectNumber,
 DARKSDK void		ODESetBodyMass							( int iObject, float fMass );
 DARKSDK void		ODESetBodyFriction						( int iObject, float fFriction );
 DARKSDK void		ODESetBodyDamping                       ( int iObject, float fDamp, float fAngleDamp );
+DARKSDK void		ODEWatchProjectileContact				( int iObjectNumber, int iIgnoreObject );
+DARKSDK int			ODEGetProjectileContact					( int iObjectNumber, float* pX, float* pY, float* pZ, float* pNX = NULL, float* pNY = NULL, float* pNZ = NULL );
 DARKSDK void        ODESetHingeLimits                       ( int iConstraint, float fAngMin, float fAngMax, float fSoftness, float fBias, float fRelaxation );
 DARKSDK void        ODESetHingeMotor                        ( int iConstraint, float fSpeed, float fAngle, float fForce );
 DARKSDK void        ODESetSliderLimits                      ( int iConstraint, float fLowerLin, float fUpperLin, float fLowerAng, float fUpperAng );
@@ -159,6 +179,7 @@ DARKSDK float       ODEGetHingeAngle                        ( int iConstraint   
 DARKSDK float       ODEGetSliderPosition                    ( int iConstraint   );
 
 // Lua Collision support
+DARKSDK int			ODEGetBodyPose                          ( int iObjectNumber, float* pPosition, float* pAngles );
 DARKSDK int			ODEGetBodyNumCollisions                 ( int iObjectNumber );
 DARKSDK void		ODEGetBodyCollisionDetails              ( int iObjectNumber, int iColNumber, int &iColObj, float &fX, float &fY, float &fZ, float &fImpulse );
 DARKSDK int			ODEGetTerrainNumCollisions              ( int iObjectNumber );

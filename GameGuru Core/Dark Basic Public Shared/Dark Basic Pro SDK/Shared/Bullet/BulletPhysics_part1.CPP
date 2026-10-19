@@ -66,6 +66,7 @@
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	body->setUserPointer((void*)iArbValue);
+	body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// add physics object to system
 	short sColliderType = COL_OBJECT;
@@ -105,6 +106,32 @@ void SetMeshFilename (LPSTR pFilename)
 void SetOBJLoadingFilename (LPSTR pFilename)
 {
 	strcpy (g_ProvidedMeshFilenameForOBJLoading, pFilename);
+}
+
+// GG: a hull decomposition's hulls were made from three points for each of their triangles, so each corner was there about
+// five times (a .bullet file keeps them so), and every contact test reads all of a hull's points. Only the corners are
+// kept: the same shapes. A hull the hull computer can't make again keeps its points
+static void PhysicsOptimiseCompoundHulls(btCollisionShape* pShape)
+{
+	if (!pShape || pShape->getShapeType() != COMPOUND_SHAPE_PROXYTYPE) return;
+	btCompoundShape* pCompound = (btCompoundShape*)pShape;
+	for (int c = 0; c < pCompound->getNumChildShapes(); c++)
+	{
+		btCollisionShape* pChild = pCompound->getChildShape(c);
+		if (pChild->getShapeType() != CONVEX_HULL_SHAPE_PROXYTYPE) continue;
+		btConvexHullShape* pHull = (btConvexHullShape*)pChild;
+		const int iPoints = pHull->getNumPoints();
+		if (iPoints < 8) continue;
+		btAlignedObjectArray<btVector3> original;
+		original.resize(iPoints);
+		for (int p = 0; p < iPoints; p++) original[p] = pHull->getUnscaledPoints()[p];
+		pHull->optimizeConvexHull();
+		if (pHull->getNumPoints() < 4)
+		{
+			for (int p = 0; p < iPoints; p++) pHull->addPoint(original[p], false);
+		}
+		pHull->recalcLocalAabb();
+	}
 }
 
 void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrainMesh, int iCollisionScaling, int iHullReduction, float fWeight, float fFriction, float fRestitution )
@@ -525,6 +552,7 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 				if (numShapes)
 				{
 					compoundShape = (btCompoundShape*)importer->getCollisionShapeByIndex(0);
+					PhysicsOptimiseCompoundHulls(compoundShape);
 					bLoadedAndCreatedOkay = true;
 					iShapeUsed = 2;
 				}
@@ -592,6 +620,7 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 						compoundShape->addChildShape(localTransform, simplifiedConvexShape);
 						g_collisionShapes.push_back(simplifiedConvexShape);
 					}
+					PhysicsOptimiseCompoundHulls(compoundShape);
 					g_collisionShapes.push_back(compoundShape);
 					iShapeUsed = 2;
 
@@ -802,6 +831,7 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	body->setUserPointer((void*)iArbValue);
+	body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// add physics object to system
 	short sColliderType = COL_OBJECT;
@@ -820,7 +850,7 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 		pObject = NULL;
 
 	// add physics object details to pbject list
-	ODEAddObject ( iObjectNumber, pObject, body, isDynamic, myMotionState, false, bBouyant, gVertices, gIndices, 1, 1, fFriction, mass );
+	ODEAddObject ( iObjectNumber, pObject, body, isDynamic, myMotionState, false, bBouyant, gVertices, gIndices, 1, 1, fFriction, mass, false ); // placed at the object's origin, not centred
 }
 
 void DeleteallImporters()
@@ -896,6 +926,7 @@ void CreateTerrain ( int iObjectNumber, int isDynamic, int iWidth, int iLength, 
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	body->setUserPointer((void*)iArbValue);
+	body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// add physics object to system
 	short sCollidesWith = COL_OBJECT | COL_OBJECT_DYNAMIC | COL_CAPSULECHAR | COL_TERRAIN;
@@ -968,6 +999,7 @@ void UpdateTerrain ( int iObjectNumber, int isDynamic, int iWidth, int iLength, 
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	pPhyObject->body->setUserPointer((void*)iArbValue);
+	pPhyObject->body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// add new body back to simulation
 	short sCollidesWith = COL_OBJECT | COL_OBJECT_DYNAMIC | COL_CAPSULECHAR | COL_TERRAIN;
@@ -1002,6 +1034,7 @@ void ODECreateGGTerrain()
 	btRigidBody::btRigidBodyConstructionInfo rbInfo( mass, myMotionState, g_pTerrainShape, localInertia );
 	btRigidBody* body = new btRigidBody( rbInfo );
 
+	body->setUserIndex(0); // the ground (GGPhysicsQuery)
 	body->setUserPointer((void*)12345);// indicate this is terrain and uses material look up for footfall sounds - old was 0 );
 
 	// add physics object to system
@@ -1112,6 +1145,7 @@ void CreateCapsule ( int iObjectNumber, int isDynamic, float fScaleModifier, flo
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	body->setUserPointer((void*)iArbValue);
+	body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// add physics object to system
 	short sCollidesWith = COL_OBJECT | COL_OBJECT_DYNAMIC | COL_TERRAIN;
@@ -1560,6 +1594,72 @@ void ODEUpdateStaticTerrain ( int iObjectNumber, int iWidth, int iLength, LPSTR 
 {
 	UpdateTerrain ( iObjectNumber, 0, iWidth, iLength, dwMemBlockPtr, iX1, iZ1, iX2, iZ2 );
 }
+
+// GG: static bodies made from triangles of the world's own (the spline tool's pavements), not an object's: in the ground's
+// group with no object, so the player, rays and contacts take them as ground (object 0), their material for footsteps and
+// impacts; each kept by a handle until deleted, or until the world ends (ODEEnd deletes what is left first)
+struct sStaticTriangleBody
+{
+	btTriangleMesh* pMesh = NULL;
+	btBvhTriangleMeshShape* pShape = NULL;
+	btDefaultMotionState* pMotion = NULL;
+	btRigidBody* pBody = NULL;
+};
+static std::unordered_map<int, sStaticTriangleBody> g_StaticTriangleBodies;
+static int g_iNextStaticTriangleBody = 1;
+
+static void DeleteStaticTriangleBody ( sStaticTriangleBody& b )
+{
+	if ( g_dynamicsWorld && b.pBody ) g_dynamicsWorld->removeRigidBody ( b.pBody );
+	SAFE_DELETE ( b.pBody );
+	SAFE_DELETE ( b.pMotion );
+	SAFE_DELETE ( b.pShape );
+	SAFE_DELETE ( b.pMesh );
+}
+
+// the triangles' corners, x y z each in world units, three a triangle; 0 when there is no world or nothing to make
+int ODECreateStaticTriangleMeshData ( const float* pPositions, int iTriangleCount, int iMaterial )
+{
+	if ( !g_dynamicsWorld || !pPositions || iTriangleCount <= 0 ) return 0;
+	std::lock_guard<std::recursive_mutex> lock ( physicslock );
+	sStaticTriangleBody b;
+	b.pMesh = new btTriangleMesh ( true, false );
+	for ( int t = 0; t < iTriangleCount; t++ )
+	{
+		const float* p = pPositions + t * 9;
+		b.pMesh->addTriangle ( btVector3 ( p[0] / gSc, p[1] / gSc, p[2] / gSc ), btVector3 ( p[3] / gSc, p[4] / gSc, p[5] / gSc ), btVector3 ( p[6] / gSc, p[7] / gSc, p[8] / gSc ), false );
+	}
+	b.pShape = new btBvhTriangleMeshShape ( b.pMesh, true );
+	btTransform transform;
+	transform.setIdentity();
+	b.pMotion = new btDefaultMotionState ( transform );
+	btRigidBody::btRigidBodyConstructionInfo rbInfo ( 0, b.pMotion, b.pShape, btVector3 ( 0, 0, 0 ) );
+	b.pBody = new btRigidBody ( rbInfo );
+	b.pBody->setUserPointer ( (void*)(intptr_t)iMaterial );
+	b.pBody->setUserIndex ( -1 );
+	b.pBody->setUserIndex2 ( 1 ); // a surface built from a spline (PHYSICS_SURFACE_SPLINE, PhysicsRay's surface)
+	const short sCollidesWith = COL_OBJECT | COL_OBJECT_DYNAMIC | COL_CAPSULECHAR | COL_TERRAIN;
+	g_dynamicsWorld->addRigidBody ( b.pBody, COL_TERRAIN, sCollidesWith );
+	const int iHandle = g_iNextStaticTriangleBody++;
+	g_StaticTriangleBodies[ iHandle ] = b;
+	return iHandle;
+}
+
+void ODEDeleteAllStaticTriangleMeshData ( void )
+{
+	std::lock_guard<std::recursive_mutex> lock ( physicslock );
+	for ( auto& entry : g_StaticTriangleBodies ) DeleteStaticTriangleBody ( entry.second );
+	g_StaticTriangleBodies.clear();
+}
+
+void ODEDeleteStaticTriangleMeshData ( int iHandle )
+{
+	auto it = g_StaticTriangleBodies.find ( iHandle );
+	if ( it == g_StaticTriangleBodies.end() ) return;
+	std::lock_guard<std::recursive_mutex> lock ( physicslock );
+	DeleteStaticTriangleBody ( it->second );
+	g_StaticTriangleBodies.erase ( it );
+}
 void ODECreateStaticCapsule ( int iObjectNumber, float fCollisionScaling, float fCollisionScalingXZ)
 {
 	CreateCapsule ( iObjectNumber, 0, 1.0f, 0.0f, -1, -1, fCollisionScaling, fCollisionScalingXZ);
@@ -1680,6 +1780,10 @@ void ODEDestroyObject ( int iObjectNumber )
 	}
 	DestroyThisObject ( pPhyObject );
 	ODERemoveObject ( iObjectNumber );
+	for ( int i = (int)g_ProjectileContacts.size() - 1; i >= 0; i-- )
+	{
+		if ( g_ProjectileContacts[i].iObject == iObjectNumber ) g_ProjectileContacts.erase ( g_ProjectileContacts.begin() + i );
+	}
 	physicslock.unlock();
 }
 
@@ -1700,7 +1804,7 @@ void ODESetNoGravity( int iObjectNumber, int iGravity )
 			// zero gravity
 			btVector3 vecGravReset = btVector3(0, 0, 0);
 			pPhyObject->body->setGravity (vecGravReset);
-			pPhyObject->body->setFlags (!BT_DISABLE_WORLD_GRAVITY);
+			pPhyObject->body->setFlags (pPhyObject->body->getFlags() & ~BT_DISABLE_WORLD_GRAVITY);
 		}
 		else
 		{
@@ -1891,6 +1995,12 @@ int BPhys_DeleteRagdoll(int ragdollID)
 	return 1;
 }
 
+// GG: whether a ragdoll is registered for an object (GGPhysicsQuery's awake list)
+int BPhys_RagdollExists(int ragdollID)
+{
+	return ( ragdollManager && ragdollManager->GetRagdoll(ragdollID) ) ? 1 : 0;
+}
+
 int BPhys_RagdollIsStatic(int ragdollID)
 {
 	if ( ragdollManager )
@@ -1981,5 +2091,122 @@ void BPhys_RagDollSetDeactivationTime(float time)
 	{
 		currentDBProRagDoll->SetDeactivationTime(btScalar(time));
 	}
+}
+
+// GG: the ragdoll body whose capsule moves a limb, -1 when none does
+int BPhys_RagDollFindBone(int ragdollID, int limbID)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	return ragdoll ? ragdoll->FindBone(limbID) : -1;
+}
+
+// GG: a ragdoll body's centre in world units
+bool BPhys_RagDollGetBonePosition(int ragdollID, int boneIndex, float* pX, float* pY, float* pZ)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( !ragdoll || boneIndex < 0 ) return false;
+	btVector3 position = ragdoll->GetBonePosition(boneIndex);
+	*pX = position.getX();
+	*pY = position.getY();
+	*pZ = position.getZ();
+	return true;
+}
+
+// GG: taken as a ragdoll is made, with the angle the character faces, so a hold can turn a body as the character
+void BPhys_RagDollSetRestYaw(int ragdollID, float fYaw)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( ragdoll ) ragdoll->SetRestYaw(btScalar(fYaw));
+}
+
+// GG: the object's position follows a ragdoll body (-1 stops it)
+void BPhys_RagDollSetFollowBone(int ragdollID, int boneIndex)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( ragdoll ) ragdoll->SetFollowBone(boneIndex);
+}
+
+// GG: holds a ragdoll body at a point (world units), turned as the character would be by the angles (X, then Y, then Z,
+// as for an object: 0, a, 0 is that body as when standing facing a); called each frame while held
+bool BPhys_RagDollHold(int ragdollID, int boneIndex, float fX, float fY, float fZ, float fAX, float fAY, float fAZ, unsigned int uNowMs)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( !ragdoll || !g_dynamicsWorld ) return false;
+	btMatrix3x3 rotation;
+	rotation.setEulerYPR(btRadians(fAZ), btRadians(fAY), btRadians(fAX));
+	ragdoll->Hold(boneIndex, btVector3(fX, fY, fZ), rotation, btScalar(fAY), uNowMs);
+	return ragdoll->IsHeld();
+}
+
+void BPhys_RagDollRelease(int ragdollID)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( ragdoll ) ragdoll->Release();
+}
+
+int BPhys_RagDollIsHeld(int ragdollID)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	return ( ragdoll && ragdoll->IsHeld() ) ? 1 : 0;
+}
+
+int BPhys_RagDollIsResting(int ragdollID)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	return ( ragdoll && ragdoll->IsResting() ) ? 1 : 0;
+}
+
+// GG: how hard a held ragdoll is pulled to its drape (0 to 1), its swing's damping (0 to 1), the folds in degrees and
+// the knees' bend (negative: as made)
+bool BPhys_RagDollSetHoldStiffness(int ragdollID, float fStiffness, float fDamping, float fWaistFold, float fHipFold, float fKneeFold)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( !ragdoll ) return false;
+	ragdoll->SetHoldStiffness(fStiffness, fDamping, fWaistFold, fHipFold, fKneeFold);
+	return true;
+}
+
+bool BPhys_RagDollGetHoldStiffness(int ragdollID, float* pStiffness, float* pDamping, float* pWaistFold, float* pHipFold, float* pKneeFold)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( !ragdoll ) return false;
+	btScalar fStiffness, fDamping, fWaistFold, fHipFold, fKneeFold;
+	ragdoll->GetHoldStiffness(&fStiffness, &fDamping, &fWaistFold, &fHipFold, &fKneeFold);
+	*pStiffness = fStiffness;
+	*pDamping = fDamping;
+	*pWaistFold = fWaistFold;
+	*pHipFold = fHipFold;
+	*pKneeFold = fKneeFold;
+	return true;
+}
+
+// GG: a held ragdoll's knees, each one's bend in degrees as made and in its drape; how many
+int BPhys_RagDollGetHoldKnees(int ragdollID, float* pMade, float* pHeld, int iMax)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( !ragdoll || iMax <= 0 ) return 0;
+	btScalar fMade[8], fHeld[8];
+	int iCount = ragdoll->GetHoldKnees(fMade, fHeld, btMin(iMax, 8));
+	for ( int k = 0; k < iCount; k++ )
+	{
+		pMade[k] = fMade[k];
+		pHeld[k] = fHeld[k];
+	}
+	return iCount;
+}
+
+// GG: the pose a held ragdoll's drape starts from, from each limb's world matrix (16 floats, row by row, world units)
+// as the ragdoll was made and in a reference pose; with none, the pose it was made in
+bool BPhys_RagDollSetHoldReference(int ragdollID, const float* pMadeWorlds, const float* pReferenceWorlds, int iLimbs)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	if ( !ragdoll ) return false;
+	return ragdoll->SetHoldReference(pMadeWorlds, pReferenceWorlds, iLimbs);
+}
+
+int BPhys_RagDollHasHoldReference(int ragdollID)
+{
+	DBProRagDoll* ragdoll = ragdollManager ? ragdollManager->GetRagdoll(ragdollID) : NULL;
+	return ( ragdoll && ragdoll->HasHoldReference() ) ? 1 : 0;
 }
 

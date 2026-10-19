@@ -177,6 +177,50 @@ static uint32_t g_treeInstanceStamp = 0;
 void GGTrees_MarkProxyChunkDirtyAt( float x, float z );
 void GGTrees_MarkAllProxyChunksDirty();
 
+// each tree type's trunk collider at scale 1, fitted to its LOD0 trunk mesh 0.5 to 1.5 m up: radius, then the trunk's
+// centre (x, z) from the tree's origin before the tree is turned
+static const float g_TreeTrunkFit[ 38 ][ 3 ] =
+{
+	{   9.6f,  -1.1f,   1.5f }, // 0 birch
+	{  11.4f,   3.7f,  -4.7f }, // 1 cactus_var1
+	{  11.1f,  -4.7f,   0.5f }, // 2 cactus_var2
+	{  13.7f,   0.1f,   0.0f }, // 3 cactus_var3
+	{  20.5f,  -4.9f,   0.2f }, // 4 cactus_var4
+	{   5.3f,  -0.6f,   0.4f }, // 5 dead pine tree
+	{  16.0f,  -1.0f,  -0.2f }, // 6 drypine
+	{   5.0f,  -2.2f,  -1.5f }, // 7 italian pine
+	{  58.2f,  -1.6f,   7.6f }, // 8 jungletree1
+	{  53.5f,  -2.2f,  -3.7f }, // 9 jungletree2
+	{   8.0f,   0.5f,   3.0f }, // 10 jungletree3a
+	{   8.3f,   1.0f,   0.1f }, // 11 jungletree3b
+	{   8.0f,   0.5f,   3.0f }, // 12 jungletree4a
+	{   8.3f,   1.0f,   0.1f }, // 13 jungletree4b
+	{  22.4f,  -4.8f, -22.2f }, // 14 jungletree5a
+	{   9.5f,  -2.1f,  -6.5f }, // 15 jungletree5b
+	{   9.6f,   2.3f,  -0.9f }, // 16 jungletree6a
+	{  10.2f,  -1.0f,  -5.7f }, // 17 jungletree6b
+	{   4.2f,   3.1f,  -1.4f }, // 18 kentia palm
+	{   7.7f,   0.8f,   1.7f }, // 19 palm
+	{  11.2f,   1.6f,  -0.5f }, // 20 pine
+	{  12.1f,  -0.5f,  -5.5f }, // 21 scotspine1
+	{  13.3f,   3.9f,  -3.0f }, // 22 scotspine2
+	{  13.3f,   2.6f,  -2.4f }, // 23 scotspine dead
+	{  22.5f,   0.0f,   0.0f }, // 24 snow fir2 (low branches in the band, old size)
+	{  14.7f, -13.4f,   3.2f }, // 25 snow fir3
+	{   6.9f,  -0.1f,   0.5f }, // 26 snow fir1
+	{   8.3f,   0.6f,   0.8f }, // 27 snow pine
+	{   9.4f,  -0.7f,  -6.2f }, // 28 snow pine tall2
+	{   9.3f,   0.4f,   0.6f }, // 29 snow pine tall
+	{   7.6f,  -0.3f,   1.1f }, // 30 sparse pine
+	{  20.9f,   3.1f,   2.2f }, // 31 vine tree large
+	{  10.4f,  -3.8f,  17.0f }, // 32 vine tree small
+	{  16.0f,  -1.0f,  -0.2f }, // 33 westernpine
+	{   3.6f,   0.7f,  -0.3f }, // 34 white pine
+	{   9.6f,  -1.1f,   1.5f }, // 35 birch autumn1
+	{   9.6f,  -1.1f,   1.5f }, // 36 birch autumn2
+	{   9.6f,  -1.1f,   1.5f }, // 37 birch autumn3
+};
+
 struct InstanceTree
 {
 	float x, y, z;
@@ -282,80 +326,20 @@ struct InstanceTree
 	float GetTreeThickness()
 	{
 		int iTreeType = GetType();
-		float fThickness = 10.0f;
-		//sTreeTexturesName[0] = "Birch";
-		//sTreeTexturesName[1] = "Cactus Var 1";
-		//sTreeTexturesName[2] = "Cactus Var 2";
-		//sTreeTexturesName[3] = "Cactus Var 3";
-		//sTreeTexturesName[4] = "Cactus Var 4";
-		//sTreeTexturesName[5] = "Dead Pine Tree";
-		//sTreeTexturesName[6] = "Dry Pine";
-		//sTreeTexturesName[7] = "Italian Pine";
-		//sTreeTexturesName[8] = "Jungle Tree 1";
-		//sTreeTexturesName[9] = "Jungle Tree 2";
-		//sTreeTexturesName[10] = "Jungle Tree 3a";
-		//sTreeTexturesName[11] = "Jungle Tree 3b";
-		//sTreeTexturesName[12] = "Jungle Tree 4a";
-		//sTreeTexturesName[13] = "Jungle Tree 4b";
-		//sTreeTexturesName[14] = "Jungle Tree 5a";
-		//sTreeTexturesName[15] = "Jungle Tree 5b";
-		//sTreeTexturesName[16] = "Jungle Tree 6a";
-		//sTreeTexturesName[17] = "Jungle Tree 6b";
-		//sTreeTexturesName[18] = "Kentia Palm";
-		//sTreeTexturesName[19] = "Palm";
-		//sTreeTexturesName[20] = "Pine";
-		//sTreeTexturesName[21] = "Scots Pine 1";
-		//sTreeTexturesName[22] = "Scots Pine 2";
-		//sTreeTexturesName[23] = "Scots Pine Dead";
-		//sTreeTexturesName[24] = "Snow Fir 2";
-		//sTreeTexturesName[25] = "Snow Fir 3";
-		//sTreeTexturesName[26] = "Snow Fir";
-		//sTreeTexturesName[27] = "Snow Pine";
-		//sTreeTexturesName[28] = "Snow Pine Tall 2";
-		//sTreeTexturesName[29] = "Snow Pine Tall";
-		//sTreeTexturesName[30] = "Sparse Pine";
-		//sTreeTexturesName[31] = "Vine Tree Large";
-		//sTreeTexturesName[32] = "Vine Tree Small";
-		//sTreeTexturesName[33] = "Western Pine";
-		//sTreeTexturesName[34] = "White Pine";
-		//sTreeTexturesName[35] = "Autumn Birch 1";
-		//sTreeTexturesName[36] = "Autumn Birch 2";
-		//sTreeTexturesName[37] = "Autumn Birch 3";
-		switch (iTreeType)
-		{
-			case 1: fThickness = 25.0f; break;
-			case 2: fThickness = 20.0f; break;
-			case 3: fThickness = 30.0f; break;
-			case 4: fThickness = 40.0f; break;
-			case 5: fThickness = 15.0f; break;
-			case 6: fThickness = 30.0f; break;
-			case 7: fThickness = 15.0f; break;
-			case 8: fThickness = 80.0f; break;
-			case 9: fThickness = 80.0f; break;
-			case 14: fThickness = 50.0f; break;
-			case 15: fThickness = 30.0f; break;
-			case 17: fThickness = 20.0f; break;
-			case 19: fThickness = 20.0f; break;
-			case 21: fThickness = 30.0f; break;
-			case 22: fThickness = 30.0f; break;
-			case 23: fThickness = 30.0f; break;
-			case 24: fThickness = 30.0f; break;
-			case 25: fThickness = 20.0f; break;
-			case 26: fThickness = 20.0f; break;
-			case 27: fThickness = 30.0f; break;
-			case 28: fThickness = 20.0f; break;
-			case 29: fThickness = 15.0f; break;
-			case 30: fThickness = 15.0f; break;
-			case 31: fThickness = 35.0f; break;
-			case 32: fThickness = 35.0f; break;
-			case 33: fThickness = 30.0f; break;
-			case 34: fThickness = 15.0f; break;
-			case 35: fThickness = 15.0f; break;
-			case 36: fThickness = 20.0f; break;
-			case 37: fThickness = 20.0f; break;
-		}
-		fThickness *= 1.5f;
-		return fThickness;
+		if ( iTreeType >= 38 ) return 15.0f;
+		return g_TreeTrunkFit[ iTreeType ][ 0 ] * 2.0f;
+	}
+
+	// the trunk's centre: the tree's origin plus its type's trunk offset, turned and scaled as the tree is drawn
+	void GetTrunkCentre( float* pX, float* pZ )
+	{
+		int iTreeType = GetType();
+		float ox = 0, oz = 0;
+		if ( iTreeType < 38 ) { ox = g_TreeTrunkFit[ iTreeType ][ 1 ]; oz = g_TreeTrunkFit[ iTreeType ][ 2 ]; }
+		float ang = ((data >> 8) & 0x7) * 0.785398f;
+		float c = cosf( ang ), s = sinf( ang ), scale = GetScaleFloat();
+		*pX = x + (c * ox - s * oz) * scale;
+		*pZ = z + (s * ox + c * oz) * scale;
 	}
 };
 
@@ -455,9 +439,48 @@ void GGTrees_BindTreeMap( int slot, CommandList cmd )
 	device->BindResource( &texTreeMap, slot, cmd );
 }
 
+// a drawn tree's trunk as rays test it (GGTrees_RayCastTrunks): a vertical cylinder from the tree's base to its top, as
+// thick as the physics' tree cylinder (the species' thickness times the tree's scale, across)
+struct TreeTrunk
+{
+	float x, z;
+	float radius;
+	float base, top;
+	float crown; // where the crown starts: below it only the bare trunk
+	int type;
+};
+
+// the height above a type's base where its crown starts, at scale 1: the lowest vertex of its full detail branch and leaf
+// mesh (the whole height for a type without one), worked out once
+static float GGTrees_CrownBase( int type )
+{
+	static float crownBase[ numTreeTypes ];
+	static bool bDone = false;
+	if ( !bDone )
+	{
+		for( uint32_t i = 0; i < numTreeTypes; i++ )
+		{
+			float lowest = g_GGTrees[ i ].height;
+			const TreeMeshHigh* pBranches = g_GGTrees[ i ].branches;
+			if ( pBranches )
+			{
+				for( uint32_t v = 0; v < pBranches->numVertices; v++ )
+				{
+					if ( pBranches->pVertices[ v ].y < lowest ) lowest = pBranches->pVertices[ v ].y;
+				}
+			}
+			crownBase[ i ] = lowest > 0 ? lowest : 0;
+		}
+		bDone = true;
+	}
+	if ( type < 0 || type >= (int)numTreeTypes ) type = numTreeTypes - 1;
+	return crownBase[ type ];
+}
+
 struct TreeChunk
 {
 	UnorderedArray<InstanceTree*> pInstances;
+	std::vector<TreeTrunk> trunks; // the drawn trees' trunks, packed for rays, rebuilt with the GPU list in Update()
 	float minHeight = 0;
 	float maxHeight = 0;
 	GPUBuffer bufferInstances;
@@ -657,6 +680,7 @@ struct TreeChunk
 
 	void Update()
 	{
+		trunks.clear();
 		if (!ggtrees_initialised) return;
 		if ( pInstances.NumItems() == 0 ) return;
 
@@ -681,6 +705,15 @@ struct TreeChunk
 			if ( pInstance->y < minHeight ) minHeight = pInstance->y;
 			if ( pInstance->y + treeHeight > maxHeight ) maxHeight = pInstance->y + treeHeight;
 
+
+				TreeTrunk trunk;
+				pInstance->GetTrunkCentre( &trunk.x, &trunk.z );
+				trunk.radius = pInstance->GetTreeThickness() * pInstance->GetScaleFloat() * 0.5f;
+				trunk.base = pInstance->y;
+				trunk.top = pInstance->y + treeHeight * pInstance->GetScaleFloat();
+				trunk.crown = pInstance->y + GGTrees_CrownBase( type ) * pInstance->GetScaleFloat();
+				trunk.type = pInstance->GetType();
+				trunks.push_back( trunk );
 			if ( pInstance->IsVisible() && !pInstance->IsFlattened() && !pInstance->IsInvalid() ) 
 			{
 				pData[ count ].x = pInstance->x;
@@ -1942,7 +1975,9 @@ int GGTrees_GetClosest( float x, float z, float radius, GGTreePoint** pOutPoints
 		for( uint32_t j = 0; j < pChunk->pInstances.NumItems(); j++ )
 		{
 			InstanceTree* pInstance = pChunk->pInstances[ j ];
-			if ( !pInstance->IsVisible() || pInstance->IsInvalid() ) continue;
+			// a tree under a flatten pad or a Clear Grass and Trees area is not drawn, so it gets no collision cylinder
+			// and carves no hole in the navmesh either
+			if ( !pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsInvalid() ) continue;
 
 			sqrDist = 0;
 			sqrDist += (pInstance->x - x) * (pInstance->x - x);
@@ -1953,10 +1988,14 @@ int GGTrees_GetClosest( float x, float z, float radius, GGTreePoint** pOutPoints
 			if ( pOutPoints ) 
 			{
 				GGTreePoint tree;
-				tree.x = pInstance->x;
+				pInstance->GetTrunkCentre( &tree.x, &tree.z );
 				tree.y = pInstance->y;
-				tree.z = pInstance->z;
 				tree.scale = pInstance->GetTreeThickness() * pInstance->GetScaleFloat();
+				tree.type = pInstance->GetType();
+				tree.instanceScale = pInstance->GetScaleFloat();
+				int heightType = tree.type < (int)numTreeTypes ? tree.type : numTreeTypes - 1;
+				tree.top = pInstance->y + g_GGTrees[ heightType ].height * tree.instanceScale;
+				tree.crown = pInstance->y + GGTrees_CrownBase( tree.type ) * tree.instanceScale;
 				points.AddItem( tree );
 			}
 
@@ -2006,6 +2045,291 @@ int GGTrees_RayCast( RAY ray, float maxDist, float* outDist, uint32_t* treeID )
 	}
 
 	return hit;
+}
+
+// narrows t0..t1 to where p + d * t lies between lo and hi; false if it never does
+static bool GGTrees_ClipSegment( float p, float d, float lo, float hi, float* t0, float* t1 )
+{
+	if ( fabsf( d ) < 1e-9f ) return p >= lo && p <= hi;
+	float ta = (lo - p) / d;
+	float tb = (hi - p) / d;
+	if ( ta > tb ) { float tmp = ta; ta = tb; tb = tmp; }
+	if ( ta > *t0 ) *t0 = ta;
+	if ( tb < *t1 ) *t1 = tb;
+	return *t0 <= *t1;
+}
+
+// where the segment from x1, y1, z1 to x2, y2, z2 first meets a tree trunk, anywhere on the map. A trunk is a vertical
+// cylinder as thick as the physics' tree cylinder (the species' thickness times the tree's scale, across) from the tree's
+// base to its top; canopies don't count, nor trees that are not drawn (hidden, flattened, killed or invalid). It reads the
+// packed trunk list of each chunk the segment crosses (TreeChunk::trunks), nearest chunk first, stopping once a hit lies
+// before the next one. pOut gets the point and the trunk's normal there (x, y, z, nx, ny, nz); returns 1 on a hit
+int GGTrees_RayCastTrunks( float x1, float y1, float z1, float x2, float y2, float z2, float* pOut )
+{
+	if ( !ggtrees_initialised || !ggtrees_global_params.draw_enabled ) return 0;
+	float dx = x2 - x1;
+	float dy = y2 - y1;
+	float dz = z2 - z1;
+	float minX = x1 < x2 ? x1 : x2;
+	float maxX = x1 < x2 ? x2 : x1;
+	float minZ = z1 < z2 ? z1 : z2;
+	float maxZ = z1 < z2 ? z2 : z1;
+
+	// the chunks the segment crosses on x and z, in the order it enters them
+	float chunkEntry[ numTreeChunks ];
+	uint32_t chunkIndex[ numTreeChunks ];
+	uint32_t numChunks = 0;
+	for( uint32_t i = 0; i < numTreeChunks; i++ )
+	{
+		TreeChunk* pChunk = &pTreeChunks[ i ];
+		if ( pChunk->trunks.empty() ) continue;
+		AABB aabb;
+		pChunk->GetBounds( &aabb );
+		float t0 = 0, t1 = 1;
+		if ( !GGTrees_ClipSegment( x1, dx, aabb._min.x, aabb._max.x, &t0, &t1 ) ) continue;
+		if ( !GGTrees_ClipSegment( z1, dz, aabb._min.z, aabb._max.z, &t0, &t1 ) ) continue;
+		uint32_t k = numChunks++;
+		while ( k > 0 && chunkEntry[ k - 1 ] > t0 )
+		{
+			chunkEntry[ k ] = chunkEntry[ k - 1 ];
+			chunkIndex[ k ] = chunkIndex[ k - 1 ];
+			k--;
+		}
+		chunkEntry[ k ] = t0;
+		chunkIndex[ k ] = i;
+	}
+
+	float a = dx*dx + dz*dz;
+	float bestT = 2.0f;
+	int bestEntry = 0; // how the segment enters the nearest trunk: 0 it starts inside, 1 through the top or base, 2 the side
+	const TreeTrunk* pBest = 0;
+	for( uint32_t c = 0; c < numChunks; c++ )
+	{
+		if ( chunkEntry[ c ] > bestT ) break;
+		const std::vector<TreeTrunk>& trunks = pTreeChunks[ chunkIndex[ c ] ].trunks;
+		for( size_t j = 0; j < trunks.size(); j++ )
+		{
+			const TreeTrunk& trunk = trunks[ j ];
+
+			// past at once a trunk outside the segment's bounds
+			if ( trunk.x + trunk.radius < minX || trunk.x - trunk.radius > maxX ) continue;
+			if ( trunk.z + trunk.radius < minZ || trunk.z - trunk.radius > maxZ ) continue;
+
+			// the part of the segment within the trunk's radius of its axis
+			float ox = x1 - trunk.x;
+			float oz = z1 - trunk.z;
+			float b = 2 * (ox*dx + oz*dz);
+			float cc = ox*ox + oz*oz - trunk.radius*trunk.radius;
+			float t0 = 0, t1 = 1;
+			int entry = 0;
+			if ( a < 1e-9f )
+			{
+				if ( cc > 0 ) continue;
+			}
+			else
+			{
+				float disc = b*b - 4*a*cc;
+				if ( disc < 0 ) continue;
+				float root = sqrtf( disc );
+				float ta = (-b - root) / (2*a);
+				float tb = (-b + root) / (2*a);
+				if ( ta > t0 ) { t0 = ta; entry = 2; }
+				if ( tb < t1 ) t1 = tb;
+				if ( t0 > t1 || t0 >= bestT ) continue;
+			}
+
+			// and between its base and its top
+			if ( fabsf( dy ) < 1e-9f )
+			{
+				if ( y1 < trunk.base || y1 > trunk.top ) continue;
+			}
+			else
+			{
+				float ta = (trunk.base - y1) / dy;
+				float tb = (trunk.top - y1) / dy;
+				if ( ta > tb ) { float tmp = ta; ta = tb; tb = tmp; }
+				if ( ta > t0 ) { t0 = ta; entry = 1; }
+				if ( tb < t1 ) t1 = tb;
+				if ( t0 > t1 ) continue;
+			}
+
+			if ( t0 < bestT )
+			{
+				bestT = t0;
+				bestEntry = entry;
+				pBest = &trunk;
+			}
+		}
+	}
+	if ( !pBest ) return 0;
+
+	float hitX = x1 + dx * bestT;
+	float hitY = y1 + dy * bestT;
+	float hitZ = z1 + dz * bestT;
+	float nx = 0, ny = 0, nz = 0;
+	if ( bestEntry == 2 )
+	{
+		nx = hitX - pBest->x;
+		nz = hitZ - pBest->z;
+	}
+	else if ( bestEntry == 1 )
+	{
+		ny = dy > 0 ? -1.0f : 1.0f;
+	}
+	else
+	{
+		nx = -dx; ny = -dy; nz = -dz;
+	}
+	float length = sqrtf( nx*nx + ny*ny + nz*nz );
+	if ( length > 0.000001f ) { nx /= length; ny /= length; nz /= length; }
+	pOut[ 0 ] = hitX; pOut[ 1 ] = hitY; pOut[ 2 ] = hitZ;
+	pOut[ 3 ] = nx; pOut[ 4 ] = ny; pOut[ 5 ] = nz;
+	return 1;
+}
+
+// a point moving from p by v (t 0 to 1) against a rectangle of half sizes hx, hz grown by r with rounded corners, which is
+// where a circle of radius r meets the rectangle: the first t it is inside, 0 if it starts inside
+static bool GGTrees_PointMeetsRoundedRect( float px, float pz, float vx, float vz, float hx, float hz, float r, float* pT )
+{
+	float qx = fabsf( px ), qz = fabsf( pz );
+	float cx = qx - hx, cz = qz - hz;
+	if ( (qx <= hx + r && qz <= hz) || (qx <= hx && qz <= hz + r) || (cx > 0 && cz > 0 && cx*cx + cz*cz <= r*r) )
+	{
+		*pT = 0;
+		return true;
+	}
+	float best = 2.0f;
+	float t0 = 0, t1 = 1;
+	if ( GGTrees_ClipSegment( px, vx, -(hx + r), hx + r, &t0, &t1 ) && GGTrees_ClipSegment( pz, vz, -hz, hz, &t0, &t1 ) && t0 < best ) best = t0;
+	t0 = 0; t1 = 1;
+	if ( GGTrees_ClipSegment( px, vx, -hx, hx, &t0, &t1 ) && GGTrees_ClipSegment( pz, vz, -(hz + r), hz + r, &t0, &t1 ) && t0 < best ) best = t0;
+	float a = vx*vx + vz*vz;
+	if ( a > 1e-9f )
+	{
+		for( int corner = 0; corner < 4; corner++ )
+		{
+			float ox = px - ((corner & 1) ? hx : -hx);
+			float oz = pz - ((corner & 2) ? hz : -hz);
+			float b = 2 * (ox*vx + oz*vz);
+			float c = ox*ox + oz*oz - r*r;
+			float disc = b*b - 4*a*c;
+			if ( disc < 0 ) continue;
+			float t = (-b - sqrtf( disc )) / (2*a);
+			if ( t >= 0 && t <= 1 && t < best ) best = t;
+		}
+	}
+	if ( best > 1.0f ) return false;
+	*pT = best;
+	return true;
+}
+
+// where a box (centre, half sizes, turned by yaw degrees about Y as an object is) moving by pMotion first meets a tree trunk,
+// anywhere on the map: the same trunks as GGTrees_RayCastTrunks, each a cylinder from base to top. pOut gets the fraction
+// of the motion, the point and the trunk's normal there (fraction, x, y, z, nx, ny, nz); returns 1 on a hit, with fraction 0
+// for a box already touching a trunk
+int GGTrees_SweepBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, const float* pMotion, float* pOut, int* pType, bool bBareTrunk )
+{
+	if ( !ggtrees_initialised || !ggtrees_global_params.draw_enabled ) return 0;
+	float hx = fabsf( pHalf[0] ), hy = fabsf( pHalf[1] ), hz = fabsf( pHalf[2] );
+	float yaw = yawDegrees * 3.14159265f / 180.0f;
+	float c = cosf( yaw ), s = sinf( yaw );
+
+	// the ground the box covers on its way
+	float reachX = fabsf( c ) * hx + fabsf( s ) * hz;
+	float reachZ = fabsf( s ) * hx + fabsf( c ) * hz;
+	float endX = pCentre[0] + pMotion[0], endZ = pCentre[2] + pMotion[2];
+	float minX = (pCentre[0] < endX ? pCentre[0] : endX) - reachX, maxX = (pCentre[0] < endX ? endX : pCentre[0]) + reachX;
+	float minZ = (pCentre[2] < endZ ? pCentre[2] : endZ) - reachZ, maxZ = (pCentre[2] < endZ ? endZ : pCentre[2]) + reachZ;
+
+	// in the box's own frame a trunk moves against the box's motion
+	float vx = -(pMotion[0] * c - pMotion[2] * s);
+	float vz = -(pMotion[0] * s + pMotion[2] * c);
+	float bestT = 2.0f;
+	const TreeTrunk* pBest = 0;
+	for( uint32_t i = 0; i < numTreeChunks; i++ )
+	{
+		TreeChunk* pChunk = &pTreeChunks[ i ];
+		if ( pChunk->trunks.empty() ) continue;
+		AABB aabb;
+		pChunk->GetBounds( &aabb );
+		if ( minX > aabb._max.x || maxX < aabb._min.x || minZ > aabb._max.z || maxZ < aabb._min.z ) continue;
+		for( size_t j = 0; j < pChunk->trunks.size(); j++ )
+		{
+			const TreeTrunk& trunk = pChunk->trunks[ j ];
+			if ( trunk.x + trunk.radius < minX || trunk.x - trunk.radius > maxX ) continue;
+			if ( trunk.z + trunk.radius < minZ || trunk.z - trunk.radius > maxZ ) continue;
+			float dx = trunk.x - pCentre[0];
+			float dz = trunk.z - pCentre[2];
+			float t;
+			if ( !GGTrees_PointMeetsRoundedRect( dx * c - dz * s, dx * s + dz * c, vx, vz, hx, hz, trunk.radius, &t ) || t >= bestT ) continue;
+
+			// and the box's height then reaches the trunk
+			float boxY = pCentre[1] + pMotion[1] * t;
+			if ( boxY - hy > (bBareTrunk ? trunk.crown : trunk.top) || boxY + hy < trunk.base ) continue;
+			bestT = t;
+			pBest = &trunk;
+		}
+	}
+	if ( !pBest ) return 0;
+
+	// the contact: on the trunk's surface, facing the nearest point of the box's footprint (against the motion when the
+	// trunk's axis is inside it)
+	float t = bestT;
+	float dx = pBest->x - (pCentre[0] + pMotion[0] * t);
+	float dz = pBest->z - (pCentre[2] + pMotion[2] * t);
+	float px = dx * c - dz * s;
+	float pz = dx * s + dz * c;
+	float qx = px < -hx ? -hx : (px > hx ? hx : px);
+	float qz = pz < -hz ? -hz : (pz > hz ? hz : pz);
+	float nlx = qx - px, nlz = qz - pz;
+	float length = sqrtf( nlx*nlx + nlz*nlz );
+	if ( length < 0.0001f ) { nlx = vx; nlz = vz; length = sqrtf( nlx*nlx + nlz*nlz ); }
+	if ( length < 0.0001f ) { nlx = 1; nlz = 0; length = 1; }
+	nlx /= length; nlz /= length;
+	float nx = nlx * c + nlz * s;
+	float nz = -nlx * s + nlz * c;
+	float hitY = pCentre[1] + pMotion[1] * t;
+	float hitTop = bBareTrunk ? pBest->crown : pBest->top;
+	if ( hitY < pBest->base ) hitY = pBest->base;
+	if ( hitY > hitTop ) hitY = hitTop;
+	pOut[ 0 ] = t;
+	pOut[ 1 ] = pBest->x + nx * pBest->radius;
+	pOut[ 2 ] = hitY;
+	pOut[ 3 ] = pBest->z + nz * pBest->radius;
+	pOut[ 4 ] = nx; pOut[ 5 ] = 0; pOut[ 6 ] = nz;
+	if ( pType ) *pType = pBest->type;
+	return 1;
+}
+
+// how many tree trunks a box (as GGTrees_SweepBoxTrunks's) touches now
+int GGTrees_OverlapBoxTrunks( const float* pCentre, const float* pHalf, float yawDegrees, bool bBareTrunk )
+{
+	if ( !ggtrees_initialised || !ggtrees_global_params.draw_enabled ) return 0;
+	float hx = fabsf( pHalf[0] ), hy = fabsf( pHalf[1] ), hz = fabsf( pHalf[2] );
+	float yaw = yawDegrees * 3.14159265f / 180.0f;
+	float c = cosf( yaw ), s = sinf( yaw );
+	float reachX = fabsf( c ) * hx + fabsf( s ) * hz;
+	float reachZ = fabsf( s ) * hx + fabsf( c ) * hz;
+	int count = 0;
+	for( uint32_t i = 0; i < numTreeChunks; i++ )
+	{
+		TreeChunk* pChunk = &pTreeChunks[ i ];
+		if ( pChunk->trunks.empty() ) continue;
+		AABB aabb;
+		pChunk->GetBounds( &aabb );
+		if ( pCentre[0] - reachX > aabb._max.x || pCentre[0] + reachX < aabb._min.x ) continue;
+		if ( pCentre[2] - reachZ > aabb._max.z || pCentre[2] + reachZ < aabb._min.z ) continue;
+		for( size_t j = 0; j < pChunk->trunks.size(); j++ )
+		{
+			const TreeTrunk& trunk = pChunk->trunks[ j ];
+			if ( pCentre[1] - hy > (bBareTrunk ? trunk.crown : trunk.top) || pCentre[1] + hy < trunk.base ) continue;
+			float dx = trunk.x - pCentre[0];
+			float dz = trunk.z - pCentre[2];
+			float t;
+			if ( GGTrees_PointMeetsRoundedRect( dx * c - dz * s, dx * s + dz * c, 0, 0, hx, hz, trunk.radius, &t ) ) count++;
+		}
+	}
+	return count;
 }
 
 uint32_t GGTrees_GetDataSize()
@@ -3072,6 +3396,21 @@ const char* GGTrees_GetTextureName( uint32_t index )
 	if ( index >= numTreeTypes ) return "";
 
 	return g_GGTrees[ index ].billboardFilename;
+}
+
+void GGTrees_GetTypeName( uint32_t index, char* pOut, int size )
+{
+	if ( size <= 0 ) return;
+	pOut[ 0 ] = 0;
+	if ( index >= numTreeTypes ) return;
+
+	// "jungletree3a_BB_SF_0.4_color.dds" -> "jungletree3a"
+	const char* pName = g_GGTrees[ index ].billboardFilename;
+	const char* pEnd = strstr( pName, "_BB_" );
+	int length = pEnd ? (int)(pEnd - pName) : (int)strlen( pName );
+	if ( length > size - 1 ) length = size - 1;
+	memcpy( pOut, pName, length );
+	pOut[ length ] = 0;
 }
 
 float GGTrees_GetImageScale( uint32_t index )

@@ -73,6 +73,24 @@ void DBProRagdollManager::Update()
 	}
 }
 
+// GG: the time a physics update covers, for each ragdoll's hold to spread its anchor's move over its steps
+void DBProRagdollManager::HoldFrame(float frameTime)
+{
+	for(int i = 0; i < m_data.size(); i++)
+	{
+		((DBProRagDoll*)m_data[i])->HoldFrame(frameTime);
+	}
+}
+
+// GG: before each simulation step: held anchors move on, released joints stiffen back
+void DBProRagdollManager::HoldStep(float timeStep)
+{
+	for(int i = 0; i < m_data.size(); i++)
+	{
+		((DBProRagDoll*)m_data[i])->HoldStep(timeStep);
+	}
+}
+
 void DBProRagdollManager::AssertRagdollExist(int ragdollID, LPCSTR message, bool bExist /*= true*/) 
 {
 	if(bExist && ragdollManager->GetRagdoll(ragdollID)==NULL)

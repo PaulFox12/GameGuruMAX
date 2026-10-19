@@ -7,6 +7,9 @@ void ODESetLinearVelocity ( int iObject, float fX, float fY, float fZ )
 	if ( pPhyObject==NULL ) return;
 	if ( pPhyObject->body==NULL ) return;
 
+	// a frozen body (FreezeEntity) keeps still: its zeroed factors scale forces, not a velocity set directly
+	if ( pPhyObject->iResponseMode > 0 ) return;
+
 	// apply linear velocity
 	physicslock.lock();
 	pPhyObject->body->activate();
@@ -20,6 +23,7 @@ void ODESetLinearVelocityXZWithGravity ( int iObject, float fX, float fZ, float 
 	sObjectList* pPhyObject = ODEFindID ( iObject );
 	if ( pPhyObject==NULL ) return;
 	if ( pPhyObject->body==NULL ) return;
+	if ( pPhyObject->iResponseMode > 0 ) return; // frozen (ODESetLinearVelocity)
 
 	// apply linear velocity for XZ (kinetic but force for gravity)
 	pPhyObject->body->activate();
@@ -48,6 +52,15 @@ void ODESetLinearVelocityUsingWorldPosTarget (int iObject, float fWorldX, float 
 
 void ODEAddBodyForce ( int iObject, float fX, float fY, float fZ, float fPX, float fPY, float fPZ )
 {
+	// GG: SetPhysicsPushLog's object: its body before and after the push, and over the steps after
+	bool bLogPush = ( iObject > 0 && iObject == g_iPushLogObject );
+	if ( bLogPush )
+	{
+		char pWhen[128];
+		snprintf ( pWhen, sizeof(pWhen), "push %.0f %.0f %.0f at %.0f %.0f %.0f, before", fX, fY, fZ, fPX, fPY, fPZ );
+		PhysicsPushLogBody ( pWhen );
+	}
+
 	// get reference object
 	sObjectList* pPhyObject = ODEFindID ( iObject );
 	if ( pPhyObject==NULL ) return;
@@ -55,7 +68,12 @@ void ODEAddBodyForce ( int iObject, float fX, float fY, float fZ, float fPX, flo
 
 	// apply force
 	pPhyObject->body->activate();
-	pPhyObject->body->applyForce(btVector3(fX/gSc,fY/gSc,fZ/gSc), btVector3(fPX/gSc,fPY/gSc,fPZ/gSc));
+	PhysicsApplyPush(pPhyObject->body, btVector3(fX/gSc,fY/gSc,fZ/gSc), btVector3(fPX/gSc,fPY/gSc,fPZ/gSc));
+	if ( bLogPush )
+	{
+		PhysicsPushLogBody ( "after" );
+		g_iPushLogStepsLeft = g_iPushLogSteps;
+	}
 }
 
 void ODESetAngularVelocity (int iObject, float fX, float fY, float fZ)
@@ -64,6 +82,10 @@ void ODESetAngularVelocity (int iObject, float fX, float fY, float fZ)
 	sObjectList* pPhyObject = ODEFindID (iObject);
 	if (pPhyObject == NULL) return;
 	if (pPhyObject->body == NULL) return;
+
+	// a frozen body keeps still (ODESetLinearVelocity): an explosion's random spin turned it about its centre, through
+	// the ground, as its zeroed angular factor let no contact stop it
+	if (pPhyObject->iResponseMode > 0) return;
 
 	// apply linear velocity
 	pPhyObject->body->activate();
@@ -208,15 +230,32 @@ void ODESetBodyScaling(int iObjectNumber, float fX, float fY, float fZ)
 	//g_dynamicsWorld->updateSingleAabb((btCollisionObject*)pPhyObject->body); resizing live is UNSTABLE
 }
 
+// 1 when the last ODERayTerrain hit a tree rather than the ground
+int g_iODERayTerrainHitTree = 0;
+
 int ODERayTerrain ( float fX, float fY, float fZ, float fToX, float fToY, float fToZ, bool bUpdateDebugObj)
 {
-	// inject tree detection, so can exit early if ray tried to go 'THROUGH' a tree
+	// the ground first, then the tree trunks up to where the ray met it, so a trunk it reports is always the nearer and one
+	// behind a hill is never reported (the trunks are the whole map's, physics_rayintersecttree)
 	extern int physics_rayintersecttree (float fX, float fY, float fZ, float fToX, float fToY, float fToZ);
-	if (physics_rayintersecttree (fX, fY, fZ, fToX, fToY, fToZ) == 1)
+	g_iODERayTerrainHitTree = 0;
+	int iGround = ODERayTerrainEx ( fX, fY, fZ, fToX, fToY, fToZ, COL_TERRAIN, bUpdateDebugObj);
+	float fEndX = fToX, fEndY = fToY, fEndZ = fToZ;
+	if (iGround == 1)
 	{
+		fEndX = g_hitPointWorld.x(); fEndY = g_hitPointWorld.y(); fEndZ = g_hitPointWorld.z();
+	}
+	if (physics_rayintersecttree (fX, fY, fZ, fEndX, fEndY, fEndZ) == 1)
+	{
+		// report where the ray entered the tree, or ODEGetRayCollision* would return the last ray's point
+		extern float g_fTreeRayHitX, g_fTreeRayHitY, g_fTreeRayHitZ, g_fTreeRayHitNX, g_fTreeRayHitNY, g_fTreeRayHitNZ;
+		g_hitObjectNumber = 0;
+		g_hitPointWorld = btVector3(g_fTreeRayHitX, g_fTreeRayHitY, g_fTreeRayHitZ);
+		g_hitNormalWorld = btVector3(g_fTreeRayHitNX, g_fTreeRayHitNY, g_fTreeRayHitNZ);
+		g_iODERayTerrainHitTree = 1;
 		return 1;
 	}
-	return ODERayTerrainEx ( fX, fY, fZ, fToX, fToY, fToZ, COL_TERRAIN, bUpdateDebugObj);
+	return iGround;
 }
 
 int ODERayForce ( float fX, float fY, float fZ, float fToX, float fToY, float fToZ, float fForceValue )
@@ -246,7 +285,7 @@ int ODERayForce ( float fX, float fY, float fZ, float fToX, float fToY, float fT
 				btVector3 force = (End-Start);
 				force = force / force.length() / gSc;
 				force = force * (fForceValue/gSc);
-				pBody->applyForce(force, relPos);
+				PhysicsApplyPush(pBody, force, relPos);
 
 				// find which object we hit
 				sObject* pFound = NULL;
@@ -424,11 +463,43 @@ void ODESetBodyPosition ( int iObjectNumber, float fX, float fY, float fZ )
 	}
 }
 
+// the body was made turned by the object's pivot, as physics_setupobject makes a moving body for an entity with a fixnewy,
+// so the object is drawn by the body's transform alone (applying the pivot as well would turn the model twice)
+void ODESetBodyIncludesPivot ( int iObjectNumber, int iIncludes )
+{
+	sObjectList* pPhyObject = ODEFindID ( iObjectNumber );
+	if ( pPhyObject ) pPhyObject->bPivotInBody = ( iIncludes != 0 );
+}
+
 void ODESetBodyResponse ( int iObjectNumber, int iResponseMode )
 {
 	sObjectList* pPhyObject = ODEFindID ( iObjectNumber );
 	if ( pPhyObject )
 	{
+		// a freeze (any mode above 0) also stops the body and zeroes its linear and angular factors, so gravity, hits
+		// and turning cannot move it between steps (zeroing the velocity after each step still let it creep, and mode 2
+		// was never read); unfreezing puts back the factors it had, so a body with locked rotation keeps it
+		if ( pPhyObject->body )
+		{
+			bool bWasFrozen = pPhyObject->iResponseMode > 0;
+			bool bFreeze = iResponseMode > 0;
+			if ( bFreeze && !bWasFrozen )
+			{
+				pPhyObject->vecUnfrozenLinearFactor = pPhyObject->body->getLinearFactor();
+				pPhyObject->vecUnfrozenAngularFactor = pPhyObject->body->getAngularFactor();
+				pPhyObject->body->setLinearFactor ( btVector3 ( 0, 0, 0 ) );
+				pPhyObject->body->setAngularFactor ( btVector3 ( 0, 0, 0 ) );
+				pPhyObject->body->setLinearVelocity ( btVector3 ( 0, 0, 0 ) );
+				pPhyObject->body->setAngularVelocity ( btVector3 ( 0, 0, 0 ) );
+			}
+			if ( !bFreeze && bWasFrozen )
+			{
+				pPhyObject->body->setLinearFactor ( pPhyObject->vecUnfrozenLinearFactor );
+				pPhyObject->body->setAngularFactor ( pPhyObject->vecUnfrozenAngularFactor );
+				pPhyObject->body->activate();
+			}
+		}
+
 		// simply calls setlinearvelocity in physics update each cycle
 		pPhyObject->iResponseMode = iResponseMode;
 	}
@@ -442,19 +513,34 @@ void ODESetBodyAngle ( int iObjectNumber, float fXRot, float fYRot, float fZRot 
 	// change position of physics object
 	if ( pPhyObject->body )
 	{
+		btTransform oldTrans = pPhyObject->body->getWorldTransform();
 		btTransform worldTrans;
 		worldTrans.setIdentity();
-		btVector3 vecPos = pPhyObject->body->getWorldTransform().getOrigin();
-		worldTrans.setOrigin(vecPos);
 		GGQUATERNION QuatAroundX(1,0,0,fXRot);
 		GGQUATERNION QuatAroundY(0,1,0,fYRot);
 		GGQUATERNION QuatAroundZ(0,0,1,fZRot);
-		GGQuaternionRotationAxis(&QuatAroundX,&GGVECTOR3(1,0,0),fXRot);
-		GGQuaternionRotationAxis(&QuatAroundY,&GGVECTOR3(0,1,0),fYRot);
-		GGQuaternionRotationAxis(&QuatAroundZ,&GGVECTOR3(0,0,1),fZRot);
+		// angles arrive in degrees (callers pass ObjectAngleX/Y/Z), the quaternion wants radians as in fillTransform
+		GGQuaternionRotationAxis(&QuatAroundX,&GGVECTOR3(1,0,0),GGToRadian(fXRot));
+		GGQuaternionRotationAxis(&QuatAroundY,&GGVECTOR3(0,1,0),GGToRadian(fYRot));
+		GGQuaternionRotationAxis(&QuatAroundZ,&GGVECTOR3(0,0,1),GGToRadian(fZRot));
 		GGQUATERNION finalOrientation = QuatAroundX * QuatAroundY * QuatAroundZ;
 		worldTrans.setRotation(btQuaternion(finalOrientation.x,finalOrientation.y,finalOrientation.z,finalOrientation.w));
+
+		// turn about the object's pivot, as the object itself turns, keeping the body's offset from the pivot
+		// (the collision centre for boxes, none for meshes) as it was when the body was created
+		btVector3 vecPos = oldTrans.getOrigin();
+		sObject* pObject = GetObjectData(iObjectNumber);
+		if ( pObject )
+		{
+			btVector3 vecPivot(pObject->position.vecPosition.x/gSc, pObject->position.vecPosition.y/gSc, pObject->position.vecPosition.z/gSc);
+			btVector3 vecLocalOffset = oldTrans.getBasis().transpose() * (vecPos - vecPivot);
+			vecPos = vecPivot + (worldTrans.getBasis() * vecLocalOffset);
+		}
+		worldTrans.setOrigin(vecPos);
 		pPhyObject->body->setWorldTransform(worldTrans);
+
+		// the world does not update the bounds of static bodies each step (setForceUpdateAllAabbs false)
+		if ( pPhyObject->body->isStaticObject() && g_dynamicsWorld ) g_dynamicsWorld->updateSingleAabb(pPhyObject->body);
 	}
 	else
 	{
@@ -515,6 +601,60 @@ void ODESetBodyDamping ( int iObject, float fDamp, float fAngleDamp )
 	}
 }
 
+// GG: a projectile body that ends on its first contact: no bounce, swept so a fast one can't step through a thin part
+// between steps, and its first contact with another body kept for ODEGetProjectileContact (iIgnoreObject: the thrower's)
+void ODEWatchProjectileContact ( int iObjectNumber, int iIgnoreObject )
+{
+	physicslock.lock();
+	sObjectList* pPhyObject = ODEFindID ( iObjectNumber );
+	if ( pPhyObject && pPhyObject->body )
+	{
+		btRigidBody* body = pPhyObject->body;
+		body->setRestitution ( 0.0f );
+		btVector3 vecMin, vecMax;
+		body->getCollisionShape()->getAabb ( btTransform::getIdentity(), vecMin, vecMax );
+		const btVector3 vecSize = vecMax - vecMin;
+		const btScalar fSmallest = btMin ( vecSize.x(), btMin ( vecSize.y(), vecSize.z() ) );
+		body->setCcdMotionThreshold ( fSmallest * 0.5f );
+		body->setCcdSweptSphereRadius ( fSmallest * 0.4f );
+		sProjectileContact contact;
+		contact.iObject = iObjectNumber;
+		contact.iIgnoreObject = iIgnoreObject;
+		contact.body = body;
+		contact.iTouched = -1;
+		contact.vecPoint = btVector3 ( 0, 0, 0 );
+		contact.vecNormal = btVector3 ( 0, 0, 0 );
+		bool bFound = false;
+		for ( sProjectileContact& existing : g_ProjectileContacts )
+		{
+			if ( existing.iObject == iObjectNumber ) { existing = contact; bFound = true; }
+		}
+		if ( !bFound ) g_ProjectileContacts.push_back ( contact );
+	}
+	physicslock.unlock();
+}
+
+// the object number a watched projectile first touched (0 the terrain or a body with no object), where, and the touched
+// surface's normal facing the projectile, or -1
+int ODEGetProjectileContact ( int iObjectNumber, float* pX, float* pY, float* pZ, float* pNX, float* pNY, float* pNZ )
+{
+	int iTouched = -1;
+	physicslock.lock();
+	for ( const sProjectileContact& contact : g_ProjectileContacts )
+	{
+		if ( contact.iObject != iObjectNumber || contact.iTouched < 0 ) continue;
+		iTouched = contact.iTouched;
+		*pX = contact.vecPoint.x();
+		*pY = contact.vecPoint.y();
+		*pZ = contact.vecPoint.z();
+		if ( pNX ) *pNX = contact.vecNormal.x();
+		if ( pNY ) *pNY = contact.vecNormal.y();
+		if ( pNZ ) *pNZ = contact.vecNormal.z();
+	}
+	physicslock.unlock();
+	return iTouched;
+}
+
 DWORD ODEGetBodyLinearVelocityX ( int iObjectNumber )
 {
 	sObjectList* pPhyObject = ODEFindID ( iObjectNumber );
@@ -557,6 +697,47 @@ bool ODEGetBodyIsDynamic(int iObjectNumber)
 		}
 	}
 	return false;
+}
+
+// where an object's physics body is, as the pose it would give the object (the world position and angles in degrees,
+// as Update sets them for a moving body; a static body never moves its object, so this shows the collider against the
+// drawn object), and how many bodies the physics list holds for the object; the pose is the first body's, the one
+// ODEDestroyObject removes. A character capsule gives its centre and no angles
+int ODEGetBodyPose ( int iObjectNumber, float* pPosition, float* pAngles )
+{
+	int iBodies = 0;
+	physicslock.lock();
+	sObject* pObject = GetObjectData ( iObjectNumber );
+	for ( int j = 0; j < (int)g_PhyObjectList.size(); j++ )
+	{
+		if ( g_PhyObjectList[j].iID != iObjectNumber || g_PhyObjectList[j].body == NULL ) continue;
+		if ( iBodies == 0 && pObject )
+		{
+			const btTransform& trans = g_PhyObjectList[j].body->getWorldTransform();
+			if ( g_PhyObjectList[j].bCapsuleControl )
+			{
+				pPosition[0] = trans.getOrigin().getX() * gSc;
+				pPosition[1] = trans.getOrigin().getY() * gSc;
+				pPosition[2] = trans.getOrigin().getZ() * gSc;
+				pAngles[0] = pAngles[1] = pAngles[2] = 0.0f;
+			}
+			else
+			{
+				GGMATRIX matWorld;
+				GGVECTOR3 vecRotate;
+				ODEObjectPoseFromBody ( &g_PhyObjectList[j], pObject, trans, &matWorld, &vecRotate );
+				pPosition[0] = matWorld._41;
+				pPosition[1] = matWorld._42;
+				pPosition[2] = matWorld._43;
+				pAngles[0] = vecRotate.x;
+				pAngles[1] = vecRotate.y;
+				pAngles[2] = vecRotate.z;
+			}
+		}
+		iBodies++;
+	}
+	physicslock.unlock();
+	return iBodies;
 }
 
 int	ODEGetBodyNumCollisions( int iObjectNumber )

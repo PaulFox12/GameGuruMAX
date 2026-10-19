@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <math.h>
 #include <mutex>
+#include <unordered_map>
+#include <string>
 
 // Bullet specific includes
 #include "btBulletDynamicsCommon.h"
@@ -136,8 +138,29 @@ btCollisionDispatcher* g_dispatcher;
 btSequentialImpulseConstraintSolver* g_solver;
 btPairCachingGhostObject* m_ghostObject = NULL;
 btKinematicCharacterController* m_character = NULL;
-btAxisSweep3* sweepBP = NULL;
-btAxisSweep3* m_overlappingPairCache = NULL;
+// GG: SetPhysicsWorldRate(60): the world steps 60 times a second, half the work, while the player's controller, which
+// moves a set distance each step, keeps stepping 120 times a second on its own; at 120 all of it steps together as before
+bool g_bPhysicsWorldAt60 = false;
+static btKinematicCharacterController* g_pCharacterOwnSteps = NULL;
+static btScalar g_fCharacterLocalTime = 0;
+static float g_fPhysicsFrameTime = 1.0f / 60.0f;
+
+// GG: a one-off push (PushObject, a shot's ray force, a ragdoll hit): at a world rate of 60 an impulse, the force times
+// the frame's time, as a frame that takes no world step clears its forces before any step applies them (stepSimulation's
+// clearForces) and the push was lost; on average that is the push a force gave at 120, where a frame's steps add up to
+// its time. At 120 a force as before
+void PhysicsApplyPush(btRigidBody* pBody, const btVector3& force, const btVector3& relPos)
+{
+	if (!g_bPhysicsWorldAt60)
+	{
+		pBody->applyForce(force, relPos);
+		return;
+	}
+	// a sleeping body takes no force, so it takes no impulse either
+	if (pBody->isActive()) pBody->applyImpulse(force * g_fPhysicsFrameTime, relPos);
+}
+btBroadphaseInterface* sweepBP = NULL;
+btBroadphaseInterface* m_overlappingPairCache = NULL;
 #ifdef WICKEDENGINE
 BulletDebugDrawer g_debugDrawer;
 #endif
@@ -166,8 +189,22 @@ struct sObjectList
 	float fRaised;
 	btScalar fMass;
 	int iResponseMode;
+	btVector3 vecUnfrozenLinearFactor; // the factors a freeze (ODESetBodyResponse) replaced, put back on unfreeze
+	btVector3 vecUnfrozenAngularFactor;
+	bool bCentredOnCollisionBox; // the body sits at the object's collision box centre (box, sphere, cylinder, capsule), not its origin (CreateMesh)
+	bool bPivotInBody; // the body was made turned by the object's pivot (an entity's fixnewy), so the drawn transform leaves the pivot out
 };
 std::vector < sObjectList > g_PhyObjectList;
+
+// the object number of a body, for one made before its user index was set (GGPhysicsQuery's fallback); -1 if none
+int ODEFindObjectNumberOfBody(const btCollisionObject* pObject)
+{
+	for (int j = (int)g_PhyObjectList.size() - 1; j >= 0; j--)
+	{
+		if (g_PhyObjectList[j].body == pObject) return g_PhyObjectList[j].iID;
+	}
+	return -1;
+}
 
 // Internal functions
 
@@ -177,11 +214,14 @@ void BULLETReceiveCoreDataPtr ( void )
 
 void ODEAddObject ( int iID, sObject* pObject, btRigidBody* body, int iIsDynamic, btDefaultMotionState* myMotionState, 
 	                bool bCapsuleMode = false, bool bBouyant = false, LPVOID pMem1 = NULL, LPVOID pMem2 = NULL,
-	                float fScaled = 1.0f, float fRaised = 1.0f, float fFriction = 90.0f, btScalar fMass = -1.0f )
+	                float fScaled = 1.0f, float fRaised = 1.0f, float fFriction = 90.0f, btScalar fMass = -1.0f,
+	                bool bCentredOnCollisionBox = true )
 {
 	// add object to list
 	sObjectList object;
 	object.iID = iID;
+	object.bCentredOnCollisionBox = bCentredOnCollisionBox;
+	object.bPivotInBody = false;
 
 	object.body = body;
 	if ( iIsDynamic==1 )
@@ -294,6 +334,59 @@ sObjectList* ODEFindID ( int iID )
 			return &g_PhyObjectList [ i ];
 	}
 	return NULL;
+}
+
+// GG: kilos for an entity's body (SetEntityMass), kept by entity so a body built again (CollisionOn, a wreck swap) takes
+// them again. Bullet's units are already kilos, metres and seconds: a Bullet unit is gSc (40) GG units, about a metre,
+// gravity is 10, and a ragdoll's 175 at Weight 100 is a heavy man. A body built from its shape keeps the old formula, its
+// box in Bullet units cubed over gMs (50), times its Weight over 100 for a box, sphere, cylinder or capsule
+static std::unordered_map<int, float> g_EntityMassKg;
+
+// GG: a diagnostic, one object's pushes and its body over the steps after each (SetPhysicsPushLog, GetPhysicsPushLog)
+extern std::recursive_mutex physicslock;
+extern int g_iPhysicsSubSteps;
+static int g_iPushLogObject = 0;
+static int g_iPushLogSteps = 8;
+static int g_iPushLogStepsLeft = 0;
+static std::vector<std::string> g_PushLog;
+
+static void PhysicsPushLogBody(const char* pWhen)
+{
+	physicslock.lock();
+	if (g_PushLog.size() < 256)
+	{
+		int iEntries = 0;
+		for (int i = 0; i < (int)g_PhyObjectList.size(); i++) if (g_PhyObjectList[i].iID == g_iPushLogObject) iEntries++;
+		sObjectList* pPhyObject = ODEFindID(g_iPushLogObject);
+		char pLine[640];
+		if (pPhyObject == NULL || pPhyObject->body == NULL)
+		{
+			snprintf(pLine, sizeof(pLine), "%s obj %d: no body (%d entries)", pWhen, g_iPushLogObject, iEntries);
+		}
+		else
+		{
+			btRigidBody* pBody = pPhyObject->body;
+			const btVector3& v = pBody->getLinearVelocity();
+			const btVector3& p = pBody->getWorldTransform().getOrigin();
+			const btVector3& lf = pBody->getLinearFactor();
+			snprintf(pLine, sizeof(pLine), "%s obj %d: body %p entries %d state %d active %d invmass %.5f vel %.1f %.1f %.1f spin %.2f pos %.1f %.1f %.1f linfactor %.2f %.2f %.2f damping %.3f %.3f still %.2f island %d flags %d response %d frame %.4f substeps %d",
+				pWhen, g_iPushLogObject, (void*)pBody, iEntries, pBody->getActivationState(), pBody->isActive() ? 1 : 0,
+				pBody->getInvMass(), v.getX() * gSc, v.getY() * gSc, v.getZ() * gSc, pBody->getAngularVelocity().length(),
+				p.getX() * gSc, p.getY() * gSc, p.getZ() * gSc, lf.getX(), lf.getY(), lf.getZ(), pBody->getLinearDamping(),
+				pBody->getAngularDamping(), pBody->getDeactivationTime(), pBody->getIslandTag(), pBody->getCollisionFlags(),
+				pPhyObject->iResponseMode, g_fPhysicsFrameTime, g_iPhysicsSubSteps);
+		}
+		g_PushLog.push_back(pLine);
+	}
+	physicslock.unlock();
+}
+
+// each simulation step (PostTickCallback) after a logged push
+static void PhysicsPushLogStep(void)
+{
+	if (g_iPushLogObject <= 0 || g_iPushLogStepsLeft <= 0) return;
+	g_iPushLogStepsLeft--;
+	PhysicsPushLogBody("step");
 }
 
 int ODEFind (int iID)
@@ -600,9 +693,68 @@ void UpdateCollisionsForLua()
 }
 
 
+// GG: projectiles that end on contact (ODEWatchProjectileContact): the first contact of each one's body, found after the
+// simulation step it happened in, before the projectile is drawn rebounding from it
+struct sProjectileContact
+{
+	int iObject;
+	int iIgnoreObject;
+	btRigidBody* body;
+	int iTouched; // -1 none yet, else the object number of the body touched (0 the terrain or a body with no object)
+	btVector3 vecPoint; // world units
+	btVector3 vecNormal; // the touched surface's, facing the projectile
+};
+static std::vector<sProjectileContact> g_ProjectileContacts;
+
+static void UpdateProjectileContacts()
+{
+	if ( g_ProjectileContacts.empty() ) return;
+	btDispatcher* pDispatcher = g_dynamicsWorld->getDispatcher();
+	for ( int m = 0; m < pDispatcher->getNumManifolds(); m++ )
+	{
+		btPersistentManifold* pManifold = pDispatcher->getManifoldByIndexInternal(m);
+		if ( pManifold->getNumContacts() == 0 ) continue;
+		for ( sProjectileContact& contact : g_ProjectileContacts )
+		{
+			if ( contact.iTouched >= 0 ) continue;
+			bool bIsBody0 = pManifold->getBody0() == contact.body;
+			if ( !bIsBody0 && pManifold->getBody1() != contact.body ) continue;
+			const btCollisionObject* pOther = bIsBody0 ? pManifold->getBody1() : pManifold->getBody0();
+
+			// a ghost (the player's capsule) or a body that gives no contact response isn't a hit, nor is the thrower
+			if ( !btRigidBody::upcast(pOther) || !pOther->hasContactResponse() ) continue;
+			int iOther = pOther->getUserIndex();
+			if ( iOther < 0 ) iOther = ODEFindObjectNumberOfBody ( pOther );
+			const btBroadphaseProxy* pProxy = pOther->getBroadphaseHandle();
+			if ( iOther < 0 || ( pProxy && ( pProxy->m_collisionFilterGroup & COL_TERRAIN ) ) ) iOther = 0;
+			if ( iOther > 0 && iOther == contact.iIgnoreObject ) continue;
+
+			// the touching point on the other body (a predicted point ahead of the body doesn't count)
+			for ( int p = 0; p < pManifold->getNumContacts(); p++ )
+			{
+				const btManifoldPoint& point = pManifold->getContactPoint(p);
+				if ( point.getDistance() > 0.01f ) continue;
+				contact.iTouched = iOther;
+				contact.vecPoint = ( bIsBody0 ? point.getPositionWorldOnB() : point.getPositionWorldOnA() ) * gSc;
+				// the normal on body 1 points to body 0, so it faces the projectile when the projectile is body 0
+				contact.vecNormal = bIsBody0 ? point.m_normalWorldOnB : -point.m_normalWorldOnB;
+				break;
+			}
+		}
+	}
+}
+
+// GG: before each simulation step: held ragdoll anchors move a step toward their targets, released joints stiffen back
+static void PreTickCallback(btDynamicsWorld *world, btScalar timeStep)
+{
+	if ( ragdollManager ) ragdollManager->HoldStep ( timeStep );
+}
+
 void PostTickCallback(btDynamicsWorld *world, btScalar timeStep)
 {
 	UpdateCollisionsForLua();
+	UpdateProjectileContacts();
+	PhysicsPushLogStep();
 
 	for (int j=((int)g_PhyObjectList.size())-1; j>=0 ;j--)
 	{
@@ -636,15 +788,20 @@ void ODEStart ( void )
 
 	// clear physics system data
 	g_PhyObjectList.clear();
+	g_ProjectileContacts.clear();
 
 	///collision configuration contains default setup for memory, collision setup. Advanced users can create their own configuration.
 	g_collisionConfiguration = new btDefaultCollisionConfiguration();
 
 	///use the default collision dispatcher. For parallel processing you can use a diffent dispatcher (see Extras/BulletMultiThreaded)
 	g_dispatcher = new	btCollisionDispatcher(g_collisionConfiguration);
-	btVector3 worldMin(-500,-2500,-500);
-	btVector3 worldMax(1800,4000,1800);
-	sweepBP = new btAxisSweep3(worldMin,worldMax);
+	// GG: each pair's tests timed while GetPhysicsSlowPairs asks (GGPhysicsQuery_Bullet.cpp), else as the default
+	extern void PhysicsQuery_TimedNearCallback(btBroadphasePair& collisionPair, btCollisionDispatcher& dispatcher, const btDispatcherInfo& dispatchInfo);
+	g_dispatcher->setNearCallback(PhysicsQuery_TimedNearCallback);
+	// GG: a broadphase with no world bounds. The axis sweep's box (x and z -500 to 1800, -20,000 to 72,000 in world units)
+	// clamped every body outside it to its edge, so far apart bodies there overlapped on one axis, made pairs and shared
+	// one simulation island that never slept; a MAX map is centred on 0 and can be far larger
+	sweepBP = new btDbvtBroadphase();
 	m_overlappingPairCache = sweepBP;
 
 	///the default constraint solver. For parallel processing you can use a different solver (see Extras/BulletMultiThreaded)
@@ -663,6 +820,8 @@ void ODEStart ( void )
 
 	// callback to do some processing after each simulation steo
 	g_dynamicsWorld->setInternalTickCallback(&PostTickCallback);
+	// GG: and before each, a held ragdoll's anchor moved on (DBProRagDoll::HoldStep)
+	g_dynamicsWorld->setInternalTickCallback(&PreTickCallback, 0, true);
 	g_dynamicsWorld->getDispatchInfo().m_allowedCcdPenetration=0.0001f;
 
 	// set gravity
@@ -729,6 +888,10 @@ void DestroyThisObject ( sObjectList* pPhyObject )
 
 void ODEEnd ( void )
 {
+	// GG: entity kilos and the push log go with the world
+	g_EntityMassKg.clear();
+	g_iPushLogObject = 0;
+
 	// ragdoll system termination
 	SAFE_DELETE ( jointManager );
 	SAFE_DELETE ( ragdollManager );
@@ -736,6 +899,10 @@ void ODEEnd ( void )
 	///-----cleanup_start-----
 	if ( g_dynamicsWorld )
 	{
+		// GG: the static bodies made from triangles (ODECreateStaticTriangleMeshData), with their shapes and meshes
+		extern void ODEDeleteAllStaticTriangleMeshData ( void );
+		ODEDeleteAllStaticTriangleMeshData();
+
 		// remove character controller if any
 		if (m_character)
 		{
@@ -743,6 +910,7 @@ void ODEEnd ( void )
 			m_ghostObject = NULL;
 			delete m_character;
 			m_character = NULL;
+			g_pCharacterOwnSteps = NULL;
 		}
 
 		// reset links to regular DBP objects in case any missed
@@ -771,6 +939,7 @@ void ODEEnd ( void )
 
 		// clear physics system data (no mallocs in structure, just references)
 		g_PhyObjectList.clear();
+		g_ProjectileContacts.clear();
 
 		// delete physics system resources
 		delete g_dynamicsWorld;
@@ -917,6 +1086,110 @@ float BULLETCosineInterpolate ( float y1, float y2, float mu )
 //#ifdef PUTPHYSICSBACKINMAINTHREADSEQUENCE
 //std::mutex physicslock = {};
 std::recursive_mutex physicslock = {};
+int g_iPhysicsSubSteps = 0; // the simulation steps the last update took (GGPhysicsQuery's stats)
+
+// GG: SetEntityMass: 1 set on its body now, 0 kept for when it has a body, -1 its body is static (kept for a moving one);
+// 0 kilos or less clears it and gives the body its built mass again. It neither wakes the body nor changes its damping,
+// sleep thresholds or friction
+static int ODEApplyMassKg(sObjectList* pPhyObject, float fKg)
+{
+	if (pPhyObject == NULL || pPhyObject->body == NULL) return 0;
+	btRigidBody* pBody = pPhyObject->body;
+	if (pBody->getInvMass() == 0) return -1;
+	btVector3 localInertia(0, 0, 0);
+	pBody->getCollisionShape()->calculateLocalInertia(fKg, localInertia);
+	pBody->setMassProps(fKg, localInertia);
+	pBody->updateInertiaTensor();
+	return 1;
+}
+
+int ODESetEntityMassKg(int iEntity, int iObject, float fKg)
+{
+	physicslock.lock();
+	sObjectList* pPhyObject = iObject > 0 ? ODEFindID(iObject) : NULL;
+	int iResult = 0;
+	if (fKg > 0)
+	{
+		g_EntityMassKg[iEntity] = fKg;
+		iResult = ODEApplyMassKg(pPhyObject, fKg);
+	}
+	else
+	{
+		g_EntityMassKg.erase(iEntity);
+		if (pPhyObject && pPhyObject->fMass > 0) iResult = ODEApplyMassKg(pPhyObject, pPhyObject->fMass);
+	}
+	physicslock.unlock();
+	return iResult;
+}
+
+// a body built for an entity takes its kilos again (physics_prepareentityforphysics): false if it has none
+bool ODEApplyEntityMassKg(int iEntity, int iObject)
+{
+	physicslock.lock();
+	auto it = g_EntityMassKg.find(iEntity);
+	bool bSet = (it != g_EntityMassKg.end());
+	if (bSet) ODEApplyMassKg(ODEFindID(iObject), it->second);
+	physicslock.unlock();
+	return bSet;
+}
+
+// kilos for an object's body, kept nowhere (an entity's .fpe physicsmass, applied at each build): as ODESetEntityMassKg
+int ODESetObjectMassKg(int iObject, float fKg)
+{
+	physicslock.lock();
+	int iResult = ODEApplyMassKg(ODEFindID(iObject), fKg);
+	physicslock.unlock();
+	return iResult;
+}
+
+// the kilos SetEntityMass gave an entity: false if none
+bool ODEGetEntityMassKg(int iEntity, float* pfKg)
+{
+	physicslock.lock();
+	auto it = g_EntityMassKg.find(iEntity);
+	bool bSet = (it != g_EntityMassKg.end());
+	if (bSet) *pfKg = it->second;
+	physicslock.unlock();
+	return bSet;
+}
+
+// an entity deleted: its element can be reused by the next spawn
+void ODEClearEntityMassKg(int iEntity)
+{
+	physicslock.lock();
+	g_EntityMassKg.erase(iEntity);
+	physicslock.unlock();
+}
+
+// the mass an object's body has now (kilos); 0 for none or a static body
+float ODEGetObjectMassKg(int iObject)
+{
+	physicslock.lock();
+	float fKg = 0;
+	sObjectList* pPhyObject = ODEFindID(iObject);
+	if (pPhyObject && pPhyObject->body && pPhyObject->body->getInvMass() > 0) fKg = 1.0f / pPhyObject->body->getInvMass();
+	physicslock.unlock();
+	return fKg;
+}
+
+// SetPhysicsPushLog, GetPhysicsPushLog
+void ODESetPushLog(int iObject, int iSteps)
+{
+	physicslock.lock();
+	g_iPushLogObject = iObject;
+	g_iPushLogSteps = iSteps > 0 ? iSteps : 8;
+	g_iPushLogStepsLeft = 0;
+	g_PushLog.clear();
+	physicslock.unlock();
+}
+
+void ODEGetPushLog(std::vector<std::string>* pLines)
+{
+	physicslock.lock();
+	*pLines = g_PushLog;
+	g_PushLog.clear();
+	physicslock.unlock();
+}
 //#else
 //class physicslockclass
 //{
@@ -927,8 +1200,98 @@ std::recursive_mutex physicslock = {};
 //physicslockclass physicslock;
 //#endif
 
+// the world matrix and angles an object takes from its physics body (trans: the body's world transform); a box body is
+// centred on the object's collision box, a mesh body on its origin. Update sets them for a moving body's object, and
+// ODEGetBodyPose reads them for any body
+static void ODEObjectPoseFromBody ( sObjectList* pEntry, sObject* pObject, const btTransform& trans, GGMATRIX* pWorld, GGVECTOR3* pRotate )
+{
+	// get body angles
+	btQuaternion angles;
+	angles = pEntry->body->getOrientation();
+
+	// make the rotation matrix
+	GGMATRIX matRotation;
+	GGQUATERNION qRotation;
+	qRotation.x = angles.getX();
+	qRotation.y = angles.getY();
+	qRotation.z = angles.getZ();
+	qRotation.w = angles.getW();
+	GGMatrixRotationQuaternion(&matRotation, &qRotation);
+
+	// LEE, I think the matrix returned is a ZYX order rotation, but we need XYZ
+	// so it translates back properly. I could use ZYX in FPSC but it will screw up all maps..
+	// (not for a body made turned by the pivot already: ODESetBodyIncludesPivot)
+	if (pObject->position.bApplyPivot && !pEntry->bPivotInBody)
+		matRotation = pObject->position.matPivot * matRotation;
+
+	// Use physics object position
+	GGMATRIX matTranslation;
+	GGMatrixTranslation(&matTranslation, trans.getOrigin().getX()*gSc, trans.getOrigin().getY()*gSc, trans.getOrigin().getZ()*gSc);
+
+	// Use physics object position
+	GGMATRIX matCenterColOffset;
+	float fXSize = (pObject->collision.vecMax.x - pObject->collision.vecMin.x) * pObject->position.vecScale.x;//;
+	float fYSize = (pObject->collision.vecMax.y - pObject->collision.vecMin.y) * pObject->position.vecScale.y;//;
+	float fZSize = (pObject->collision.vecMax.z - pObject->collision.vecMin.z) * pObject->position.vecScale.z;//;
+	float fXOffset = (pObject->collision.vecMin.x * pObject->position.vecScale.x) + (fXSize / 2.0f);
+	float fYOffset = (pObject->collision.vecMin.y * pObject->position.vecScale.y) + (fYSize / 2.0f);
+	float fZOffset = (pObject->collision.vecMin.z * pObject->position.vecScale.z) + (fZSize / 2.0f);
+
+	// a mesh body (CreateMesh: polygon, convex hull, hull decomposition) is built in object space and placed at
+	// the object's origin, not at its collision box centre, so there is no centre to take off; doing so drew it
+	// off its physics by the box centre (a wreck with its origin at the ground sank by half its height)
+	if (!pEntry->bCentredOnCollisionBox)
+	{
+		fXOffset = 0.0f;
+		fYOffset = 0.0f;
+		fZOffset = 0.0f;
+	}
+
+	if (pObject->pFrame)
+	{
+		//PE: This only work for box, dont work for dynamic convexhull shapes ?
+		//PE: pFrame->vecOffset  is already in matTranslation, so only offset center of rotation.
+		fXOffset += -(pObject->pFrame->vecOffset.x * pObject->position.vecScale.x);
+		fYOffset += -(pObject->pFrame->vecOffset.y * pObject->position.vecScale.y);
+		fZOffset += -(pObject->pFrame->vecOffset.z * pObject->position.vecScale.z);
+		//PE: Add pFrame->vecRotation to matWorld.
+		GGMATRIX matRotateFrameX, matRotateFrameY, matRotateFrameZ;
+		GGMatrixRotationX(&matRotateFrameX, GGToRadian(pObject->pFrame->vecRotation.x));	// x rotation
+		GGMatrixRotationY(&matRotateFrameY, GGToRadian(pObject->pFrame->vecRotation.y));	// y rotation
+		GGMatrixRotationZ(&matRotateFrameZ, GGToRadian(pObject->pFrame->vecRotation.z));	// z rotation
+		matRotation = matRotateFrameX * matRotateFrameY * matRotateFrameZ * matRotation;
+	}
+
+	// All, the trick was to put 'matCenterColOffset' before the rotation step to correct object offset issue :)
+	GGMatrixTranslation(&matCenterColOffset, -fXOffset, -fYOffset, -fZOffset);
+	GGMATRIX matWorld = pObject->position.matScale * matCenterColOffset * matRotation * matTranslation;
+
+	// GG: the angles from the rotation alone; the world matrix carries the object's scale, which the decode took as part
+	// of the turn (a wreck at scale 160 lying at yaw 271 read 144)
+	GGVECTOR3 vecRotate = GGVECTOR3(0, 0, 0);
+	if (pObject->position.bApplyPivot && pEntry->bPivotInBody)
+	{
+		// the object's own rotation leaves its pivot out: the regular transform applies the pivot again once the
+		// body goes (CollisionOff), and a new body adds it again, so the model neither turns nor turns twice
+		float fDet;
+		GGMATRIX matPivotInverse;
+		GGMatrixInverse(&matPivotInverse, &fDet, &pObject->position.matPivot);
+		GGMATRIX matWithoutPivot = matPivotInverse * matRotation;
+		BULLETAnglesFromMatrix(&matWithoutPivot, &vecRotate);
+	}
+	else
+	{
+		BULLETAnglesFromMatrix(&matRotation, &vecRotate);
+	}
+	*pWorld = matWorld;
+	*pRotate = vecRotate;
+}
+
 void Update(float fTimeStep)
 {
+	// GG: the frame's time for PhysicsApplyPush, at most the 7 steps at 120 a frame could take
+	g_fPhysicsFrameTime = fTimeStep < 7.0f / 120.0f ? fTimeStep : 7.0f / 120.0f;
+
 	// step physics simulation
 	//PE: 1.0f/120.0f is what is killing the bullet engine (fps drops) , simulation in 1:1 is 1.0f / 60.0f, 1.0f/120.0f run twice as fast.
 	//PE: We are calling it at 60 fps , so bullet is always behind and need to call the simulation many times per frame to keep up.
@@ -937,11 +1300,35 @@ void Update(float fTimeStep)
 	
 	//PE: Cant touch physics object while running stepsimulation.
 	physicslock.lock();
+	// GG: the last update's slow pairs kept for GetPhysicsSlowPairs (GGPhysicsQuery_Bullet.cpp)
+	extern void PhysicsQuery_SlowPairsUpdateStart(void);
+	PhysicsQuery_SlowPairsUpdateStart();
+	// GG: held ragdolls spread their anchors' moves over this update's steps
+	if ( ragdollManager ) ragdollManager->HoldFrame ( fTimeStep );
 	#ifdef FASTBULLETPHYSICS
 		//PE: fixed timestep with interpolation set at 1/60.
-		g_dynamicsWorld->stepSimulation(fTimeStep, 7, btScalar(1.) / btScalar(60.));
+		g_iPhysicsSubSteps = g_dynamicsWorld->stepSimulation(fTimeStep, 7, btScalar(1.) / btScalar(60.));
 	#else
-		g_dynamicsWorld->stepSimulation(fTimeStep, 7, 1.0f / 120.0f);
+		// GG: the player's controller is taken out of the world's steps while the world steps at 60, and put back at 120
+		btKinematicCharacterController* pCharacterOwnSteps = g_bPhysicsWorldAt60 ? m_character : NULL;
+		if (pCharacterOwnSteps != g_pCharacterOwnSteps)
+		{
+			if (g_pCharacterOwnSteps) g_dynamicsWorld->addAction(g_pCharacterOwnSteps);
+			if (pCharacterOwnSteps) g_dynamicsWorld->removeAction(pCharacterOwnSteps);
+			g_pCharacterOwnSteps = pCharacterOwnSteps;
+			g_fCharacterLocalTime = 0;
+		}
+		g_iPhysicsSubSteps = g_dynamicsWorld->stepSimulation(fTimeStep, 7, g_bPhysicsWorldAt60 ? btScalar(1.) / btScalar(60.) : 1.0f / 120.0f);
+		if (g_pCharacterOwnSteps)
+		{
+			// the controller's own 1/120 steps after the world's, as many as the world took at 120, at most 7 a frame as before
+			const btScalar fCharacterStep = 1.0f / 120.0f;
+			g_fCharacterLocalTime += fTimeStep;
+			int iCharacterSteps = int(g_fCharacterLocalTime / fCharacterStep);
+			g_fCharacterLocalTime -= iCharacterSteps * fCharacterStep;
+			if (iCharacterSteps > 7) iCharacterSteps = 7;
+			for (int i = 0; i < iCharacterSteps; i++) g_pCharacterOwnSteps->updateAction(g_dynamicsWorld, fCharacterStep);
+		}
 	#endif
 
 	physicslock.unlock();
@@ -1022,56 +1409,11 @@ void Update(float fTimeStep)
 			}
 			else
 			{
-				// get body angles
-				btQuaternion angles;
-				angles = body->getOrientation();
-
-				// make the rotation matrix
-				GGMATRIX matRotation;
-				GGQUATERNION qRotation;
-				qRotation.x = angles.getX();
-				qRotation.y = angles.getY();
-				qRotation.z = angles.getZ();
-				qRotation.w = angles.getW();
-				GGMatrixRotationQuaternion(&matRotation, &qRotation);
-
-				// LEE, I think the matrix returned is a ZYX order rotation, but we need XYZ
-				// so it translates back properly. I could use ZYX in FPSC but it will screw up all maps..
-				if (pObject->position.bApplyPivot)
-					matRotation = pObject->position.matPivot * matRotation;
-
-				// Use physics object position
-				GGMATRIX matTranslation;
-				GGMatrixTranslation(&matTranslation, trans.getOrigin().getX()*gSc, trans.getOrigin().getY()*gSc, trans.getOrigin().getZ()*gSc);
-
-				// Use physics object position				
-				GGMATRIX matCenterColOffset;
-				float fXSize = (pObject->collision.vecMax.x - pObject->collision.vecMin.x) * pObject->position.vecScale.x;//;
-				float fYSize = (pObject->collision.vecMax.y - pObject->collision.vecMin.y) * pObject->position.vecScale.y;//;
-				float fZSize = (pObject->collision.vecMax.z - pObject->collision.vecMin.z) * pObject->position.vecScale.z;//;
-				float fXOffset = (pObject->collision.vecMin.x * pObject->position.vecScale.x) + (fXSize / 2.0f);
-				float fYOffset = (pObject->collision.vecMin.y * pObject->position.vecScale.y) + (fYSize / 2.0f);
-				float fZOffset = (pObject->collision.vecMin.z * pObject->position.vecScale.z) + (fZSize / 2.0f);
-
-				if (pObject->pFrame)
-				{
-					//PE: This only work for box, dont work for dynamic convexhull shapes ?
-					//PE: pFrame->vecOffset  is already in matTranslation, so only offset center of rotation.
-					fXOffset += -(pObject->pFrame->vecOffset.x * pObject->position.vecScale.x);
-					fYOffset += -(pObject->pFrame->vecOffset.y * pObject->position.vecScale.y);
-					fZOffset += -(pObject->pFrame->vecOffset.z * pObject->position.vecScale.z);
-					//PE: Add pFrame->vecRotation to matWorld.
-					GGMATRIX matRotateFrameX, matRotateFrameY, matRotateFrameZ;
-					GGMatrixRotationX(&matRotateFrameX, GGToRadian(pObject->pFrame->vecRotation.x));	// x rotation
-					GGMatrixRotationY(&matRotateFrameY, GGToRadian(pObject->pFrame->vecRotation.y));	// y rotation
-					GGMatrixRotationZ(&matRotateFrameZ, GGToRadian(pObject->pFrame->vecRotation.z));	// z rotation
-					matRotation = matRotateFrameX * matRotateFrameY * matRotateFrameZ * matRotation;
-				}
-
-				// All, the trick was to put 'matCenterColOffset' before the rotation step to correct object offset issue :)
+				// the object's world matrix and angles from its body
 				PositionObject(g_PhyObjectList[j].iID, trans.getOrigin().getX()*gSc, trans.getOrigin().getY()*gSc, trans.getOrigin().getZ()*gSc);
-				GGMatrixTranslation(&matCenterColOffset, -fXOffset, -fYOffset, -fZOffset);
-				GGMATRIX matWorld = pObject->position.matScale * matCenterColOffset * matRotation * matTranslation;
+				GGMATRIX matWorld;
+				GGVECTOR3 vecRotate;
+				ODEObjectPoseFromBody(&g_PhyObjectList[j], pObject, trans, &matWorld, &vecRotate);
 
 				// use ODE matrix, not regular DBPro matrix
 				pObject->position.bCustomWorldMatrix = true;
@@ -1082,9 +1424,6 @@ void Update(float fTimeStep)
 
 				// update DBPro object position and rotation to match physics
 				pObject->position.vecPosition = GGVECTOR3(matWorld._41, matWorld._42, matWorld._43);
-
-				GGVECTOR3 vecRotate = GGVECTOR3(0, 0, 0);
-				BULLETAnglesFromMatrix(&matWorld, &vecRotate);
 				pObject->position.vecRotate = vecRotate;
 				pObject->collision.bColCenterUpdated = true;
 				body->applyDamping(0.1f);
@@ -1470,6 +1809,7 @@ void CreateBox ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTipOver
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	body->setUserPointer((void*)iArbValue);
+	body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// also remove all contact response
 	if ( bDoNotMoveAnyOtherObjects==true )
@@ -1585,6 +1925,7 @@ void EndStaticObject ( int iObjectNumber, int iTerrainCollider )
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	body->setUserPointer((void*)iArbValue);
+	body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// add physics object to system
 	short sCollidesWith = COL_OBJECT | COL_OBJECT_DYNAMIC | COL_CAPSULECHAR | COL_TERRAIN;
@@ -1908,6 +2249,7 @@ void CreateSphere ( int iObjectNumber, int isDynamic, float fWeight, float fFric
 	int iArbValue = 0;
 	if ( pRealObject->ppMeshList!=NULL ) iArbValue = pRealObject->ppMeshList[0]->Collision.dwArbitaryValue;
 	body->setUserPointer((void*)iArbValue);
+	body->setUserIndex(iObjectNumber); // the object it stands for (GGPhysicsQuery)
 
 	// add physics object to system
 	short sColliderType = COL_OBJECT;

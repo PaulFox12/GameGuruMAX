@@ -3,6 +3,7 @@
 // Registered by addFunctions_hiredgun(), called from addFunctions().
 
 #include "..\GGTerrain\GGTrees.h"
+#include "..\..\..\..\GameGuru\Include\GGPhysicsQuery.h"
 
 // helpers the carried functions share
 
@@ -108,6 +109,54 @@ static sObject* LuaEntityLimbObject ( lua_State* L, int e, int iLimb )
 	 return pObject;
 }
 
+// the collision cylinders the physics keeps at the trees round the camera (physics_managevirtualtreecylinders): a hit on
+// one is a tree trunk, reported as the map-wide trunks are
+static bool LuaPhysicsIsTreeCylinder(int iObject)
+{
+	return iObject >= g.virtualtreeobjectstart && iObject < g.virtualtreeobjectstart + PHYSICS_VIRTUALTREE_MAX;
+}
+
+// the object numbers a physics query ignores: one number, or a table of up to PHYSICS_QUERY_MAX_IGNORE (as IntersectRay's)
+static int LuaPhysicsIgnoreList(lua_State* L, int iIndex, int* pIgnore)
+{
+	int iCount = 0;
+	if (LUA_GETTOP(L) < iIndex) return 0;
+	if (lua_istable(L, iIndex))
+	{
+		int iLength = (int)lua_rawlen(L, iIndex);
+		for (int i = 1; i <= iLength && iCount < PHYSICS_QUERY_MAX_IGNORE; i++)
+		{
+			lua_rawgeti(L, iIndex, i);
+			int iObj = (int)lua_tointeger(L, -1);
+			lua_pop(L, 1);
+			if (iObj > 0) pIgnore[iCount++] = iObj;
+		}
+	}
+	else
+	{
+		int iObj = (int)lua_tointeger(L, iIndex);
+		if (iObj > 0) pIgnore[iCount++] = iObj;
+	}
+	return iCount;
+}
+
+// hit, x, y, z, nx, ny, nz, obj, fraction, tree, treetype (iTreeType for a map-wide trunk, else the cylinder's), surface
+static int LuaPushPhysicsHit(lua_State* L, const PhysicsHit& hit, bool bTree, int iTreeType)
+{
+	bool bTreeHit = hit.hit && (bTree || LuaPhysicsIsTreeCylinder(hit.object));
+	extern int physics_virtualtreetype(int iObject);
+	if (bTreeHit && !bTree) iTreeType = physics_virtualtreetype(hit.object);
+	lua_pushinteger(L, hit.hit ? 1 : 0);
+	for (int i = 0; i < 3; i++) lua_pushnumber(L, hit.hit ? hit.point[i] : 0.0f);
+	for (int i = 0; i < 3; i++) lua_pushnumber(L, hit.hit ? hit.normal[i] : 0.0f);
+	lua_pushinteger(L, (hit.hit && !bTreeHit) ? hit.object : 0);
+	lua_pushnumber(L, hit.hit ? hit.fraction : 1.0f);
+	lua_pushinteger(L, bTreeHit ? 1 : 0);
+	lua_pushinteger(L, bTreeHit ? iTreeType : -1);
+	lua_pushinteger(L, (hit.hit && !bTreeHit) ? hit.surface : PHYSICS_SURFACE_OTHER);
+	return 12;
+}
+
 // SetEntityVelocity(e, vx, vy, vz): e's physics body moving at that velocity (units a second), woken;
 // SetEntityAngularVelocity(e, wx, wy, wz): spinning at that rate (degrees a second) about the world's x, y and z axes,
 // woken. A frozen entity (FreezeEntity) or one with no body is left as it is
@@ -131,38 +180,36 @@ int SetEntityVelocityCore ( lua_State *L, int iAngular )
 
 // carried from the DX11 branch
 
-int GetDecalLimit(lua_State *L)
-{
-	// the ripple elements wait for the decal work, so none are reserved yet
-	lua_pushinteger(L, g.decalelementmax);
-	lua_pushinteger(L, 0);
-	return 2;
-}
-
 int GetDecalRange(lua_State *L)
 {
 	lua_pushinteger(L, g.decalrange);
 	return 1;
 }
 
-// GetDopplerScale(): 0 until the audio doppler (the DX11 branch's wiAudio addition) is in this engine
-int GetDopplerScale ( lua_State *L )
+// GetEntityAxes(e): the world directions of e's model's own forward (z) and up (y) axes as it is drawn, each of unit
+// length: fx, fy, fz, ux, uy, uz. A tumbled body's pose with no angle order to follow; nothing if e has no object
+int GetEntityAxes ( lua_State* L )
 {
-	lua_pushnumber ( L, 0 );
-	return 1;
-}
-
-// GetDrawCalls(): the last frame's draw calls in the main pass, in the shadow passes and for transparent objects, and
-// the triangles the main pass drew
-// The draw call counts wait for the profiler counters; the polygons come from this build's own main-camera count
-int GetDrawCalls ( lua_State *L )
-{
-	extern uint64_t GGPerf_GetPolyCount();
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, (lua_Integer)GGPerf_GetPolyCount() );
-	return 4;
+	 if ( LUA_GETTOP(L) < 1 ) return 0;
+	 int e = lua_tointeger(L, 1);
+	 if ( !LuaEntityIDValid ( L, e, 1 ) ) return 0;
+	 int iObj = t.entityelement[e].obj;
+	 if ( iObj <= 0 || ObjectExist ( iObj ) == 0 ) return 0;
+	 sObject* pObject = GetObjectData ( iObj );
+	 if ( !pObject ) return 0;
+	 const GGMATRIX& matWorld = pObject->position.matWorld;
+	 GGVECTOR3 vecForward ( matWorld._31, matWorld._32, matWorld._33 );
+	 GGVECTOR3 vecUp ( matWorld._21, matWorld._22, matWorld._23 );
+	 if ( GGVec3Length ( &vecForward ) < 0.000001f || GGVec3Length ( &vecUp ) < 0.000001f ) return 0;
+	 GGVec3Normalize ( &vecForward, &vecForward );
+	 GGVec3Normalize ( &vecUp, &vecUp );
+	 lua_pushnumber(L, vecForward.x);
+	 lua_pushnumber(L, vecForward.y);
+	 lua_pushnumber(L, vecForward.z);
+	 lua_pushnumber(L, vecUp.x);
+	 lua_pushnumber(L, vecUp.y);
+	 lua_pushnumber(L, vecUp.z);
+	 return 6;
 }
 
 // GetEntityImmunity(e): 0 when damage can take the entity's health to 0; otherwise its health stays at 1 or more and
@@ -260,18 +307,21 @@ int GetEntityRagdollForcePending ( lua_State *L )
 	return 1;
 }
 
-// GetGamePaused(): 1 while SetGamePaused holds the world
-int GetGamePaused ( lua_State *L )
+// stiffness, damping, waistfold, hipfold, kneefold = GetEntityRagdollHoldStiffness(e); nothing when e is no ragdoll
+int GetEntityRagdollHoldStiffness ( lua_State *L )
 {
-	lua_pushnumber ( L, 0 ); // SetGamePaused is neutral until its engine side is here, so nothing is ever paused by it
-	return 1;
-}
-
-// GetGameQuality(): the graphics quality in force, 1 Low, 2 Medium, 3 High (the level's own settings), 4 Ultra
-int GetGameQuality(lua_State* L)
-{
-	lua_pushinteger(L, 3); // High, the level's own settings, until the quality scaling is here
-	return 1;
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int e = lua_tointeger(L, 1);
+	if ( !LuaEntityIDValid ( L, e, 1 ) || t.entityelement[e].obj <= 0 ) return 0;
+	float fStiffness, fDamping, fWaistFold, fHipFold, fKneeFold;
+	if ( !BPhys_RagDollGetHoldStiffness ( t.entityelement[e].obj, &fStiffness, &fDamping, &fWaistFold, &fHipFold, &fKneeFold ) ) return 0;
+	lua_pushnumber ( L, fStiffness );
+	lua_pushnumber ( L, fDamping );
+	lua_pushnumber ( L, fWaistFold );
+	lua_pushnumber ( L, fHipFold );
+	lua_pushnumber ( L, fKneeFold );
+	return 5;
 }
 
 int GetGrassDistance(lua_State* L)
@@ -280,31 +330,205 @@ int GetGrassDistance(lua_State* L)
 	return 1;
 }
 
-// GetLightShafts(): 0 until the Lua render settings are here
-int GetLightShafts(lua_State* L)
-{
-	lua_pushnumber(L, 0);
-	return 1;
-}
-
 // GetObjectMass(obj) - the kilos its physics body has now; 0 for no body or a static one
 int GetObjectMass(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
-	lua_pushnumber(L, 0); // neutral until its engine side is here (kilos for bodies)
+	extern float ODEGetObjectMassKg(int iObject);
+	lua_pushnumber(L, ODEGetObjectMassKg((int)lua_tonumber(L, 1)));
+	return 1;
+}
+
+int GetPhysicsAwakeBodies(lua_State* L)
+{
+	int iMax = 16;
+	if (LUA_GETTOP(L) >= 1) iMax = (int)lua_tointeger(L, 1);
+	if (iMax < 1) iMax = 1;
+	if (iMax > 64) iMax = 64;
+	PhysicsAwakeBody bodies[64];
+	int iTotal = 0, iTouchingNothing = 0;
+	int iCount = PhysicsQuery_AwakeBodies(bodies, iMax, &iTotal, &iTouchingNothing);
+	lua_createtable(L, iCount, 0);
+	for (int i = 0; i < iCount; i++)
+	{
+		const PhysicsAwakeBody& body = bodies[i];
+		int iEntity = -1;
+		if (body.object > 0)
+		{
+			for (int e = 1; e <= g.entityelementlist; e++)
+			{
+				if (t.entityelement[e].obj == body.object) { iEntity = e; break; }
+			}
+		}
+		const char* pState = "active";
+		if (body.state == 2) pState = "asleep";
+		else if (body.state == 3) pState = "ready";
+		else if (body.state == 4) pState = "always";
+		else if (body.state == 5) pState = "off";
+		lua_createtable(L, 0, 19);
+		lua_pushinteger(L, body.object); lua_setfield(L, -2, "obj");
+		lua_pushinteger(L, iEntity); lua_setfield(L, -2, "e");
+		lua_pushboolean(L, (body.object > 0 && ObjectExist(body.object) == 1) ? 1 : 0); lua_setfield(L, -2, "exists");
+		lua_pushboolean(L, body.ragdoll); lua_setfield(L, -2, "ragdoll");
+		lua_pushboolean(L, body.listed); lua_setfield(L, -2, "listed");
+		lua_pushstring(L, body.shape ? body.shape : ""); lua_setfield(L, -2, "shape");
+		lua_pushnumber(L, body.mass); lua_setfield(L, -2, "mass");
+		lua_pushnumber(L, body.pos[0]); lua_setfield(L, -2, "x");
+		lua_pushnumber(L, body.pos[1]); lua_setfield(L, -2, "y");
+		lua_pushnumber(L, body.pos[2]); lua_setfield(L, -2, "z");
+		lua_pushnumber(L, body.speed); lua_setfield(L, -2, "speed");
+		lua_pushnumber(L, body.spin); lua_setfield(L, -2, "spin");
+		lua_pushstring(L, pState); lua_setfield(L, -2, "state");
+		lua_pushnumber(L, body.still); lua_setfield(L, -2, "still");
+		lua_pushinteger(L, body.island); lua_setfield(L, -2, "island");
+		lua_pushinteger(L, body.points); lua_setfield(L, -2, "points");
+		lua_pushinteger(L, body.layer); lua_setfield(L, -2, "layer");
+		lua_pushinteger(L, body.mask); lua_setfield(L, -2, "mask");
+		lua_rawseti(L, -2, i + 1);
+	}
+	lua_pushinteger(L, iTotal);
+	lua_pushinteger(L, iTouchingNothing);
+	return 3;
+}
+
+// GetPhysicsBodyPose(obj): where an object's physics body is, as the pose it would give the object: x, y, z and angles
+// x, y, z in degrees (as GetEntityAngleX/Y/Z), then bodies, how many bodies the physics holds for the object (more than
+// 1 is one left behind; the pose is the first's, the one CollisionOff removes). A static body never moves its object, so
+// this shows the collider against the drawn object. With no body: nil for the pose, and 0
+int GetPhysicsBodyPose(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	float fPos[3], fAng[3];
+	int iBodies = ODEGetBodyPose((int)lua_tointeger(L, 1), fPos, fAng);
+	for (int i = 0; i < 3; i++) { if (iBodies > 0) lua_pushnumber(L, fPos[i]); else lua_pushnil(L); }
+	for (int i = 0; i < 3; i++) { if (iBodies > 0) lua_pushnumber(L, fAng[i]); else lua_pushnil(L); }
+	lua_pushinteger(L, iBodies);
+	return 7;
+}
+
+int GetPhysicsPushLog(lua_State* L)
+{
+	extern void ODEGetPushLog(std::vector<std::string>* pLines);
+	std::vector<std::string> lines;
+	ODEGetPushLog(&lines);
+	lua_createtable(L, (int)lines.size(), 0);
+	for (int i = 0; i < (int)lines.size(); i++)
+	{
+		lua_pushstring(L, lines[i].c_str());
+		lua_rawseti(L, -2, i + 1);
+	}
+	return 1;
+}
+
+// GetPhysicsSlowPairs([n]): a diagnostic, the body pairs whose collision tests took longest in the physics' last update,
+// slowest first, up to n (5 by default, at most 16): a table of { ms (their tests' time over the update's steps), calls
+// (how many tests), obj1, e1, shape1, obj2, e2, shape2 } (obj 0 the ground, -1 unknown; e the entity holding the object,
+// -1 none; shape with its size, e.g. "compound 80 children, 1408 hull points", "mesh 12000 triangles", "terrain"). The
+// tests are timed for 10 s after each call, so the first call after a while gives an empty table; only tests over about
+// 0.01 ms are kept
+int GetPhysicsSlowPairs(lua_State* L)
+{
+	int iMax = 5;
+	if (LUA_GETTOP(L) >= 1) iMax = (int)lua_tointeger(L, 1);
+	if (iMax < 1) iMax = 1;
+	if (iMax > 16) iMax = 16;
+	PhysicsSlowPair pairs[16];
+	int iCount = PhysicsQuery_SlowPairs(pairs, iMax);
+	lua_createtable(L, iCount, 0);
+	for (int i = 0; i < iCount; i++)
+	{
+		const PhysicsSlowPair& pair = pairs[i];
+		lua_createtable(L, 0, 8);
+		lua_pushnumber(L, pair.ms); lua_setfield(L, -2, "ms");
+		lua_pushinteger(L, pair.calls); lua_setfield(L, -2, "calls");
+		for (int b = 0; b < 2; b++)
+		{
+			int iEntity = -1;
+			if (pair.object[b] > 0)
+			{
+				for (int e = 1; e <= g.entityelementlist; e++)
+				{
+					if (t.entityelement[e].obj == pair.object[b]) { iEntity = e; break; }
+				}
+			}
+			lua_pushinteger(L, pair.object[b]); lua_setfield(L, -2, b == 0 ? "obj1" : "obj2");
+			lua_pushinteger(L, iEntity); lua_setfield(L, -2, b == 0 ? "e1" : "e2");
+			lua_pushstring(L, pair.shape[b]); lua_setfield(L, -2, b == 0 ? "shape1" : "shape2");
+		}
+		lua_rawseti(L, -2, i + 1);
+	}
+	return 1;
+}
+
+// GetPhysicsStats(): what the physics did in its last update, to find what a costly physics frame is working on. Returns
+// subSteps (simulation steps taken, at most 7), awake (bodies moving or settling), manifolds (body pairs in contact),
+// points (their contact points), then busiestObject and busiestPoints: the object with the most contact points, the
+// ground and character capsules left out (-1 none), and its points
+int GetPhysicsStats(lua_State* L)
+{
+	PhysicsStats stats;
+	PhysicsQuery_Stats(&stats);
+	lua_pushinteger(L, stats.subSteps);
+	lua_pushinteger(L, stats.awakeBodies);
+	lua_pushinteger(L, stats.manifolds);
+	lua_pushinteger(L, stats.contactPoints);
+	lua_pushinteger(L, stats.busiestObject);
+	lua_pushinteger(L, stats.busiestPoints);
+	return 6;
+}
+
+int GetPhysicsStatsTop(lua_State* L)
+{
+	int iMax = 5;
+	if (LUA_GETTOP(L) >= 1) iMax = (int)lua_tointeger(L, 1);
+	if (iMax < 1) iMax = 1;
+	if (iMax > 32) iMax = 32;
+	PhysicsStatsBody bodies[32];
+	int iCount = PhysicsQuery_StatsTop(bodies, iMax);
+	lua_createtable(L, iCount, 0);
+	for (int i = 0; i < iCount; i++)
+	{
+		const PhysicsStatsBody& body = bodies[i];
+		int iEntity = -1;
+		if (body.object > 0)
+		{
+			for (int e = 1; e <= g.entityelementlist; e++)
+			{
+				if (t.entityelement[e].obj == body.object) { iEntity = e; break; }
+			}
+		}
+		const char* pKind = "other";
+		if (LuaPhysicsIsTreeCylinder(body.object)) pKind = "tree";
+		else if (body.layer & PHYSICS_LAYER_DYNAMIC) pKind = "dynamic";
+		else if (body.layer & PHYSICS_LAYER_STATIC) pKind = "static";
+		const char* pState = "active";
+		if (body.state == 2) pState = "asleep";
+		else if (body.state == 3) pState = "ready";
+		else if (body.state == 4) pState = "always";
+		else if (body.state == 5) pState = "off";
+		lua_createtable(L, 0, 12);
+		lua_pushinteger(L, iEntity); lua_setfield(L, -2, "e");
+		lua_pushinteger(L, body.object); lua_setfield(L, -2, "obj");
+		lua_pushinteger(L, body.points); lua_setfield(L, -2, "points");
+		lua_pushboolean(L, body.awake ? 1 : 0); lua_setfield(L, -2, "awake");
+		lua_pushnumber(L, body.speed); lua_setfield(L, -2, "speed");
+		lua_pushstring(L, pKind); lua_setfield(L, -2, "kind");
+		lua_pushnumber(L, body.spin); lua_setfield(L, -2, "spin");
+		lua_pushstring(L, pState); lua_setfield(L, -2, "state");
+		lua_pushnumber(L, body.still); lua_setfield(L, -2, "still");
+		lua_pushnumber(L, body.sleepSpeed); lua_setfield(L, -2, "sleepspeed");
+		lua_pushnumber(L, body.sleepSpin); lua_setfield(L, -2, "sleepspin");
+		lua_pushinteger(L, body.island); lua_setfield(L, -2, "island");
+		lua_rawseti(L, -2, i + 1);
+	}
 	return 1;
 }
 
 // GetPhysicsWorldRate() - 60 or 120
 int GetPhysicsWorldRate(lua_State* L)
 {
-	lua_pushinteger(L, 120); // the world steps at 120 until the 60 rate is here
-	return 1;
-}
-
-int GetRagdollAllDeaths ( lua_State *L )
-{
-	lua_pushinteger ( L, 0 ); // neutral until its engine side is here
+	extern bool g_bPhysicsWorldAt60;
+	lua_pushinteger(L, g_bPhysicsWorldAt60 ? 60 : 120);
 	return 1;
 }
 
@@ -364,6 +588,75 @@ int GetTreeSubsurface(lua_State* L)
 	return 1;
 }
 
+// GetTreeTypeName(type): the name of a tree type (GetTreesNear's type, PhysicsRay's treetype), such as "jungletree3a"; ""
+// for none
+int GetTreeTypeName(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	int iType = (int)lua_tointeger(L, 1);
+	char pName[64] = "";
+	if (iType >= 0) GGTrees::GGTrees_GetTypeName((uint32_t)iType, pName, sizeof(pName));
+	lua_pushstring(L, pName);
+	return 1;
+}
+
+// GetTreesNear(x, z, radius [, max]): the tree trunks within radius of x, z across (at any height), nearest first, as a
+// table of { x, y, z, radius, type, name, top, crown, scale }: each trunk's base and its radius, as the trees' collision has it
+// (by species and scale), its tree type and that type's name ("jungletree3a"), the tree's top, crown (where its crown starts:
+// the lowest branch or leaf of its species' full detail mesh at its scale, the top for a species with none; below it only the
+// bare trunk) and its own scale.
+// At most max (64 unless set). Trees not drawn are left out: hidden under a building, removed by a blast, or all of them
+// when trees are off. For a script's own collision test, such as a car driven by Lua
+int GetTreesNear(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 3) return 0;
+	float fX = lua_tonumber(L, 1);
+	float fZ = lua_tonumber(L, 2);
+	float fRadius = lua_tonumber(L, 3);
+	int iMax = (n >= 4) ? lua_tointeger(L, 4) : 64;
+	GGTrees::GGTreePoint* pPoints = NULL;
+	int iCount = 0;
+	if (GGTrees::ggtrees_global_params.draw_enabled && fRadius > 0) iCount = GGTrees::GGTrees_GetClosest(fX, fZ, fRadius, &pPoints);
+
+	// the nearest first
+	std::vector<std::pair<float, int>> nearest;
+	for (int i = 0; i < iCount; i++)
+	{
+		float fDX = pPoints[i].x - fX;
+		float fDZ = pPoints[i].z - fZ;
+		std::pair<float, int> tree(fDX * fDX + fDZ * fDZ, i);
+		size_t k = nearest.size();
+		nearest.push_back(tree);
+		while (k > 0 && nearest[k - 1].first > tree.first) { nearest[k] = nearest[k - 1]; k--; }
+		nearest[k] = tree;
+	}
+
+	int iTake = (int)nearest.size() < iMax ? (int)nearest.size() : iMax;
+	if (iTake < 0) iTake = 0;
+	lua_createtable(L, iTake, 0);
+	for (int k = 0; k < iTake; k++)
+	{
+		GGTrees::GGTreePoint& tree = pPoints[nearest[k].second];
+		lua_createtable(L, 0, 9);
+		lua_pushnumber(L, tree.x); lua_setfield(L, -2, "x");
+		lua_pushnumber(L, tree.y); lua_setfield(L, -2, "y");
+		lua_pushnumber(L, tree.z); lua_setfield(L, -2, "z");
+		lua_pushnumber(L, tree.scale * 0.5f); lua_setfield(L, -2, "radius");
+		lua_pushinteger(L, tree.type); lua_setfield(L, -2, "type");
+		char pName[64];
+		GGTrees::GGTrees_GetTypeName(tree.type, pName, sizeof(pName));
+		lua_pushstring(L, pName); lua_setfield(L, -2, "name");
+		lua_pushnumber(L, tree.top); lua_setfield(L, -2, "top");
+		lua_pushnumber(L, tree.crown); lua_setfield(L, -2, "crown");
+		lua_pushnumber(L, tree.instanceScale); lua_setfield(L, -2, "scale");
+		lua_rawseti(L, -2, k + 1);
+	}
+	if (pPoints) delete[] pPoints;
+	return 1;
+}
+
 int GetWind(lua_State* L)
 {
 	lua_pushnumber(L, t.gamevisuals.wind_speed);
@@ -374,52 +667,152 @@ int GetWind(lua_State* L)
 	return 5;
 }
 
-int SetEntityAngularVelocity(lua_State *L) { return SetEntityVelocityCore ( L, 1 ); }
-
-int SetEntityVelocity(lua_State *L) { return SetEntityVelocityCore ( L, 0 ); }
-
-// SetEscapeMenu(on): 0 leaves Escape (and a controller's START) to the scripts, for a menu of their own: it no longer
-// opens the in-game menu, nor leaves a test level, though shift and Escape still do that. 1 is the usual; back to 1 at
-// each level start
-int SetEscapeMenu ( lua_State *L )
-{
-	if ( LUA_GETTOP(L) < 1 ) return 0;
-	// neutral until its engine side is here: Escape keeps opening the in-game menu
-	return 0;
-}
-
-// SetGrassDistance(d) - grass draw distance in world units, clamped to the editor slider range (750 to 7000).
-// Changing it rebuilds all grass chunks in one frame, so set it on events rather than every frame.
-int SetGrassDistance(lua_State* L)
+// PhysicsOverlapBox(cx, cy, cz, hx, hy, hz, yaw [, layers [, ignore [, trees]]]): what a box (as PhysicsSweepBox's) touches
+// now, such as a car wedged against something. Returns count, trees, then the object numbers of the count bodies it touches
+// (up to 32; 0 the ground, -1 a character capsule), trees being how many tree trunks it touches (with trees 1, the default;
+// with trees 2 only their bare parts below the crowns)
+int PhysicsOverlapBox(lua_State* L)
 {
 	int n = LUA_GETTOP(L);
-	if (n < 1) return 0;
-	float fDistance = lua_tonumber(L, 1);
-	if (fDistance < 750.0f) fDistance = 750.0f;
-	if (fDistance > 7000.0f) fDistance = 7000.0f;
-	// the restore at a test game's end waits for its engine side
-	gggrass_global_params.lod_dist = fDistance;
-	return 0;
+	if (n < 7) return 0;
+	float fCentre[3] = { (float)lua_tonumber(L, 1), (float)lua_tonumber(L, 2), (float)lua_tonumber(L, 3) };
+	float fHalf[3] = { (float)lua_tonumber(L, 4), (float)lua_tonumber(L, 5), (float)lua_tonumber(L, 6) };
+	float fYaw = (float)lua_tonumber(L, 7);
+	int iLayers = (n >= 8) ? (int)lua_tointeger(L, 8) : PHYSICS_LAYER_DEFAULT;
+	int pIgnore[PHYSICS_QUERY_MAX_IGNORE];
+	int iIgnoreCount = LuaPhysicsIgnoreList(L, 9, pIgnore);
+	int iTreesMode = (n < 10) ? 1 : (int)lua_tointeger(L, 10);
+	int pObjects[32];
+	int iFound = PhysicsQuery_OverlapBox(fCentre, fHalf, fYaw, iLayers, pIgnore, iIgnoreCount, pObjects, 32);
+
+	// the collision cylinders at the trees round the camera are trunks, counted with the map-wide ones
+	int iCount = 0;
+	for (int i = 0; i < iFound; i++)
+	{
+		if (!LuaPhysicsIsTreeCylinder(pObjects[i])) pObjects[iCount++] = pObjects[i];
+	}
+	int iTrees = (iTreesMode != 0) ? GGTrees::GGTrees_OverlapBoxTrunks(fCentre, fHalf, fYaw, iTreesMode == 2) : 0;
+	lua_pushinteger(L, iCount);
+	lua_pushinteger(L, iTrees);
+	for (int i = 0; i < iCount; i++) lua_pushinteger(L, pObjects[i]);
+	return 2 + iCount;
 }
 
-// SetGunReloadWhileRunning(on) - 1 lets the player reload while running: the gun leaves its run animation for the reload, as
-// it does to fire, and goes back to it after; 0 (at first, and when a test game ends) the stock rule, no reload until the
-// player stops running
-int SetGunReloadWhileRunning(lua_State* L)
+// PhysicsRay(x1, y1, z1, x2, y2, z2 [, layers [, ignore]]): the nearest body the segment meets in the physics world, with no
+// force applied (PhysicsRayCast pushes what it hits and returns moving bodies only). layers add up: 1 the ground (and
+// entities built as terrain colliders), 2 static entities, 4 characters, 8 moving bodies (11 unless set); ignore is an
+// object number or a table of up to 8. Returns hit, x, y, z, nx, ny, nz, obj (0 the ground or a tree, -1 a character
+// capsule), fraction, tree (1 for a trunk), treetype (the trunk's tree type, GetTreeTypeName, -1 if none) and surface (1 a
+// surface built from a spline, a road's pavement, which is ground with obj 0; else 0). The physics world has the ground only as detailed as the terrain round the
+// camera, no body for collisionmode 11 or 12, and trunks only round the camera (RayTrees has them everywhere)
+int PhysicsRay(lua_State* L)
 {
-	if (LUA_GETTOP(L) < 1) return 0;
-	// neutral until its engine side is here: the stock rule, no reload while running
-	return 0;
+	int n = LUA_GETTOP(L);
+	if (n < 6) return 0;
+	float fFrom[3] = { (float)lua_tonumber(L, 1), (float)lua_tonumber(L, 2), (float)lua_tonumber(L, 3) };
+	float fTo[3] = { (float)lua_tonumber(L, 4), (float)lua_tonumber(L, 5), (float)lua_tonumber(L, 6) };
+	int iLayers = (n >= 7) ? (int)lua_tointeger(L, 7) : PHYSICS_LAYER_DEFAULT;
+	int pIgnore[PHYSICS_QUERY_MAX_IGNORE];
+	int iIgnoreCount = LuaPhysicsIgnoreList(L, 8, pIgnore);
+	PhysicsHit hit;
+	PhysicsQuery_Ray(fFrom, fTo, iLayers, pIgnore, iIgnoreCount, &hit);
+	return LuaPushPhysicsHit(L, hit, false, -1);
 }
 
-// SetLightMaxDistance(distance): point and spot lights farther than this from the camera (their range added) are left out
-// of the frame, as lights out of view are; 0, the default, for no limit. Back to none at the next level and test end
-int SetLightMaxDistance(lua_State* L)
+// PhysicsSweepBox(cx, cy, cz, hx, hy, hz, yaw, mx, my, mz [, layers [, ignore [, trees]]]): the first thing a box meets as it
+// moves by mx, my, mz: the box centred on cx, cy, cz, reaching hx, hy, hz each way along its own axes and turned by yaw
+// degrees about Y as an object is (GetObjectColBox gives a hull's). It meets the physics world as PhysicsRay does, and
+// with trees 1 (the default) every drawn tree trunk on the map too, base to top; with trees 2 only each trunk's bare part,
+// from its base up to its crown (GetTreesNear's crown), so a pass through a canopy is no hit. No gap between samples and no tunnelling, and the
+// normal is the real contact's. Returns what PhysicsRay does, fraction being how far along the motion; 0 means the box
+// already touched something, so lift a car's box clear of the ground or leave the ground out of layers
+int PhysicsSweepBox(lua_State* L)
 {
-	if (LUA_GETTOP(L) < 1) return 0;
-	// neutral until its engine side is here: every light stays in the frame
-	return 0;
+	int n = LUA_GETTOP(L);
+	if (n < 10) return 0;
+	float fCentre[3] = { (float)lua_tonumber(L, 1), (float)lua_tonumber(L, 2), (float)lua_tonumber(L, 3) };
+	float fHalf[3] = { (float)lua_tonumber(L, 4), (float)lua_tonumber(L, 5), (float)lua_tonumber(L, 6) };
+	float fYaw = (float)lua_tonumber(L, 7);
+	float fMotion[3] = { (float)lua_tonumber(L, 8), (float)lua_tonumber(L, 9), (float)lua_tonumber(L, 10) };
+	int iLayers = (n >= 11) ? (int)lua_tointeger(L, 11) : PHYSICS_LAYER_DEFAULT;
+	int pIgnore[PHYSICS_QUERY_MAX_IGNORE];
+	int iIgnoreCount = LuaPhysicsIgnoreList(L, 12, pIgnore);
+	int iTrees = (n < 13) ? 1 : (int)lua_tointeger(L, 13);
+	bool bBareTrunk = (iTrees == 2);
+	PhysicsHit hit;
+	PhysicsQuery_SweepBox(fCentre, fHalf, fYaw, fMotion, iLayers, pIgnore, iIgnoreCount, &hit);
+
+	// the collision cylinders at the trees round the camera stand the tree's full height, so bare trunks sweep on past them
+	// and take those trees from the map-wide trunks below
+	while (bBareTrunk && hit.hit && LuaPhysicsIsTreeCylinder(hit.object) && iIgnoreCount < PHYSICS_QUERY_MAX_IGNORE)
+	{
+		pIgnore[iIgnoreCount++] = hit.object;
+		PhysicsQuery_SweepBox(fCentre, fHalf, fYaw, fMotion, iLayers, pIgnore, iIgnoreCount, &hit);
+	}
+	if (bBareTrunk && hit.hit && LuaPhysicsIsTreeCylinder(hit.object)) hit.hit = false;
+
+	// the map-wide trunks, where nearer
+	bool bTree = false;
+	float fTrunk[7];
+	int iTreeType = -1;
+	if (iTrees != 0 && GGTrees::GGTrees_SweepBoxTrunks(fCentre, fHalf, fYaw, fMotion, fTrunk, &iTreeType, bBareTrunk) && (!hit.hit || fTrunk[0] < hit.fraction))
+	{
+		hit.hit = true;
+		hit.fraction = fTrunk[0];
+		for (int i = 0; i < 3; i++) { hit.point[i] = fTrunk[1 + i]; hit.normal[i] = fTrunk[4 + i]; }
+		hit.object = 0;
+		bTree = true;
+	}
+	return LuaPushPhysicsHit(L, hit, bTree, iTreeType);
 }
+
+// RayTrees(x1, y1, z1, x2, y2, z2): the nearest tree trunk the segment meets, anywhere on the map (the physics sees only
+// those round the camera). Returns 1 and the point and the trunk's normal there, or 0 and zeros. A trunk is as thick as
+// the trees' physics collision (by species and scale) and reaches from the ground to the tree's top; canopies don't
+// count, nor trees hidden under a building or removed by a blast. Only the tree chunks along the segment are walked
+int RayTrees(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 6) return 0;
+	float fOut[6] = { 0, 0, 0, 0, 0, 0 };
+	int iHit = GGTrees::GGTrees_RayCastTrunks(lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5), lua_tonumber(L, 6), fOut);
+	lua_pushinteger(L, iHit);
+	for (int i = 0; i < 6; i++) lua_pushnumber(L, fOut[i]);
+	return 7;
+}
+
+int SetEntityAngularVelocity(lua_State *L) { return SetEntityVelocityCore ( L, 1 ); }
+
+// SetEntityRagdollHoldStiffness(e, stiffness [, damping [, waistfold [, hipfold [, kneefold]]]]): for e's ragdoll while
+// held, how hard each body is pulled to a drape (0 hangs free, 1 rigid; 0.85 when made), its swing's damping (0 to 1;
+// 0.6), and the drape's folds in degrees at the held body's joints: the part above toward his chest (60) and the parts
+// below (60); and the bend of each knee beyond, from the thigh toward the back of it (0 straight, 90 a right angle,
+// kept within the knee's limits), the same however the ragdoll was made; negative leaves the knees as made (-1). Left
+// out keeps the value. Set again after each SetEntityRagdoll(e, 1), as a new ragdoll starts with these. 1 when set
+int SetEntityRagdollHoldStiffness ( lua_State *L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 2 ) return 0;
+	int e = lua_tointeger(L, 1);
+	int iDone = 0;
+	if ( LuaEntityIDValid ( L, e, 1 ) && t.entityelement[e].obj > 0 )
+	{
+		int iObj = t.entityelement[e].obj;
+		float fStiffness, fDamping, fWaistFold, fHipFold, fKneeFold;
+		if ( BPhys_RagDollGetHoldStiffness ( iObj, &fStiffness, &fDamping, &fWaistFold, &fHipFold, &fKneeFold ) )
+		{
+			fStiffness = lua_tonumber(L, 2);
+			if ( n >= 3 ) fDamping = lua_tonumber(L, 3);
+			if ( n >= 4 ) fWaistFold = lua_tonumber(L, 4);
+			if ( n >= 5 ) fHipFold = lua_tonumber(L, 5);
+			if ( n >= 6 ) fKneeFold = lua_tonumber(L, 6);
+			iDone = BPhys_RagDollSetHoldStiffness ( iObj, fStiffness, fDamping, fWaistFold, fHipFold, fKneeFold ) ? 1 : 0;
+		}
+	}
+	lua_pushinteger ( L, iDone );
+	return 1;
+}
+
+int SetEntityVelocity(lua_State *L) { return SetEntityVelocityCore ( L, 0 ); }
 
 // SetLightShadow(light, on): whether the light casts shadows (1 or 0), for the same light numbers as SetLightRGB. A
 // shadow is the costliest part of a point or spot light, so turn it off on lights that don't need one
@@ -434,37 +827,46 @@ int SetLightShadow(lua_State *L)
 	return 0;
 }
 
+// SetPhysicsPushLog(obj [, steps]) - a diagnostic: each PushObject on obj logs its body before and after, then over the
+// next steps (8 at first) simulation steps; obj 0 stops it. GetPhysicsPushLog() returns the lines since, as a table
+int SetPhysicsPushLog(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	int iSteps = (LUA_GETTOP(L) >= 2) ? (int)lua_tonumber(L, 2) : 8;
+	extern void ODESetPushLog(int iObject, int iSteps);
+	ODESetPushLog((int)lua_tonumber(L, 1), iSteps);
+	return 0;
+}
+
 // SetPhysicsWorldRate(rate) - 60 steps the physics world 60 times a second (half the work) while the player keeps its own
 // 120 steps, as its controller moves a set distance each step; 120 (at first, at a test game's end, and for any other
 // value) steps all of it at 120 as before
 int SetPhysicsWorldRate(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
-	// neutral until its engine side is here: the world keeps its 120 steps
-	return 0;
-}
-
-// SetRagdollAllDeaths(on): 1 gives every death of a character with ragdoll = 1 the forced ragdoll of
-// SetEntityHealth(e, -12345), skipping the death animations; SetEntityHealth(e, -12346) still has none. 0 at each level start
-int SetRagdollAllDeaths ( lua_State *L )
-{
-	int n = LUA_GETTOP(L);
-	if ( n < 1 ) return 0;
-	// neutral until its engine side is here: deaths keep their animations
+	extern bool g_bPhysicsWorldAt60;
+	g_bPhysicsWorldAt60 = (lua_tonumber(L, 1) == 60);
 	return 0;
 }
 
 int SetRawSoundDistanceScale ( lua_State *L ) { return SetRawSoundData ( L, 6 ); }
 
-// SetRenderTiming(mode): 1 times the renderer's work every frame (the ranges of Tab Tab's performance data) so GetRenderTime
-// can read them, 2 the CPU ranges only (no GPU timestamp queries, so no GPU times), 0 stops. Off again at the next level
-int SetRenderTiming ( lua_State *L )
+// SleepEntity(e): puts a physics entity's body to sleep with every moving body touching it, directly or through others
+// (its island), their velocities zeroed, as a body settled at rest sleeps; they wake as any sleeping body does (a blast,
+// a hit, a velocity set, an awake body touching them). Returns how many bodies slept: 0 when e has no moving body, or its
+// island holds a character, a body kept awake or a body still moving (try again later)
+int SleepEntity(lua_State *L)
 {
-	if ( LUA_GETTOP(L) < 1 ) return 0;
-	int iMode = (int)lua_tointeger(L, 1);
-	// this engine's profiler has no CPU-only mode, so 2 times the GPU as well
-	wiProfiler::SetEnabled ( iMode != 0 );
-	return 0;
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int iEntityIndex = lua_tonumber(L, 1);
+	if ( !LuaEntityIDValid ( L, iEntityIndex, 1 ) ) return 0;
+	int iSlept = 0;
+	int iObjectNumber = t.entityelement[iEntityIndex].obj;
+	int iForce = ( n >= 2 ) ? (int)lua_tointeger(L, 2) : 0;
+	if ( iObjectNumber > 0 ) iSlept = PhysicsQuery_SleepIsland ( iObjectNumber, iForce );
+	lua_pushinteger ( L, iSlept );
+	return 1;
 }
 
 // waiting for their engine side
@@ -491,7 +893,7 @@ int AddProjectedDecal ( lua_State* L )
 	return 1;
 }
 
-// BulletRay: neutral until its engine side is here; needs bHole (G-Entity.cpp, G-Entity.h); entity_scriptbulletray (G-Entity.cpp, G-Entity.h); iMaterial (BulletPhysics.CPP, BulletPhysics.H, G-Entity.cpp)
+// BulletRay: neutral until its engine side is here; needs bHole (G-Entity.cpp, G-Entity.h); entity_scriptbulletray (G-Entity.cpp, G-Entity.h)
 int BulletRay ( lua_State* L )
 {
 	lua_pushinteger ( L, 0 );
@@ -524,6 +926,14 @@ int GetBloom ( lua_State* L )
 	return 5;
 }
 
+// GetDecalLimit(): the element count, and the ripple elements, none reserved until the decal work is here
+int GetDecalLimit(lua_State *L)
+{
+	lua_pushinteger(L, g.decalelementmax);
+	lua_pushinteger(L, 0);
+	return 2;
+}
+
 // GetDecalStats: neutral until its engine side is here; needs g_iDecalDroppedFull (M-Decal.cpp)
 int GetDecalStats ( lua_State* L )
 {
@@ -552,6 +962,24 @@ int GetDepthOfField ( lua_State* L )
 	return 4;
 }
 
+// GetDopplerScale(): 0 until the audio doppler (the DX11 branch's wiAudio addition) is in this engine
+int GetDopplerScale ( lua_State *L )
+{
+	lua_pushnumber ( L, 0 );
+	return 1;
+}
+
+// The draw call counts wait for the profiler counters; the polygons come from this build's own main-camera count
+int GetDrawCalls ( lua_State *L )
+{
+	extern uint64_t GGPerf_GetPolyCount();
+	lua_pushinteger ( L, 0 );
+	lua_pushinteger ( L, 0 );
+	lua_pushinteger ( L, 0 );
+	lua_pushinteger ( L, (lua_Integer)GGPerf_GetPolyCount() );
+	return 4;
+}
+
 // GetEngineProbe: neutral until its engine side is here; needs WickedCall_ProbeGet (wickedcalls.cpp, wickedcalls.h)
 int GetEngineProbe ( lua_State* L )
 {
@@ -566,18 +994,6 @@ int GetEngineProbeDetail ( lua_State* L )
 {
 	lua_pushstring ( L, "" );
 	return 1;
-}
-
-// GetEntityAxes: neutral until its engine side is here; needs vecForward (BulletPhysics.CPP)
-int GetEntityAxes ( lua_State* L )
-{
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	return 6;
 }
 
 // GetEntityInstanceEmissive: neutral until its engine side is here; needs WickedCall_GetObjectEmissiveTint (wickedcalls.cpp, wickedcalls.h)
@@ -606,23 +1022,24 @@ int GetEntityLimbAlpha ( lua_State* L )
 	return 1;
 }
 
-// GetEntityMass: neutral until its engine side is here; needs physicsmass (BulletPhysics.CPP, M-Entity.cpp, M-Physics.cpp)
-int GetEntityMass ( lua_State* L )
+// GetEntityMass(e) - kg, source: the kilos SetEntityMass gave it (source 1), else its body's mass now (0; 0 kilos for no
+// body). The .fpe's physicsmass key (source 2) waits for its engine side
+int GetEntityMass(lua_State* L)
 {
-	lua_pushnumber ( L, 0 );
-	lua_pushinteger ( L, 0 );
+	if (LUA_GETTOP(L) < 1) return 0;
+	int iEntity = (int)lua_tonumber(L, 1);
+	float fKg = 0;
+	int iSource = 0;
+	if (iEntity > 0 && iEntity < (int)t.entityelement.size())
+	{
+		extern bool ODEGetEntityMassKg(int iEntity, float* pfKg);
+		extern float ODEGetObjectMassKg(int iObject);
+		if (ODEGetEntityMassKg(iEntity, &fKg)) iSource = 1;
+		else fKg = ODEGetObjectMassKg(t.entityelement[iEntity].obj);
+	}
+	lua_pushnumber(L, fKg);
+	lua_pushinteger(L, iSource);
 	return 2;
-}
-
-// GetEntityRagdollHoldStiffness: neutral until its engine side is here; needs BPhys_RagDollGetHoldStiffness (BulletPhysics.CPP, BulletPhysics.H)
-int GetEntityRagdollHoldStiffness ( lua_State* L )
-{
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	return 5;
 }
 
 // GetEntityRagdollPose: neutral until its engine side is here; needs ragdoll_getpose (M-Ragdoll.cpp, M-Ragdoll.h); ragdoll_isknockedout (M-Ragdoll.cpp, M-Ragdoll.h)
@@ -643,6 +1060,20 @@ int GetEntityRagdollPose ( lua_State* L )
 int GetFrameCosts ( lua_State* L )
 {
 	lua_pushnil ( L );
+	return 1;
+}
+
+// GetGamePaused(): 0; SetGamePaused is neutral until its engine side is here, so nothing is ever paused by it
+int GetGamePaused ( lua_State *L )
+{
+	lua_pushnumber ( L, 0 );
+	return 1;
+}
+
+// GetGameQuality(): 3, High, the level's own settings, until the quality scaling is here
+int GetGameQuality(lua_State* L)
+{
+	lua_pushinteger(L, 3);
 	return 1;
 }
 
@@ -669,6 +1100,13 @@ int GetLensFlare ( lua_State* L )
 	return 3;
 }
 
+// GetLightShafts(): 0 until the Lua render settings are here
+int GetLightShafts(lua_State* L)
+{
+	lua_pushnumber(L, 0);
+	return 1;
+}
+
 // GetLuaEntityCosts: neutral until its engine side is here; needs dKey (M-LUA.cpp, M-LUA.h); dMain (M-LUA.cpp, M-LUA.h); dRow (M-LUA.cpp, M-LUA.h); dTotal (M-LUA.cpp, M-LUA.h); dWindowMs (M-LUA.cpp, M-LUA.h, wickedcalls.cpp); iFrames (M-LUA.cpp, M-LUA.h, wickedcalls.cpp); iGC (M-LUA.cpp, M-LUA.h); iKeyScannersMax (M-LUA.cpp, M-LUA.h); iKeyScans (M-LUA.cpp, M-LUA.h); iMains (M-LUA.cpp, M-LUA.h); iRows (M-LUA.cpp, M-LUA.h); iTurns (M-LUA.cpp, M-LUA.h); lua_getentitycosts (M-LUA.cpp, M-LUA.h)
 int GetLuaEntityCosts ( lua_State* L )
 {
@@ -676,58 +1114,7 @@ int GetLuaEntityCosts ( lua_State* L )
 	return 1;
 }
 
-// GetPhysicsAwakeBodies: neutral until its engine side is here; needs PhysicsQuery_AwakeBodies (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp)
-int GetPhysicsAwakeBodies ( lua_State* L )
-{
-	lua_newtable ( L );
-	lua_newtable ( L );
-	lua_pushinteger ( L, 0 );
-	return 3;
-}
-
-// GetPhysicsBodyPose: neutral until its engine side is here; needs ODEGetBodyPose (BulletPhysics.CPP, BulletPhysics.H)
-int GetPhysicsBodyPose ( lua_State* L )
-{
-	// as the DX11 branch answers for an object with no body: nil for the pose, and 0 bodies
-	for ( int i = 0; i < 6; i++ ) lua_pushnil ( L );
-	lua_pushinteger ( L, 0 );
-	return 7;
-}
-
-// GetPhysicsPushLog: neutral until its engine side is here; needs ODEGetPushLog (BulletPhysics.CPP)
-int GetPhysicsPushLog ( lua_State* L )
-{
-	lua_newtable ( L );
-	return 1;
-}
-
-// GetPhysicsSlowPairs: neutral until its engine side is here; needs PhysicsQuery_SlowPairs (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp)
-int GetPhysicsSlowPairs ( lua_State* L )
-{
-	lua_newtable ( L );
-	return 1;
-}
-
-// GetPhysicsStats: neutral until its engine side is here; needs PhysicsQuery_Stats (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp); awakeBodies (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp); busiestObject (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp); busiestPoints (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp); subSteps (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp)
-int GetPhysicsStats ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	return 6;
-}
-
-// GetPhysicsStatsTop: neutral until its engine side is here; needs PHYSICS_LAYER_DYNAMIC (GGPhysicsQuery.h); PHYSICS_LAYER_STATIC (GGPhysicsQuery.h); PhysicsQuery_StatsTop (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp); sleepSpeed (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp); sleepSpin (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp)
-int GetPhysicsStatsTop ( lua_State* L )
-{
-	lua_newtable ( L );
-	return 1;
-}
-
-// GetPlayerHit: neutral until its engine side is here; needs fOX (G-Entity.cpp, G-Entity.h); fOY (G-Entity.cpp, G-Entity.h); fOZ (G-Entity.cpp, G-Entity.h); iDamage (G-Entity.cpp, G-Entity.h); iHealthAfter (G-Entity.cpp, G-Entity.h); iHole (G-Entity.cpp, G-Entity.h); iKilled (G-Entity.cpp, G-Entity.h); iKind (G-Entity.cpp, G-Entity.h); iMaterial (BulletPhysics.CPP, BulletPhysics.H, G-Entity.cpp); iShot (G-Entity.cpp, G-Entity.h); playerhit_get (G-Entity.cpp, G-Entity.h)
+// GetPlayerHit: neutral until its engine side is here; needs fOX (G-Entity.cpp, G-Entity.h); fOY (G-Entity.cpp, G-Entity.h); fOZ (G-Entity.cpp, G-Entity.h); iDamage (G-Entity.cpp, G-Entity.h); iHealthAfter (G-Entity.cpp, G-Entity.h); iHole (G-Entity.cpp, G-Entity.h); iKilled (G-Entity.cpp, G-Entity.h); iKind (G-Entity.cpp, G-Entity.h); iShot (G-Entity.cpp, G-Entity.h); playerhit_get (G-Entity.cpp, G-Entity.h)
 int GetPlayerHit ( lua_State* L )
 {
 	lua_pushinteger ( L, 0 );
@@ -756,6 +1143,13 @@ int GetPlayerHit ( lua_State* L )
 
 // GetPlayerHitSeq: neutral until its engine side is here; needs playerhit_getseq (G-Entity.cpp, G-Entity.h)
 int GetPlayerHitSeq ( lua_State* L )
+{
+	lua_pushinteger ( L, 0 );
+	return 1;
+}
+
+// GetRagdollAllDeaths(): 0 until its engine side is here
+int GetRagdollAllDeaths ( lua_State *L )
 {
 	lua_pushinteger ( L, 0 );
 	return 1;
@@ -820,26 +1214,12 @@ int GetTreeShade ( lua_State* L )
 	return 2;
 }
 
-// GetTreeTypeName: neutral until its engine side is here; needs GGTrees_GetTypeName (GGTrees.cpp, GGTrees.h)
-int GetTreeTypeName ( lua_State* L )
-{
-	lua_pushstring ( L, "" );
-	return 1;
-}
-
 // GetTreeVariety: neutral until its engine side is here; needs variety_mirror (GGTrees.cpp, GGTrees.h); variety_tint (GGTrees.cpp, GGTrees.h)
 int GetTreeVariety ( lua_State* L )
 {
 	lua_pushnumber ( L, 0 );
 	lua_pushnumber ( L, 0 );
 	return 2;
-}
-
-// GetTreesNear: neutral until its engine side is here; needs GGTrees_GetTypeName (GGTrees.cpp, GGTrees.h); instanceScale (GGTrees.cpp, GGTrees.h)
-int GetTreesNear ( lua_State* L )
-{
-	lua_newtable ( L );
-	return 1;
 }
 
 // GetVideoMemoryUsed: neutral until its engine side is here; needs GetVramUsageAndBudget (AutomationHarness.cpp, DBDLLCore.cpp)
@@ -873,56 +1253,6 @@ int IntersectRay ( lua_State* L )
 	lua_pushnumber ( L, 0 );
 	lua_pushinteger ( L, 0 );
 	return 9;
-}
-
-// PhysicsOverlapBox: neutral until its engine side is here; needs GGTrees_OverlapBoxTrunks (GGTrees.cpp, GGTrees.h); PHYSICS_LAYER_DEFAULT (GGPhysicsQuery.h); PHYSICS_QUERY_MAX_IGNORE (GGPhysicsQuery.h); PhysicsQuery_OverlapBox (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp)
-int PhysicsOverlapBox ( lua_State* L )
-{
-	// nothing overlapped: no objects, no trunks
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	return 2;
-}
-
-// PhysicsRay: neutral until its engine side is here; needs PHYSICS_LAYER_DEFAULT (GGPhysicsQuery.h); PHYSICS_QUERY_MAX_IGNORE (GGPhysicsQuery.h); PhysicsQuery_Ray (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp)
-int PhysicsRay ( lua_State* L )
-{
-	// no hit, in the shape the DX11 branch answers: hit, point, normal, object, fraction, tree, tree type, surface
-	lua_pushinteger ( L, 0 );
-	for ( int i = 0; i < 6; i++ ) lua_pushnumber ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushnumber ( L, 1.0f );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, -1 );
-	lua_pushinteger ( L, 0 );
-	return 12;
-}
-
-// PhysicsSweepBox: neutral until its engine side is here; needs GGTrees_SweepBoxTrunks (GGTrees.cpp, GGTrees.h); PHYSICS_LAYER_DEFAULT (GGPhysicsQuery.h); PHYSICS_QUERY_MAX_IGNORE (GGPhysicsQuery.h); PhysicsQuery_SweepBox (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp)
-int PhysicsSweepBox ( lua_State* L )
-{
-	// no hit, in the shape the DX11 branch answers: hit, point, normal, object, fraction, tree, tree type, surface
-	lua_pushinteger ( L, 0 );
-	for ( int i = 0; i < 6; i++ ) lua_pushnumber ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushnumber ( L, 1.0f );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, -1 );
-	lua_pushinteger ( L, 0 );
-	return 12;
-}
-
-// RayTrees: neutral until its engine side is here; needs GGTrees_RayCastTrunks (GGTrees.cpp, GGTrees.h, M-Physics.cpp)
-int RayTrees ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnil ( L );
-	lua_pushnil ( L );
-	lua_pushnil ( L );
-	lua_pushnil ( L );
-	lua_pushnil ( L );
-	return 7;
 }
 
 // RemoveProjectedDecal: neutral until its engine side is here; needs WickedCall_RemoveProjectedDecal (M-GridEditB.cpp, wickedcalls.cpp, wickedcalls.h)
@@ -1030,15 +1360,14 @@ int SetEntityRagdollHoldReference ( lua_State* L )
 	return 1;
 }
 
-// SetEntityRagdollHoldStiffness: neutral until its engine side is here; needs BPhys_RagDollGetHoldStiffness (BulletPhysics.CPP, BulletPhysics.H); BPhys_RagDollSetHoldStiffness (BulletPhysics.CPP, BulletPhysics.H)
-int SetEntityRagdollHoldStiffness ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	return 1;
-}
-
 // SetEntityReceivesDecals: neutral until its engine side is here; needs WickedCall_SetObjectReceivesDecals (G-Gun.cpp, M-HUD.cpp, wickedcalls.cpp)
 int SetEntityReceivesDecals ( lua_State* L )
+{
+	return 0;
+}
+
+// SetEscapeMenu(on): neutral until its engine side is here; Escape keeps opening the in-game menu
+int SetEscapeMenu ( lua_State *L )
 {
 	return 0;
 }
@@ -1086,6 +1415,19 @@ int SetGrassBudget ( lua_State* L )
 	return 0;
 }
 
+// SetGrassDistance(d): the grass draw distance, clamped to the editor slider range (750 to 7000); the restore at a test
+// game's end waits for its engine side
+int SetGrassDistance(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	float fDistance = lua_tonumber(L, 1);
+	if (fDistance < 750.0f) fDistance = 750.0f;
+	if (fDistance > 7000.0f) fDistance = 7000.0f;
+	gggrass_global_params.lod_dist = fDistance;
+	return 0;
+}
+
 // SetGrassEqualDepth: neutral until its engine side is here; needs GGGrass_SetEqualDepth (GGGrass.cpp, GGGrass.h, M-GridEditB.cpp)
 int SetGrassEqualDepth ( lua_State* L )
 {
@@ -1122,6 +1464,12 @@ int SetGrassTightBounds ( lua_State* L )
 	return 0;
 }
 
+// SetGunReloadWhileRunning(on): neutral until its engine side is here; the stock rule, no reload while running
+int SetGunReloadWhileRunning(lua_State* L)
+{
+	return 0;
+}
+
 // SetLODMultiplier: neutral until its engine side is here; needs LuaRenderSettings_SetLODMultiplier (M-GridEditB.cpp)
 int SetLODMultiplier ( lua_State* L )
 {
@@ -1130,6 +1478,12 @@ int SetLODMultiplier ( lua_State* L )
 
 // SetLensFlare: neutral until its engine side is here; needs LuaPostEffects_SetLensFlare (M-GridEditB.cpp)
 int SetLensFlare ( lua_State* L )
+{
+	return 0;
+}
+
+// SetLightMaxDistance(distance): neutral until its engine side is here; every light stays in the frame
+int SetLightMaxDistance(lua_State* L)
 {
 	return 0;
 }
@@ -1154,12 +1508,6 @@ int SetOcclusionCulling ( lua_State* L )
 
 // SetParticleHalfResolution: neutral until its engine side is here; needs WickedCall_SetParticleHalfResolution (wickedcalls.cpp, wickedcalls.h)
 int SetParticleHalfResolution ( lua_State* L )
-{
-	return 0;
-}
-
-// SetPhysicsPushLog: neutral until its engine side is here; needs ODESetPushLog (BulletPhysics.CPP)
-int SetPhysicsPushLog ( lua_State* L )
 {
 	return 0;
 }
@@ -1200,6 +1548,12 @@ int SetProjectedDecalOpacity ( lua_State* L )
 	return 0;
 }
 
+// SetRagdollAllDeaths(on): neutral until its engine side is here; deaths keep their animations
+int SetRagdollAllDeaths ( lua_State *L )
+{
+	return 0;
+}
+
 // SetRaycastLowestLOD: neutral until its engine side is here; needs LuaRenderSettings_SetRaycastLowestLOD (M-GridEditB.cpp)
 int SetRaycastLowestLOD ( lua_State* L )
 {
@@ -1221,6 +1575,16 @@ int SetReflectionsLowestLOD ( lua_State* L )
 // SetRenderScale: neutral until its engine side is here; needs LuaRenderSettings_SetRenderScale (M-GridEditB.cpp)
 int SetRenderScale ( lua_State* L )
 {
+	return 0;
+}
+
+// SetRenderTiming(mode): 1 times the renderer's work every frame so GetRenderTime can read them, 0 stops. This engine's
+// profiler has no CPU-only mode, so 2 times the GPU as well
+int SetRenderTiming ( lua_State *L )
+{
+	if ( LUA_GETTOP(L) < 1 ) return 0;
+	int iMode = (int)lua_tointeger(L, 1);
+	wiProfiler::SetEnabled ( iMode != 0 );
 	return 0;
 }
 
@@ -1342,13 +1706,6 @@ int SetTreeVariety ( lua_State* L )
 int SetVsync ( lua_State* L )
 {
 	return 0;
-}
-
-// SleepEntity: neutral until its engine side is here; needs PhysicsQuery_SleepIsland (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp)
-int SleepEntity ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	return 1;
 }
 
 // WParticleEffectClearKillBoxes: neutral until its engine side is here; needs killbox_count ()

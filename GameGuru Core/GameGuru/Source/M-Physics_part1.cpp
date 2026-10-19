@@ -1976,47 +1976,20 @@ int physics_getmaterialindex (float fX, float fZ)
 	return iMaterialIndex;
 }
 
+// the point and the trunk's normal where the last terrain ray met a tree (d52f3870), read by ODERayTerrain
+float g_fTreeRayHitX = 0, g_fTreeRayHitY = 0, g_fTreeRayHitZ = 0;
+float g_fTreeRayHitNX = 0, g_fTreeRayHitNY = 1, g_fTreeRayHitNZ = 0;
+
+// where a ray first meets a tree trunk, anywhere on the map (GGTrees_RayCastTrunks: the drawn trees, each trunk as thick as
+// its collision cylinder and as tall as the tree); the cylinders round the camera (physics_managevirtualtreecylinders) are
+// for the player's movement only. Keeps the entry point and the trunk's normal there for ODERayTerrain
 int physics_rayintersecttree (float fX, float fY, float fZ, float fToX, float fToY, float fToZ)
 {
-	float fHeightOfTreeDetect = 200.0f; //LB: Can be improved with geometry awareness (slower)
-	for (int vti = 0; vti < g_VTreeObj.size(); vti++)
-	{
-		bool bRayTooLowOrHigh = false;
-		if (fY < g_VTreeObj[vti].fY && fToY < g_VTreeObj[vti].fY) bRayTooLowOrHigh = true;
-		if (fY > g_VTreeObj[vti].fY + fHeightOfTreeDetect && fToY > g_VTreeObj[vti].fY + fHeightOfTreeDetect) bRayTooLowOrHigh = true;
-		if (bRayTooLowOrHigh==false)
-		{
-			// ray crosses Y area presence of tree
-			float fCX = g_VTreeObj[vti].fX;
-			float fCZ = g_VTreeObj[vti].fZ;
-			float r = 15.0f;
-			double x0 = fCX, y0 = fCZ;
-			double x1 = fX, y1 = fZ;
-			double x2 = fToX, y2 = fToZ;
-			double A = y2 - y1;
-			double B = x1 - x2;
-			double C = x2 * y1 - x1 * y2;
-			double a = (A*A) + (B*B);
-			double b, c, d;
-			const double eps = 1e-14;
-			if (fabs(B) >= eps) 
-			{
-				b = 2 * (A * C + A * B * y0 - (B*B) * x0);
-				c = (C*C) + 2 * B * C * y0 - (B*B) * ((r*r) - (x0*x0) - (y0*y0));
-			}
-			else 
-			{
-				b = 2 * (B * C + A * B * x0 - (A*A) * y0);
-				c = (C*C) + 2 * A * C * x0 - (A*A) * ((r*r) - (x0*x0) - (y0*y0));
-			}
-			d = (b*b) - 4 * a * c;
-			if (d > 0 )
-			{
-				return 1; // hit a tree
-			}
-		}
-	}
-	return 0;
+	float fHit[6];
+	if (GGTrees::GGTrees_RayCastTrunks(fX, fY, fZ, fToX, fToY, fToZ, fHit) == 0) return 0;
+	g_fTreeRayHitX = fHit[0]; g_fTreeRayHitY = fHit[1]; g_fTreeRayHitZ = fHit[2];
+	g_fTreeRayHitNX = fHit[3]; g_fTreeRayHitNY = fHit[4]; g_fTreeRayHitNZ = fHit[5];
+	return 1;
 }
 
 // GGMAX 2.41: frames remaining for the harness FIRE_WEAPON trigger-hold (see the consumer at the
