@@ -379,27 +379,10 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Forces full-detail models by ignoring pre-baked _lod files (debug use, not a performance gain - applies to newly loaded entities only)");
 		(void)g_iUseLODObjects;
 
-		// Reflections Use Fastest LOD: wired 2026-10-19 (wi::renderer::gg_reflection_lowest_lod, read by DrawScene for the
-		// planar reflection passes).
-		if (g_iUseLODObjects > 0 && !bDisableLODLoad)
-		{
-			extern bool bReflectionsLowestLOD;
-			ImGui::PushItemWidth(-10);
-			if (ImGui::Checkbox("Reflections Use Fastest LOD##Animationsculling", &bReflectionsLowestLOD))
-			{
-				t.gamevisuals.bReflectionsLowestLOD = t.visuals.bReflectionsLowestLOD = bReflectionsLowestLOD;
-				g.projectmodified = 1;
-			}
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("All reflection rendering is using fastest LOD.");
-			ImGui::PopItemWidth();
-		}
-
-		// The other "* Use Fastest LOD" children — HIDDEN 2026-07-25: DEAD in DX12. bShadowsLowestLOD / bProbesLowestLOD /
-		// bRaycastLowestLOD / bPhysicsLowestLOD are stored + saved but have ZERO consumers
-		// (verified by full-tree trace; the DX11 consumers lived in the closed engine DLL). Wicked does shadow/
-		// probe/physics LOD its own way, so these per-category "force lowest LOD" overrides don't map.
-		// The parent "Disable LOD Load" above stays (it's wired). Re-add a child only when a real DX12 consumer exists.
-#if 0
+		// The "* Use Fastest LOD" children, back since 2026-10-19: their DX11 consumers were GameGuru patches in the old
+		// WickedRepo (the mesh draw for shadows and probes, the scene pick for rays), not a closed DLL, and are on this engine
+		// now as wi::renderer::gg_shadow_lowest_lod, gg_probe_lowest_lod and wi::scene::gg_raycast_lowest_lod (pushed in
+		// MasterRenderer::Update); physics always had its consumer in BulletPhysics.
 		if (g_iUseLODObjects > 0 && !bDisableLODLoad)
 		{
 			extern bool bShadowsLowestLOD;
@@ -455,7 +438,6 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("All reflection rendering is using fastest LOD.");
 			ImGui::PopItemWidth();
 		}
-#endif
 
 		// FSR Mode (FidelityFX Super Resolution)
 		const char* fsr_items_align[] = { "None", "Ultra Quality","Quality", "Balanced", "Performance" };

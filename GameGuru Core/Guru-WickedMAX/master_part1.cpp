@@ -431,6 +431,7 @@ void GGPerf_TracePumpAccum(unsigned long long us)
 }
 
 namespace wi::scene { extern float gg_lod_step; } // the LOD distance step (wiScene.cpp), from the level's LOD Multiplier
+namespace wi::scene { extern int gg_raycast_lowest_lod; } // rays test a skinned mesh at its last LOD (wiScene.cpp), Raycast Use Fastest LOD
 
 // Phase 3: Forward declarations for GG custom draw functions (terrain/trees/grass)
 extern "C" void GGTerrain_Draw_Prepass(const wi::primitive::Frustum*, wi::graphics::CommandList);
@@ -1004,8 +1005,14 @@ void MasterRenderer::Update(float dt)
 		{
 			extern float fLODMultiplier;
 			extern bool bReflectionsLowestLOD;
+			extern bool bRaycastLowestLOD;
+			extern bool bShadowsLowestLOD;
+			extern bool bProbesLowestLOD;
 			wi::scene::gg_lod_step = 200.0f * fLODMultiplier;
 			wi::renderer::gg_reflection_lowest_lod = bReflectionsLowestLOD ? 1 : 0;
+			wi::scene::gg_raycast_lowest_lod = bRaycastLowestLOD ? 1 : 0;
+			wi::renderer::gg_shadow_lowest_lod = bShadowsLowestLOD ? 1 : 0;
+			wi::renderer::gg_probe_lowest_lod = bProbesLowestLOD ? 1 : 0;
 		}
 
 		// ★★★ GGMAX 3.34: Super Quick Objects -> which rung of the cut-down opaque shader.

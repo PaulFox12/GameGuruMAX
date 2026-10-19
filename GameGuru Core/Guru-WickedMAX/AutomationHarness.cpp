@@ -7956,6 +7956,69 @@ static bool AutoHarness_CensusCommands(const char* cmd, const char* arg, char* r
 		result[resultSize - 1] = 0;
 		return true;
 	}
+	if (_stricmp(cmd, "DUMP_RAYCOST") == 0)
+	{
+		// DUMP_RAYCOST: the last 64 ray picks, grouped by the object that took the most triangles of each: rays, triangles
+		// tested (skinned), and the object's name
+		wi::scene::Scene& rs = wi::scene::GetScene();
+		struct RayCostRow { wi::ecs::Entity entity; int rays; unsigned long long tris; unsigned long long skin; unsigned long long dearest; };
+		std::vector<RayCostRow> rows;
+		unsigned long long totalTris = 0, totalSkin = 0; int totalRays = 0;
+		for (uint32_t i = 0; i < wi::scene::Scene::GG_RAYCOST_RING; i++)
+		{
+			const wi::scene::Scene::GGRayCost& c = wi::scene::Scene::gg_raycost_ring[i];
+			if (c.tris == 0 && c.candidates == 0) continue;
+			totalRays++; totalTris += c.tris; totalSkin += c.skintris;
+			bool bFound = false;
+			for (auto& r : rows)
+				if (r.entity == c.dearest) { r.rays++; r.tris += c.tris; r.skin += c.skintris; r.dearest += c.dearest_tris; bFound = true; break; }
+			if (!bFound) rows.push_back({ c.dearest, 1, c.tris, c.skintris, c.dearest_tris });
+		}
+		std::sort(rows.begin(), rows.end(), [](const RayCostRow& a, const RayCostRow& b) { return a.dearest > b.dearest; });
+		int written = _snprintf(result, resultSize, "OK: DUMP_RAYCOST last %d rays: %llu triangles (%llu skinned)\n", totalRays, totalTris, totalSkin);
+		for (size_t i = 0; i < rows.size() && i < 10 && written > 0 && (size_t)written < resultSize - 1; i++)
+		{
+			const char* pName = "(none)";
+			const wi::scene::NameComponent* pNC = rs.names.GetComponent(rows[i].entity);
+			if (pNC) pName = pNC->name.c_str();
+			// an object with no name of its own: the entity of the GameGuru object that owns it, by its frame
+			cstr sOwner = "";
+			if (!pNC || pNC->name.empty() || pNC->name == "node_mesh")
+			{
+				for (int e = 1; e <= g.entityelementlist && sOwner.Len() == 0; e++)
+				{
+					int iObj = t.entityelement[e].obj;
+					if (iObj <= 0 || ObjectExist(iObj) == 0) continue;
+					sObject* pObj = GetObjectData(iObj);
+					if (!pObj || !pObj->ppFrameList) continue;
+					for (int iF = 0; iF < pObj->iFrameCount; iF++)
+						if (pObj->ppFrameList[iF] && pObj->ppFrameList[iF]->wickedobjindex == rows[i].entity) { sOwner = cstr("entity ") + Str(e) + " obj " + Str(iObj) + " " + t.entityelement[e].eleprof.name_s; break; }
+				}
+			}
+			// and the mesh behind it: its triangles, whether it has a BVH or bone clusters, whether it is a terrain chunk
+			cstr sMesh = "";
+			const wi::scene::ObjectComponent* pOC = rs.objects.GetComponent(rows[i].entity);
+			if (pOC)
+			{
+				const wi::scene::MeshComponent* pMC = rs.meshes.GetComponent(pOC->meshID);
+				if (pMC)
+				{
+					bool bChunk = false;
+					for (size_t ti = 0; ti < rs.terrains.GetCount() && !bChunk; ++ti)
+						for (auto& it : rs.terrains[ti].chunks)
+							if (it.second.entity == rows[i].entity) { bChunk = true; break; }
+					const wi::scene::NameComponent* pMN = rs.names.GetComponent(pOC->meshID);
+					sMesh = cstr(" [mesh ") + (pMN ? pMN->name.c_str() : "") + " " + Str((int)(pMC->indices.size() / 3)) + " tris, lods " + Str((int)pMC->GetLODCount())
+						+ (pMC->bvh.IsValid() ? ", bvh" : ", no bvh") + (pMC->IsSkinned() ? ", skinned" : "") + (pMC->gg_bone_clusters_built ? cstr(", clusters ") + Str((int)pMC->gg_bone_clusters.size()) : cstr(""))
+						+ (bChunk ? ", terrain chunk" : "") + "]";
+				}
+			}
+			written += _snprintf(result + written, resultSize - written, "  %d rays, %llu tris (%llu skinned), dearest object took %llu: %s %s%s\n",
+				rows[i].rays, rows[i].tris, rows[i].skin, rows[i].dearest, pName, sOwner.Get(), sMesh.Get());
+		}
+		result[resultSize - 1] = 0;
+		return true;
+	}
 	if (_stricmp(cmd, "DUMP_LODSTATS") == 0)
 	{
 		// DUMP_LODSTATS: the meshes by LOD count, and the objects with LODs by the LOD they draw at this frame
