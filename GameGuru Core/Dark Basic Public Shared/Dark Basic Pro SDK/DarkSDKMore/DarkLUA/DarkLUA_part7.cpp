@@ -72,6 +72,8 @@ static void GGLua_InstallCompatShim(lua_State* L)
 	}
 }
 
+void addFunctions_hiredgun();
+
 void addFunctions()
 {
 	// add internal commands
@@ -1339,7 +1341,8 @@ void addFunctions()
 	lua_register(lua2, "ForceGunUnderWater", ForceGunUnderWater);
 	lua_register(lua2, "GetGunEmissiveStrength", GetGunEmissiveStrength);
 	lua_register(lua2, "SetGunEmissiveStrength", SetGunEmissiveStrength);
-	
+
+	addFunctions_hiredgun();
 }
 
  /*
