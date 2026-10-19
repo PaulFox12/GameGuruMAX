@@ -688,13 +688,9 @@ int GetPhysicsAwakeBodies ( lua_State* L )
 // GetPhysicsBodyPose: neutral until its engine side is here; needs ODEGetBodyPose (BulletPhysics.CPP, BulletPhysics.H)
 int GetPhysicsBodyPose ( lua_State* L )
 {
-	lua_pushnumber ( L, 0 );
-	lua_pushnil ( L );
-	lua_pushnumber ( L, 0 );
-	lua_pushnil ( L );
+	// as the DX11 branch answers for an object with no body: nil for the pose, and 0 bodies
+	for ( int i = 0; i < 6; i++ ) lua_pushnil ( L );
 	lua_pushinteger ( L, 0 );
-	lua_pushnil ( L );
-	lua_pushnil ( L );
 	return 7;
 }
 
@@ -882,19 +878,38 @@ int IntersectRay ( lua_State* L )
 // PhysicsOverlapBox: neutral until its engine side is here; needs GGTrees_OverlapBoxTrunks (GGTrees.cpp, GGTrees.h); PHYSICS_LAYER_DEFAULT (GGPhysicsQuery.h); PHYSICS_QUERY_MAX_IGNORE (GGPhysicsQuery.h); PhysicsQuery_OverlapBox (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp)
 int PhysicsOverlapBox ( lua_State* L )
 {
-	return 0;
+	// nothing overlapped: no objects, no trunks
+	lua_pushinteger ( L, 0 );
+	lua_pushinteger ( L, 0 );
+	return 2;
 }
 
 // PhysicsRay: neutral until its engine side is here; needs PHYSICS_LAYER_DEFAULT (GGPhysicsQuery.h); PHYSICS_QUERY_MAX_IGNORE (GGPhysicsQuery.h); PhysicsQuery_Ray (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp)
 int PhysicsRay ( lua_State* L )
 {
-	return 0;
+	// no hit, in the shape the DX11 branch answers: hit, point, normal, object, fraction, tree, tree type, surface
+	lua_pushinteger ( L, 0 );
+	for ( int i = 0; i < 6; i++ ) lua_pushnumber ( L, 0 );
+	lua_pushinteger ( L, 0 );
+	lua_pushnumber ( L, 1.0f );
+	lua_pushinteger ( L, 0 );
+	lua_pushinteger ( L, -1 );
+	lua_pushinteger ( L, 0 );
+	return 12;
 }
 
 // PhysicsSweepBox: neutral until its engine side is here; needs GGTrees_SweepBoxTrunks (GGTrees.cpp, GGTrees.h); PHYSICS_LAYER_DEFAULT (GGPhysicsQuery.h); PHYSICS_QUERY_MAX_IGNORE (GGPhysicsQuery.h); PhysicsQuery_SweepBox (GGPhysicsQuery.h, GGPhysicsQuery_Bullet.cpp)
 int PhysicsSweepBox ( lua_State* L )
 {
-	return 0;
+	// no hit, in the shape the DX11 branch answers: hit, point, normal, object, fraction, tree, tree type, surface
+	lua_pushinteger ( L, 0 );
+	for ( int i = 0; i < 6; i++ ) lua_pushnumber ( L, 0 );
+	lua_pushinteger ( L, 0 );
+	lua_pushnumber ( L, 1.0f );
+	lua_pushinteger ( L, 0 );
+	lua_pushinteger ( L, -1 );
+	lua_pushinteger ( L, 0 );
+	return 12;
 }
 
 // RayTrees: neutral until its engine side is here; needs GGTrees_RayCastTrunks (GGTrees.cpp, GGTrees.h, M-Physics.cpp)
