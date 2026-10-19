@@ -834,6 +834,9 @@ void WickedCall_LoadNode(sFrame* pFrame, Entity parent, Entity root, WickedLoade
 			//mesh.subsets.back().active = true; // REMOVED - MeshSubset.active no longer exists
 
 			mesh.subsets_per_lod = 0; //PE: NEWLOD
+			// each LOD is one subset, so subsets_per_lod is 1 whatever the LOD count (the engine reads it as subsets PER
+			// LOD; set to the LOD count it made GetLODCount 1 for a mesh with two or three LODs, which then drew its base
+			// and LOD 1 subsets together every pass and never stepped down)
 			if (pDBOMesh->dwIndexCountLOD1 > 0)
 			{
 				mesh.subsets_per_lod = 1;
@@ -852,7 +855,7 @@ void WickedCall_LoadNode(sFrame* pFrame, Entity parent, Entity root, WickedLoade
 			}
 			if (pDBOMesh->dwIndexCountLOD2 > 0)
 			{
-				mesh.subsets_per_lod = 2;
+				mesh.subsets_per_lod = 1;
 				mesh.subsets.push_back(wiScene::MeshComponent::MeshSubset());
 				mesh.subsets.back().materialID = pDBOMesh->wickedmaterialindex;
 				mesh.subsets.back().indexOffset = mesh.indices.size();
@@ -868,7 +871,7 @@ void WickedCall_LoadNode(sFrame* pFrame, Entity parent, Entity root, WickedLoade
 			}
 			if (pDBOMesh->dwIndexCountLOD3 > 0)
 			{
-				mesh.subsets_per_lod = 3;
+				mesh.subsets_per_lod = 1;
 				mesh.subsets.push_back(wiScene::MeshComponent::MeshSubset());
 				mesh.subsets.back().materialID = pDBOMesh->wickedmaterialindex;
 				mesh.subsets.back().indexOffset = mesh.indices.size();
