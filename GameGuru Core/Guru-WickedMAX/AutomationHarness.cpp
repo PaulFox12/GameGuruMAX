@@ -7937,6 +7937,16 @@ static bool AutoHarness_CensusCommands(const char* cmd, const char* arg, char* r
 		return true;
 	}
 
+	if (_stricmp(cmd, "SET_TAA") == 0)
+	{
+		// SET_TAA <0|1>: the engine's temporal AA, as the game's SetTAA sets it (for the editor, where RUN_LUA has no state)
+		extern void LuaRenderSettings_SetTAA(int iOn);
+		int on = atoi(arg) != 0 ? 1 : 0;
+		LuaRenderSettings_SetTAA(on);
+		_snprintf(result, resultSize, "OK: SET_TAA %d", on);
+		result[resultSize - 1] = 0;
+		return true;
+	}
 	if (_stricmp(cmd, "SET_REFLTRANSPARENT") == 0)
 	{
 		// SET_REFLTRANSPARENT <0|1>: whether the planar reflection draws the transparent objects (an A/B lever)
