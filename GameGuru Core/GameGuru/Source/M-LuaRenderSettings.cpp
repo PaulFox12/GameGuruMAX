@@ -148,6 +148,12 @@ void LuaPostEffects_GetScreenLensFlare(int* piEnabled, float* pfIntensity, float
 	*piFollowBloom = p->iScreenLensFlareFollowBloom > 0 ? 1 : 0;
 }
 
+void LuaPostEffects_GetLensFlareSun(float* pfSunHue, float* pfSunBrightness)
+{
+	// this engine's lens flare takes the light's own colour: the values a script set, else 0
+	*pfSunHue = g_LuaPostEffects.fLensFlareSunHue >= 0 ? g_LuaPostEffects.fLensFlareSunHue : 0;
+	*pfSunBrightness = g_LuaPostEffects.fLensFlareSunBrightness >= 0 ? g_LuaPostEffects.fLensFlareSunBrightness : 0;
+}
 void LuaPostEffects_SetLensFlare(int iEnabled, float fSunHue, float fSunBrightness)
 {
 	if (iEnabled >= 0) g_LuaPostEffects.iLensFlare = iEnabled ? 1 : 0;
@@ -234,6 +240,8 @@ struct sLuaRenderSettings
 	float fFSRSharpness = -1;
 	int iRaycastLowestLOD = -1;
 	int iTransparentShadows = -1;
+	int iTAA = -1; // this engine's temporal anti-aliasing (SetTAA)
+	int iUpscaler = 0; // what SetRenderScale upscales with: 0 FSR 1, 1 FSR 2 (SetUpscaler)
 	int iTerrainDetailLimitBefore = 0;
 	float fTerrainDetailScaleBefore = 1.0f;
 	int iTerrainReadBackReductionBefore = 4;
@@ -290,14 +298,28 @@ bool LuaRenderSettings_TransparentShadows(bool bVisuals)
 
 // FSR 1 upscaling from a 3D resolution of 1 / fUpScale of the screen's (1 for none), as the level's FSR setting does it in
 // Wicked_Update_Visuals (the render targets are made again, a hitch)
+// the 3D drawn at 1 / fUpScale of the screen and upscaled: by FSR 1 (spatial, as the DX11 branch and this engine's own panel
+// do it), or by FSR 2 (this engine's temporal upscaler, which anti-aliases as well) when SetUpscaler(1) asked for it. FSR 2
+// smears and speckles until GameGuru's own terrain, tree and grass passes give it the motion it needs. 1 draws at the screen's
+// size
 static void LuaRenderSettings_SetFSRScale(float fUpScale)
 {
 	if (!master_renderer) return;
 	float fScale = fUpScale > 0 ? 1.0f / fUpScale : 1.0f;
-	if (master_renderer->resolutionScale == fScale) return;
+	bool bUpscale = fUpScale != 1.0f;
+	bool bFSR2 = bUpscale && g_LuaRenderSettings.iUpscaler == 1;
+	bool bFSR1 = bUpscale && !bFSR2;
+	if (master_renderer->resolutionScale == fScale && master_renderer->getFSREnabled() == bFSR1 && master_renderer->getFSR2Enabled() == bFSR2) return;
 	master_renderer->resolutionScale = fScale;
-	master_renderer->setFSREnabled(fUpScale != 1.0f);
-	if (fUpScale != 1.0f) master_renderer->setFSRSharpness(t.visuals.fFSRSharpness);
+	master_renderer->setFSREnabled(bFSR1);
+	master_renderer->setFSR2Enabled(bFSR2);
+	if (bFSR1) master_renderer->setFSRSharpness(t.visuals.fFSRSharpness);
+	if (bFSR2) master_renderer->setFSR2Sharpness(t.visuals.fFSRSharpness);
+	// the texture LOD bias that goes with a temporal upscale, as the engine's FSR 2 presets set it (log2 of the scale, less one)
+	wi::graphics::SamplerDesc desc = wi::renderer::GetSampler(wi::enums::SAMPLER_OBJECTSHADER)->GetDesc();
+	desc.mip_lod_bias = bFSR2 ? log2f(fScale) - 1.0f : 0.0f;
+	wi::renderer::ModifyObjectSampler(desc);
+	master_renderer->ResizeBuffers();
 }
 
 // the upscale of the level's FSR setting (None, Ultra Quality, Quality, Balanced, Performance)
@@ -330,6 +352,7 @@ void LuaRenderSettings_Apply(void)
 	if (p->iTerrainReadBackReduction >= 0) ggterrain_global_render_params2.readBackTextureReduction = (uint32_t)p->iTerrainReadBackReduction;
 	if (p->iGrassSimpleLighting >= 0) gggrass_global_params.simplePBR = p->iGrassSimpleLighting;
 	if (p->iRaycastLowestLOD >= 0) bRaycastLowestLOD = p->iRaycastLowestLOD != 0;
+	if (p->iTAA >= 0) wiRenderer::SetTemporalAAEnabled(p->iTAA != 0);
 	if (p->fGamma >= 0) LuaRenderSettings_SetGammaTarget(p->fGamma);
 	if (p->iVsync >= 0) gridedit_setvsync(p->iVsync != 0);
 	if (p->iFrameRateCap >= 0) g_iFrameRateCap = p->iFrameRateCap;
@@ -362,7 +385,7 @@ void LuaRenderSettings_Apply(void)
 		// FSR needs FXAA (Wicked_Update_Visuals)
 		if (p->fRenderScale < 1.0f && master_renderer) master_renderer->setFXAAEnabled(true);
 	}
-	if (p->fFSRSharpness >= 0) master.masterrenderer.setFSRSharpness(p->fFSRSharpness);
+	if (p->fFSRSharpness >= 0 && master_renderer) { master_renderer->setFSRSharpness(p->fFSRSharpness); master_renderer->setFSR2Sharpness(p->fFSRSharpness); }
 }
 
 // values below 0 keep the current setting
@@ -623,6 +646,28 @@ void LuaRenderSettings_SetRaycastLowestLOD(int iOn)
 	LuaRenderSettings_Apply();
 }
 
+// the engine's temporal anti-aliasing (not the DX11 branch's: this engine has it; FSR 2 upscaling anti-aliases on its own)
+void LuaRenderSettings_SetTAA(int iOn)
+{
+	if (iOn >= 0) g_LuaRenderSettings.iTAA = iOn ? 1 : 0;
+	LuaRenderSettings_Apply();
+}
+int LuaRenderSettings_GetTAA(void)
+{
+	return wiRenderer::GetTemporalAAEnabled() ? 1 : 0;
+}
+// what SetRenderScale upscales with: 0 FSR 1, 1 FSR 2; a running upscale is redone with the new one
+void LuaRenderSettings_SetUpscaler(int iMode)
+{
+	int iNew = iMode == 1 ? 1 : 0;
+	if (g_LuaRenderSettings.iUpscaler == iNew) return;
+	g_LuaRenderSettings.iUpscaler = iNew;
+	if (g_LuaRenderSettings.fRenderScale > 0 && g_LuaRenderSettings.fRenderScale < 1.0f) LuaRenderSettings_SetFSRScale(1.0f / g_LuaRenderSettings.fRenderScale);
+}
+int LuaRenderSettings_GetUpscaler(void)
+{
+	return g_LuaRenderSettings.iUpscaler;
+}
 void LuaRenderSettings_SetTransparentShadows(int iOn)
 {
 	if (iOn >= 0) g_LuaRenderSettings.iTransparentShadows = iOn ? 1 : 0;
@@ -750,8 +795,9 @@ static void LuaRenderSettings_RestoreGraphics(const sLuaRenderSettings& old, vis
 		Wicked_Update_Shadows(visuals);
 	}
 	if (old.fGamma >= 0) LuaRenderSettings_SetGammaTarget(visuals->fGamma);
-	if (old.fFSRSharpness >= 0) master.masterrenderer.setFSRSharpness(visuals->fFSRSharpness);
+	if (old.fFSRSharpness >= 0 && master_renderer) { master_renderer->setFSRSharpness(visuals->fFSRSharpness); master_renderer->setFSR2Sharpness(visuals->fFSRSharpness); }
 	if (old.iRaycastLowestLOD >= 0) bRaycastLowestLOD = visuals->bRaycastLowestLOD;
+	if (old.iTAA >= 0) wiRenderer::SetTemporalAAEnabled(false); // the stock engine runs without it
 	if (old.iFXAA >= 0 && master_renderer) master_renderer->setFXAAEnabled(visuals->bFXAAEnabled);
 	if (old.iReflections >= 0 && master_renderer) master_renderer->setReflectionsEnabled(visuals->bReflectionsEnabled);
 	if (old.iVsync >= 0) gridedit_setvsync(visuals->bLevelVSyncEnabled && g.gvsync != 0);
@@ -815,6 +861,8 @@ void LuaRenderSettings_ResetGraphics(void)
 	p->fFSRSharpness = -1;
 	p->iRaycastLowestLOD = -1;
 	p->iTransparentShadows = -1;
+	p->iTAA = -1;
+	p->iUpscaler = 0;
 	p->iSSR = -1;
 	p->iAO = -1;
 	p->fAOPower = -1;

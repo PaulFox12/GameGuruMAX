@@ -13,6 +13,7 @@ extern void LuaPostEffects_SetDepthOfField(int iEnabled, float fStrength, float 
 extern void LuaPostEffects_GetDepthOfField(int* piEnabled, float* pfStrength, float* pfFocalLength, float* pfApertureSize);
 extern void LuaPostEffects_SetLightShafts(int iEnabled);
 extern void LuaPostEffects_SetLensFlare(int iEnabled, float fSunHue, float fSunBrightness);
+extern void LuaPostEffects_GetLensFlareSun(float* pfSunHue, float* pfSunBrightness);
 extern void LuaPostEffects_SetScreenLensFlare(int iEnabled, float fIntensity, float fThreshold, float fSpacing, float fHalo, int iNoSky, float fCap, int iFollowBloom);
 extern void LuaPostEffects_GetScreenLensFlare(int* piEnabled, float* pfIntensity, float* pfThreshold, float* pfSpacing, float* pfHalo, int* piNoSky, float* pfCap, int* piFollowBloom);
 extern bool GetLightShaftState(void);
@@ -489,6 +490,17 @@ int GetGrassDistance(lua_State* L)
 {
 	lua_pushnumber(L, gggrass_global_params.lod_dist);
 	return 1;
+}
+
+int GetLensFlare(lua_State* L)
+{
+	lua_pushnumber(L, GetLensFlareState() ? 1 : 0);
+	// GG: and how far the sun's flare takes its colour and follows its intensity
+	float fSunHue = 0, fSunBrightness = 0;
+	LuaPostEffects_GetLensFlareSun(&fSunHue, &fSunBrightness);
+	lua_pushnumber(L, fSunHue);
+	lua_pushnumber(L, fSunBrightness);
+	return 3;
 }
 
 // GetObjectMass(obj) - the kilos its physics body has now; 0 for no body or a static one
@@ -1305,7 +1317,7 @@ int SleepEntity(lua_State *L)
 	return 1;
 }
 
-// waiting for their engine side
+// waiting for their engine side, and this branch's own
 
 // AddBlastDecal: neutral until its engine side is here; needs WickedCall_AddBlastDecal (wickedcalls.cpp, wickedcalls.h); WickedCall_FindDecalRayTargets (wickedcalls.cpp, wickedcalls.h); WickedCall_SetProjectedDecalOpacity (wickedcalls.cpp, wickedcalls.h)
 int AddBlastDecal ( lua_State* L )
@@ -1488,15 +1500,6 @@ int GetGpuFrameCosts ( lua_State* L )
 {
 	lua_pushnil ( L );
 	return 1;
-}
-
-// GetLensFlare: neutral until its engine side is here; needs LuaPostEffects_GetLensFlareSun (M-GridEditB.cpp)
-int GetLensFlare ( lua_State* L )
-{
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	return 3;
 }
 
 // GetLightShafts(): 0 until the Lua render settings are here
@@ -1978,6 +1981,43 @@ int WParticleEffectSetWrapMotion ( lua_State* L )
 	return 1;
 }
 
+// SetTAA(on): the engine's temporal anti-aliasing, 1 on, 0 off (this engine's; FSR 2 upscaling anti-aliases on its own).
+// Back to off at each level start and a test game's end
+int SetTAA ( lua_State *L )
+{
+	if ( LUA_GETTOP(L) < 1 ) return 0;
+	extern void LuaRenderSettings_SetTAA(int iOn);
+	LuaRenderSettings_SetTAA ( lua_tointeger(L, 1) != 0 ? 1 : 0 );
+	return 0;
+}
+
+// GetTAA(): 1 while the temporal anti-aliasing is on
+int GetTAA ( lua_State *L )
+{
+	extern int LuaRenderSettings_GetTAA(void);
+	lua_pushinteger ( L, LuaRenderSettings_GetTAA() );
+	return 1;
+}
+
+// SetUpscaler(mode): what SetRenderScale upscales with on this engine: 0 FSR 1 (spatial, the DX11 branch's), 1 FSR 2
+// (temporal; it anti-aliases too, but GameGuru's own terrain, tree and grass passes do not yet give it the motion it
+// needs, so it smears and speckles until that is done). FSR 1 at each level start
+int SetUpscaler ( lua_State *L )
+{
+	if ( LUA_GETTOP(L) < 1 ) return 0;
+	extern void LuaRenderSettings_SetUpscaler(int iMode);
+	LuaRenderSettings_SetUpscaler ( (int)lua_tointeger(L, 1) );
+	return 0;
+}
+
+// GetUpscaler(): 0 FSR 1, 1 FSR 2
+int GetUpscaler ( lua_State *L )
+{
+	extern int LuaRenderSettings_GetUpscaler(void);
+	lua_pushinteger ( L, LuaRenderSettings_GetUpscaler() );
+	return 1;
+}
+
 void addFunctions_hiredgun()
 {
 	lua_register(lua2, "AddBlastDecal", AddBlastDecal);
@@ -2142,4 +2182,8 @@ void addFunctions_hiredgun()
 	lua_register(lua2, "WParticleEffectSetOpacity", WParticleEffectSetOpacity);
 	lua_register(lua2, "WParticleEffectSetSize", WParticleEffectSetSize);
 	lua_register(lua2, "WParticleEffectSetWrapMotion", WParticleEffectSetWrapMotion);
+	lua_register(lua2, "SetTAA", SetTAA);
+	lua_register(lua2, "GetTAA", GetTAA);
+	lua_register(lua2, "SetUpscaler", SetUpscaler);
+	lua_register(lua2, "GetUpscaler", GetUpscaler);
 }
