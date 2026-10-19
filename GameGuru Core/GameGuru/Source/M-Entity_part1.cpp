@@ -123,6 +123,8 @@
 		t.entityprofile[t.entid].usespotlighting=0;
 		t.entityprofile[t.entid].lodmodifier=0;
 		t.entityprofile[t.entid].isocluder=1; // can be adjusted (if notanoccluder set to 1)
+		t.entityprofile[t.entid].navmeshbake = 0;
+		t.entityprofile[t.entid].noapparentcull = 0;
 		t.entityprofile[t.entid].isocludee=1;
 		t.entityprofile[t.entid].lootpercentage=100;
 		t.entityprofile[t.entid].specular=0;
@@ -145,6 +147,12 @@
 		t.entityprofile[t.entid].ismarker = 0;  //PE: Was not reset.
 		t.entityprofile[t.entid].ischaracter = 0;
 		t.entityprofile[t.entid].bIsDecal = false; //PE: Was not set.
+		t.entityprofile[t.entid].entitylight = 0;
+		t.entityprofile[t.entid].entitylightx = 0.0f;
+		t.entityprofile[t.entid].entitylighty = 0.0f;
+		t.entityprofile[t.entid].entitylightz = 0.0f;
+		t.entityprofile[t.entid].entitylightshadows = 0;
+		t.entityprofile[t.entid].physicsmass = 0.0f;
 		t.entityprofile[t.entid].isspinetracker = 1;
 		t.entityprofile[t.entid].phyweight=100;
 		t.entityprofile[t.entid].phyfriction=100;
@@ -539,6 +547,12 @@
 					cmpStrConst( t_field_s, "forceobstaclesliceminsize" );
 					if (  matched  )  t.entityprofile[t.entid].forceobstaclesliceminsize = t.value1;
 
+					cmpStrConst( t_field_s, "navmeshbake" );
+					if ( matched ) t.entityprofile[t.entid].navmeshbake = t.value1;
+
+					cmpStrConst( t_field_s, "noapparentcull" );
+					if ( matched ) t.entityprofile[t.entid].noapparentcull = t.value1;
+
 					cmpStrConst( t_field_s, "notanoccluder" );
 					if (  matched  )  
 					{
@@ -604,6 +618,14 @@
 						t.entityprofile[t.entid].materialindex = t.value1;
 						if (t.entityprofile[t.entid].materialindex == -1) t.entityprofile[t.entid].materialindex = 0; // repair!
 					}
+
+					// Allow Bullet Holes until set per placement (-1 when absent: static entities only, see entity_allowsbulletholes)
+					cmpStrConst( t_field_s, "allowbulletholes" );
+					if (matched) t.entityprofile[t.entid].allowbulletholes = t.value1;
+
+					// Clear Grass and Trees until set per placement (-1 when absent: large static objects only, see entity_clearsvegetation)
+					cmpStrConst( t_field_s, "clearvegetation" );
+					if (matched) t.entityprofile[t.entid].clearvegetation = t.value1;
 
 					//  LOD and BITBOB system
 					cmpStrConst( t_field_s, "disablebatch" );
@@ -1177,6 +1199,21 @@
 					// light type flags
 					cmpStrConst( t_field_s, "usespotlighting" );
 					if (  matched  )  t.entityprofile[t.entid].usespotlighting = t.value1;
+
+					// GG: a light each placed one carries (lightrange and lightcolor give its range and colour)
+					cmpStrConst( t_field_s, "entitylight" );
+					if (  matched  )  t.entityprofile[t.entid].entitylight = t.value1;
+					cmpStrConst( t_field_s, "entitylightx" );
+					if (  matched  )  t.entityprofile[t.entid].entitylightx = t.value1_f;
+					cmpStrConst( t_field_s, "entitylighty" );
+					if (  matched  )  t.entityprofile[t.entid].entitylighty = t.value1_f;
+					cmpStrConst( t_field_s, "entitylightz" );
+					if (  matched  )  t.entityprofile[t.entid].entitylightz = t.value1_f;
+					cmpStrConst( t_field_s, "entitylightshadows" );
+					if (  matched  )  t.entityprofile[t.entid].entitylightshadows = t.value1;
+					// GG: its physics body's mass in kilos (SetEntityMass sets one for a single entity)
+					cmpStrConst( t_field_s, "physicsmass" );
+					if (  matched  )  t.entityprofile[t.entid].physicsmass = t.value1_f;
 
 					//  trigger extras
 					cmpStrConst( t_field_s, "stylecolor" );

@@ -7,6 +7,7 @@
 // Includes
 #include "stdafx.h"
 #include "gameguru.h"
+#include <map>
 
 // OPTICK Performance
 #ifdef OPTICK_ENABLE
@@ -21,7 +22,10 @@ using namespace wiScene;
 using namespace wiECS;
 
 // Externs
-extern void newparticle_updateparticleemitter (newparticletype* pParticle, float fScale, float fX, float fY, float fZ, float fRX, float fRY, float fRZ, GGMATRIX* pmatBaseRotation, bool bAutoDelete, int decal_id = -1);
+extern void newparticle_updateparticleemitter (newparticletype* pParticle, float fScale, float fX, float fY, float fZ, float fRX, float fRY, float fRZ, GGMATRIX* pmatBaseRotation, bool bAutoDelete, int decal_id = -1, const GGVECTOR3* pvecUp = NULL);
+
+// GG: the up a decal element's WPE effect stands on when it fires (decalelement_standon), by element; none is upright
+static std::map<int, GGVECTOR3> g_DecalElementUp;
 
 // 
 //  Decal Module
@@ -99,6 +103,27 @@ static void decal_buildelement ( int f )
 	sObject* pObject = GetObjectData(tobj);
 	WickedCall_SetObjectCastShadows(pObject, false);
 	WickedCall_SetObjectLightToUnlit(pObject, (int)wiScene::MaterialComponent::SHADERTYPE_UNLIT);
+
+	// full image UVs, animation frames are set through the material (decal_setelementuvframe)
+	SetObjectUVManually ( tobj, 0, 1, 1 );
+}
+
+// set decal animation frame via material UV scale and offset (no mesh rebuild)
+void decal_setelementuvframe ( int iObj, int iFrameIndex, int iAcross, int iDown )
+{
+	if ( iAcross < 1 ) iAcross = 1;
+	if ( iDown < 1 ) iDown = 1;
+	float fUSize = 1.0f / (float)iAcross;
+	float fVSize = 1.0f / (float)iDown;
+	float fU = 0.0f;
+	float fV = 0.0f;
+	if ( iFrameIndex != 0 )
+	{
+		fU = (iFrameIndex % iAcross) * fUSize;
+		fV = (iFrameIndex / iAcross) * fVSize;
+	}
+	sObject* pObject = GetObjectData ( iObj );
+	if ( pObject ) WickedCall_SetObjectTextureUV ( pObject, fUSize, fVSize, fU, fV );
 }
 
 // Raise the built high-water mark to `want`, clamped to the pool ceiling. Slot indices are
@@ -582,11 +607,21 @@ void decal_getparticlefile ( void )
 }
 
 int g_iBlendMode = BLENDMODE_ALPHA;
+// GG: a decal element's WPE effect, when it fires, stands on this up (its local Y), not upright (a projectile's explosion
+// on the surface it hit); a zero up leaves it upright
+void decalelement_standon ( int d, float fNX, float fNY, float fNZ )
+{
+	if ( d <= 0 || d > g.decalelementmax ) return;
+	if ( fNX == 0.0f && fNY == 0.0f && fNZ == 0.0f ) { g_DecalElementUp.erase ( d ); return; }
+	g_DecalElementUp[d] = GGVECTOR3 ( fNX, fNY, fNZ );
+}
+
 void decalelement_create ( void )
 {
 #ifdef OPTICK_ENABLE
 	OPTICK_EVENT();
 #endif
+	WickedCallProbeScope probe(WICKEDCALL_PROBE_DECAL_CREATE);
 
 	//  Decal Orient Modes
 	//  0 - perfectly upright facing camera (X=Z=0)
@@ -649,6 +684,7 @@ void decalelement_create ( void )
 		}
 		// activate new decal element
 		t.currentdecald=t.d;
+		g_DecalElementUp.erase ( t.d );
 		t.decalelement[t.d].decalid=t.decalid;
 		t.decalelement[t.d].active=1;
 		t.decalelement[t.d].xpos=g.decalx;
@@ -854,6 +890,8 @@ void decalelement_create ( void )
 			}
 			ScaleObject (t.tobj, t.decalelement[t.d].scalemodx, t.decalelement[t.d].scalemody, 100);
 			SetAlphaMappingOn (t.tobj, 0);
+			t.decalelement[t.d].alphavalue = 0;
+			t.decalelement[t.d].uvframe = -1;
 			//SetBlend
 			//  UV data prep
 			if (t.decal[t.decalid].across > 1)
@@ -976,7 +1014,8 @@ void decalelement_control ( void )
 				float fRY = 0.0f;
 				float fRZ = 0.0f;
 				GGMatrixRotationY(&pmatBaseRotation, GGToRadian(fRY));
-				newparticle_updateparticleemitter(&t.decalelement[t.f].newparticle, fScale, fX, fY, fZ, fRX, fRY, fRZ, NULL, true, decalid);
+				std::map<int, GGVECTOR3>::iterator itUp = g_DecalElementUp.find ( t.f );
+				newparticle_updateparticleemitter(&t.decalelement[t.f].newparticle, fScale, fX, fY, fZ, fRX, fRY, fRZ, NULL, true, decalid, itUp != g_DecalElementUp.end() ? &itUp->second : NULL);
 
 				if (t.decal[decalid].newparticle.bWPE)
 				{
@@ -1110,14 +1149,14 @@ void decalelement_control ( void )
 					//  write UV for correct anim frame
 					if (GetVisible(t.tobj) == 1 && GetInScreen(t.tobj) == 1 && t.tdetonate == 0 || t.decalelement[t.f].decalid == t.decalglobal.splashdecalrippleid && t.tdetonate == 0 && ObjectExist(t.tobj))
 					{
-						if (t.decalelement[t.f].decalid == t.decalglobal.splashdecalrippleid && ObjectExist(t.tobj))  SetAlphaMappingOn (t.tobj, 8);
+						float fAlpha = -1.0f;
+						if (t.decalelement[t.f].decalid == t.decalglobal.splashdecalrippleid && ObjectExist(t.tobj))  fAlpha = 8;
 						//  rotate to face camera if flagged
 						if (t.decalelement[t.f].orient == 0)
 						{
 							PointObject (t.tobj, t.tcamerapositionx_f, t.tcamerapositiony_f, t.tcamerapositionz_f);
 							XRotateObject (t.tobj, 0); ZRotateObject (t.tobj, 0);
 						}
-						SetObjectCull (t.tobj, 0);
 						if (t.decalelement[t.f].orient == 3 || t.decalelement[t.f].orient == 11 || t.decalelement[t.f].orient == 12)
 						{
 							PointObject (t.tobj, t.tcamerapositionx_f, t.tcamerapositiony_f, t.tcamerapositionz_f);
@@ -1139,21 +1178,21 @@ void decalelement_control ( void )
 						}
 						if (t.decalelement[t.f].orient == 0 || t.decalelement[t.f].orient == 1 || t.decalelement[t.f].orient == 3 || t.decalelement[t.f].orient == 4 || t.decalelement[t.f].orient == 5)
 						{
-							SetAlphaMappingOn (t.tobj, 100.0);
+							fAlpha = 100.0;
 						}
 						if (t.decalelement[t.f].orient == 2)
 						{
-							SetAlphaMappingOn (t.tobj, 100.0);
+							fAlpha = 100.0;
 							// fade in and out over life of decal animation
 							t.pt_f = t.decalelement[t.f].framefinish;
 							t.p_f = (t.decalelement[t.f].framefinish - t.decalelement[t.f].frame) / t.pt_f;
 							if (t.p_f >= 0.5)
 							{
-								SetAlphaMappingOn (t.tobj, 100.0 - ((t.p_f - 0.5) * 200.0));
+								fAlpha = 100.0 - ((t.p_f - 0.5) * 200.0);
 							}
 							else
 							{
-								SetAlphaMappingOn (t.tobj, t.p_f * 200.0);
+								fAlpha = t.p_f * 200.0;
 							}
 						}
 						if (t.decalelement[t.f].orient == 7)
@@ -1161,7 +1200,7 @@ void decalelement_control ( void )
 							//  fade over life of decal animation
 							t.pt_f = t.decalelement[t.f].framefinish;
 							t.p_f = (t.decalelement[t.f].framefinish - t.decalelement[t.f].frame) / t.pt_f;
-							SetAlphaMappingOn (t.tobj, Sin(t.p_f * 180) * t.decalelement[t.f].particle.alphaintensity);
+							fAlpha = Sin(t.p_f * 180) * t.decalelement[t.f].particle.alphaintensity;
 						}
 						if (t.decalelement[t.f].orient == 8 || t.decalelement[t.f].orient == 11 || t.decalelement[t.f].orient == 13)
 						{
@@ -1171,14 +1210,21 @@ void decalelement_control ( void )
 							if (t.tfadeperc_f > 1.0)  t.tfadeperc_f = 1.0;
 							t.tfinalalphavalue_f = t.decalelement[t.f].particle.alphaintensity / 100.0;
 							if (t.decalelement[t.f].burstloop > 0)  t.tfinalalphavalue_f = t.tfinalalphavalue_f * 0.7;
-							SetAlphaMappingOn (t.tobj, (100.0 - (t.tfadeperc_f * 100.0)) * t.tfinalalphavalue_f);
+							fAlpha = (100.0 - (t.tfadeperc_f * 100.0)) * t.tfinalalphavalue_f;
 						}
 						if (t.decalelement[t.f].orient == 12)
 						{
 							//  multi-image fader (fades towards end)
 							t.pt_f = t.decalelement[t.f].framefinish;
 							t.p_f = (t.decalelement[t.f].framefinish - t.decalelement[t.f].frame) / t.pt_f;
-							SetAlphaMappingOn (t.tobj, Sin(t.p_f * 180) * 100);
+							fAlpha = Sin(t.p_f * 180) * 100;
+						}
+						// only update alpha when it changes
+						if (fAlpha >= 0.0f && fAlpha != t.decalelement[t.f].alphavalue)
+						{
+							WickedCallProbeScope probe(WICKEDCALL_PROBE_DECAL_FADE);
+							SetAlphaMappingOn (t.tobj, fAlpha);
+							t.decalelement[t.f].alphavalue = fAlpha;
 						}
 						//  decal animation setting
 						if (t.decalelement[t.f].orient == 7 && t.decalelement[t.f].particle.animated != 1 && t.decalelement[t.f].decalid != t.decalglobal.splashdecalrippleid)
@@ -1207,7 +1253,12 @@ void decalelement_control ( void )
 							//  decal based particle can mirror the image
 							t.tx_f = (t.tx * t.qx_f) + t.qx_f;
 					}
-						SetObjectUVManually (t.tobj, t.tframe, t.decal[t.decalid].across, t.decal[t.decalid].down);
+						// only update UV frame when it changes
+						if (t.tframe != t.decalelement[t.f].uvframe)
+						{
+							decal_setelementuvframe (t.tobj, t.tframe, t.decal[t.decalid].across, t.decal[t.decalid].down);
+							t.decalelement[t.f].uvframe = t.tframe;
+						}
 				}
 			}
 				//  detonate trigger

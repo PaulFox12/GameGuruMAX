@@ -1,4 +1,9 @@
 ﻿bool g_bOnlyOneRagdollPlusPerCycleForPerformance = false;
+// GG: at most this many deaths start (a ragdoll made, about a millisecond each, or a death animation) in a pass, the
+// nearest the player first, so a blast's deaths spread over a few frames; a death held back waits as it is, its force
+// too. 0 or less, no limit (SetRagdollCreatesPerFrame; 3 at each level start)
+int g_iRagdollCreatesPerFrame = 3;
+static std::vector<char> g_RagdollStartAllowed;
 
 void entity_loop ( void )
 {
@@ -16,6 +21,29 @@ void entity_loop ( void )
 
 	//  Handle all entities in level 
 	g_bOnlyOneRagdollPlusPerCycleForPerformance = true;
+
+	// the deaths waiting to start (a character whose ragdoll stage hasn't begun): past the limit, the nearest allowed
+	bool bRagdollStartsLimited = false;
+	if (g_iRagdollCreatesPerFrame > 0)
+	{
+		std::vector<std::pair<float, int>> waiting;
+		for (int e = 1; e <= g.entityelementlist; e++)
+		{
+			const int entid = t.entityelement[e].bankindex;
+			if (entid <= 0 || t.entityprofile[entid].ischaracter != 1) continue;
+			if (t.entityelement[e].ragdollplusactivate > 0 && t.entityelement[e].ragdollifiedplusphyobj == 0) waiting.push_back({ t.entityelement[e].plrdist, e });
+		}
+		if ((int)waiting.size() > g_iRagdollCreatesPerFrame)
+		{
+			std::partial_sort(waiting.begin(), waiting.begin() + g_iRagdollCreatesPerFrame, waiting.end());
+			g_RagdollStartAllowed.assign(g.entityelementlist + 1, 0);
+			for (int i = 0; i < g_iRagdollCreatesPerFrame; i++) g_RagdollStartAllowed[waiting[i].second] = 1;
+			bRagdollStartsLimited = true;
+			char pMsg[96];
+			sprintf_s(pMsg, "ragdoll_create deferred: %d waiting (%d a frame)", (int)waiting.size() - g_iRagdollCreatesPerFrame, g_iRagdollCreatesPerFrame);
+			timestampactivity(0, pMsg);
+		}
+	}
 	for ( t.e = 1 ; t.e <= g.entityelementlist; t.e++ )
 	{
 		// 011016 - scenes with LARGE number of static entities hitting perf hard
@@ -54,6 +82,9 @@ void entity_loop ( void )
 					{
 						// only alow one creation per frame cycle
 						if (g_bOnlyOneRagdollPlusPerCycleForPerformance == false)
+							continue;
+						// GG: and past this pass's limit, a later pass (the nearest start first)
+						if (bRagdollStartsLimited && (t.e >= (int)g_RagdollStartAllowed.size() || g_RagdollStartAllowed[t.e] == 0))
 							continue;
 
 						// show available floor area according to nav mesh (simple for now, need smartypants one for any angle and area shape)
@@ -702,6 +733,9 @@ void entity_loop ( void )
 							{
 								ODECreateDynamicBox (t.tattobj, -1, 1);
 								ODESetLinearVelocity(t.tattobj, 0, 20.0f, 0);
+								// its body goes once it has landed (M-Physics.cpp)
+								extern void physics_trackdroppedweapon(int iObject);
+								physics_trackdroppedweapon(t.tattobj);
 							}
 						}
 					}
@@ -723,13 +757,17 @@ void entity_loop ( void )
 							ragdoll_setcollisionmask (t.entityelement[t.ttte].eleprof.colondeath);
 							t.tphye = t.ttte; t.tphyobj = t.entityelement[t.ttte].obj; 
 							ragdoll_create();
-							// prep ragdolified vars for zero force, just collapse
+							// prep ragdolified vars for zero force, just collapse; GG: unless a force was set since the kill (a script's
+							// SetEntityRagdollForce straight after it, before the ragdoll existed), kept to be pushed now it does
 							t.entityelement[t.ttte].ragdollified = 1;
-							t.entityelement[t.ttte].ragdollifiedforcex_f = 0.8f;
-							t.entityelement[t.ttte].ragdollifiedforcey_f = 0.0f;
-							t.entityelement[t.ttte].ragdollifiedforcez_f = 0.8f;
-							t.entityelement[t.ttte].ragdollifiedforcevalue_f = 0.0f;
-							t.entityelement[t.ttte].ragdollifiedforcelimb = 0;
+							if (t.entityelement[t.ttte].ragdollifiedforcevalue_f <= 1.0f)
+							{
+								t.entityelement[t.ttte].ragdollifiedforcex_f = 0.8f;
+								t.entityelement[t.ttte].ragdollifiedforcey_f = 0.0f;
+								t.entityelement[t.ttte].ragdollifiedforcez_f = 0.8f;
+								t.entityelement[t.ttte].ragdollifiedforcevalue_f = 0.0f;
+								t.entityelement[t.ttte].ragdollifiedforcelimb = 0;
+							}
 						}
 						t.entityelement[t.e].ragdollplusactivate = 0;
 						t.entityelement[t.e].ragdollplusweapontypeused = 0;

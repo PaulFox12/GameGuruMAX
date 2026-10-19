@@ -364,6 +364,7 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 		// build the bounding box using both static objects and characters, in case there are no static objects near a character
 		bool bNeedThisToHaveNavMesh = false;
 		if ( t.entityelement[e].staticflag == 1) bNeedThisToHaveNavMesh = true;
+		if ( entid > 0 && t.entityprofile[entid].navmeshbake == 1) bNeedThisToHaveNavMesh = true;
 		if ( t.entityprofile[entid].ischaracter == 1) bNeedThisToHaveNavMesh = true;
 		if ( t.entityprofile[entid].ismarker == 11) bNeedThisToHaveNavMesh = true;
 		if ( bNeedThisToHaveNavMesh == true)

@@ -50,6 +50,16 @@ float soundtruevolume ( int tvolume_f )
 	return tvolume_f;
 }
 
+void setsoundspeedtunedfor44k ( int soundid, int frequency44k )
+{
+	// engine pitch values such as 43000+Rnd(2000) were tuned for 44.1kHz files, and SetSoundSpeed takes absolute Hz,
+	// so scale to the file's own rate (a 22kHz file would otherwise play an octave up, a 48kHz file flat)
+	uint32_t GetSoundFrequency(int iID);
+	uint32_t filerate = GetSoundFrequency(soundid);
+	if ( filerate == 0 ) filerate = 44100;
+	SetSoundSpeed ( soundid, (int)((float)frequency44k * (float)filerate / 44100.0f) );
+}
+
 int loadinternalsoundcorecloneflag(char* tfile_s, int mode, int clonesoundindex)
 {
 	cstr tfiletoload_s = "";

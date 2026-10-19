@@ -708,11 +708,21 @@ void gun_updatebulletvisibility ( void )
 	}
 }
 
+// every round (or throw) the player's gun has fired; Lua gets the number fired each frame as g_PlayerGunShotThisFrame
+int g_iPlayerGunShotCount = 0;
+
+// the trigger pull the rays of gun_shoot_oneray belong to, for the player's hit record (playerhit_openray)
+int g_iPlayerHitPullShot = -1;
+int g_iPlayerHitPullGunID = 0;
+int g_iPlayerHitPullRays = 0;
+
 void gun_shoot ( void )
 {
 	//  When fire Line (  active )
 	if ( t.gunshoot == 1 ) 
 	{
+		g_iPlayerGunShotCount++;
+
 		//  170315 - 020 - stop invincible if you shoot
 		g.mp.invincibleTimer = 0;
 
@@ -827,6 +837,12 @@ void gun_shoot ( void )
 					t.gunshootspread=1;
 				}
 			}
+
+			// the player's hit record: these rays are one trigger pull, of this gun (a melee strike is not a counted round)
+			g_iPlayerHitPullShot = g_iPlayerGunShotCount;
+			if ( t.gun[t.gunid].weapontype >= 51 || t.gun[t.gunid].settings.ismelee != 0 ) g_iPlayerHitPullShot = -1;
+			g_iPlayerHitPullGunID = t.gunid;
+			g_iPlayerHitPullRays = 0;
 
 			// store camera position and angle so all rays originate from same location
 			t.gunshootspreadposx = CameraPositionX(0);
@@ -1342,8 +1358,14 @@ void gun_shoot_oneray ( void )
 		}
 	}
 
-	// raycast to entity
+	// raycast to entity, recorded in the player's hit record: kind 1 a round, 2 a later ray (pellet) of the same pull, 3 melee
+	int iPlayerHitKind = 1;
+	if ( g_iPlayerHitPullRays > 0 ) iPlayerHitKind = 2;
+	if ( t.bulletisinfactmeleestrike == 1 ) iPlayerHitKind = 3;
+	g_iPlayerHitPullRays++;
+	playerhit_openray ( iPlayerHitKind, g_iPlayerHitPullShot, g_iPlayerHitPullGunID, t.x1_f, t.y1_f, t.z1_f );
 	entity_hasbulletrayhit ( );
+	playerhit_close ( );
 }
 
 void gun_soundcontrol ( void )

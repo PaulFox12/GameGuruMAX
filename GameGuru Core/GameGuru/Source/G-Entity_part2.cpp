@@ -201,6 +201,9 @@
 		if (t.entityelement[t.ttte].health <= 0)
 			t.entityelement[t.ttte].health = 1;
 
+	// the player's hit record: the damage as subtracted and the health after the clamps (only while a player entry is open)
+	playerhit_adddamage(t.ttte, t.tdamage, iHealthBefore, t.entityelement[t.ttte].health);
+
 	// when health drops to zero
 	if (t.entityelement[t.ttte].health <= 0)
 	{
@@ -272,7 +275,9 @@
 			else
 			{
 				extern bool g_bForceRagdoll;
-				if (g_bForceRagdoll == true)
+				extern bool g_bRagdollAllDeaths;
+				// SetRagdollAllDeaths(1) gives every death of a ragdoll character (not the third person player) a forced ragdoll
+				if (g_bForceRagdoll == true || (g_bRagdollAllDeaths == true && iThirdPersonCharacter == 0 && t.entityprofile[t.ttentid].ragdoll == 1))
 				{
 					// trigger a forced ragdoll event
 					t.impacting = 6;
@@ -352,7 +357,8 @@
 			if (t.entityprofile[t.ttentid].ragdoll == 1)
 			{
 				//  create ragdoll and stop any further manipulation of the object
-				if (t.entityelement[t.ttte].ragdollplusactivate == 0)
+				// GG: not for one already a ragdoll (knocked out by SetEntityRagdoll), which would get a death animation and its box
+				if (t.entityelement[t.ttte].ragdollplusactivate == 0 && BPhys_RagdollExist(t.entityelement[t.ttte].obj) == 0)
 				{
 					t.entityelement[t.ttte].ragdollplusactivate = t.impacting;
 					// could use: t.bulletraytype; // 1-pierce, 2-shotgun shell
@@ -394,6 +400,9 @@
 					if (ODEFind(t.tattobj) == 0)
 					{
 						ODECreateDynamicBox (t.tattobj, -1, 1);
+						// its body goes once it has landed (M-Physics.cpp)
+						extern void physics_trackdroppedweapon(int iObject);
+						physics_trackdroppedweapon(t.tattobj);
 					}
 				}
 
@@ -604,6 +613,249 @@ void GGShotTraceDump(char* result, int resultSize)
 	g_ggShotCount = 0;
 }
 
+// what a new placement's Allow Bullet Holes and Clear Grass and Trees ticks start as when its .fpe doesn't say, set in
+// Settings (Developer): 0 unset, following the rules below, 1 yes, 2 no. Only new placements take it
+// (entity_addentitytomap_core), so changing it leaves placed objects as they are
+int g_iDefaultBulletHoles = 0;
+int g_iDefaultClearVegetation = 0;
+
+// whether a bullet hole may be left on entity e: its Allow Bullet Holes tick once set in the editor, 1 yes, 2 no; until
+// then (0, also every unticked placement saved before the tick could be cleared) allowbulletholes in its .fpe, and
+// without that key static entities only
+bool entity_allowsbulletholes(int e)
+{
+	if (t.entityelement[e].iAllowBuletHole == 1) return true;
+	if (t.entityelement[e].iAllowBuletHole == 2) return false;
+	int iAllowBulletHoles = t.entityprofile[t.entityelement[e].bankindex].allowbulletholes;
+	if (iAllowBulletHoles != -1) return iAllowBulletHoles == 1;
+	return t.entityelement[e].staticflag == 1;
+}
+
+// the player's hit record, read by Lua (GetPlayerHitSeq / GetPlayerHit): one entry for each ray the player's held weapon
+// resolves (gun_shoot_oneray opens it around entity_hasbulletrayhit), and one for each entity a player projectile's blast
+// damages (weapon_projectileresult_make). Only damage done while an entry is open is recorded, so other rays and
+// explosions stay out. Entries are kept in a ring and reading does not remove them
+static const int PLAYERHIT_RINGSIZE = 128;
+static sPlayerHit g_PlayerHitRing[PLAYERHIT_RINGSIZE];
+static int g_iPlayerHitSeq = 0;
+static int g_iPlayerHitOpenMode = 0; // 0 none, 1 a ray (entry g_iPlayerHitOpenSeq), 2 a blast
+static int g_iPlayerHitOpenSeq = 0;
+static sPlayerHit g_PlayerHitBlast;
+
+void playerhit_clear(void)
+{
+	memset(g_PlayerHitRing, 0, sizeof(g_PlayerHitRing));
+	g_iPlayerHitSeq = 0;
+	g_iPlayerHitOpenMode = 0;
+	g_iPlayerHitOpenSeq = 0;
+}
+
+static sPlayerHit* playerhit_new(void)
+{
+	g_iPlayerHitSeq++;
+	sPlayerHit* pHit = &g_PlayerHitRing[g_iPlayerHitSeq % PLAYERHIT_RINGSIZE];
+	memset(pHit, 0, sizeof(sPlayerHit));
+	pHit->iSeq = g_iPlayerHitSeq;
+	pHit->iLimb = -1;
+	return pHit;
+}
+
+void playerhit_openray(int iKind, int iShot, int iGunID, float fOX, float fOY, float fOZ)
+{
+	sPlayerHit* pHit = playerhit_new();
+	pHit->iKind = iKind;
+	pHit->iShot = iShot;
+	pHit->iGunID = iGunID;
+	pHit->fOX = fOX; pHit->fOY = fOY; pHit->fOZ = fOZ;
+	g_iPlayerHitOpenMode = 1;
+	g_iPlayerHitOpenSeq = pHit->iSeq;
+}
+
+void playerhit_openblast(int iShot, int iGunID, float fX, float fY, float fZ)
+{
+	memset(&g_PlayerHitBlast, 0, sizeof(sPlayerHit));
+	g_PlayerHitBlast.iHit = 2;
+	g_PlayerHitBlast.iLimb = -1;
+	g_PlayerHitBlast.iKind = 4;
+	g_PlayerHitBlast.iShot = iShot;
+	g_PlayerHitBlast.iGunID = iGunID;
+	g_PlayerHitBlast.fX = g_PlayerHitBlast.fOX = fX;
+	g_PlayerHitBlast.fY = g_PlayerHitBlast.fOY = fY;
+	g_PlayerHitBlast.fZ = g_PlayerHitBlast.fOZ = fZ;
+	g_iPlayerHitOpenMode = 2;
+	g_iPlayerHitOpenSeq = g_iPlayerHitSeq + 1;
+}
+
+void playerhit_close(void)
+{
+	g_iPlayerHitOpenMode = 0;
+}
+
+sPlayerHit* playerhit_get(int iSeq)
+{
+	if (iSeq <= 0 || iSeq > g_iPlayerHitSeq || iSeq <= g_iPlayerHitSeq - PLAYERHIT_RINGSIZE) return NULL;
+	sPlayerHit* pHit = &g_PlayerHitRing[iSeq % PLAYERHIT_RINGSIZE];
+	if (pHit->iSeq != iSeq) return NULL;
+	return pHit;
+}
+
+int playerhit_getseq(void)
+{
+	return g_iPlayerHitSeq;
+}
+
+// what the open ray met, written at the end of entity_hasbulletrayhit
+static void playerhit_setray(int iHit, int e, float fX, float fY, float fZ, float fNX, float fNY, float fNZ, int iMaterial, int iHole, int iLimb)
+{
+	if (g_iPlayerHitOpenMode != 1) return;
+	sPlayerHit* pHit = playerhit_get(g_iPlayerHitOpenSeq);
+	if (!pHit) return;
+	pHit->iHit = iHit;
+	pHit->e = e;
+	if (pHit->e == 0 && pHit->iDamageE > 0) pHit->e = pHit->iDamageE;
+	pHit->fX = fX; pHit->fY = fY; pHit->fZ = fZ;
+	pHit->fNX = fNX; pHit->fNY = fNY; pHit->fNZ = fNZ;
+	pHit->iMaterial = iMaterial;
+	pHit->iHole = iHole;
+	pHit->iLimb = iLimb;
+}
+
+// damage entity_applydamage did while an entry is open: to the open ray's entry, or for a blast one entry per entity
+void playerhit_adddamage(int e, int iDamage, int iHealthBefore, int iHealthAfter)
+{
+	sPlayerHit* pHit = NULL;
+	if (g_iPlayerHitOpenMode == 1)
+	{
+		pHit = playerhit_get(g_iPlayerHitOpenSeq);
+	}
+	else if (g_iPlayerHitOpenMode == 2)
+	{
+		for (int iSeq = g_iPlayerHitOpenSeq; iSeq <= g_iPlayerHitSeq && pHit == NULL; iSeq++)
+		{
+			sPlayerHit* pBlastHit = playerhit_get(iSeq);
+			if (pBlastHit && pBlastHit->e == e) pHit = pBlastHit;
+		}
+		if (pHit == NULL)
+		{
+			pHit = playerhit_new();
+			int iSeq = pHit->iSeq;
+			*pHit = g_PlayerHitBlast;
+			pHit->iSeq = iSeq;
+			pHit->e = e;
+		}
+	}
+	if (!pHit) return;
+	if (pHit->iDamageE == 0)
+		pHit->iHealthBefore = iHealthBefore;
+	else
+		pHit->iDamage -= iHealthBefore - pHit->iHealthAfter; // health changed between the hits (a destroyed entity's is reset to 0), so the entry keeps before - damage = after
+	pHit->iDamageE = e;
+	pHit->iDamage += iDamage;
+	pHit->iHealthAfter = iHealthAfter;
+	pHit->iKilled = (pHit->iHealthBefore > 0 && iHealthAfter <= 0) ? 1 : 0;
+}
+
+// a shot from a script's weapon, detected as entity_hasbulletrayhit detects the player's: terrain first, then the entities with
+// full Wicked accuracy, physics shapes for collisionoverride and collisionmode 11 entities, and the material of the entity hit.
+// With bLeaveHole it leaves a bullet hole under the same rules. Returns 0 for no hit, 1 for terrain, 2 for an object,
+// 5 for a tree
+int entity_scriptbulletray ( float fX1, float fY1, float fZ1, float fX2, float fY2, float fZ2, int iIgnoreObj, bool bLeaveHole, int iTerrainMaterial, sScriptBulletRayHit* pHit )
+{
+	int iHitType = 0;
+	int iHitE = 0;
+	int iMaterial = 0;
+	GGVECTOR3 vecHit = GGVECTOR3(fX2, fY2, fZ2);
+	GGVECTOR3 vecNormal = GGVECTOR3(0, 0, 0);
+
+	// terrain first, which shortens the ray (the player's guns treat terrain as material 0, no hole); a tree trunk is
+	// class 5 with no material
+	if (ODERayTerrain(fX1, fY1, fZ1, fX2, fY2, fZ2, false) == 1)
+	{
+		vecHit = GGVECTOR3(ODEGetRayCollisionX(), ODEGetRayCollisionY(), ODEGetRayCollisionZ());
+		vecNormal = GGVECTOR3(ODEGetRayNormalX(), ODEGetRayNormalY(), ODEGetRayNormalZ());
+		extern int g_iODERayTerrainHitTree;
+		iHitType = g_iODERayTerrainHitTree ? 5 : 1;
+		iMaterial = g_iODERayTerrainHitTree ? 0 : iTerrainMaterial;
+	}
+
+	// then the entities, up to the terrain hit
+	int iHitObj = IntersectAllEx(g.entityviewstartobj, g.entityviewendobj, fX1, fY1, fZ1, vecHit.x, vecHit.y, vecHit.z, iIgnoreObj, 0, 0, 0, 0, true);
+	if (iHitObj > 0 && iHitObj != iIgnoreObj && ObjectExist(iHitObj) == 1)
+	{
+		int iFoundE = 0;
+		for (int e = 1; e <= g.entityelementlist; e++)
+		{
+			if (t.entityelement[e].obj == iHitObj)
+			{
+				iFoundE = e; break;
+			}
+		}
+		int iEntID = 0;
+		if (iFoundE > 0) iEntID = t.entityelement[iFoundE].bankindex;
+
+		// objects that use physics collision over geometry collision
+		int iCollisionWithPhysics = 0;
+		if (iFoundE > 0 && (t.entityprofile[iEntID].collisionoverride == 1 || t.entityprofile[iEntID].collisionmode == 11))
+		{
+			if (t.entityprofile[iEntID].collisionmode == 11)
+				iCollisionWithPhysics = 2;
+			else if (ODERayTerrainEx(fX1, fY1, fZ1, vecHit.x, vecHit.y, vecHit.z, 2, false) == 1)
+				iCollisionWithPhysics = 1;
+			else
+				iCollisionWithPhysics = 2;
+		}
+
+		// 2 = hit the geometry but missed the physics shape (foliage), so the shot passes as it does for the player
+		if (iCollisionWithPhysics != 2)
+		{
+			if (iCollisionWithPhysics == 1)
+			{
+				vecHit = GGVECTOR3(ODEGetRayCollisionX(), ODEGetRayCollisionY(), ODEGetRayCollisionZ());
+				vecNormal = GGVECTOR3(ODEGetRayNormalX(), ODEGetRayNormalY(), ODEGetRayNormalZ());
+			}
+			else
+			{
+				vecHit = GGVECTOR3(ChecklistFValueA(6), ChecklistFValueB(6), ChecklistFValueC(6));
+				vecNormal = GGVECTOR3(ChecklistFValueA(7), ChecklistFValueB(7), ChecklistFValueC(7));
+			}
+			iHitType = 2;
+			iHitE = iFoundE;
+			iMaterial = 0;
+			if (iFoundE > 0)
+			{
+				if (!t.entityelement[iFoundE].eleprof.bUseFPESettings && t.entityelement[iFoundE].eleprof.iMaterialSoundIndex > 0)
+					iMaterial = t.entityelement[iFoundE].eleprof.iMaterialSoundIndex;
+				else
+					iMaterial = t.entityprofile[iEntID].materialindex;
+			}
+		}
+	}
+
+	// bullet hole, under the player's rules: not material 6, only terrain, a static entity or one that allows holes, and a
+	// violent character bleeds instead
+	bool bHole = false;
+	if (bLeaveHole && iHitType > 0 && iMaterial > 0 && iMaterial != 6)
+	{
+		bool bAllowed = (iHitE == 0 || entity_allowsbulletholes(iHitE));
+		if (iHitE > 0 && t.entityprofile[t.entityelement[iHitE].bankindex].ischaracter == 1 && t.entityelement[iHitE].eleprof.isviolent != 0) bAllowed = false;
+		if (bAllowed)
+		{
+			bulletholes_add(iMaterial, vecHit.x, vecHit.y, vecHit.z, vecNormal.x, vecNormal.y, vecNormal.z, iHitE);
+			bHole = true;
+		}
+	}
+
+	if (pHit)
+	{
+		pHit->e = iHitE;
+		pHit->fX = vecHit.x; pHit->fY = vecHit.y; pHit->fZ = vecHit.z;
+		pHit->fNX = vecNormal.x; pHit->fNY = vecNormal.y; pHit->fNZ = vecNormal.z;
+		pHit->iMaterial = iMaterial;
+		pHit->bHole = bHole;
+	}
+	return iHitType;
+}
+
 void entity_hasbulletrayhit(void)
 {
 	// bulletray is x1#,y1#,z1#,x2#,y2#,z2#,bulletrayhit,gunrange#,t.bulletfinalstrengthmod(1),bulletisinfactmeleestrike
@@ -615,6 +867,8 @@ void entity_hasbulletrayhit(void)
 
 	// first cast a ray at any terrain
 	GGVECTOR3 vecRayHitNormal = GGVECTOR3(0, 0, 0);
+	int iPlayerHitClass = 0; // for the player's hit record: 0 none, 1 terrain, 2 entity, 3 other object, 4 passed through, 5 tree
+	int iPlayerHitE = 0;
 	if (ODERayTerrain(t.brayx1_f, t.brayy1_f, t.brayz1_f, t.brayx2_f, t.brayy2_f, t.brayz2_f, false) == 1)
 	{
 		//  and shorten the ray if we hit terra firma!
@@ -625,6 +879,8 @@ void entity_hasbulletrayhit(void)
 		vecRayHitNormal = GGVECTOR3(ODEGetRayNormalX(), ODEGetRayNormalY(), ODEGetRayNormalZ());
 		// LEELEE = need to get TERRAIN MATERIAL ID HERE TOO!!
 		t.tttriggerdecalimpact = 10;
+		extern int g_iODERayTerrainHitTree;
+		iPlayerHitClass = g_iODERayTerrainHitTree ? 5 : 1;
 	}
 	
 	// Character creator can override the limb hit, to make the cc head report the head limb of the main character
@@ -813,6 +1069,13 @@ void entity_hasbulletrayhit(void)
 			}
 		}
 		if ( t.tmaterialvalue >= 0 ) t.tttriggerdecalimpact = 10+t.tmaterialvalue;
+
+		// for the player's hit record: an entity, another object, or passed through (collisionmode 11 or the physics shape missed)
+		if ( t.tfoundentityindexhit > 0 ) iPlayerHitE = t.tfoundentityindexhit;
+		if ( t.tcollisionwithphysics == 2 )
+			iPlayerHitClass = 4;
+		else
+			iPlayerHitClass = ( iPlayerHitE > 0 ) ? 2 : 3;
 	}
 
 	// ensure material index never goes negative
@@ -979,22 +1242,16 @@ void entity_hasbulletrayhit(void)
 	}
 
 	// if hitting a material, leave a bullethole (not for melee combat)
+	int iPlayerHitHole = 0;
 	if (t.gun[t.gunid].settings.ismelee == 0 && g.firemodes[t.gunid][g.firemode].settings.noscorch == 0)
 	{
 		if (t.tttriggerdecalimpact >= 10 && t.tttriggerdecalimpact != 16 && t.bulletrayhite >= 0 )
 		{
-			// ★ GGMAX 3.38 (DX11 f460d1be): iAllowBuletHole lets a specific entity opt IN to bullet
-			// decals even though it is neither static nor immobile - the checkbox in M-GridEditB_part13.cpp.
-			// Without this clause that setting would save, load, and do nothing at all.
-			// GGMAX 3.44 (DX11 c1269dd7, issue 6236): DX11 REMOVED the isimmobile clause. A door is
-			// non-static but immobile, so it used to collect bullet decals that then hang in mid-air
-			// the moment the door swings. Dropping it also makes the 3.38 opt-in checkbox meaningful
-			// instead of decorative. This is now DX11's clause verbatim.
-			if (t.bulletrayhite == 0 || t.entityelement[t.bulletrayhite].staticflag == 1 ||
-				t.entityelement[t.bulletrayhite].iAllowBuletHole == 1 )
+			if (t.bulletrayhite == 0 || entity_allowsbulletholes(t.bulletrayhite) )
 			{
 				int iMaterialIndex = t.tttriggerdecalimpact - 10;
-				bulletholes_add(iMaterialIndex, t.brayx2_f, t.brayy2_f, t.brayz2_f, vecRayHitNormal.x, vecRayHitNormal.y, vecRayHitNormal.z);
+				bulletholes_add(iMaterialIndex, t.brayx2_f, t.brayy2_f, t.brayz2_f, vecRayHitNormal.x, vecRayHitNormal.y, vecRayHitNormal.z, t.bulletrayhite);
+				if (iMaterialIndex > 0) iPlayerHitHole = 1;
 			}
 		}
 	}
@@ -1029,6 +1286,9 @@ void entity_hasbulletrayhit(void)
 		entity_triggerdecalatimpact (t.brayx2_f, t.brayy2_f, t.brayz2_f);
 	}
 	t.tfromtheplayer = 0;
+
+	// the player's hit record (when gun_shoot_oneray has an entry open): what this ray met
+	playerhit_setray(iPlayerHitClass, iPlayerHitE, t.brayx2_f, t.brayy2_f, t.brayz2_f, vecRayHitNormal.x, vecRayHitNormal.y, vecRayHitNormal.z, t.tmaterialvalue, iPlayerHitHole, t.bulletraylimbhit);
 }
 
 void entity_hitentity ( int e, int obj )
@@ -1683,6 +1943,142 @@ void entity_converttoinstance ( void )
 	}
 }
 
+// a clone's steps timed from SpawnProbe_Start to SpawnProbe_Stop (SpawnNewEntityCore); marks outside a spawn do nothing
+static bool g_bSpawnProbeActive = false;
+static DWORD g_dwSpawnProbeThread = 0;
+static LARGE_INTEGER g_SpawnProbeStart, g_SpawnProbeLast;
+static double g_dSpawnProbeMs[SPAWNSTEP_COUNT];
+
+// the named slices (SpawnProbe_Sub), each given to the step whose mark follows it, and the counted calls
+#define SPAWNPROBE_SLICES 32
+#define SPAWNPROBE_CALLS 8
+struct sSpawnProbeNamed { const char* pName; int iStep; int iCount; double dMs; };
+static sSpawnProbeNamed g_SpawnProbeSlice[SPAWNPROBE_SLICES];
+static int g_iSpawnProbeSlices = 0;
+static sSpawnProbeNamed g_SpawnProbeCall[SPAWNPROBE_CALLS];
+static int g_iSpawnProbeCalls = 0;
+static int g_iSpawnProbeCallDepth = 0;
+
+static bool SpawnProbe_Here ( void )
+{
+	return g_bSpawnProbeActive && GetCurrentThreadId() == g_dwSpawnProbeThread;
+}
+
+static double SpawnProbe_MsSince ( LONGLONG llFrom, LARGE_INTEGER* pNow )
+{
+	LARGE_INTEGER now, freq;
+	QueryPerformanceCounter(&now);
+	QueryPerformanceFrequency(&freq);
+	if (pNow) *pNow = now;
+	return (double)(now.QuadPart - llFrom) * 1000.0 / (double)freq.QuadPart;
+}
+
+void SpawnProbe_Start ( void )
+{
+	QueryPerformanceCounter(&g_SpawnProbeStart);
+	g_SpawnProbeLast = g_SpawnProbeStart;
+	for (int i = 0; i < SPAWNSTEP_COUNT; i++) g_dSpawnProbeMs[i] = 0;
+	g_iSpawnProbeSlices = 0;
+	g_iSpawnProbeCalls = 0;
+	g_iSpawnProbeCallDepth = 0;
+	g_dwSpawnProbeThread = GetCurrentThreadId();
+	g_bSpawnProbeActive = true;
+}
+
+void SpawnProbe_Mark ( int iStep )
+{
+	if (!SpawnProbe_Here() || iStep < 0 || iStep >= SPAWNSTEP_COUNT) return;
+	g_dSpawnProbeMs[iStep] += SpawnProbe_MsSince(g_SpawnProbeLast.QuadPart, &g_SpawnProbeLast);
+	// the slices since the last mark are part of this step
+	for (int i = 0; i < g_iSpawnProbeSlices; i++)
+	{
+		if (g_SpawnProbeSlice[i].iStep >= 0) continue;
+		g_SpawnProbeSlice[i].iStep = iStep;
+		g_dSpawnProbeMs[iStep] += g_SpawnProbeSlice[i].dMs;
+	}
+}
+
+void SpawnProbe_Sub ( const char* pName )
+{
+	if (!SpawnProbe_Here() || !pName) return;
+	int i = 0;
+	while (i < g_iSpawnProbeSlices && (g_SpawnProbeSlice[i].iStep >= 0 || strcmp(g_SpawnProbeSlice[i].pName, pName) != 0)) i++;
+	if (i == g_iSpawnProbeSlices)
+	{
+		if (i == SPAWNPROBE_SLICES) return; // no room: the time stays with the step
+		g_SpawnProbeSlice[i].pName = pName;
+		g_SpawnProbeSlice[i].iStep = -1;
+		g_SpawnProbeSlice[i].iCount = 0;
+		g_SpawnProbeSlice[i].dMs = 0;
+		g_iSpawnProbeSlices++;
+	}
+	g_SpawnProbeSlice[i].dMs += SpawnProbe_MsSince(g_SpawnProbeLast.QuadPart, &g_SpawnProbeLast);
+	g_SpawnProbeSlice[i].iCount++;
+}
+
+// a counted call inside another (an image load's own file checks) counts as part of the outer one
+long long SpawnProbe_CallStart ( void )
+{
+	if (!SpawnProbe_Here()) return 0;
+	if (g_iSpawnProbeCallDepth++ > 0) return 0;
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	return now.QuadPart;
+}
+
+void SpawnProbe_CallEnd ( const char* pName, long long llStart )
+{
+	if (!SpawnProbe_Here() || g_iSpawnProbeCallDepth <= 0) return;
+	g_iSpawnProbeCallDepth--;
+	if (llStart == 0 || !pName) return;
+	int i = 0;
+	while (i < g_iSpawnProbeCalls && strcmp(g_SpawnProbeCall[i].pName, pName) != 0) i++;
+	if (i == g_iSpawnProbeCalls)
+	{
+		if (i == SPAWNPROBE_CALLS) return;
+		g_SpawnProbeCall[i].pName = pName;
+		g_SpawnProbeCall[i].iStep = -1;
+		g_SpawnProbeCall[i].iCount = 0;
+		g_SpawnProbeCall[i].dMs = 0;
+		g_iSpawnProbeCalls++;
+	}
+	g_SpawnProbeCall[i].dMs += SpawnProbe_MsSince(llStart, NULL);
+	g_SpawnProbeCall[i].iCount++;
+}
+
+// "N ms: profile a, add core b [slice c, slice x2 d], ...; file checks n in e ms" for the steps and slices of 0.05 ms or
+// more, in order, then the counted calls
+void SpawnProbe_Stop ( char* pText, int iSize )
+{
+	static const char* pNames[SPAWNSTEP_COUNT] = { "profile", "add core", "before the clone", "clone", "animations and shadows",
+		"prepare (materials)", "depth and LOD", "position", "lights", "emitter", "flatten", "add rest", "sounds", "physics" };
+	g_bSpawnProbeActive = false;
+	int iLen = sprintf_s(pText, iSize, "%.1f ms:", SpawnProbe_MsSince(g_SpawnProbeStart.QuadPart, NULL));
+	for (int i = 0; i < SPAWNSTEP_COUNT && iLen > 0 && iLen < iSize - 40; i++)
+	{
+		if (g_dSpawnProbeMs[i] < 0.05) continue;
+		iLen += sprintf_s(pText + iLen, iSize - iLen, " %s %.1f", pNames[i], g_dSpawnProbeMs[i]);
+		const char* pOpen = " [";
+		for (int s = 0; s < g_iSpawnProbeSlices && iLen > 0 && iLen < iSize - 80; s++)
+		{
+			const sSpawnProbeNamed& slice = g_SpawnProbeSlice[s];
+			if (slice.iStep != i || slice.dMs < 0.05) continue;
+			if (slice.iCount > 1) iLen += sprintf_s(pText + iLen, iSize - iLen, "%s%s x%d %.1f", pOpen, slice.pName, slice.iCount, slice.dMs);
+			else iLen += sprintf_s(pText + iLen, iSize - iLen, "%s%s %.1f", pOpen, slice.pName, slice.dMs);
+			pOpen = ", ";
+		}
+		if (pOpen[0] == ',' && iLen > 0) iLen += sprintf_s(pText + iLen, iSize - iLen, "]");
+		if (iLen > 0) iLen += sprintf_s(pText + iLen, iSize - iLen, ",");
+	}
+	if (iLen > 0 && pText[iLen - 1] == ',') pText[--iLen] = 0;
+	const char* pSep = "; ";
+	for (int c = 0; c < g_iSpawnProbeCalls && iLen > 0 && iLen < iSize - 80; c++)
+	{
+		iLen += sprintf_s(pText + iLen, iSize - iLen, "%s%s %d in %.1f ms", pSep, g_SpawnProbeCall[c].pName, g_SpawnProbeCall[c].iCount, g_SpawnProbeCall[c].dMs);
+		pSep = ", ";
+	}
+}
+
 void entity_createobj ( void )
 {
 	//  takes OBJ, TUPDATEE, TENDIT
@@ -1834,6 +2230,7 @@ void entity_createobj ( void )
 		}
 
 
+		SpawnProbe_Mark(SPAWNSTEP_BEFORECLONE);
 		if ( bCreateAsClone == true )
 		{
 			CloneObject (  t.obj,t.sourceobj,1 );
@@ -1844,6 +2241,7 @@ void entity_createobj ( void )
 			InstanceObject (  t.obj,t.sourceobj );
 			if (  t.tupdatee != -1  )  t.entityelement[t.tupdatee].isclone = 0;
 		}
+		SpawnProbe_Mark(SPAWNSTEP_CLONE);
 		iUseMasterObjectID = 0;
 		bUseInstancing = false;
 		WickedSetEntityId(-1);
@@ -1925,8 +2323,10 @@ void entity_createobj ( void )
 			entity_loop_using_negative_playanimineditor(t.tupdatee, t.obj, t.entityprofile[t.tentid].playanimineditor_name);
 		}
 
+		SpawnProbe_Mark(SPAWNSTEP_ANIMATIONS);
 		//  SetObject (  properties )
 		t.tobj=t.obj ; t.tte=t.tupdatee ; entity_prepareobj ( );
+		SpawnProbe_Mark(SPAWNSTEP_PREPARE);
 
 		// prepare correct depth mode
 		entity_preparedepth(t.tentid, t.tobj);
@@ -1939,6 +2339,7 @@ void entity_createobj ( void )
 				entity_calculateentityLODdistances ( t.tentid, t.tobj, t.entityelement[t.tupdatee].eleprof.lodmodifier );
 			}
 		}
+		SpawnProbe_Mark(SPAWNSTEP_DEPTHLOD);
 	}
 	else
 	{

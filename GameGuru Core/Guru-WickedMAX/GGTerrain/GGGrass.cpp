@@ -92,6 +92,9 @@ const uint32_t numGrassChunks = grassSplit * grassSplit;
 const uint32_t numGrassPerChunk = numTotalGrass / numGrassChunks;
 float grassAreaPerChunk = grassRadius * 2 / (grassSplit-2);
 
+int gggrass_defer_instance_updates = 0; // see GGGrass_DeferInstanceUpdates
+bool gggrass_instance_update_pending = false;
+
 struct InstanceGrass
 {
 	float x, y, z;
@@ -1796,7 +1799,25 @@ void GGGrass_UpdateFlatArea( int mode, int type, float posX, float posZ, float s
 		GGGrass_UploadGrassMap();
 	}
 
-	GGGrass_UpdateInstances();
+	if ( gggrass_defer_instance_updates > 0 ) gggrass_instance_update_pending = true;
+	else GGGrass_UpdateInstances();
+}
+
+// rebuilding the grass instances places every one again (numTotalGrass), so a run of flat area changes, such as a
+// level load or a flat area that is moved and then cleared again by the areas overlapping it, rebuilds them once
+void GGGrass_DeferInstanceUpdates( int defer )
+{
+	if ( defer )
+	{
+		gggrass_defer_instance_updates++;
+		return;
+	}
+	if ( gggrass_defer_instance_updates > 0 ) gggrass_defer_instance_updates--;
+	if ( gggrass_defer_instance_updates == 0 && gggrass_instance_update_pending )
+	{
+		gggrass_instance_update_pending = false;
+		GGGrass_UpdateInstances();
+	}
 }
 
 void GGGrass_RestoreAllFlattened()

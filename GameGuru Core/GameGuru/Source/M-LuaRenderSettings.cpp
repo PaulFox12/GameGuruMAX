@@ -891,4 +891,18 @@ void LuaRenderSettings_Clear(void)
 	visualstype* visuals = &t.visuals;
 	if (old.iDelayedShadows >= 0 || old.iDelayedShadowsLaptop >= 0) LuaRenderSettings_SetDelayedShadowGlobals(visuals->g_bDelayedShadows, visuals->g_bDelayedShadowsLaptop);
 	LuaRenderSettings_RestoreGraphics(old, visuals);
+
+	// a glow, tint or limb alpha set per instance (SetEntityInstanceEmissive, SetEntityInstanceTint, SetEntityLimbAlpha) lives
+	// on the entity's object, which a test game shares with the editor, so put every placed entity back to full glow, no tint
+	// and every limb as made
+	for (int e = 1; e <= g.entityelementlist; e++)
+	{
+		int iObj = t.entityelement[e].obj;
+		if (iObj > 0 && ObjectExist(iObj) == 1)
+		{
+			WickedCall_SetObjectEmissiveTint(GetObjectData(iObj), 1.0f, 1.0f, 1.0f, 1.0f);
+			WickedCall_SetObjectColorTint(GetObjectData(iObj), 1.0f, 1.0f, 1.0f);
+			WickedCall_SetLimbAlpha(GetObjectData(iObj), -1, 1.0f, false);
+		}
+	}
 }

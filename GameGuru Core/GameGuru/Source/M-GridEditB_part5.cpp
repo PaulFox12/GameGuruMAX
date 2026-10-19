@@ -116,6 +116,7 @@ void ProcessPreferences(void)
 					bChangeState = true;
 				}
 				//PE: Loop into all.
+				GGGrass_DeferInstanceUpdates(1); // the grass is placed again once, not for each flat area
 				for (int i = 1; i <= g.entityelementlist; i++) {
 
 					int entid = t.entityelement[i].bankindex;
@@ -132,6 +133,11 @@ void ProcessPreferences(void)
 							GGTerrain_RemoveFlatArea(t.entityelement[i].eleprof.iFlattenID);
 							t.entityelement[i].eleprof.iFlattenID = -1;
 						}
+						if (!bTmp)
+						{
+							// Clear Grass and Trees may now apply, and the removal above took those areas too (entity_clearsvegetation)
+							entity_autoFlattenWhenAdded(i);
+						}
 						if (iAutoFlattenMode != 0 && bTmp)
 						{
 							if (t.entityelement[i].eleprof.iFlattenID == -1)
@@ -142,6 +148,7 @@ void ProcessPreferences(void)
 						}
 					}
 				}
+				GGGrass_DeferInstanceUpdates(0);
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Flattens the terrain and clears any trees and grass when placing large objects");
 
@@ -1233,6 +1240,16 @@ void ProcessPreferences(void)
 				pref.iDisableProjectAutoSave = bTmp;
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Turn on and off the auto save system");
+
+			ImGui::Text("");
+			ImGui::Text("New Objects Placed (objects already placed keep their own settings)");
+			const char* pDefaultChoices[] = { "Automatic", "On", "Off" };
+			ImGui::PushItemWidth(ImGui::GetFontSize() * 8.0f);
+			ImGui::Combo("Allow Bullet Holes, if the .fpe does not say", &g_iDefaultBulletHoles, pDefaultChoices, 3);
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "How the Allow Bullet Holes box starts on objects placed from now on whose .fpe has no allowbulletholes line; objects already placed keep theirs. Automatic: static objects only. On: every object but characters");
+			ImGui::Combo("Clear Grass and Trees, if the .fpe does not say", &g_iDefaultClearVegetation, pDefaultChoices, 3);
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "How the Clear Grass and Trees box starts on objects placed from now on whose .fpe has no clearvegetation line; objects already placed keep theirs. Automatic: static objects at least 3m across and 2.5m tall. On: every object but markers, characters and decals");
+			ImGui::PopItemWidth();
 
 			if (g_iDevToolsOpen)
 			{

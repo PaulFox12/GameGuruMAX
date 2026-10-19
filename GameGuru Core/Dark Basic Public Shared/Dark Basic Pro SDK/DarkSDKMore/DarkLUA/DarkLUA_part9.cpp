@@ -123,6 +123,17 @@ bool LuaEntityIDValid ( lua_State* L, int iEntityID, int iMinID )
 	return false;
 }
 
+// limbs of an entity's object, numbered as GetLimbName and SetLimbIndex number them; the renderer follows each change
+static sObject* LuaEntityLimbObject ( lua_State* L, int e, int iLimb )
+{
+	 if ( !LuaEntityIDValid ( L, e, 1 ) ) return NULL;
+	 int iObj = t.entityelement[e].obj;
+	 if ( iObj <= 0 || ObjectExist ( iObj ) == 0 ) return NULL;
+	 sObject* pObject = GetObjectData ( iObj );
+	 if ( !pObject || !pObject->ppFrameList || iLimb < 0 || iLimb >= pObject->iFrameCount || !pObject->ppFrameList[iLimb] ) return NULL;
+	 return pObject;
+}
+
 // grows a box, in the space of the limb asked about, by a limb's mesh box and with bChildren by those of the limbs under it
 // (their rest pose: each child's matOriginal carries it into its parent's space)
 static void LuaAddLimbBounds ( sFrame* pFrame, GGMATRIX& matToLimb, bool bChildren, GGVECTOR3& vecMin, GGVECTOR3& vecMax, bool& bAny )
@@ -151,22 +162,33 @@ static void LuaAddLimbBounds ( sFrame* pFrame, GGMATRIX& matToLimb, bool bChildr
 	 }
 }
 
-// limbs of an entity's object, numbered as GetLimbName and SetLimbIndex number them; the renderer follows each change
-static sObject* LuaEntityLimbObject ( lua_State* L, int e, int iLimb )
-{
-	 if ( !LuaEntityIDValid ( L, e, 1 ) ) return NULL;
-	 int iObj = t.entityelement[e].obj;
-	 if ( iObj <= 0 || ObjectExist ( iObj ) == 0 ) return NULL;
-	 sObject* pObject = GetObjectData ( iObj );
-	 if ( !pObject || !pObject->ppFrameList || iLimb < 0 || iLimb >= pObject->iFrameCount || !pObject->ppFrameList[iLimb] ) return NULL;
-	 return pObject;
-}
-
 // the collision cylinders the physics keeps at the trees round the camera (physics_managevirtualtreecylinders): a hit on
 // one is a tree trunk, reported as the map-wide trunks are
 static bool LuaPhysicsIsTreeCylinder(int iObject)
 {
 	return iObject >= g.virtualtreeobjectstart && iObject < g.virtualtreeobjectstart + PHYSICS_VIRTUALTREE_MAX;
+}
+
+// the ignore argument of the intersect commands: an object number, or a table of object numbers
+static void LuaReadIntersectIgnore(lua_State* L, int iArg, std::vector<int>& ignore)
+{
+	if (lua_istable(L, iArg))
+	{
+		for (int i = 1; i <= 256; i++)
+		{
+			lua_rawgeti(L, iArg, i);
+			bool bEnd = lua_isnil(L, -1);
+			int iObj = bEnd ? 0 : (int)lua_tonumber(L, -1);
+			lua_pop(L, 1);
+			if (bEnd) break;
+			if (iObj > 0) ignore.push_back(iObj);
+		}
+	}
+	else
+	{
+		int iObj = lua_tonumber(L, iArg);
+		if (iObj > 0) ignore.push_back(iObj);
+	}
 }
 
 // the object numbers a physics query ignores: one number, or a table of up to PHYSICS_QUERY_MAX_IGNORE (as IntersectRay's)
@@ -238,6 +260,63 @@ int SetEntityVelocityCore ( lua_State *L, int iAngular )
 }
 
 // carried from the DX11 branch
+
+// AddBulletHole(x, y, z, nx, ny, nz [, material [, e]]): a bullet hole where a script's shot hit, as the player's gunfire
+// leaves one. material is an entity profile's materialindex (1 stone, 2 metal, 3 wood, 4 glass; default 1; 0 leaves
+// none). With e, the hole obeys the same rules as gunfire: only on a static entity or one that allows bullet holes, and
+// it goes when that entity moves, hides or is removed. Returns 1 if a hole was requested, 0 if a rule refused it
+int AddBulletHole ( lua_State *L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 6 ) return 0;
+	float fNX = lua_tonumber(L, 4), fNY = lua_tonumber(L, 5), fNZ = lua_tonumber(L, 6);
+	float fLength = sqrtf ( fNX*fNX + fNY*fNY + fNZ*fNZ );
+	int iMaterial = 1;
+	if ( n >= 7 ) iMaterial = max ( 0, min ( 15, (int)lua_tointeger(L, 7) ) );
+	int e = 0;
+	if ( n >= 8 ) e = lua_tointeger(L, 8);
+	bool bAllowed = fLength > 0.0001f && iMaterial > 0 && ObjectExist ( g.bulletholesobject ) == 1;
+	if ( bAllowed && e != 0 )
+	{
+		bAllowed = LuaEntityIDValid ( L, e, 1 ) && entity_allowsbulletholes ( e );
+	}
+	if ( bAllowed ) bulletholes_add ( iMaterial, lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3), fNX / fLength, fNY / fLength, fNZ / fLength, e );
+	lua_pushinteger(L, bAllowed ? 1 : 0);
+	return 1;
+}
+
+// BulletRay(x1, y1, z1, x2, y2, z2 [, ignoree [, holes [, terrainmaterial]]]): a script weapon's shot, detected as the player's
+// bullets are (entity_scriptbulletray). ignoree is the shooter's own entity (0 for none). holes 1 (default) leaves a bullet hole
+// under the player's rules, 0 only detects. terrainmaterial 0 (default) leaves no hole on terrain, as the player's guns; 1 to 15
+// uses that material. Returns hit (0 none, 1 terrain, 2 object, 5 tree), e (0 if not an entity), x, y, z, nx, ny, nz, material, hole (1/0)
+int BulletRay ( lua_State *L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 6 ) return 0;
+	int iIgnoreObj = 0;
+	if ( n >= 7 )
+	{
+		int iIgnoreE = lua_tointeger(L, 7);
+		if ( iIgnoreE > 0 && LuaEntityIDValid ( L, iIgnoreE, 1 ) ) iIgnoreObj = t.entityelement[iIgnoreE].obj;
+	}
+	bool bLeaveHole = true;
+	if ( n >= 8 ) bLeaveHole = lua_tointeger(L, 8) != 0;
+	int iTerrainMaterial = 0;
+	if ( n >= 9 ) iTerrainMaterial = max ( 0, min ( 15, (int)lua_tointeger(L, 9) ) );
+	sScriptBulletRayHit hit;
+	int iHit = entity_scriptbulletray ( lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5), lua_tonumber(L, 6), iIgnoreObj, bLeaveHole, iTerrainMaterial, &hit );
+	lua_pushinteger(L, iHit);
+	lua_pushinteger(L, hit.e);
+	lua_pushnumber(L, hit.fX);
+	lua_pushnumber(L, hit.fY);
+	lua_pushnumber(L, hit.fZ);
+	lua_pushnumber(L, hit.fNX);
+	lua_pushnumber(L, hit.fNY);
+	lua_pushnumber(L, hit.fNZ);
+	lua_pushinteger(L, hit.iMaterial);
+	lua_pushinteger(L, hit.bHole ? 1 : 0);
+	return 10;
+}
 
 int GetBloom(lua_State* L)
 {
@@ -321,6 +400,55 @@ int GetEntityImmunity ( lua_State *L )
 	return 1;
 }
 
+int GetEntityInstanceEmissive ( lua_State *L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int e = lua_tointeger(L, 1);
+	float fR = 0, fG = 0, fB = 0, fStrength = 0;
+	if ( LuaEntityIDValid ( L, e, 1 ) )
+	{
+		int iObj = t.entityelement[e].obj;
+		if ( iObj > 0 && ObjectExist ( iObj ) == 1 )
+			WickedCall_GetObjectEmissiveTint ( GetObjectData ( iObj ), &fR, &fG, &fB, &fStrength );
+	}
+	lua_pushnumber ( L, fR );
+	lua_pushnumber ( L, fG );
+	lua_pushnumber ( L, fB );
+	lua_pushnumber ( L, fStrength );
+	return 4;
+}
+
+int GetEntityInstanceTint ( lua_State *L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int e = lua_tointeger(L, 1);
+	float fR = 1, fG = 1, fB = 1;
+	if ( LuaEntityIDValid ( L, e, 1 ) )
+	{
+		int iObj = t.entityelement[e].obj;
+		if ( iObj > 0 && ObjectExist ( iObj ) == 1 )
+			WickedCall_GetObjectColorTint ( GetObjectData ( iObj ), &fR, &fG, &fB );
+	}
+	lua_pushnumber ( L, fR );
+	lua_pushnumber ( L, fG );
+	lua_pushnumber ( L, fB );
+	return 3;
+}
+
+// GetEntityLimbAlpha(e, limb): the limb's alpha, 0 to 100, or that of the first limb under it with a mesh; 100 if none
+int GetEntityLimbAlpha ( lua_State* L )
+{
+	 if ( LUA_GETTOP(L) < 2 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 float fAlpha = 1.0f;
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 if ( pObject ) fAlpha = WickedCall_GetLimbAlpha ( pObject, iLimb );
+	 lua_pushnumber(L, fAlpha * 100.0f);
+	 return 1;
+}
+
 // GetEntityLimbBounds(e, limb [, children]): minx, miny, minz, maxx, maxy, maxz of the limb's mesh in its own space; with
 // children 1 also the limbs under it (a rotor frame with blade limbs), nothing if there is no mesh
 int GetEntityLimbBounds ( lua_State* L )
@@ -388,6 +516,33 @@ int GetEntityLimbParent ( lua_State* L )
 	 return 1;
 }
 
+// GetEntityMass(e) - kg, source: the kilos SetEntityMass gave it (source 1), else its .fpe's physicsmass (2), else its
+// body's mass now (0; 0 kilos for no body)
+int GetEntityMass(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	int iEntity = (int)lua_tonumber(L, 1);
+	float fKg = 0;
+	bool bSet = false;
+	int iSource = 0;
+	if (iEntity > 0 && iEntity < (int)t.entityelement.size())
+	{
+		extern bool ODEGetEntityMassKg(int iEntity, float* pfKg);
+		extern float ODEGetObjectMassKg(int iObject);
+		bSet = ODEGetEntityMassKg(iEntity, &fKg);
+		if (bSet) iSource = 1;
+		else if (t.entityprofile[t.entityelement[iEntity].bankindex].physicsmass > 0)
+		{
+			fKg = t.entityprofile[t.entityelement[iEntity].bankindex].physicsmass;
+			iSource = 2;
+		}
+		else fKg = ODEGetObjectMassKg(t.entityelement[iEntity].obj);
+	}
+	lua_pushnumber(L, fKg);
+	lua_pushinteger(L, iSource);
+	return 2;
+}
+
 // GetEntityRagdollForcePending(e): 1 while a SetEntityRagdollForce on e is still to be pushed (held from the kill until
 // its ragdoll exists, then pushed over the next frames as it fades), else 0. A build with it keeps a force set before
 // the ragdoll exists
@@ -417,6 +572,37 @@ int GetEntityRagdollHoldStiffness ( lua_State *L )
 	lua_pushnumber ( L, fHipFold );
 	lua_pushnumber ( L, fKneeFold );
 	return 5;
+}
+
+// x, y, z, headangle, faceup, resting, held, knockedout = GetEntityRagdollPose(e): where a ragdoll (knocked out or
+// dead) lies: its pelvis, the angle from the pelvis to the head, 1 when lying face up, 1 when no body moves, 1 when
+// held, 1 when knocked out (alive). Nothing when the entity is no ragdoll
+int GetEntityRagdollPose ( lua_State *L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int e = lua_tointeger(L, 1);
+	if ( !LuaEntityIDValid ( L, e, 1 ) ) return 0;
+	float fX, fY, fZ, fHeadAngle;
+	int iFaceUp, iResting, iHeld;
+	if ( !ragdoll_getpose ( e, &fX, &fY, &fZ, &fHeadAngle, &iFaceUp, &iResting, &iHeld ) ) return 0;
+	lua_pushnumber ( L, fX );
+	lua_pushnumber ( L, fY );
+	lua_pushnumber ( L, fZ );
+	lua_pushnumber ( L, fHeadAngle );
+	lua_pushinteger ( L, iFaceUp );
+	lua_pushinteger ( L, iResting );
+	lua_pushinteger ( L, iHeld );
+	lua_pushinteger ( L, ragdoll_isknockedout ( e ) ? 1 : 0 );
+	return 8;
+}
+
+// GetGamePaused(): 1 while SetGamePaused holds the world
+int GetGamePaused ( lua_State *L )
+{
+	extern bool g_bGamePaused;
+	lua_pushnumber ( L, g_bGamePaused == true ? 1 : 0 );
+	return 1;
 }
 
 // GetGraphicsSettings(): the values in force as a table: fxaa, reflections, probesLowestLOD, reflectionsLowestLOD,
@@ -501,6 +687,50 @@ int GetLensFlare(lua_State* L)
 	lua_pushnumber(L, fSunHue);
 	lua_pushnumber(L, fSunBrightness);
 	return 3;
+}
+
+// GetLuaEntityCosts(): the entities' turns in the engine's Lua loop over the last second (lua_getentitycosts), nil
+// until the first second is over
+int GetLuaEntityCosts(lua_State* L)
+{
+	sLuaEntityCosts costs;
+	if (!lua_getentitycosts(&costs))
+	{
+		lua_pushnil(L);
+		return 1;
+	}
+	lua_createtable(L, 0, 14);
+	lua_pushnumber(L, costs.dWindowMs); lua_setfield(L, -2, "window");
+	lua_pushinteger(L, costs.iFrames); lua_setfield(L, -2, "frames");
+	lua_pushnumber(L, costs.dTotal); lua_setfield(L, -2, "total");
+	lua_pushnumber(L, costs.dRow); lua_setfield(L, -2, "row");
+	lua_pushnumber(L, costs.dMain); lua_setfield(L, -2, "main");
+	lua_pushnumber(L, costs.dKey); lua_setfield(L, -2, "key");
+	lua_pushinteger(L, costs.iTurns); lua_setfield(L, -2, "turns");
+	lua_pushinteger(L, costs.iRows); lua_setfield(L, -2, "rows");
+	lua_pushinteger(L, costs.iMains); lua_setfield(L, -2, "mains");
+	lua_pushinteger(L, costs.iKeyScans); lua_setfield(L, -2, "keyscans");
+	lua_pushinteger(L, costs.iKeyScannersMax); lua_setfield(L, -2, "keymax");
+	lua_pushinteger(L, costs.iGC); lua_setfield(L, -2, "gc");
+	lua_createtable(L, costs.iTop, 0);
+	for (int i = 0; i < costs.iTop; i++)
+	{
+		const sLuaEntityCostTop& entity = costs.top[i];
+		const bool bValid = entity.e > 0 && entity.e < (int)t.entityelement.size();
+		lua_createtable(L, 0, 9);
+		lua_pushinteger(L, entity.e); lua_setfield(L, -2, "e");
+		lua_pushnumber(L, entity.dTotal); lua_setfield(L, -2, "ms");
+		lua_pushnumber(L, entity.dRow); lua_setfield(L, -2, "row");
+		lua_pushnumber(L, entity.dMain); lua_setfield(L, -2, "main");
+		lua_pushnumber(L, entity.dKey); lua_setfield(L, -2, "key");
+		lua_pushinteger(L, entity.iGC); lua_setfield(L, -2, "gc");
+		lua_pushstring(L, bValid ? t.entityelement[entity.e].eleprof.aimainname_s.Get() : ""); lua_setfield(L, -2, "script");
+		lua_pushinteger(L, bValid ? t.entityelement[entity.e].eleprof.phyalways : 0); lua_setfield(L, -2, "phyalways");
+		lua_pushnumber(L, bValid ? t.entityelement[entity.e].plrdist : 0); lua_setfield(L, -2, "plrdist");
+		lua_rawseti(L, -2, i + 1);
+	}
+	lua_setfield(L, -2, "top");
+	return 1;
 }
 
 // GetObjectMass(obj) - the kilos its physics body has now; 0 for no body or a static one
@@ -705,6 +935,54 @@ int GetPhysicsWorldRate(lua_State* L)
 	return 1;
 }
 
+// GetPlayerHit(seq): one entry of the player's hit record (G-Entity.cpp playerhit_*), nothing if not written yet or
+// older than the 128 kept. Returns hit (0 none, 1 terrain, 2 entity, 3 other object, 4 passed through, 5 tree), e, x, y, z,
+// nx, ny, nz, material, hole (the same first ten as BulletRay), then limb, damage, health before, health after,
+// killed, kind (1 round, 2 a later pellet of the pull, 3 melee, 4 a player projectile's hit or blast), shot, gunid,
+// and ox, oy, oz where the ray started. Reading does not remove the entry
+int GetPlayerHit ( lua_State *L )
+{
+	if ( LUA_GETTOP(L) < 1 ) return 0;
+	sPlayerHit* pHit = playerhit_get ( (int)lua_tointeger(L, 1) );
+	if ( !pHit ) return 0;
+	lua_pushinteger(L, pHit->iHit);
+	lua_pushinteger(L, pHit->e);
+	lua_pushnumber(L, pHit->fX);
+	lua_pushnumber(L, pHit->fY);
+	lua_pushnumber(L, pHit->fZ);
+	lua_pushnumber(L, pHit->fNX);
+	lua_pushnumber(L, pHit->fNY);
+	lua_pushnumber(L, pHit->fNZ);
+	lua_pushinteger(L, pHit->iMaterial);
+	lua_pushinteger(L, pHit->iHole);
+	lua_pushinteger(L, pHit->iLimb);
+	lua_pushinteger(L, pHit->iDamage);
+	lua_pushinteger(L, pHit->iHealthBefore);
+	lua_pushinteger(L, pHit->iHealthAfter);
+	lua_pushinteger(L, pHit->iKilled);
+	lua_pushinteger(L, pHit->iKind);
+	lua_pushinteger(L, pHit->iShot);
+	lua_pushinteger(L, pHit->iGunID);
+	lua_pushnumber(L, pHit->fOX);
+	lua_pushnumber(L, pHit->fOY);
+	lua_pushnumber(L, pHit->fOZ);
+	return 21;
+}
+
+// GetPlayerHitSeq(): the newest entry in the player's hit record, 0 if none this level. Entries never repeat a number
+int GetPlayerHitSeq ( lua_State *L )
+{
+	lua_pushinteger(L, playerhit_getseq());
+	return 1;
+}
+
+int GetRagdollAllDeaths ( lua_State *L )
+{
+	extern bool g_bRagdollAllDeaths;
+	lua_pushinteger ( L, g_bRagdollAllDeaths ? 1 : 0 );
+	return 1;
+}
+
 // GetRayNormalX/Y/Z(): the surface normal where the last RayTerrain hit, the ground or a tree trunk
 int GetRayNormalX ( lua_State *L )
 {
@@ -840,6 +1118,75 @@ int GetWind(lua_State* L)
 	return 5;
 }
 
+// IntersectRay(x1, y1, z1, x2, y2, z2 [, ignore [, flags]]): one full-accuracy pick with all its results. ignore is an
+// object number or a table of them. flags add up: 1 also hits terrain and tree trunks, 2 passes through
+// entities whose collisionmode is 11, as the player's bullets do. Returns obj (0 none, -1 terrain or other geometry),
+// e (0 if not an entity), x, y, z, nx, ny, nz (the end of the ray and 0,0,0 when nothing was hit), limb (-1 none)
+int IntersectRay ( lua_State* L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 6 ) return 0;
+	float fX = lua_tonumber(L, 1), fY = lua_tonumber(L, 2), fZ = lua_tonumber(L, 3);
+	float fEndX = lua_tonumber(L, 4), fEndY = lua_tonumber(L, 5), fEndZ = lua_tonumber(L, 6);
+	std::vector<int> ignore;
+	if ( n >= 7 ) LuaReadIntersectIgnore(L, 7, ignore);
+	int iFlags = 0;
+	if ( n >= 8 ) iFlags = lua_tointeger(L, 8);
+
+	int iHitObj = 0, iHitE = 0, iLimb = -1;
+	float fHitX = fEndX, fHitY = fEndY, fHitZ = fEndZ, fNX = 0, fNY = 0, fNZ = 0;
+
+	// the ground first, which shortens the ray
+	if ( (iFlags & 1) && ODERayTerrain(fX, fY, fZ, fEndX, fEndY, fEndZ, false) == 1 )
+	{
+		fEndX = fHitX = ODEGetRayCollisionX(); fEndY = fHitY = ODEGetRayCollisionY(); fEndZ = fHitZ = ODEGetRayCollisionZ();
+		fNX = ODEGetRayNormalX(); fNY = ODEGetRayNormalY(); fNZ = ODEGetRayNormalZ();
+		iHitObj = -1;
+	}
+
+	// then the objects up to it, passing collisionmode 11 entities if asked (a few at most)
+	extern std::vector<int> g_IntersectExtraIgnoreObjects;
+	for ( int iTry = 0; iTry < 8; iTry++ )
+	{
+		g_IntersectExtraIgnoreObjects.clear();
+		for (int i = 1; i < (int)ignore.size(); i++) g_IntersectExtraIgnoreObjects.push_back(ignore[i]);
+		int iIgnoreObjNo = ignore.size() > 0 ? ignore[0] : 0;
+		int iObj = IntersectAllEx(g.entityviewstartobj, g.entityviewendobj, fX, fY, fZ, fEndX, fEndY, fEndZ, iIgnoreObjNo, 0, 0, 0, 0, true);
+		g_IntersectExtraIgnoreObjects.clear();
+		if ( iObj == 0 ) break;
+		int iObjE = 0;
+		if ( iObj > 0 )
+		{
+			for ( int e = 1; e <= g.entityelementlist; e++ )
+			{
+				if ( t.entityelement[e].obj == iObj ) { iObjE = e; break; }
+			}
+			if ( (iFlags & 2) && iObjE > 0 && t.entityprofile[t.entityelement[iObjE].bankindex].collisionmode == 11 )
+			{
+				ignore.push_back(iObj);
+				continue;
+			}
+		}
+		iHitObj = iObj;
+		iHitE = iObjE;
+		fHitX = ChecklistFValueA(6); fHitY = ChecklistFValueB(6); fHitZ = ChecklistFValueC(6);
+		fNX = ChecklistFValueA(7); fNY = ChecklistFValueB(7); fNZ = ChecklistFValueC(7);
+		iLimb = ( iObj > 0 ) ? ChecklistValueB(1) : -1;
+		break;
+	}
+
+	lua_pushinteger(L, iHitObj);
+	lua_pushinteger(L, iHitE);
+	lua_pushnumber(L, fHitX);
+	lua_pushnumber(L, fHitY);
+	lua_pushnumber(L, fHitZ);
+	lua_pushnumber(L, fNX);
+	lua_pushnumber(L, fNY);
+	lua_pushnumber(L, fNZ);
+	lua_pushinteger(L, iLimb);
+	return 9;
+}
+
 // PhysicsOverlapBox(cx, cy, cz, hx, hy, hz, yaw [, layers [, ignore [, trees]]]): what a box (as PhysicsSweepBox's) touches
 // now, such as a car wedged against something. Returns count, trees, then the object numbers of the count bodies it touches
 // (up to 32; 0 the ground, -1 a character capsule), trees being how many tree trunks it touches (with trees 1, the default;
@@ -960,6 +1307,19 @@ int ResetDelayedShadows(lua_State* L)
 	return 0;
 }
 
+// ResetEntityMaterial(e): puts back the entity's materials as the level load gave them, mesh by mesh (its .fpe's, or its
+// element's own): textures, base and emissive colour, emissive strength, roughness, metalness, reflectance, normal
+// strength, alpha and transparency. Like the material setters it changes every entity of the model, as they share their
+// materials; the per-instance values (SetEntityInstanceEmissive, the tint, limb alpha) are left alone
+int ResetEntityMaterial (lua_State *L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	int iEntityID = lua_tointeger(L, 1);
+	if (!LuaEntityIDValid(L, iEntityID, 1)) return 0;
+	entity_resetmaterial(iEntityID);
+	return 0;
+}
+
 // ResetGraphicsSettings(): forget every value the graphics setters above set and go back to the level's and the graphics
 // quality's, so a quality change moves them again (a menu's Default)
 int ResetGraphicsSettings(lua_State* L)
@@ -1015,6 +1375,128 @@ int SetDepthOfField(lua_State* L)
 
 int SetEntityAngularVelocity(lua_State *L) { return SetEntityVelocityCore ( L, 1 ); }
 
+// SetEntityInstanceEmissive(e, r, g, b [, strength]): per instance multiplier, 0 to 1, on the entity's emissive colour
+// and strength as authored (1,1,1,1 = unchanged, strength 0 = no glow). Unlike the material setters it changes this
+// instance only, not every instance of the same object
+int SetEntityInstanceEmissive ( lua_State *L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 4 ) return 0;
+	int e = lua_tointeger(L, 1);
+	if ( !LuaEntityIDValid ( L, e, 1 ) ) return 0;
+	float fStrength = 1.0f;
+	if ( n >= 5 ) fStrength = lua_tonumber(L, 5);
+	int iObj = t.entityelement[e].obj;
+	if ( iObj > 0 && ObjectExist ( iObj ) == 1 )
+		WickedCall_SetObjectEmissiveTint ( GetObjectData ( iObj ), lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4), fStrength );
+	return 0;
+}
+
+// SetEntityInstanceTint(e, r, g, b): per instance multiplier, 0 to 1, on the entity's base colour (1,1,1 = unchanged), e.g.
+// to darken a wreck or colour one vehicle. Unlike the material setters it changes this instance only
+int SetEntityInstanceTint ( lua_State *L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 4 ) return 0;
+	int e = lua_tointeger(L, 1);
+	if ( !LuaEntityIDValid ( L, e, 1 ) ) return 0;
+	int iObj = t.entityelement[e].obj;
+	if ( iObj > 0 && ObjectExist ( iObj ) == 1 )
+		WickedCall_SetObjectColorTint ( GetObjectData ( iObj ), lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4) );
+	return 0;
+}
+
+// SetEntityLimbAlpha(e, limb, percent [, children]): fades the limb, 0 to 100 (100 = as made), with children 1 also the limbs
+// under it (a rotor frame with blade limbs). The renderer dithers the fade rather than blending it, and a faded limb keeps
+// its shadow, so hide a limb that has faded out (HideLimb). A skinned mesh fades as its own limb, not through its bones
+int SetEntityLimbAlpha ( lua_State* L )
+{
+	 int n = LUA_GETTOP(L);
+	 if ( n < 3 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 bool bChildren = ( n >= 4 && lua_tointeger(L, 4) != 0 );
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 if ( !pObject ) return 0;
+	 WickedCall_SetLimbAlpha ( pObject, iLimb, lua_tonumber(L, 3) / 100.0f, bChildren );
+	 return 0;
+}
+
+// SetEntityRagdoll(e, 1 [, dx, dy, dz, force]): a living character (ragdoll = 1 in its .fpe) becomes a ragdoll but keeps its
+// health and script, pushed along dx,dy,dz by force (as SetEntityRagdollForce's); its entity position follows the pelvis.
+// SetEntityRagdoll(e, 0 [, angle]): he stands where his body lies, facing angle or the way he gets up (face up, toward
+// his feet; face down, toward his head), a character again; play his get-up animation then. Returns 1 when done
+int SetEntityRagdoll ( lua_State *L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 2 ) return 0;
+	int e = lua_tointeger(L, 1);
+	int iDone = 0;
+	if ( LuaEntityIDValid ( L, e, 1 ) )
+	{
+		if ( lua_tointeger(L, 2) != 0 )
+		{
+			float fPushX = n >= 6 ? lua_tonumber(L, 3) : 0.0f;
+			float fPushY = n >= 6 ? lua_tonumber(L, 4) : 0.0f;
+			float fPushZ = n >= 6 ? lua_tonumber(L, 5) : 0.0f;
+			float fPushForce = n >= 6 ? lua_tonumber(L, 6) : 0.0f;
+			iDone = ragdoll_knockout ( e, fPushX, fPushY, fPushZ, fPushForce );
+		}
+		else
+		{
+			iDone = ragdoll_wake ( e, n >= 3, n >= 3 ? lua_tonumber(L, 3) : 0.0f );
+		}
+	}
+	lua_pushinteger ( L, iDone );
+	return 1;
+}
+
+// SetEntityRagdollHold(e, x, y, z, ax, ay, az [, limbname]): holds a ragdoll's pelvis (or the body moving limbname) at
+// x,y,z, turned as the character would be: 0,a,0 as standing facing a; 90,a,0 face down, head toward a; -90,a,0 face
+// up, feet toward a. The rest hangs from it. Call each frame while held; it is brought there over 0.25 s.
+// SetEntityRagdollHold(e) lets go. Returns 1 while held
+int SetEntityRagdollHold ( lua_State *L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int e = lua_tointeger(L, 1);
+	int iHeld = 0;
+	if ( LuaEntityIDValid ( L, e, 1 ) )
+	{
+		if ( n >= 7 )
+		{
+			const char* pLimbName = n >= 8 ? lua_tostring(L, 8) : NULL;
+			iHeld = ragdoll_hold ( e, lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5), lua_tonumber(L, 6), lua_tonumber(L, 7), pLimbName );
+		}
+		else
+		{
+			ragdoll_release ( e );
+		}
+	}
+	lua_pushinteger ( L, iHeld );
+	return 1;
+}
+
+// SetEntityRagdollHoldReference(e [, clip [, frame]]): e's ragdoll while held is draped from the pose of e's own
+// animation clip (a name as SetAnimationName takes) at frame (0 its first frame, 1 its last; 0), each body as its limbs
+// are there, not the pose it was made in; the stiffness's folds, knee fold (-1 keeps the reference's knees) and the
+// joint limits then apply as before. With no clip, the pose it was made in again. Set again after each
+// SetEntityRagdoll(e, 1). 1 when set, 0 when e is no ragdoll or has no such clip
+int SetEntityRagdollHoldReference ( lua_State *L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	int e = lua_tointeger(L, 1);
+	int iDone = 0;
+	if ( LuaEntityIDValid ( L, e, 1 ) )
+	{
+		const char* pClip = ( n >= 2 && lua_isstring(L, 2) ) ? lua_tostring(L, 2) : "";
+		float fFraction = ( n >= 3 ) ? lua_tonumber(L, 3) : 0.0f;
+		iDone = ragdoll_setholdreference ( e, pClip, fFraction );
+	}
+	lua_pushinteger ( L, iDone );
+	return 1;
+}
+
 // SetEntityRagdollHoldStiffness(e, stiffness [, damping [, waistfold [, hipfold [, kneefold]]]]): for e's ragdoll while
 // held, how hard each body is pulled to a drape (0 hangs free, 1 rigid; 0.85 when made), its swing's damping (0 to 1;
 // 0.6), and the drape's folds in degrees at the held body's joints: the part above toward his chest (60) and the parts
@@ -1047,6 +1529,17 @@ int SetEntityRagdollHoldStiffness ( lua_State *L )
 
 int SetEntityVelocity(lua_State *L) { return SetEntityVelocityCore ( L, 0 ); }
 
+// SetEscapeMenu(on): 0 leaves Escape (and a controller's START) to the scripts, for a menu of their own: it no longer
+// opens the in-game menu, nor leaves a test level, though shift and Escape still do that. 1 is the usual; back to 1 at
+// each level start
+int SetEscapeMenu ( lua_State *L )
+{
+	if ( LUA_GETTOP(L) < 1 ) return 0;
+	extern bool g_bEscapeMenu;
+	g_bEscapeMenu = lua_tonumber(L, 1) != 0;
+	return 0;
+}
+
 // SetFSRSharpness(s): the sharpening of the FSR upscale (the level's FSR setting or SetRenderScale), 0 to 2
 int SetFSRSharpness(lua_State* L)
 {
@@ -1070,6 +1563,18 @@ int SetFrameRateCap(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
 	LuaRenderSettings_SetFrameRateCap((int)lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetGamePaused(on): 1 pauses the game world for a menu as the in-game menu does (physics, the player, entities and their
+// animation, AI, weapons, projectiles, particles and the game's sounds) while every script, the HUD, sprites, music and
+// rendering carry on, and new sounds play; g_Time holds still and g_TimeElapsed and GetTimeElapsed() read 0 (Timer() and
+// GetElapsedTime() are the real clock). 0 resumes. A level that ends resumes it
+int SetGamePaused ( lua_State *L )
+{
+	if ( LUA_GETTOP(L) < 1 ) return 0;
+	extern void game_setgamepaused ( bool bPause );
+	game_setgamepaused ( lua_tonumber(L, 1) != 0 );
 	return 0;
 }
 
@@ -1177,6 +1682,17 @@ int SetProbesLowestLOD(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
 	LuaRenderSettings_SetLowestLOD((int)lua_tonumber(L, 1), -1);
+	return 0;
+}
+
+// SetRagdollAllDeaths(on): 1 gives every death of a character with ragdoll = 1 the forced ragdoll of
+// SetEntityHealth(e, -12345), skipping the death animations; SetEntityHealth(e, -12346) still has none. 0 at each level start
+int SetRagdollAllDeaths ( lua_State *L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	extern bool g_bRagdollAllDeaths;
+	g_bRagdollAllDeaths = lua_tointeger(L, 1) != 0;
 	return 0;
 }
 
@@ -1327,34 +1843,11 @@ int AddBlastDecal ( lua_State* L )
 	return 2;
 }
 
-// AddBulletHole: neutral until its engine side is here; needs entity_allowsbulletholes (G-Entity.cpp, G-Entity.h, M-Entity.cpp)
-int AddBulletHole ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	return 1;
-}
-
 // AddProjectedDecal: neutral until its engine side is here; needs WickedCall_AddProjectedDecal (wickedcalls.cpp, wickedcalls.h)
 int AddProjectedDecal ( lua_State* L )
 {
 	lua_pushinteger ( L, 0 );
 	return 1;
-}
-
-// BulletRay: neutral until its engine side is here; needs bHole (G-Entity.cpp, G-Entity.h); entity_scriptbulletray (G-Entity.cpp, G-Entity.h)
-int BulletRay ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	return 10;
 }
 
 // ClearGrassKillBox: neutral until its engine side is here; needs GGGRASS_MAX_KILLBOXES (GGGrass.cpp, GGGrass.h, GGGrassConstants.hlsli); GGGrass_ClearKillBox (GGGrass.cpp, GGGrass.h, M-Game.cpp)
@@ -1398,12 +1891,17 @@ int GetDrawCalls ( lua_State *L )
 	return 4;
 }
 
-// GetEngineProbe: neutral until its engine side is here; needs WickedCall_ProbeGet (wickedcalls.cpp, wickedcalls.h)
-int GetEngineProbe ( lua_State* L )
+// GetEngineProbe(name): the per-frame time and calls of the named probe (this branch has the first probe set, d0ed3926; the
+// later probes with the longest single call are not here, so the third value is 0)
+int GetEngineProbe(lua_State* L)
 {
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
+	if (LUA_GETTOP(L) < 1) return 0;
+	const char* pName = lua_tostring(L, 1);
+	float fMilliseconds, fCalls;
+	if (!pName || !WickedCall_ProbeGet(pName, &fMilliseconds, &fCalls)) return 0;
+	lua_pushnumber(L, fMilliseconds);
+	lua_pushnumber(L, fCalls);
+	lua_pushnumber(L, 0);
 	return 3;
 }
 
@@ -1414,77 +1912,10 @@ int GetEngineProbeDetail ( lua_State* L )
 	return 1;
 }
 
-// GetEntityInstanceEmissive: neutral until its engine side is here; needs WickedCall_GetObjectEmissiveTint (wickedcalls.cpp, wickedcalls.h)
-int GetEntityInstanceEmissive ( lua_State* L )
-{
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	return 4;
-}
-
-// GetEntityInstanceTint: neutral until its engine side is here; needs WickedCall_GetObjectColorTint (wickedcalls.cpp, wickedcalls.h)
-int GetEntityInstanceTint ( lua_State* L )
-{
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	return 3;
-}
-
-// GetEntityLimbAlpha: neutral until its engine side is here; needs WickedCall_GetLimbAlpha (wickedcalls.cpp, wickedcalls.h)
-int GetEntityLimbAlpha ( lua_State* L )
-{
-	lua_pushnumber ( L, 0 );
-	return 1;
-}
-
-// GetEntityMass(e) - kg, source: the kilos SetEntityMass gave it (source 1), else its body's mass now (0; 0 kilos for no
-// body). The .fpe's physicsmass key (source 2) waits for its engine side
-int GetEntityMass(lua_State* L)
-{
-	if (LUA_GETTOP(L) < 1) return 0;
-	int iEntity = (int)lua_tonumber(L, 1);
-	float fKg = 0;
-	int iSource = 0;
-	if (iEntity > 0 && iEntity < (int)t.entityelement.size())
-	{
-		extern bool ODEGetEntityMassKg(int iEntity, float* pfKg);
-		extern float ODEGetObjectMassKg(int iObject);
-		if (ODEGetEntityMassKg(iEntity, &fKg)) iSource = 1;
-		else fKg = ODEGetObjectMassKg(t.entityelement[iEntity].obj);
-	}
-	lua_pushnumber(L, fKg);
-	lua_pushinteger(L, iSource);
-	return 2;
-}
-
-// GetEntityRagdollPose: neutral until its engine side is here; needs ragdoll_getpose (M-Ragdoll.cpp, M-Ragdoll.h); ragdoll_isknockedout (M-Ragdoll.cpp, M-Ragdoll.h)
-int GetEntityRagdollPose ( lua_State* L )
-{
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	return 8;
-}
-
-// GetFrameCosts: neutral until its engine side is here; needs WickedCallFrameCosts (wickedcalls.cpp, wickedcalls.h); WickedCall_GetFrameCosts (wickedcalls.cpp, wickedcalls.h); bVSync (M-GridEditB.cpp, wickedcalls.cpp, wickedcalls.h); dExecute (wickedcalls.cpp, wickedcalls.h); dExecuteMax (wickedcalls.cpp, wickedcalls.h); dPresent (wickedcalls.cpp, wickedcalls.h); dPresentMax (wickedcalls.cpp, wickedcalls.h); dSubmit (wickedcalls.cpp, wickedcalls.h); dSubmitMax (wickedcalls.cpp, wickedcalls.h); dWindowMs (M-LUA.cpp, M-LUA.h, wickedcalls.cpp); iFrames (M-LUA.cpp, M-LUA.h, wickedcalls.cpp); iSubmits (wickedcalls.cpp, wickedcalls.h)
+// GetFrameCosts: neutral until its engine side is here; needs WickedCallFrameCosts (wickedcalls.cpp, wickedcalls.h); WickedCall_GetFrameCosts (wickedcalls.cpp, wickedcalls.h); bVSync (M-GridEditB.cpp, wickedcalls.cpp, wickedcalls.h); dExecute (wickedcalls.cpp, wickedcalls.h); dExecuteMax (wickedcalls.cpp, wickedcalls.h); dPresent (wickedcalls.cpp, wickedcalls.h); dPresentMax (wickedcalls.cpp, wickedcalls.h); dSubmit (wickedcalls.cpp, wickedcalls.h); dSubmitMax (wickedcalls.cpp, wickedcalls.h); iSubmits (wickedcalls.cpp, wickedcalls.h)
 int GetFrameCosts ( lua_State* L )
 {
 	lua_pushnil ( L );
-	return 1;
-}
-
-// GetGamePaused(): 0; SetGamePaused is neutral until its engine side is here, so nothing is ever paused by it
-int GetGamePaused ( lua_State *L )
-{
-	lua_pushnumber ( L, 0 );
 	return 1;
 }
 
@@ -1495,7 +1926,7 @@ int GetGameQuality(lua_State* L)
 	return 1;
 }
 
-// GetGpuFrameCosts: neutral until its engine side is here; needs WickedCallGpuCosts (wickedcalls.cpp, wickedcalls.h); WickedCall_GetGpuFrameCosts (wickedcalls.cpp, wickedcalls.h); dGpu (wickedcalls.cpp, wickedcalls.h); dGpuMax (wickedcalls.cpp, wickedcalls.h); iFrames (M-LUA.cpp, M-LUA.h, wickedcalls.cpp); iMissed (wickedcalls.cpp, wickedcalls.h)
+// GetGpuFrameCosts: neutral until its engine side is here; needs WickedCallGpuCosts (wickedcalls.cpp, wickedcalls.h); WickedCall_GetGpuFrameCosts (wickedcalls.cpp, wickedcalls.h); dGpu (wickedcalls.cpp, wickedcalls.h); dGpuMax (wickedcalls.cpp, wickedcalls.h); iMissed (wickedcalls.cpp, wickedcalls.h)
 int GetGpuFrameCosts ( lua_State* L )
 {
 	lua_pushnil ( L );
@@ -1506,54 +1937,6 @@ int GetGpuFrameCosts ( lua_State* L )
 int GetLightShafts(lua_State* L)
 {
 	lua_pushnumber(L, 0);
-	return 1;
-}
-
-// GetLuaEntityCosts: neutral until its engine side is here; needs dKey (M-LUA.cpp, M-LUA.h); dMain (M-LUA.cpp, M-LUA.h); dRow (M-LUA.cpp, M-LUA.h); dTotal (M-LUA.cpp, M-LUA.h); dWindowMs (M-LUA.cpp, M-LUA.h, wickedcalls.cpp); iFrames (M-LUA.cpp, M-LUA.h, wickedcalls.cpp); iGC (M-LUA.cpp, M-LUA.h); iKeyScannersMax (M-LUA.cpp, M-LUA.h); iKeyScans (M-LUA.cpp, M-LUA.h); iMains (M-LUA.cpp, M-LUA.h); iRows (M-LUA.cpp, M-LUA.h); iTurns (M-LUA.cpp, M-LUA.h); lua_getentitycosts (M-LUA.cpp, M-LUA.h)
-int GetLuaEntityCosts ( lua_State* L )
-{
-	lua_pushnil ( L );
-	return 1;
-}
-
-// GetPlayerHit: neutral until its engine side is here; needs fOX (G-Entity.cpp, G-Entity.h); fOY (G-Entity.cpp, G-Entity.h); fOZ (G-Entity.cpp, G-Entity.h); iDamage (G-Entity.cpp, G-Entity.h); iHealthAfter (G-Entity.cpp, G-Entity.h); iHole (G-Entity.cpp, G-Entity.h); iKilled (G-Entity.cpp, G-Entity.h); iKind (G-Entity.cpp, G-Entity.h); iShot (G-Entity.cpp, G-Entity.h); playerhit_get (G-Entity.cpp, G-Entity.h)
-int GetPlayerHit ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	return 21;
-}
-
-// GetPlayerHitSeq: neutral until its engine side is here; needs playerhit_getseq (G-Entity.cpp, G-Entity.h)
-int GetPlayerHitSeq ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	return 1;
-}
-
-// GetRagdollAllDeaths(): 0 until its engine side is here
-int GetRagdollAllDeaths ( lua_State *L )
-{
-	lua_pushinteger ( L, 0 );
 	return 1;
 }
 
@@ -1642,29 +2025,8 @@ int GetWaterHeightAt ( lua_State* L )
 	return 2;
 }
 
-// IntersectRay: neutral until its engine side is here; needs g_IntersectExtraIgnoreObjects (CObjectsC.cpp)
-int IntersectRay ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	return 9;
-}
-
 // RemoveProjectedDecal: neutral until its engine side is here; needs WickedCall_RemoveProjectedDecal (M-GridEditB.cpp, wickedcalls.cpp, wickedcalls.h)
 int RemoveProjectedDecal ( lua_State* L )
-{
-	return 0;
-}
-
-// ResetEntityMaterial: neutral until its engine side is here; needs entity_resetmaterial (G-Entity.cpp, G-Entity.h)
-int ResetEntityMaterial ( lua_State* L )
 {
 	return 0;
 }
@@ -1681,59 +2043,8 @@ int SetDecalRange ( lua_State* L )
 	return 0;
 }
 
-// SetEntityInstanceEmissive: neutral until its engine side is here; needs WickedCall_SetObjectEmissiveTint (M-GridEditB.cpp, wickedcalls.cpp, wickedcalls.h)
-int SetEntityInstanceEmissive ( lua_State* L )
-{
-	return 0;
-}
-
-// SetEntityInstanceTint: neutral until its engine side is here; needs WickedCall_SetObjectColorTint (M-GridEditB.cpp, wickedcalls.cpp, wickedcalls.h)
-int SetEntityInstanceTint ( lua_State* L )
-{
-	return 0;
-}
-
-// SetEntityLimbAlpha: neutral until its engine side is here; needs WickedCall_SetLimbAlpha (M-GridEditB.cpp, wickedcalls.cpp, wickedcalls.h)
-int SetEntityLimbAlpha ( lua_State* L )
-{
-	return 0;
-}
-
-// SetEntityRagdoll: neutral until its engine side is here; needs ragdoll_knockout (M-Ragdoll.cpp, M-Ragdoll.h); ragdoll_wake (M-Ragdoll.cpp, M-Ragdoll.h)
-int SetEntityRagdoll ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	return 1;
-}
-
-// SetEntityRagdollHold: neutral until its engine side is here; needs ragdoll_hold (M-Ragdoll.cpp, M-Ragdoll.h); ragdoll_release (M-Ragdoll.cpp, M-Ragdoll.h)
-int SetEntityRagdollHold ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	return 1;
-}
-
-// SetEntityRagdollHoldReference: neutral until its engine side is here; needs ragdoll_setholdreference (M-Ragdoll.cpp, M-Ragdoll.h)
-int SetEntityRagdollHoldReference ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	return 1;
-}
-
 // SetEntityReceivesDecals: neutral until its engine side is here; needs WickedCall_SetObjectReceivesDecals (G-Gun.cpp, M-HUD.cpp, wickedcalls.cpp)
 int SetEntityReceivesDecals ( lua_State* L )
-{
-	return 0;
-}
-
-// SetEscapeMenu(on): neutral until its engine side is here; Escape keeps opening the in-game menu
-int SetEscapeMenu ( lua_State *L )
-{
-	return 0;
-}
-
-// SetGamePaused: neutral until its engine side is here; needs game_setgamepaused (M-Game.cpp)
-int SetGamePaused ( lua_State* L )
 {
 	return 0;
 }
@@ -1838,12 +2149,6 @@ int SetProjectedDecalLimit ( lua_State* L )
 
 // SetProjectedDecalOpacity: neutral until its engine side is here; needs WickedCall_SetProjectedDecalOpacity (wickedcalls.cpp, wickedcalls.h)
 int SetProjectedDecalOpacity ( lua_State* L )
-{
-	return 0;
-}
-
-// SetRagdollAllDeaths(on): neutral until its engine side is here; deaths keep their animations
-int SetRagdollAllDeaths ( lua_State *L )
 {
 	return 0;
 }
@@ -2186,4 +2491,11 @@ void addFunctions_hiredgun()
 	lua_register(lua2, "GetTAA", GetTAA);
 	lua_register(lua2, "SetUpscaler", SetUpscaler);
 	lua_register(lua2, "GetUpscaler", GetUpscaler);
+}
+
+// the main Lua state's heap in KB (lua_loop_allentities' per-entity costs, M-LUA.cpp); this branch's state is lua2
+int LuaHeapKB(void)
+{
+	extern lua_State* lua2;
+	return lua2 ? lua_gc(lua2, LUA_GCCOUNT, 0) : 0;
 }

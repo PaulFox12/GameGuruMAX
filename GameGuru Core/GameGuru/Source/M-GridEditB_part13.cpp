@@ -324,6 +324,12 @@
 					GGTerrain_RemoveFlatArea(edit_grideleprof->iFlattenID);
 					t.entityelement[elementID].eleprof.iFlattenID = edit_grideleprof->iFlattenID = -1;
 				}
+				if (!edit_grideleprof->bAutoFlatten)
+				{
+					// Clear Grass and Trees may now apply (entity_clearsvegetation)
+					entity_autoFlattenWhenAdded(elementID);
+					edit_grideleprof->iFlattenID = t.entityelement[elementID].eleprof.iFlattenID;
+				}
 				if (edit_grideleprof->bAutoFlatten)
 				{
 					if (edit_grideleprof->iFlattenID == -1)
@@ -715,14 +721,8 @@
 				g_bChangedGameCollectionList = false;
 			}
 
-			if (elementID > 0 && elementID < t.entityelement.size() )
-			{
-				bool bAllowBulletHole = t.entityelement[elementID].iAllowBuletHole;
-				if (ImGui::Checkbox("Allow Bullet Holes ?", &bAllowBulletHole))
-				{
-					t.entityelement[elementID].iAllowBuletHole = bAllowBulletHole;
-				}
-			}
+			DisplayAllowBulletHolesCheckbox(elementID);
+			DisplayClearVegetationCheckbox(elementID);
 
 			ImGui::Indent(-10);
 		}
@@ -733,6 +733,8 @@
 		ImGui::Text("NOTE: Static objects are always immobile");
 		ImGui::Text("and cannot be collected by the player");
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("When the object is set to static, it cannot be set as a collectable or move in any way");
+		DisplayAllowBulletHolesCheckbox(elementID);
+		DisplayClearVegetationCheckbox(elementID);
 		ImGui::Indent(-10);
 	}
 }

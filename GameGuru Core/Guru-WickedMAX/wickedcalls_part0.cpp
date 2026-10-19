@@ -334,6 +334,11 @@ void WickedCall_AddImageToList(wiResource image, eImageResType eType, std::strin
 		g_imageList.push_back(newImage);
 }
 
+// the spawn probe (G-Entity.cpp): named slices of a probed spawn's time, and calls counted in it
+void SpawnProbe_Sub ( const char* pName );
+long long SpawnProbe_CallStart ( void );
+void SpawnProbe_CallEnd ( const char* pName, long long llStart );
+
 int total_mem_from_load = 0;
 bool bCalledFromWickedLoadImage = false;
 // GGMAX texture streaming (2026-08-01): entity material textures opt into Wicked mip streaming.
@@ -1906,6 +1911,7 @@ void WickedCall_AddObject ( sObject* pObject )
 			if (pObject->ppMeshList[iM])
 				pObject->ppMeshList[iM]->wickedmaterialindex = materialEntity;
 	}
+	SpawnProbe_Sub("wicked: materials");
 
 	// if object has bones (animation), then need an armature - done inside LoadNode
 	// but need to reset wickedarmatureindex IDs as this scene is a temporarly one, to be merged at the end
@@ -1919,6 +1925,7 @@ void WickedCall_AddObject ( sObject* pObject )
 	state.storeMasterRootEntityIndex = rootEntity;
 	sFrame* pRootFrame = pObject->pFrame;
 	WickedCall_LoadNode ( pRootFrame, rootEntity, rootEntity, state );
+	SpawnProbe_Sub("wicked: nodes and meshes");
 	
 
 	for (int iM = 0; iM < pObject->iMeshCount; iM++)
@@ -1971,6 +1978,7 @@ void WickedCall_AddObject ( sObject* pObject )
 		}
 	}
 
+	SpawnProbe_Sub("wicked: mesh settings");
 
 	// Create armature-bone mappings (connect armature bone collection to frame entities created in LoadNode)
 	for (int iM = 0; iM < pObject->iMeshCount; iM++)
@@ -2020,6 +2028,7 @@ void WickedCall_AddObject ( sObject* pObject )
 			}
 		}
 	}
+	SpawnProbe_Sub("wicked: armatures");
 
 	// Create animations (from animation data stored in DBO)
 	WickedLoaderState* pCopyLoaderState = new WickedLoaderState;
@@ -2030,6 +2039,7 @@ void WickedCall_AddObject ( sObject* pObject )
 
 	//int objectindex = state.entityMap[pObject->pFrame->iID];
 	WickedCall_RefreshObjectAnimations(pObject, (void*)pCopyLoaderState);
+	SpawnProbe_Sub("wicked: animations");
 
 	// trigger an update to the root entity transform
 	wiScene::TransformComponent* pATransform = pScene->transforms.GetComponent(rootEntity);

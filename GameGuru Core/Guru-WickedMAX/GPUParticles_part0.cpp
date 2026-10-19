@@ -81,6 +81,8 @@ static bool LoadGPUPShader(ShaderStage stage, Shader& shader, const std::string&
 // fail to link. Defined in Guru-WickedMAX/master_part1.cpp.
 extern FILE* GGDiagFopen(const char* name, const char* mode);
 
+extern bool g_bGamePaused;
+
 namespace GPUParticles
 {
 // file functions, only support one file open at a time
@@ -3248,6 +3250,9 @@ void gpup_update( float frameTime, wiGraphics::CommandList cmd )
 	device->EventBegin( "GPUParticles Update", cmd );
 	
 	gpup_settings.tmr = frameTime * g_fSlowParticleTime;
+
+	// SetGamePaused holds the particles still (they are still drawn)
+	if ( g_bGamePaused ) gpup_settings.tmr = 0.0f;
 	
 	gpup_settings.sn = gpup_settings.sn + gpup_settings.tmr*10.0f;
 	gpup_settings.rotsn = gpup_settings.rotsn + gpup_settings.tmr;

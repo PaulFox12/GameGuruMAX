@@ -1428,14 +1428,60 @@ void game_masterroot_gameloop_afterexitgamemenu(void)
 	LuaSetInt("g_MouseWheel", 0); //PE: Reset g_MouseWheel
 }
 
-void game_masterroot_gameloop_afterescapepressed(void)
+// SetEscapeMenu: false leaves Escape to the scripts' own menu (back to true at each level start)
+bool g_bEscapeMenu = true;
+
+// the world (sounds, physics, animation, the player's gun and g_Time) is paused by the in-game menu and by SetGamePaused,
+// and resumes only when neither holds it, so the two can overlap
+int g_iGameWorldPauses = 0;
+bool g_bGamePaused = false;
+
+void game_pauseworld ( void )
 {
+	++g_iGameWorldPauses;
+	if ( g_iGameWorldPauses > 1 ) return;
+	t.tremembertimer= MAXTimer();
+	game_main_snapshotsound ( );
+	physics_pausephysics ( );
+	entity_pauseanimations ( );
+	extern void gun_SetObjectSpeed(int, float);
+	if ( t.currentgunobj > 0 ) { if ( ObjectExist(t.currentgunobj)==1 ) { gun_SetObjectSpeed (  t.currentgunobj,0) ; } }
+	if ( t.playercontrol.jetobjtouse>0 )
+	{
+		if ( ObjectExist(t.playercontrol.jetobjtouse) == 1  )  SetObjectSpeed (  t.playercontrol.jetobjtouse,0 );
+	}
+}
+
+void game_resumeworld ( void )
+{
+	if ( g_iGameWorldPauses == 0 ) return;
+	--g_iGameWorldPauses;
+	if ( g_iGameWorldPauses > 0 ) return;
 	extern void gun_SetObjectSpeed(int, float);
 	if ( t.currentgunobj>0 ) { if ( ObjectExist(t.currentgunobj) == 1 ) { gun_SetObjectSpeed (  t.currentgunobj,t.currentgunanimspeed_f); } }
 	physics_resumephysics ( );
 	entity_resumeanimations ( );
 	t.aisystem.cumilativepauses= MAXTimer()-t.tremembertimer;
 	game_main_snapshotsoundresume ( );
+}
+
+// SetGamePaused: pause the world as the in-game menu does, and its logic too (game_main_loop skips physics, the player,
+// entities, AI, weapons and particles), while LUA, the HUD, music and rendering carry on
+void game_setgamepaused ( bool bPause )
+{
+	if ( bPause == g_bGamePaused ) return;
+	g_bGamePaused = bPause;
+	extern void WickedCall_PauseEmitters(bool bPause);
+	WickedCall_PauseEmitters(bPause);
+	if ( bPause == true )
+		game_pauseworld ( );
+	else
+		game_resumeworld ( );
+}
+
+void game_masterroot_gameloop_afterescapepressed(void)
+{
+	game_resumeworld ( );
 	t.strwork = ""; t.strwork = t.strwork + "resuming game loop with flag "+Str(t.game.gameloop);
 	timestampactivity(0, t.strwork.Get() );
 	// Wipe out mouse deltas
@@ -1535,9 +1581,19 @@ bool game_masterroot_gameloop_loopcode(int iUseVRTest)
 		if (GGVR_RightController_Button1() == 1) bControllerEscape == true;
 	}
 
-	//  trigger options page or exit test level
+	//  trigger options page or exit test level (SetEscapeMenu(0) leaves Escape and the START button to the scripts, though
+	//  shift and Escape still leave a test level)
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"escape button check");
-	if ( EscapeKey() == 1 || bControllerEscape == true ) 
+	bool bEscapePressed = false;
+	if ( g_bEscapeMenu == true )
+	{
+		if ( EscapeKey() == 1 || bControllerEscape == true ) bEscapePressed = true;
+	}
+	else
+	{
+		if ( t.game.gameisexe == 0 && (KeyState(42) == 1 || KeyState(54) == 1) && EscapeKey() == 1 ) bEscapePressed = true;
+	}
+	if ( bEscapePressed == true )
 	{
 		// at the point we enter the in-game menu, stop VR mode if required
 		if (t.game.gameisexe == 1 && g.vrglobals.GGVREnabled == 2) g_iActivelyUsingVRNow = 0;
@@ -1545,17 +1601,8 @@ bool game_masterroot_gameloop_loopcode(int iUseVRTest)
 		// can perform some extra debug snapshots when enter in-game menu - useful!
 		if (g.gproducelogfiles == 2) GGTerrain::GGTerrain_DebugOutputFlattenedAreas();
 
-		t.tremembertimer= MAXTimer();
-		game_main_snapshotsound ( );
+		game_pauseworld ( );
 		while ( EscapeKey() != 0 ) {}
-		physics_pausephysics ( );
-		entity_pauseanimations ( );
-		extern void gun_SetObjectSpeed(int, float);
-		if ( t.currentgunobj > 0 ) { if ( ObjectExist(t.currentgunobj)==1 ) { gun_SetObjectSpeed (  t.currentgunobj,0) ; } }
-		if ( t.playercontrol.jetobjtouse>0 ) 
-		{
-			if ( ObjectExist(t.playercontrol.jetobjtouse) == 1  )  SetObjectSpeed (  t.playercontrol.jetobjtouse,0 );
-		}
 		if ( t.game.gameisexe == 0 ) // no menu in multiplayer test mode && t.game.runasmultiplayer == 0 ) 
 		{
 			if ( t.game.runasmultiplayer == 1 )
@@ -1677,7 +1724,7 @@ bool game_masterroot_gameloop_loopcode(int iUseVRTest)
 
 	//  Immunity when respawn
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"handle player immunity");
-	if (  t.huddamage.immunity>0 ) 
+	if (  t.huddamage.immunity>0 && g_bGamePaused == false )
 	{
 		t.huddamage.immunity=t.huddamage.immunity-(10*g.timeelapsed_f);
 		if (  t.huddamage.immunity<0  )  t.huddamage.immunity = 0;

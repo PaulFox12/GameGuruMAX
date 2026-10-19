@@ -577,7 +577,7 @@
 					// reserved slots. The load side in M-Entity_part3.cpp mirrors this exactly.
 					writer.WriteLong(t.entityelement[ent].iAllowBuletHole);             // DX11 slot 1
 					writer.WriteLong(t.entityelement[ent].eleprof.iMaterialSoundIndex); // DX11 slot 2
-					writer.WriteFloat(0.0f);
+					writer.WriteFloat((float)t.entityelement[ent].iClearVegetation); // Clear Grass and Trees tick, 0 (every older level) until set
 					writer.WriteFloat(0.0f);
 					writer.WriteLong(t.entityelement[ent].eleprof.systemwide_lua);
 					writer.WriteLong(t.entityelement[ent].eleprof.isobjective_alwaysactive);
@@ -1241,6 +1241,7 @@ void entity_assignentityparticletodecalelement ( void )
 void entity_addentitytomap_core ( void )
 {
 	// called from _entity_addentitytomap and also _game_masterroot
+	bool bDroppedBackInSameElement = false;
 	if ( t.gridentityoverwritemode == 0 )
 	{
 		// First see if we have a prfeference (when click object to cursor, ideally want it dropped back in same t.e
@@ -1250,6 +1251,7 @@ void entity_addentitytomap_core ( void )
 			if (t.entityelement[t.gridentitypreferelementindex].maintype == 0)
 			{
 				t.tokay = t.gridentitypreferelementindex;
+				bDroppedBackInSameElement = true;
 			}
 			t.gridentitypreferelementindex = 0;
 		}
@@ -1275,20 +1277,11 @@ void entity_addentitytomap_core ( void )
 			t.e=g.entityelementlist;
 			if ( g.entityelementlist>g.entityelementmax ) 
 			{
-				Dim ( t.storeentityelement,g.entityelementmax );
-				for ( t.e = 1 ; t.e<=  g.entityelementmax; t.e++ )
-				{
-					t.storeentityelement[t.e]=t.entityelement[t.e];
-				}
-				UnDim (  t.entityelement );
-				UnDim (  t.entityshadervar );
-				g.entityelementmax +=10;
-				Dim (  t.entityelement,g.entityelementmax );
-				Dim2(  t.entityshadervar,g.entityelementmax, g.globalselectedshadermax  );
-				for ( t.e = 1 ; t.e<=  g.entityelementmax-10; t.e++ )
-				{
-					t.entityelement[t.e]=t.storeentityelement[t.e];
-				}
+				// grown by half its size (at least 10), not by 10: every growth copies the whole array out and back
+				int iGrowBy = g.entityelementmax / 2;
+				if ( iGrowBy < 10 ) iGrowBy = 10;
+				entity_growelementarray ( g.entityelementmax + iGrowBy );
+				t.e = g.entityelementlist;
 			}
 		}
 		else
@@ -1339,6 +1332,31 @@ void entity_addentitytomap_core ( void )
 	t.entityelement[t.e].maintype=t.entitymaintype;
 	t.entityelement[t.e].bankindex=t.entitybankindex;
 	t.entityelement[t.e].staticflag=t.gridentitystaticmode;
+	if (t.gridentityoverwritemode == 0 && bDroppedBackInSameElement == false)
+	{
+		// a new placement starts with Allow Bullet Holes unset, which follows its .fpe (entity_allowsbulletholes), rather
+		// than the tick of a deleted object that used this element; one dropped back into its own element, or restored
+		// by undo, keeps its setting; Clear Grass and Trees likewise
+		t.entityelement[t.e].iAllowBuletHole = 0;
+		t.entityelement[t.e].iClearVegetation = 0;
+
+		// where its .fpe doesn't say, the Settings choices (Developer) go into the new placement's own ticks, so changing
+		// them later leaves placed objects as they are. On leaves characters without holes, and markers, characters and
+		// decals clearing nothing, as the rules do
+		int iBank = t.entitybankindex;
+		bool bCharacter = (t.entityprofile[iBank].ischaracter != 0);
+		if (t.entityprofile[iBank].allowbulletholes == -1)
+		{
+			if (g_iDefaultBulletHoles == 1 && !bCharacter) t.entityelement[t.e].iAllowBuletHole = 1;
+			if (g_iDefaultBulletHoles == 2) t.entityelement[t.e].iAllowBuletHole = 2;
+		}
+		if (t.entityprofile[iBank].clearvegetation == -1)
+		{
+			bool bNeverClears = (t.entityprofile[iBank].ismarker != 0 || bCharacter || t.entityprofile[iBank].bIsDecal);
+			if (g_iDefaultClearVegetation == 1 && !bNeverClears) t.entityelement[t.e].iClearVegetation = 1;
+			if (g_iDefaultClearVegetation == 2) t.entityelement[t.e].iClearVegetation = 2;
+		}
+	}
 	t.entityelement[t.e].iHasParentIndex=t.gridentityhasparent;
 	t.entityelement[t.e].x=t.gridentityposx_f;
 	t.entityelement[t.e].z=t.gridentityposz_f;
@@ -1382,12 +1400,35 @@ void entity_addentitytomap_core ( void )
 	t.entityelement[t.e].lua.outofrangefreeze = 0;
 }
 
+// the entity element array (and its shader values) made big enough for iNewMax elements, the elements kept. Each growth
+// copies every element out and back, 60-150 ms with ~1100 elements, so callers grow it by a lot at once
+void entity_growelementarray ( int iNewMax )
+{
+	if ( iNewMax <= g.entityelementmax ) return;
+	int iOldMax = g.entityelementmax;
+	Dim ( t.storeentityelement, iOldMax );
+	for ( int e = 1; e <= iOldMax; e++ )
+	{
+		t.storeentityelement[e] = t.entityelement[e];
+	}
+	UnDim ( t.entityelement );
+	UnDim ( t.entityshadervar );
+	g.entityelementmax = iNewMax;
+	Dim ( t.entityelement, g.entityelementmax );
+	Dim2 ( t.entityshadervar, g.entityelementmax, g.globalselectedshadermax );
+	for ( int e = 1; e <= iOldMax; e++ )
+	{
+		t.entityelement[e] = t.storeentityelement[e];
+	}
+}
+
 void entity_addentitytomap ( void )
 {
 	// Entity To Add
 	t.entitymaintype=1;
 	t.entitybankindex=t.gridentity;
 	entity_addentitytomap_core ( );
+	SpawnProbe_Mark(SPAWNSTEP_ADDCORE);
 
 	// transfer waypoint zone index to entityelement
 	if (t.grideleprof.trigger.waypointzoneindex > 0)
@@ -1483,6 +1524,7 @@ void entity_addentitytomap ( void )
 
 	//  Add entity reference into map
 	t.tupdatee=t.e; entity_updateentityobj ( );
+	SpawnProbe_Mark(SPAWNSTEP_POSITION);
 
 	// mark as static if it was
 	if ( t.entityelement[t.tupdatee].staticflag == 1 ) g.projectmodifiedstatic = 1;
@@ -1521,24 +1563,28 @@ void entity_addentitytomap ( void )
 
 	//PE: Moved here as we use the object direction vector for spot lights.
 	// update infinilight list with addition
-	if (t.entityprofile[t.entitybankindex].ismarker == 2 || t.entityprofile[t.entitybankindex].ismarker == 5 || t.entityelement[t.e].eleprof.usespotlighting)
+	if (t.entityprofile[t.entitybankindex].ismarker == 2 || t.entityprofile[t.entitybankindex].ismarker == 5 || t.entityelement[t.e].eleprof.usespotlighting || t.entityprofile[t.entitybankindex].entitylight)
 	{
 		//PE: Some weapons have usespotlighting , this ruin all the lua light states.
-		if (!(t.bSpawnCalledFromLua && t.entityprofile[t.entitybankindex].ismarker == 0 ))
+		// GG: an entity that carries a light gets it however it was added
+		if (!(t.bSpawnCalledFromLua && t.entityprofile[t.entitybankindex].ismarker == 0 ) || t.entityprofile[t.entitybankindex].entitylight)
 		{
-			lighting_refresh();
+			lighting_refreshorhold();
 			entity_updatelightobj(t.e, t.entityelement[t.e].obj);
 		}
 	}
+	SpawnProbe_Mark(SPAWNSTEP_LIGHTS);
 
 	// if new particle emitter, update it when created (to start the particle emission)
 	entity_updateparticleemitter(t.tupdatee);
+	SpawnProbe_Mark(SPAWNSTEP_EMITTER);
 
 	// when add an entity to the scene, auto flatten if flagged
 	if (t.entityelement[t.e].eleprof.iFlattenID == -1)
 		entity_autoFlattenWhenAdded(t.e); //MD: Wrapped this section into a function to use when loading in levels to auto flatten areas
 	else
 		entity_updateautoflatten(t.e); //LB: Fix in case already added (in prepareobj for example)
+	SpawnProbe_Mark(SPAWNSTEP_FLATTEN);
 
 	// ensure collection list up to date with new entity additions (such as weapons and other implied collectables)
 	extern bool g_bSelectedNewObjectToAddToLevel;
@@ -1600,10 +1646,10 @@ void entity_deleteentityfrommap ( void )
 	t.tDontDeleteWPFlag = 0;
 
 	// update infinilight list with removal
-	if ( t.entityprofile[iWasEntID].ismarker == 2 || t.entityprofile[iWasEntID].ismarker == 5 ) 
+	if ( t.entityprofile[iWasEntID].ismarker == 2 || t.entityprofile[iWasEntID].ismarker == 5 || t.entityprofile[iWasEntID].entitylight )
 	{
 		//  refresh existing lights
-		lighting_refresh ( );
+		lighting_refreshorhold ( );
 	}
 	//Delete any particle effects.
 	if (g_UndoSysObjectIsBeingMoved != true)

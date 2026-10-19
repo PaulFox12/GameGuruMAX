@@ -13,6 +13,7 @@ void decal_scaninall_findnewlyaddedgun (void);
 void decal_loadonlyactivedecals ( void );
 void decal_getparticlefile ( void );
 void decalelement_create ( void );
+void decalelement_standon ( int d, float fNX, float fNY, float fNZ );
 void decalelement_continue ( void );
 void decalelement_control ( void );
 void decal_triggermaterialdebris ( void );

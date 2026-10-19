@@ -31,6 +31,7 @@ void entity_deleteelementsdata ( void );
 void entity_deleteelements ( void );
 void entity_assignentityparticletodecalelement ( void );
 void entity_addentitytomap_core ( void );
+void entity_growelementarray ( int iNewMax );
 void entity_addentitytomap ( void );
 void entity_deleteentityfrommap ( void );
 void entity_createundoaction (int eventtype, int te, bool bUserAction = true);
@@ -40,6 +41,7 @@ void entity_updateparticleemitterbyID(entityeleproftype* pEleprof, int iObj, flo
 void entity_updateparticleemitter(int e);
 void entity_updateautoflatten(int e, int obj = 0);
 void entity_autoFlattenWhenAdded(int e, int obj = 0);
+bool entity_clearsvegetation(int e);
 
 bool ObjectIsEntity(void* pTestObject);
 bool IsWickedMaterialActive(void* pvMesh);

@@ -5,6 +5,8 @@
 // Includes
 #include "stdafx.h"
 #include "gameguru.h"
+#include <map>
+#include <vector>
 
 // Globals
 bool g_bDebugRagdoll = false;// connect debug ragdoll and real object and we are golden :)
@@ -123,6 +125,14 @@ void ragdoll_setcollisionmask ( int iMode )
 	}
 }
 
+// GG: each ragdoll's limbs as it was made (local position, rotation and scale; world matrix), by its object
+struct sRagdollMadeLimbs
+{
+	std::vector<float> locals;
+	std::vector<float> worlds;
+};
+static std::map<int, sRagdollMadeLimbs> g_RagdollMadeLimbs;
+
 void CalculateCombinedFromQuatsInOriginal(sFrame* pFrame, GGMATRIX* parentMatrix)
 {
 	if (pFrame)
@@ -143,7 +153,7 @@ void CalculateCombinedFromQuatsInOriginal(sFrame* pFrame, GGMATRIX* parentMatrix
 	}
 }
 
-void ragdoll_create ( void )
+static void ragdoll_create_core ( void )
 {
 	// GGMAX 2.29: DUMP_RAGDOLL stage 1
 	g_rdCreateCalls++;
@@ -195,6 +205,13 @@ void ragdoll_create ( void )
 						RotateLimbQuat (t.tobj, pFrame->iID, fX, fY, fZ, fQuatX, fQuatY, fQuatZ, fQuatW);
 					}
 				}
+
+				// GG: and each limb as the ragdoll is made from it, for a hold drawn from another pose (ragdoll_setholdreference)
+				sRagdollMadeLimbs& made = g_RagdollMadeLimbs[t.tphyobj];
+				made.locals.resize(pObject->iFrameCount * 10);
+				made.worlds.resize(pObject->iFrameCount * 16);
+				for (int f = 0; f < pObject->iFrameCount; f++)
+					WickedCall_GetLimbLocalAndWorld(pObject, f, &made.locals[f * 10], &made.worlds[f * 16]);
 			}
 			// code below will use vecDirection (from matCombined) to work out limb initial rotations
 			// so we need to make sure matCombined are set up to reflect the world matrices for the model
@@ -218,7 +235,14 @@ void ragdoll_create ( void )
 
 			// create ragdoll, and pass in weight from character
 			float fWeight = t.entityelement[t.tphye].eleprof.phyweight;
-			BPhys_RagDollBegin ( t.tphyobj, 175.0 * (fWeight/100.0f) );
+			float fRagdollKg = 175.0f * (fWeight/100.0f);
+			// GG: or the kilos SetEntityMass gave the character, or else its .fpe physicsmass
+			extern bool ODEGetEntityMassKg(int iEntity, float* pfKg);
+			float fSetKg = 0;
+			float fProfileKg = t.entityprofile[t.entityelement[t.tphye].bankindex].physicsmass;
+			if ( ODEGetEntityMassKg ( t.tphye, &fSetKg ) ) fRagdollKg = fSetKg;
+			else if ( fProfileKg > 0 ) fRagdollKg = fProfileKg;
+			BPhys_RagDollBegin ( t.tphyobj, fRagdollKg );
 
 			// determine if a crotch exists
 			if ( getlimbbyname(t.tphyobj, "Crotch") == -1 ) 
@@ -576,6 +600,9 @@ void ragdoll_create ( void )
 
 			UnDim (  t.limidrecord );
 
+			// GG: each body's turn with the character facing angle 0, for holding a body (ragdoll_hold)
+			BPhys_RagDollSetRestYaw ( t.tphyobj, t.entityelement[t.tphye].ry );
+
 			// ensure never going into the floor!
 			if (bForTestingInstentFreeze == false)
 			{
@@ -608,11 +635,28 @@ void ragdoll_create ( void )
 	}
 }
 
+// GG: each creation timed into the log (a blast's deaths can make several in one frame)
+void ragdoll_create ( void )
+{
+	LARGE_INTEGER freq, start, end;
+	QueryPerformanceFrequency ( &freq );
+	QueryPerformanceCounter ( &start );
+	const int iObj = t.tphyobj;
+	const bool bHad = BPhys_RagdollExist ( iObj ) != 0;
+	ragdoll_create_core ();
+	QueryPerformanceCounter ( &end );
+	if ( bHad ) return;
+	char pMsg[128];
+	sprintf_s ( pMsg, "ragdoll_create obj %d: %s in %.2f ms", iObj, BPhys_RagdollExist ( iObj ) ? "made" : "none", (double)(end.QuadPart - start.QuadPart) * 1000.0 / (double)freq.QuadPart );
+	timestampactivity ( 0, pMsg );
+}
+
 void ragdoll_destroy ( void )
 {
 	// receives tphyobj
-	if ( t.tphyobj>0 ) 
+	if ( t.tphyobj>0 )
 	{
+		g_RagdollMadeLimbs.erase ( t.tphyobj );
 		if ( ObjectExist(t.tphyobj) == 1 ) ResetObjectPivot ( t.tphyobj );
 		for ( t.ri = 0 ; t.ri <= g.RagdollsMax; t.ri++ )
 		{
@@ -717,4 +761,345 @@ int getlimbbyname ( int objid, char* limbname_s )
 		}
 	}
 	return limbindex;
+}
+
+// GG: a living character made a ragdoll keeps its health and script (SetEntityRagdoll). ragdoll_create writes the pose
+// into each frame's original matrix and resets the pivot, so what it changes is kept here and put back at the wake
+struct sRagdollKnockoutFrame
+{
+	GGMATRIX matOriginal;
+	GGMATRIX matTransformed;
+	GGMATRIX matCombined;
+	GGMATRIX matUserMatrix;
+	GGVECTOR3 vecDirection;
+};
+
+struct sRagdollKnockout
+{
+	int iObj;
+	int iDisableAsCharacter;
+	bool bHadPhysics;
+	std::vector<sRagdollKnockoutFrame> frames;
+	bool bApplyPivot;
+	GGMATRIX matPivot;
+	sCollisionData collision;
+};
+
+static std::map<int, sRagdollKnockout> g_RagdollKnockouts;
+
+// a limb of the ragdoll skeleton, Bip01_ or Bip002_ as ragdoll_create takes them
+static int ragdoll_skeletonlimb ( int iObj, const char* pPart )
+{
+	char pLimbName[64];
+	sprintf ( pLimbName, "Bip01%s", pPart );
+	int iLimb = getlimbbyname ( iObj, pLimbName );
+	if ( iLimb >= 0 ) return iLimb;
+	sprintf ( pLimbName, "Bip002%s", pPart );
+	return getlimbbyname ( iObj, pLimbName );
+}
+
+// where the ragdoll body moving a limb is
+static bool ragdoll_limbposition ( int iObj, int iLimb, GGVECTOR3* pPosition )
+{
+	if ( iLimb < 0 ) return false;
+	int iBone = BPhys_RagDollFindBone ( iObj, iLimb );
+	if ( iBone < 0 ) return false;
+	return BPhys_RagDollGetBonePosition ( iObj, iBone, &pPosition->x, &pPosition->y, &pPosition->z );
+}
+
+static int ragdoll_charanimindexof ( int e )
+{
+	for ( int i = 1; i <= g.charanimindexmax; i++ )
+		if ( t.charanimstates[i].e == e ) return i;
+	for ( int i = 1; i <= g.charanimindexmax; i++ )
+		if ( t.charanimstates[i].originale == e ) return i;
+	return -1;
+}
+
+bool ragdoll_isknockedout ( int e )
+{
+	return g_RagdollKnockouts.find ( e ) != g_RagdollKnockouts.end();
+}
+
+// a living character becomes a ragdoll as at a death, but keeps its health and script: out of the character system and
+// without its capsule, its object following the pelvis. Pushed along (fPushX, fPushY, fPushZ) by fPushForce (as
+// SetEntityRagdollForce's). 1 when made
+int ragdoll_knockout ( int e, float fPushX, float fPushY, float fPushZ, float fPushForce )
+{
+	if ( e <= 0 || e > g.entityelementlist ) return 0;
+	int iObj = t.entityelement[e].obj;
+	int iEntID = t.entityelement[e].bankindex;
+	if ( iObj <= 0 || ObjectExist ( iObj ) == 0 || iEntID <= 0 ) return 0;
+	if ( t.entityprofile[iEntID].ischaracter == 0 || t.entityprofile[iEntID].ragdoll == 0 || t.entityelement[e].health <= 0 ) return 0;
+	if ( BPhys_RagdollExist ( iObj ) == 1 ) return 0;
+	sObject* pObject = GetObjectData ( iObj );
+	if ( !pObject ) return 0;
+
+	// what the ragdoll changes in the object, for the wake
+	sRagdollKnockout knockout;
+	knockout.iObj = iObj;
+	knockout.frames.resize ( pObject->iFrameCount );
+	for ( int f = 0; f < pObject->iFrameCount; f++ )
+	{
+		sFrame* pFrame = pObject->ppFrameList[f];
+		if ( !pFrame ) continue;
+		knockout.frames[f].matOriginal = pFrame->matOriginal;
+		knockout.frames[f].matTransformed = pFrame->matTransformed;
+		knockout.frames[f].matCombined = pFrame->matCombined;
+		knockout.frames[f].matUserMatrix = pFrame->matUserMatrix;
+		knockout.frames[f].vecDirection = pFrame->vecDirection;
+	}
+	knockout.bApplyPivot = pObject->position.bApplyPivot;
+	knockout.matPivot = pObject->position.matPivot;
+	knockout.collision = pObject->collision;
+
+	// the ragdoll, from the pose he has now (ragdoll_create's limb rotations use tobj)
+	int iStoreTObj = t.tobj;
+	ragdoll_setcollisionmask ( t.entityelement[e].eleprof.colondeath );
+	t.tphye = e; t.tphyobj = iObj; t.tobj = iObj;
+	ragdoll_create ( );
+	t.tobj = iStoreTObj;
+	if ( BPhys_RagdollExist ( iObj ) == 0 ) return 0;
+
+	// out of the character system, without the capsule the ragdoll's bodies would be made inside
+	knockout.iDisableAsCharacter = t.entityelement[e].eleprof.disableascharacter;
+	t.entityelement[e].eleprof.disableascharacter = 1;
+	knockout.bHadPhysics = t.entityelement[e].usingphysicsnow != 0;
+	if ( knockout.bHadPhysics )
+	{
+		t.tphyobj = iObj; physics_disableobject ( );
+		t.entityelement[e].usingphysicsnow = 0;
+	}
+	int iCharIndex = ragdoll_charanimindexof ( e );
+	if ( iCharIndex > 0 )
+	{
+		// no path left to walk or turn to finish when he wakes
+		t.charanimstates[iCharIndex].pathPointCount = 0;
+		t.charanimstates[iCharIndex].moveToMode = 0;
+		t.charanimstates[iCharIndex].requiremovementnow = 0;
+		t.charanimstates[iCharIndex].remainingMoveDistanceOnPath_f = 0;
+		t.charanimstates[iCharIndex].movespeed_f = 0;
+		t.charanimstates[iCharIndex].currentangleslowlyspeed_f = 0;
+	}
+	// nothing left in the smooth animation system to play or stop an animation under the ragdoll
+	t.smoothanim[iObj].transition = 0;
+	t.smoothanim[iObj].playflag = 0;
+
+	// the push, given over the next frames as a death's is (entity loop); a force kept from an earlier hit is dropped
+	t.entityelement[e].ragdollified = 1;
+	t.entityelement[e].ragdollifiedforcex_f = fPushX;
+	t.entityelement[e].ragdollifiedforcey_f = fPushY;
+	t.entityelement[e].ragdollifiedforcez_f = fPushZ;
+	t.entityelement[e].ragdollifiedforcelimb = -1;
+	bool bPush = fPushForce > 0.0f && ( fPushX != 0.0f || fPushY != 0.0f || fPushZ != 0.0f );
+	t.entityelement[e].ragdollifiedforcevalue_f = bPush ? fPushForce * 8000.0f : 0.0f;
+
+	// his object, and so the entity's position, stays with the pelvis
+	BPhys_RagDollSetFollowBone ( iObj, BPhys_RagDollFindBone ( iObj, ragdoll_skeletonlimb ( iObj, "_Pelvis" ) ) );
+	g_RagdollKnockouts[e] = knockout;
+	return 1;
+}
+
+// where a ragdoll lies: the pelvis, the angle from it to the head, face up (chest to the sky), all bodies still, held
+bool ragdoll_getpose ( int e, float* pX, float* pY, float* pZ, float* pHeadAngle, int* pFaceUp, int* pResting, int* pHeld )
+{
+	if ( e <= 0 || e > g.entityelementlist ) return false;
+	int iObj = t.entityelement[e].obj;
+	if ( iObj <= 0 || ObjectExist ( iObj ) == 0 || BPhys_RagdollExist ( iObj ) == 0 ) return false;
+	GGVECTOR3 vecPelvis, vecHead, vecLeft, vecRight;
+	if ( !ragdoll_limbposition ( iObj, ragdoll_skeletonlimb ( iObj, "_Pelvis" ), &vecPelvis ) ) return false;
+	*pX = vecPelvis.x;
+	*pY = vecPelvis.y;
+	*pZ = vecPelvis.z;
+	*pHeadAngle = 0.0f;
+	*pFaceUp = 0;
+	if ( ragdoll_limbposition ( iObj, ragdoll_skeletonlimb ( iObj, "_Head" ), &vecHead ) )
+	{
+		GGVECTOR3 vecUp = vecHead - vecPelvis;
+		*pHeadAngle = GGToDegree ( atan2 ( vecUp.x, vecUp.z ) );
+		bool bSides = ragdoll_limbposition ( iObj, ragdoll_skeletonlimb ( iObj, "_L_UpperArm" ), &vecLeft ) && ragdoll_limbposition ( iObj, ragdoll_skeletonlimb ( iObj, "_R_UpperArm" ), &vecRight );
+		if ( !bSides ) bSides = ragdoll_limbposition ( iObj, ragdoll_skeletonlimb ( iObj, "_L_Thigh" ), &vecLeft ) && ragdoll_limbposition ( iObj, ragdoll_skeletonlimb ( iObj, "_R_Thigh" ), &vecRight );
+		if ( bSides )
+		{
+			// standing, his right (X) by his up (Y) is the way he faces (Z), so the chest's way is right x up
+			GGVECTOR3 vecRightward = vecRight - vecLeft;
+			float fChestY = ( vecRightward.z * vecUp.x ) - ( vecRightward.x * vecUp.z );
+			*pFaceUp = fChestY > 0.0f ? 1 : 0;
+		}
+	}
+	*pResting = BPhys_RagDollIsResting ( iObj );
+	*pHeld = BPhys_RagDollIsHeld ( iObj );
+	return true;
+}
+
+// a knocked out character stands where his body lies: the ragdoll goes, the object is put back as before it, and the
+// character system and capsule are his again. Facing fAngle, or the way he gets up (face up, toward his feet; face down,
+// toward his head). 1 when woken; the caller then plays the animation he gets up with
+int ragdoll_wake ( int e, bool bAngleGiven, float fAngle )
+{
+	std::map<int, sRagdollKnockout>::iterator it = g_RagdollKnockouts.find ( e );
+	if ( it == g_RagdollKnockouts.end() ) return 0;
+	float fX, fY, fZ, fHeadAngle;
+	int iFaceUp, iResting, iHeld;
+	if ( t.entityelement[e].obj != it->second.iObj || !ragdoll_getpose ( e, &fX, &fY, &fZ, &fHeadAngle, &iFaceUp, &iResting, &iHeld ) ) return 0;
+	sRagdollKnockout knockout = it->second;
+	g_RagdollKnockouts.erase ( it );
+	int iObj = knockout.iObj;
+	float fStandAngle = bAngleGiven ? fAngle : ( iFaceUp == 1 ? fHeadAngle + 180.0f : fHeadAngle );
+
+	// the ragdoll goes (and any hold with it), and the object is as before it
+	t.tphyobj = iObj; ragdoll_destroy ( );
+	sObject* pObject = GetObjectData ( iObj );
+	if ( pObject )
+	{
+		if ( (int)knockout.frames.size() == pObject->iFrameCount )
+		{
+			for ( int f = 0; f < pObject->iFrameCount; f++ )
+			{
+				sFrame* pFrame = pObject->ppFrameList[f];
+				if ( !pFrame ) continue;
+				pFrame->matOriginal = knockout.frames[f].matOriginal;
+				pFrame->matTransformed = knockout.frames[f].matTransformed;
+				pFrame->matCombined = knockout.frames[f].matCombined;
+				pFrame->matUserMatrix = knockout.frames[f].matUserMatrix;
+				pFrame->vecDirection = knockout.frames[f].vecDirection;
+			}
+		}
+		pObject->position.bApplyPivot = knockout.bApplyPivot;
+		pObject->position.matPivot = knockout.matPivot;
+		pObject->collision = knockout.collision;
+	}
+	t.entityelement[e].ragdollified = 0;
+	t.entityelement[e].ragdollifiedforcevalue_f = 0.0f;
+
+	// on the surface under the pelvis (the ray goes after the ragdoll, so its bodies can't be hit)
+	float fGroundY = BT_GetGroundHeight ( 0, fX, fZ );
+	int iCollisionMode = (1 << (0)) | (1 << (1)) | (1 << (3)); //COL_TERRAIN | COL_OBJECT | COL_OBJECT_DYNAMIC;
+	if ( ODERayTerrainEx ( fX, fY + 50.0f, fZ, fX, fY - 500.0f, fZ, iCollisionMode, false ) == 1 ) fGroundY = ODEGetRayCollisionY ( );
+	t.entityelement[e].x = fX;
+	t.entityelement[e].y = fGroundY;
+	t.entityelement[e].z = fZ;
+	t.entityelement[e].ry = fStandAngle;
+	PositionObject ( iObj, fX, fGroundY, fZ );
+	RotateObject ( iObj, t.entityelement[e].rx, fStandAngle, t.entityelement[e].rz );
+	int iEntID = t.entityelement[e].bankindex;
+	if ( t.entityprofile[iEntID].addhandlelimb == 0 ) entity_calculateentityLODdistances ( iEntID, iObj, t.entityelement[e].eleprof.lodmodifier );
+
+	// a character again, facing the way he stands and settling on the surface
+	t.entityelement[e].eleprof.disableascharacter = knockout.iDisableAsCharacter;
+	int iCharIndex = ragdoll_charanimindexof ( e );
+	if ( iCharIndex > 0 )
+	{
+		t.charanimstates[iCharIndex].currentangle_f = fStandAngle;
+		t.charanimstates[iCharIndex].moveangle_f = fStandAngle;
+		t.charanimstates[iCharIndex].currentangleslowlyspeed_f = 0;
+		t.charanimstates[iCharIndex].warmupcharacteratstart_f = 1.0f;
+	}
+	if ( knockout.bHadPhysics )
+	{
+		int iStoreE = t.e;
+		t.e = e; entity_lua_collisionon ( );
+		t.e = iStoreE;
+	}
+	return 1;
+}
+
+// holds a body of a ragdoll (the pelvis, or the one moving pLimbName) at a point, turned as the character would be by
+// the angles: 0,a,0 as standing facing a; 90,a,0 face down with the head toward a; -90,a,0 face up with the feet toward
+// a. Called each frame while held; the object follows the pelvis. 1 when held
+int ragdoll_hold ( int e, float fX, float fY, float fZ, float fAX, float fAY, float fAZ, const char* pLimbName )
+{
+	if ( e <= 0 || e > g.entityelementlist ) return 0;
+	int iObj = t.entityelement[e].obj;
+	if ( iObj <= 0 || ObjectExist ( iObj ) == 0 || BPhys_RagdollExist ( iObj ) == 0 ) return 0;
+	int iPelvisBone = BPhys_RagDollFindBone ( iObj, ragdoll_skeletonlimb ( iObj, "_Pelvis" ) );
+	int iBone = iPelvisBone;
+	if ( pLimbName && pLimbName[0] ) iBone = BPhys_RagDollFindBone ( iObj, getlimbbyname ( iObj, (char*)pLimbName ) );
+	if ( iBone < 0 ) return 0;
+	BPhys_RagDollSetFollowBone ( iObj, iPelvisBone );
+	bool bWasHeld = BPhys_RagDollIsHeld ( iObj ) == 1;
+	bool bHeld = BPhys_RagDollHold ( iObj, iBone, fX, fY, fZ, fAX, fAY, fAZ, timeGetTime() );
+	if ( bHeld && !bWasHeld )
+	{
+		// GG: each hold's knees into the log, their bend in the pose the drape starts from (as made, one knocked out
+		// kneeling has his bent, or the reference) and in the drape
+		float fMade[4], fHeld[4];
+		int iKnees = BPhys_RagDollGetHoldKnees ( iObj, fMade, fHeld, 4 );
+		char pMsg[256];
+		int iLen = sprintf_s ( pMsg, "ragdoll_hold obj %d (%s): %d knees", iObj, BPhys_RagDollHasHoldReference ( iObj ) ? "reference" : "as made", iKnees );
+		for ( int k = 0; k < iKnees && iLen > 0 && iLen < (int)sizeof(pMsg) - 40; k++ )
+			iLen += sprintf_s ( pMsg + iLen, sizeof(pMsg) - iLen, ", made %.0f held %.0f deg", fMade[k], fHeld[k] );
+		timestampactivity ( 0, pMsg );
+	}
+	return bHeld ? 1 : 0;
+}
+
+void ragdoll_release ( int e )
+{
+	if ( e <= 0 || e > g.entityelementlist ) return;
+	int iObj = t.entityelement[e].obj;
+	if ( iObj > 0 && BPhys_RagdollExist ( iObj ) == 1 ) BPhys_RagDollRelease ( iObj );
+}
+
+// GG: the pose a held ragdoll's drape starts from: e's own animation clip at a point through it (0 its first frame, 1
+// its last), each body turned and moved as its limbs are from the pose the ragdoll was made in to that one; with no
+// clip, the pose it was made in again. 1 when set
+int ragdoll_setholdreference ( int e, const char* pClip, float fFraction )
+{
+	if ( e <= 0 || e > g.entityelementlist ) return 0;
+	int iObj = t.entityelement[e].obj;
+	if ( iObj <= 0 || ObjectExist ( iObj ) == 0 || BPhys_RagdollExist ( iObj ) == 0 ) return 0;
+	if ( !pClip || !pClip[0] ) return BPhys_RagDollSetHoldReference ( iObj, NULL, NULL, 0 ) ? 1 : 0;
+	float fStart = -1, fFinish = -1;
+	extern int entity_lua_getanimationname ( int e, cstr FindThisName_s, float* fFoundStart, float* fFoundFinish );
+	if ( entity_lua_getanimationname ( e, cstr((char*)pClip), &fStart, &fFinish ) <= 0 || fStart < 0 ) return 0;
+	sObject* pObject = GetObjectData ( iObj );
+	std::map<int, sRagdollMadeLimbs>::iterator it = g_RagdollMadeLimbs.find ( iObj );
+	if ( !pObject || it == g_RagdollMadeLimbs.end() ) return 0;
+	const sRagdollMadeLimbs& made = it->second;
+	int iLimbs = pObject->iFrameCount;
+	if ( (int)made.locals.size() != iLimbs * 10 || (int)made.worlds.size() != iLimbs * 16 ) return 0;
+	if ( fFraction < 0.0f ) fFraction = 0.0f;
+	if ( fFraction > 1.0f ) fFraction = 1.0f;
+	float fFrame = fStart + ( ( fFinish - fStart ) * fFraction );
+	std::vector<float> reference ( iLimbs * 16 );
+	if ( !WickedCall_GetLimbWorldsAtFrame ( pObject, fFrame, made.locals.data(), made.worlds.data(), reference.data() ) ) return 0;
+	bool bSet = BPhys_RagDollSetHoldReference ( iObj, made.worlds.data(), reference.data(), iLimbs );
+	char pMsg[256];
+	sprintf_s ( pMsg, "ragdoll_holdreference obj %d: %s frame %.1f (%.1f to %.1f) %s", iObj, pClip, fFrame, fStart, fFinish, bSet ? "set" : "refused" );
+	timestampactivity ( 0, pMsg );
+	return bSet ? 1 : 0;
+}
+
+// each frame after physics: a knocked out character's entity is where his body is, and he stays out of the character
+// system; one that has died is left a ragdoll of the dead, and one whose ragdoll has gone is dropped
+void ragdoll_knockoutloop ( void )
+{
+	for ( std::map<int, sRagdollKnockout>::iterator it = g_RagdollKnockouts.begin(); it != g_RagdollKnockouts.end(); )
+	{
+		int e = it->first;
+		int iObj = it->second.iObj;
+		bool bRagdoll = t.entityelement[e].obj == iObj && ObjectExist ( iObj ) == 1 && BPhys_RagdollExist ( iObj ) == 1;
+		if ( !bRagdoll || t.entityelement[e].health <= 0 )
+		{
+			t.entityelement[e].eleprof.disableascharacter = it->second.iDisableAsCharacter;
+			it = g_RagdollKnockouts.erase ( it );
+			continue;
+		}
+		t.entityelement[e].x = ObjectPositionX ( iObj );
+		t.entityelement[e].y = ObjectPositionY ( iObj );
+		t.entityelement[e].z = ObjectPositionZ ( iObj );
+		t.entityelement[e].eleprof.disableascharacter = 1;
+		++it;
+	}
+}
+
+// at a level's start and end; the level's own reset restores the objects
+void ragdoll_knockoutclear ( void )
+{
+	for ( std::map<int, sRagdollKnockout>::iterator it = g_RagdollKnockouts.begin(); it != g_RagdollKnockouts.end(); ++it )
+	{
+		if ( it->first > 0 && it->first <= g.entityelementlist ) t.entityelement[it->first].eleprof.disableascharacter = it->second.iDisableAsCharacter;
+	}
+	g_RagdollKnockouts.clear();
 }

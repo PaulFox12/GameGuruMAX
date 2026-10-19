@@ -745,7 +745,7 @@ void c_entity_loadelementsdata ( void )
 						// sides must change together or every field after this point is read at the wrong offset.
 						t.a = c_ReadLong(1); t.entityelement[t.e].iAllowBuletHole = t.a;             // DX11 slot 1
 						t.a = c_ReadLong(1); t.entityelement[t.e].eleprof.iMaterialSoundIndex = t.a; // DX11 slot 2
-						t.a = t.a_f = c_ReadFloat(1); fFiller = t.a_f;
+						t.a = t.a_f = c_ReadFloat(1); t.entityelement[t.e].iClearVegetation = (int)t.a_f;
 						t.a = t.a_f = c_ReadFloat(1); fFiller = t.a_f;
 						t.a = c_ReadLong(1);
 						t.entityelement[t.e].eleprof.systemwide_lua = t.a;

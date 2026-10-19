@@ -447,6 +447,11 @@ void AddLODToObject ( int iCurrentID, int iLODModelID, int iLODLevel, float fDis
 	}
 }
 
+// the spawn probe (G-Entity.cpp): named slices of a probed spawn's time, and calls counted in it
+void SpawnProbe_Sub ( const char* pName );
+long long SpawnProbe_CallStart ( void );
+void SpawnProbe_CallEnd ( const char* pName, long long llStart );
+
 DARKSDK_DLL void CloneObject ( int iDestinationID, int iSourceID, int iCloneSharedData )
 {
 	// iCloneSharedData modes:
@@ -479,6 +484,7 @@ DARKSDK_DLL void CloneObject ( int iDestinationID, int iSourceID, int iCloneShar
 
 		if ( !CloneDBO ( &g_ObjectList [ iDestinationID ], pObject ) )
 			return;
+		SpawnProbe_Sub("clone: copy");
 
 		// Special clone parameter shares an original object not deleted (good for lots of bone anim objects)
 		sObject* pNewObject = g_ObjectList [ iDestinationID ];
@@ -516,6 +522,7 @@ DARKSDK_DLL void CloneObject ( int iDestinationID, int iSourceID, int iCloneShar
 		// and put back the latest frame of the source object
 		pObject->fAnimLastFrame=-1.0f;
 		UpdateObjectAnimation ( pObject );
+		SpawnProbe_Sub("clone: source animation");
 		// setup new object and introduce to buffers
 		SetNewObjectFinalProperties ( iDestinationID, -1.0f );
 
@@ -562,6 +569,8 @@ DARKSDK_DLL void CloneObject ( int iDestinationID, int iSourceID, int iCloneShar
 	pNewObject->fSpineCenterTravelDeltaX = g_ObjectList [ iSourceID ]->fSpineCenterTravelDeltaX;
 	pNewObject->fSpineCenterTravelDeltaZ = g_ObjectList [ iSourceID ]->fSpineCenterTravelDeltaZ;
 
+	SpawnProbe_Sub("clone: effects and frames");
+
 	// handle clone ref
 	if ( iCloneSharedData!=101 )
 	{
@@ -571,6 +580,7 @@ DARKSDK_DLL void CloneObject ( int iDestinationID, int iSourceID, int iCloneShar
 		// add object id to shortlist
 		AddObjectToObjectListRef ( iDestinationID );
 	}
+	SpawnProbe_Sub("clone: vertex reset");
 
 	// clone textures for all meshes (clone references)
 	#ifdef WICKEDENGINE
@@ -673,6 +683,7 @@ DARKSDK_DLL void CloneObject ( int iDestinationID, int iSourceID, int iCloneShar
 		}
 	}
 	#endif
+	SpawnProbe_Sub("clone: lod and textures");
 
 	if ( iCloneSharedData!=101 )
 	{

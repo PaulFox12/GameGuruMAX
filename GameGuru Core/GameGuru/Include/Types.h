@@ -1412,6 +1412,7 @@ struct weaponProjectileBaseType
 	float fDecalSpeed = 1.0f;
 	int decalid = -1;
 	int explosion_decalid = -1;
+	int wpeExplosionNormal = 0; // GG: 1 stands the wpeexplosion effect on the surface hit
 
 	// Constructor
 	weaponProjectileBaseType ( )
@@ -1505,6 +1506,7 @@ struct weaponProjectileBaseType
 		 fDecalSpeed = 1.0f;
 		 decalid = -1;
 		 explosion_decalid = -1;
+		 wpeExplosionNormal = 0;
 		 WPE_Root = 0;
 	}
 	// End of Constructor
@@ -1560,6 +1562,8 @@ struct weaponProjectileType
 	float fDecalFrame = 0;
 	float fDecalSpeed = 1.0f;
 	uint32_t WPE_Root = 0;
+	int iPlayerShot = -1; // a player projectile's trigger pull and gun, for the player's hit record
+	int iPlayerGunID = 0;
 
 	// Constructor
 	weaponProjectileType ( )
@@ -5843,7 +5847,11 @@ struct entityprofiletype
 	float forceobstaclesliceheight;
 	float forceobstaclesliceminsize;
 	int notanoccluder;
+	int navmeshbake; // .fpe navmeshbake = 1: a dynamic entity's model baked into the navmesh as a static's (a building that can collapse)
+	int noapparentcull; // .fpe noapparentcull = 1: its objects never culled for their apparent size (small lights seen from afar)
 	int materialindex;
+	int allowbulletholes;
+	int clearvegetation;
 	int disablebatch;
 	int lod1distance;
 	int lod2distance;
@@ -5950,6 +5958,10 @@ struct entityprofiletype
 	int range;
 	int dropoff;
 	int usespotlighting;
+	int entitylight; // GG: each placed one carries a light of its own (.fpe entitylight), made and placed by the engine
+	float entitylightx, entitylighty, entitylightz; // where, in the model's own space (.fpe entitylightx/y/z)
+	int entitylightshadows; // it casts shadows (.fpe entitylightshadows), off by default
+	float physicsmass; // GG: its physics body's mass in kilos (.fpe physicsmass), 0 for the mass its shape gives
 	float lifespan;
 	float throwspeed;
 	float throwangle;
@@ -6148,6 +6160,12 @@ struct entityprofiletype
 		 throwspeed = 0.0f;
 		 lifespan = 0.0f;
 		 usespotlighting = 0;
+		 entitylight = 0;
+		 entitylightx = 0.0f;
+		 entitylighty = 0.0f;
+		 entitylightz = 0.0f;
+		 entitylightshadows = 0;
+		 physicsmass = 0.0f;
 		 dropoff = 0;
 		 range = 0;
 		 fireiterations = 0;
@@ -6243,7 +6261,11 @@ struct entityprofiletype
 		 lod1distance = 0;
 		 disablebatch = 0;
 		 materialindex = 0;
+		 allowbulletholes = -1;
+		 clearvegetation = -1;
 		 notanoccluder = 0;
+		 navmeshbake = 0;
+		 noapparentcull = 0;
 		 forcesimpleobstacle = 0;
 		 forceobstaclepolysize = 0.0f;
 		 forceobstaclesliceheight = 0.0f;
@@ -6833,12 +6855,14 @@ struct entitytype
 	// non-static, non-immobile object can still take bullet decals. Spelling matches DX11's
 	// (one 'l' in 'Bulet') deliberately - it is the on-disk contract, see the serialisation note.
 	int iAllowBuletHole = 0;
+	int iClearVegetation = 0;
 
 	// Constructor
 	entitytype ( )
 	{
 		 old_bankindex = 0;
 		 iAllowBuletHole = 0;
+		 iClearVegetation = 0;
 		 iThumbnail = 0;
 		 iWasSpawnedInGame = 0;
 		 iPreScanVisibleCurrent = 0;
@@ -8019,6 +8043,8 @@ struct decalelementtype
 	int active;
 	int obj;
 	int uvgridsize;
+	int uvframe;
+	float alphavalue;
 	float xpos;
 	float ypos;
 	float zpos;
@@ -8063,6 +8089,8 @@ struct decalelementtype
 		 zpos = 0.0f;
 		 ypos = 0.0f;
 		 xpos = 0.0f;
+		 alphavalue = -1.0f;
+		 uvframe = -1;
 		 uvgridsize = 0;
 		 obj = 0;
 		 active = 0;
@@ -8370,10 +8398,12 @@ struct infinilighttype
 	float fLightHasProbe;
 	float spotlightradius;
 	bool bCanShadow;
+	bool bEntityLight; // GG: the light entity e carries (its .fpe's entitylight), placed with it every frame
 
 	// Constructor
 	infinilighttype ( )
 	{
+		 bEntityLight = false;
 		 bCanShadow = true;
 		 wickedlightindex = 0;
 		 fLightHasProbe = 0.0f;

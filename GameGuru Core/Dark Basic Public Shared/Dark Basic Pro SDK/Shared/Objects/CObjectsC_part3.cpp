@@ -1640,6 +1640,10 @@ int* g_pIntersectDatabaseLastResult = NULL;
 bool g_bForceActualCheckNextTime = false;
 
 //This version combines the orignal method with the shortlist of boxes checked to provide the best of both versions
+// objects IntersectAllEx also leaves out of its full-accuracy pick (main thread only), besides iIgnoreObjNo; the Lua
+// intersect commands fill it for one call from an ignore table and empty it afterwards
+std::vector<int> g_IntersectExtraIgnoreObjects;
+
 DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, float fY, float fZ, float fNewX, float fNewY, float fNewZ, int iIgnoreObjNo, int iStaticOnly, int iIndexInIntersectDatabase, int iLifeInMilliseconds, int iIgnorePlayerCapsule, bool bFullWickedAccuracy, bool bThreadSafe)
 {
 	// shiny new system for intersect tests
@@ -1753,6 +1757,9 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 			}
 			if (iHitValue != 0 && !bThreadSafe) //PE: Not needed in thread, just ruin the checklist for mainthread.
 			{
+				// 0 - limb struck, not known to the physics ray
+				g_pGlob->checklist[0].valueb = -1;
+
 				// 5 - world space coordinate where the collision struck!
 				g_pGlob->checklist[5].fvaluea = pOutX;
 				g_pGlob->checklist[5].fvalueb = pOutY;
@@ -1770,6 +1777,9 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 		// Wicked Raycast TOO expensive, try physics again for performance!
 		if (iStaticOnly != 2)
 		{
+			// timed on the main thread (GetEngineProbe "pick", and "pick layers" for the layer changes)
+			WickedCallProbeScope probePick(bThreadSafe ? -1 : WICKEDCALL_PROBE_PICK);
+			double dLayersStart = WickedCall_ProbeNow();
 			// wicked uses own ray cast which handles objects AND terrain ( a little on the slow side, see above for less overkill )
 			GGVECTOR3 vecFrom = GGVECTOR3(fX, fY, fZ);
 			GGVECTOR3 vecTo = GGVECTOR3(fNewX, fNewY, fNewZ);
@@ -1784,6 +1794,7 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 				pGunObject = GetObjectData(g_iCurrentGunObj);
 				WickedCall_SetObjectRenderLayer(pGunObject, GGRENDERLAYERS_CURSOROBJECT);
 			}
+			double dLayers = WickedCall_ProbeNow() - dLayersStart;
 			float fDistanceOfRay = GGVec3Length(&vecDir);
 			DWORD dwObjectNumberHit = 0;
 			bool bRes = false;
@@ -1820,7 +1831,7 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 							bool bResesult = false;
 							#ifdef PICKBVHTHREADED
 							if (bThreadSafe)
-								bResesult = WickedCall_SentRay4_ThreadSafe(vecFrom.x, vecFrom.y, vecFrom.z, vecDir.x, vecDir.y, vecDir.z, fDistanceOfRay, &pOutX, &pOutY, &pOutZ, &pNormX, &pNormY, &pNormZ, &dwObjectNumberHit, true);
+								bResesult = WickedCall_SentRay4_ThreadSafe(vecFrom.x, vecFrom.y, vecFrom.z, vecDir.x, vecDir.y, vecDir.z, fDistanceOfRay, &pOutX, &pOutY, &pOutZ, &pNormX, &pNormY, &pNormZ, &dwObjectNumberHit, true, pIgnoreObject, pGunObject);
 							else
 								bResesult = WickedCall_SentRay4(vecFrom.x, vecFrom.y, vecFrom.z, vecDir.x, vecDir.y, vecDir.z, fDistanceOfRay, &pOutX, &pOutY, &pOutZ, &pNormX, &pNormY, &pNormZ, &dwObjectNumberHit, true);
 							#else
@@ -1858,6 +1869,10 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 				}
 				if (iHitValue != 0 && !bThreadSafe)
 				{
+					// 0 - limb struck (read by entity_hasbulletrayhit as the limb hit)
+					extern int g_iWickedCallRayLimbHit;
+					g_pGlob->checklist[0].valueb = (iHitValue > 0) ? g_iWickedCallRayLimbHit : -1;
+
 					// 5 - world space coordinate where the collision struck!
 					g_pGlob->checklist[5].fvaluea = pOutX;
 					g_pGlob->checklist[5].fvalueb = pOutY;
@@ -1871,8 +1886,18 @@ DARKSDK_DLL int IntersectAllEx ( int iPrimaryStart, int iPrimaryEnd, float fX, f
 			}
 
 			// we can extend this to exclude MANY objects - and have an 'exclude from ray' flag instead of using GGRENDERLAYERS (optimization op)
-			if (pIgnoreObject) WickedCall_SetObjectRenderLayer(pIgnoreObject, GGRENDERLAYERS_NORMAL);
-			if (pGunObject) WickedCall_SetObjectRenderLayer(pGunObject, GGRENDERLAYERS_NORMAL);
+			dLayersStart = WickedCall_ProbeNow();
+			if (pIgnoreObject && !bThreadSafe) WickedCall_SetObjectRenderLayer(pIgnoreObject, GGRENDERLAYERS_NORMAL);
+			if (!bThreadSafe)
+			{
+				for (int i = 0; i < (int)g_IntersectExtraIgnoreObjects.size(); i++)
+				{
+					int iObj = g_IntersectExtraIgnoreObjects[i];
+					if (iObj > 0 && iObj != iIgnoreObjNo && ObjectExist(iObj) == 1) WickedCall_SetObjectRenderLayer(GetObjectData(iObj), GGRENDERLAYERS_NORMAL);
+				}
+			}
+			if (pGunObject && !bThreadSafe) WickedCall_SetObjectRenderLayer(pGunObject, GGRENDERLAYERS_NORMAL);
+			if (!bThreadSafe) WickedCall_ProbeAdd(WICKEDCALL_PROBE_PICK_LAYERS, dLayers + WickedCall_ProbeNow() - dLayersStart);
 		}
 	}
 

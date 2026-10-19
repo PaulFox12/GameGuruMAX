@@ -223,6 +223,61 @@ void WickedCall_GetObjectBaseColor(sObject* pObject, int* r, int* g, int* b)
 	}
 }
 
+// each mesh's own copy of its base colour made the same as the material it renders with (ResetEntityMaterial); instanced
+// meshes, which use their master object's materials, are left alone
+void WickedCall_CopyMaterialColorsToMeshes(sObject* pObject)
+{
+	if (!pObject || !pObject->ppMeshList) return;
+	for (int iMesh = 0; iMesh < pObject->iMeshCount; iMesh++)
+	{
+		sMesh* pMesh = pObject->ppMeshList[iMesh];
+		if (!pMesh || (pMesh->bInstanced && pMesh->wickedmaterialindex == 0 && pMesh->master_wickedmaterialindex > 0)) continue;
+		wiScene::MeshComponent* mesh = wiScene::GetScene().meshes.GetComponent(pMesh->wickedmeshindex);
+		if (!mesh || mesh->subsets.empty()) continue;
+		wiScene::MaterialComponent* pObjectMaterial = wiScene::GetScene().materials.GetComponent(mesh->subsets[0].materialID);
+		if (!pObjectMaterial) continue;
+		pMesh->mMaterial.Diffuse.r = pObjectMaterial->baseColor.x;
+		pMesh->mMaterial.Diffuse.g = pObjectMaterial->baseColor.y;
+		pMesh->mMaterial.Diffuse.b = pObjectMaterial->baseColor.z;
+		pMesh->mMaterial.Diffuse.a = pObjectMaterial->baseColor.w;
+	}
+}
+
+// one mesh's (material slot's) base or emissive colour, 0 to 255, as the object-wide setters and getters do for them all
+void WickedCall_SetMeshBaseColor(sMesh* pMesh, int r, int g, int b)
+{
+	if (!pMesh) return;
+	pMesh->mMaterial.Diffuse.r = r / 255.0f;
+	pMesh->mMaterial.Diffuse.g = g / 255.0f;
+	pMesh->mMaterial.Diffuse.b = b / 255.0f;
+	WickedCall_SetMeshMaterial(pMesh, true);
+}
+
+void WickedCall_GetMeshBaseColor(sMesh* pMesh, int* r, int* g, int* b)
+{
+	if (!pMesh) return;
+	*r = pMesh->mMaterial.Diffuse.r * 255.0f;
+	*g = pMesh->mMaterial.Diffuse.g * 255.0f;
+	*b = pMesh->mMaterial.Diffuse.b * 255.0f;
+}
+
+void WickedCall_SetMeshEmissiveColor(sMesh* pMesh, int r, int g, int b)
+{
+	if (!pMesh) return;
+	pMesh->mMaterial.Emissive.r = r / 255.0f;
+	pMesh->mMaterial.Emissive.g = g / 255.0f;
+	pMesh->mMaterial.Emissive.b = b / 255.0f;
+	WickedCall_SetMeshMaterial(pMesh, false);
+}
+
+void WickedCall_GetMeshEmissiveColor(sMesh* pMesh, int* r, int* g, int* b)
+{
+	if (!pMesh) return;
+	*r = pMesh->mMaterial.Emissive.r * 255.0f;
+	*g = pMesh->mMaterial.Emissive.g * 255.0f;
+	*b = pMesh->mMaterial.Emissive.b * 255.0f;
+}
+
 void WickedCall_SetObjectEmissiveColor(sObject* pObject, int r, int g, int b)
 {
 	for (int iMesh = 0; iMesh < pObject->iMeshCount; iMesh++)
@@ -2187,6 +2242,39 @@ extern FILE* GGDiagFopen(const char* name, const char* mode);
 // unconditional append grew forever across sessions and landed in players' standalone
 // folders; set via GGSetDiagTraceFiles from the producelogfiles setup.ini key)
 bool gg_reload_quiesce_file = true;
+// GG: the nearest surface of one object's own meshes along a ray (pDir of unit length), up to fLength, met from the ray's
+// side as every pick takes it: true with its distance, normal and limb (frame). The model of a vehicle with no physics
+// body (CollisionOff), which the physics ray can't meet; hidden limbs and an object made with no collision (mode 11) are
+// never met
+bool WickedCall_ObjectRay(sObject* pObject, const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal, int* pLimb)
+{
+	if (!pObject || !pObject->ppFrameList) return false;
+	Scene& scene = wiScene::GetScene();
+	static std::vector<uint32_t> targets;
+	targets.clear();
+	for (int iF = 0; iF < pObject->iFrameCount; iF++)
+	{
+		sFrame* pFrame = pObject->ppFrameList[iF];
+		if (!pFrame || pFrame->wickedobjindex == 0) continue;
+		size_t i = scene.objects.GetIndex(pFrame->wickedobjindex);
+		if (i < scene.objects.GetCount() && scene.objects.GetEntity(i) == pFrame->wickedobjindex) targets.push_back((uint32_t)i);
+	}
+	if (targets.empty()) return false;
+	RAY pickRay(XMFLOAT3(pFrom[0], pFrom[1], pFrom[2]), XMFLOAT3(pDir[0], pDir[1], pDir[2]));
+	pickRay.TMax = fLength;
+	wiScene::PickResult hit = wiScene::PickObjects(pickRay, targets.data(), (uint32_t)targets.size(), RENDERTYPE_OPAQUE | RENDERTYPE_TRANSPARENT, ~0u);
+	if (hit.entity == INVALID_ENTITY || hit.distance > fLength) return false;
+	*pDistance = hit.distance;
+	pNormal[0] = hit.normal.x; pNormal[1] = hit.normal.y; pNormal[2] = hit.normal.z;
+	*pLimb = -1;
+	for (int iF = 0; iF < pObject->iFrameCount; iF++)
+	{
+		sFrame* pFrame = pObject->ppFrameList[iF];
+		if (pFrame && pFrame->wickedobjindex == hit.entity) { *pLimb = iF; break; }
+	}
+	return true;
+}
+
 
 extern "C" void WickedCall_ReloadQuiesceGPU(void)
 {

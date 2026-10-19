@@ -2907,3 +2907,36 @@ void DisplayFPEBehavior(bool readonly, int entid, entityeleproftype* edit_gridel
 	}
 }
 
+// Allow Bullet Holes tick for a placement, shown ticked when entity_allowsbulletholes allows holes; a change is stored
+// as 1 (yes) or 2 (no), over the placement default (0: allowbulletholes in the .fpe, else static entities only)
+void DisplayAllowBulletHolesCheckbox(int elementID)
+{
+	if (elementID <= 0 || elementID >= t.entityelement.size()) return;
+	bool bAllowBulletHole = entity_allowsbulletholes(elementID);
+	if (ImGui::Checkbox("Allow Bullet Holes ?", &bAllowBulletHole))
+	{
+		t.entityelement[elementID].iAllowBuletHole = bAllowBulletHole ? 1 : 2;
+	}
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("If set shots leave bullet holes on this object. Set by allowbulletholes in its .fpe, else on for static objects only");
+}
+
+// Clear Grass and Trees tick for a placement auto flatten does not already clear under, shown ticked when
+// entity_clearsvegetation clears; a change is stored as 1 (yes) or 2 (no), over the placement default (0: clearvegetation
+// in the .fpe, else large static objects only)
+void DisplayClearVegetationCheckbox(int elementID)
+{
+	if (elementID <= 0 || elementID >= t.entityelement.size()) return;
+	if (g.entityrubberbandlist.size() > 0) return;
+	int entid = t.entityelement[elementID].bankindex;
+	if (entid <= 0 || t.entityprofile[entid].ismarker != 0) return;
+	if (t.entityprofile[entid].autoflatten != 0 && g_bEnableAutoFlattenSystem && t.entityelement[elementID].eleprof.bAutoFlatten) return;
+	bool bClearVegetation = entity_clearsvegetation(elementID);
+	if (ImGui::Checkbox("Clear Grass and Trees ?", &bClearVegetation))
+	{
+		t.entityelement[elementID].iClearVegetation = bClearVegetation ? 1 : 2;
+		entity_autoFlattenWhenAdded(elementID);
+		g.projectmodified = 1;
+	}
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("If set grass and trees under this object are hidden, without flattening the terrain. Set by clearvegetation in its .fpe, else on for static objects at least 3m across and 2.5m tall");
+}
+

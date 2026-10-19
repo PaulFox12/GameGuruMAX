@@ -805,6 +805,11 @@ DARKSDK int FGetActualTypeValue(int flagvalue)
 		return 0;
 }
 
+// the spawn probe (G-Entity.cpp): named slices of a probed spawn's time, and calls counted in it
+void SpawnProbe_Sub ( const char* pName );
+long long SpawnProbe_CallStart ( void );
+void SpawnProbe_CallEnd ( const char* pName, long long llStart );
+
 DARKSDK BOOL DB_FileExist(char* Filename)
 {
 	// If no string, no file
@@ -816,10 +821,13 @@ DARKSDK BOOL DB_FileExist(char* Filename)
 	strcpy(VirtualFilename, (LPSTR)Filename);
 
 	// no longer have files inside EXE VT!
+	// a probed spawn counts its file checks
+	long long llProbe = SpawnProbe_CallStart();
 	CheckForWorkshopFile ( VirtualFilename );
 
-	if ( GG_FileExists( VirtualFilename ) ) return TRUE;
-	else return false;
+	BOOL bExists = GG_FileExists( VirtualFilename ) ? TRUE : FALSE;
+	SpawnProbe_CallEnd("file checks", llProbe);
+	return bExists;
 }
 
 DARKSDK DWORD DB_FileSize(char* Filename)

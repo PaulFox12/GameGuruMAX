@@ -7,6 +7,9 @@
 	extern void GuruLoopStopExtraThread(void);
 	GuruLoopStopExtraThread();
 
+	// a level left while SetGamePaused holds the world resumes it, so the editor and the next level start unpaused
+	game_setgamepaused ( false );
+
 	// first save current level stats before reset LUA
 	// must now preserve state of level when leave it
 	char pLUACustomSaveCall[256];
@@ -1143,6 +1146,16 @@ void game_preparelevel_finally ( void )
 	t.performanceCameraDrawDistance = 0;
 	t.haveSetupShaderSwitching = false;
 
+	// each level's deaths take the death animations until a script sets SetRagdollAllDeaths
+	extern bool g_bRagdollAllDeaths;
+	g_bRagdollAllDeaths = false;
+	// and starts at most 3 deaths a frame (SetRagdollCreatesPerFrame)
+	extern int g_iRagdollCreatesPerFrame;
+	g_iRagdollCreatesPerFrame = 3;
+	// and no character knocked out (SetEntityRagdoll)
+	extern void ragdoll_knockoutclear ( void );
+	ragdoll_knockoutclear ( );
+
 	g.isGameBeingPlayed = true;
 
 	// This is used to record when we have switched lighting modes so we don't do it constantly
@@ -1332,6 +1345,8 @@ void game_preparelevel_finally ( void )
 
 	// The start marker may have given the play an initial gun, so lets call physics_player_refreshcount just incase it has
 	physics_player_refreshcount();
+	// the player's hit record starts empty on every level
+	playerhit_clear();
 }
 
 void game_stopallsounds ( void )
@@ -1594,7 +1609,6 @@ void game_showmouse(void)
 	}
 }
 
-
 void game_timeelapsed_init ( void )
 {
 	//  Machine indie speed
@@ -1608,6 +1622,9 @@ void game_timeelapsed_init ( void )
 void game_timeelapsed ( void )
 {
 	// Calculate time between cycles
+	// room for 512 more entities before the scripts start spawning, so the array (copied out and back whenever it grows)
+	// rarely grows in play
+	entity_growelementarray ( g.entityelementlist + 512 );
 	float fThisTimeCount = timeGetSecond();
 	t.ElapsedTime_f = fThisTimeCount - t.LastTimeStamp_f;
 	g.timeelapsed_f = t.ElapsedTime_f * 20.0;
@@ -1657,6 +1674,8 @@ void game_main_snapshotsoundloopcheckpoint ( bool bPauseAndResumeFromGameMenu )
 
 void game_main_snapshotsoundresumecheckpoint (bool bPauseAndResumeFromGameMenu)
 {
+	// knocked out characters are let go; the entities' reset puts their objects back
+	ragdoll_knockoutclear ( );
 	if (bPauseAndResumeFromGameMenu == true || (t.playercontrol.disablemusicreset == 0 && bPauseAndResumeFromGameMenu == false))
 	{
 		for ( t.s = g.soundbankoffset ; t.s <= g.soundbankoffsetfinish; t.s++ )

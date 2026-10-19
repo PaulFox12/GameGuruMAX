@@ -451,8 +451,12 @@ static unsigned long long gg_dbg_ray_qpc_us(void)
 	return (unsigned long long)((c.QuadPart * 1000000.0) / (double)f.QuadPart);
 }
 
+// the limb (frame index) of the object the last WickedCall_SentRay4 hit, -1 if none; IntersectAllEx reports it
+int g_iWickedCallRayLimbHit = -1;
+
 bool WickedCall_SentRay4(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly)
 {
+	g_iWickedCallRayLimbHit = -1;
 	// ray cast specifically used by game loop to find accurate position of animating objects (performant?)
 	// GGMAX 2026-07-31 FPS-plummet fix: the ray previously had no TMin/TMax, so a
 	// "120 unit" line-of-sight test actually traversed the ENTIRE island to infinity —
@@ -494,8 +498,20 @@ bool WickedCall_SentRay4(float originx, float originy, float originz, float dire
 		float fDistOfHit = sqrt(fabs(fDX*fDX)+fabs(fDY*fDY)+fabs(fDZ*fDZ));
 		if (fDistOfHit <= fDistanceOfRay)
 		{
+			WickedCallProbeScope probeLookup(WICKEDCALL_PROBE_PICK_LOOKUP);
 			sObject* pHitObject = m_ObjectManager.FindObjectFromWickedObjectEntityID(hit.entity);
 			if (pHitObject) *pdwObjectNumberHit = pHitObject->dwObjectNumber;
+			if (pHitObject && pHitObject->ppFrameList)
+			{
+				for (int iFrame = 0; iFrame < pHitObject->iFrameCount; iFrame++)
+				{
+					if (pHitObject->ppFrameList[iFrame] && pHitObject->ppFrameList[iFrame]->wickedobjindex == hit.entity)
+					{
+						g_iWickedCallRayLimbHit = iFrame;
+						break;
+					}
+				}
+			}
 			*pOutX = hit.position.x;
 			*pOutY = hit.position.y;
 			*pOutZ = hit.position.z;
@@ -512,7 +528,7 @@ bool WickedCall_SentRay4(float originx, float originy, float originz, float dire
 }
 
 #ifdef PICKBVHTHREADED
-bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly)
+bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly, sObject* pIgnore1, sObject* pIgnore2)
 {
 	// ray cast specifically used by game loop to find accurate position of animating objects (performant?)
 	// GGMAX 2026-07-31: normalized + TMax-capped, same as WickedCall_SentRay4 (see comment there)
@@ -535,7 +551,20 @@ bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz,
 	//PE: @Lee we have no checks on transparent objects, we cant shoot glass, no impact effects , no killing pradator ...
 	if (bOpaqueOnly == true) checkType = RENDERTYPE_OPAQUE | RENDERTYPE_TRANSPARENT;
 	unsigned long long ggT0 = gg_dbg_ray_qpc_us();
-	wiScene::PickResult hit = wiScene::Pick(pickRay, checkType, GGRENDERLAYERS_NORMAL);
+
+	// the objects to leave out, by their frames' Wicked objects (the main thread's IntersectAllEx moves them to another
+	// layer instead, a scene change this thread must not make)
+	std::vector<wiECS::Entity> exclude;
+	sObject* pIgnore[2] = { pIgnore1, pIgnore2 };
+	for (int o = 0; o < 2; o++)
+	{
+		if (!pIgnore[o]) continue;
+		for (int iF = 0; iF < pIgnore[o]->iFrameCount; iF++)
+		{
+			if (pIgnore[o]->ppFrameList[iF] && pIgnore[o]->ppFrameList[iF]->wickedobjindex > 0) exclude.push_back(pIgnore[o]->ppFrameList[iF]->wickedobjindex);
+		}
+	}
+	wiScene::PickResult hit = wiScene::Pick(pickRay, checkType, GGRENDERLAYERS_NORMAL, wiScene::GetScene(), exclude.data(), (uint32_t)exclude.size());
 	gg_dbg_sentray4_us += gg_dbg_ray_qpc_us() - ggT0;
 	gg_dbg_sentray4_calls++;
 	if (hit.entity > 0)
@@ -640,6 +669,156 @@ void WickedCall_SetSelectedObject(sObject* pObject)
 		g_selected_pobject = pObject;
 	}
 	return;
+}
+
+// per instance multiplier (0 to 1) on the materials' emissive colour and strength (alpha). Instanced entities share
+// their mesh and materials, but each has its own object components, so this changes one instance only
+void WickedCall_SetObjectEmissiveTint(sObject* pObject, float fRed, float fGreen, float fBlue, float fStrength)
+{
+	if (!pObject) return;
+	XMFLOAT4 tint = XMFLOAT4(max(0.0f, min(1.0f, fRed)), max(0.0f, min(1.0f, fGreen)), max(0.0f, min(1.0f, fBlue)), max(0.0f, min(1.0f, fStrength)));
+	uint64_t rootEntity = WickedCall_GetFirstRootEntityID(pObject);
+	if (rootEntity > 0)
+	{
+		wiScene::ObjectComponent* pWickedObject = wiScene::GetScene().objects.GetComponent(rootEntity);
+		if (pWickedObject) pWickedObject->emissiveColor = tint;
+	}
+	for (int iF = 0; iF < pObject->iFrameCount; iF++)
+	{
+		if (pObject->ppFrameList && pObject->ppFrameList[iF])
+		{
+			uint64_t objectEntity = pObject->ppFrameList[iF]->wickedobjindex;
+			if (objectEntity > 0 && rootEntity != objectEntity)
+			{
+				wiScene::ObjectComponent* pWickedObject = wiScene::GetScene().objects.GetComponent(objectEntity);
+				if (pWickedObject) pWickedObject->emissiveColor = tint;
+			}
+		}
+	}
+}
+
+// per instance colour multiplier (ObjectComponent::color) on every Wicked object of this DBO object; the alpha is kept
+void WickedCall_SetObjectColorTint(sObject* pObject, float fRed, float fGreen, float fBlue)
+{
+	if (!pObject) return;
+	uint64_t rootEntity = WickedCall_GetFirstRootEntityID(pObject);
+	for (int iF = -1; iF < pObject->iFrameCount; iF++)
+	{
+		uint64_t objectEntity = rootEntity;
+		if (iF >= 0)
+		{
+			if (!pObject->ppFrameList || !pObject->ppFrameList[iF]) continue;
+			objectEntity = pObject->ppFrameList[iF]->wickedobjindex;
+			if (objectEntity == rootEntity) continue;
+		}
+		if (objectEntity == 0) continue;
+		wiScene::ObjectComponent* pWickedObject = wiScene::GetScene().objects.GetComponent(objectEntity);
+		if (pWickedObject)
+		{
+			pWickedObject->color.x = max(0.0f, min(1.0f, fRed));
+			pWickedObject->color.y = max(0.0f, min(1.0f, fGreen));
+			pWickedObject->color.z = max(0.0f, min(1.0f, fBlue));
+		}
+	}
+}
+
+bool WickedCall_GetObjectColorTint(sObject* pObject, float* pfRed, float* pfGreen, float* pfBlue)
+{
+	if (!pObject) return false;
+	wiScene::ObjectComponent* pWickedObject = NULL;
+	uint64_t rootEntity = WickedCall_GetFirstRootEntityID(pObject);
+	if (rootEntity > 0) pWickedObject = wiScene::GetScene().objects.GetComponent(rootEntity);
+	for (int iF = 0; !pWickedObject && pObject->ppFrameList && iF < pObject->iFrameCount; iF++)
+	{
+		if (pObject->ppFrameList[iF] && pObject->ppFrameList[iF]->wickedobjindex > 0)
+			pWickedObject = wiScene::GetScene().objects.GetComponent(pObject->ppFrameList[iF]->wickedobjindex);
+	}
+	if (!pWickedObject) return false;
+	*pfRed = pWickedObject->color.x;
+	*pfGreen = pWickedObject->color.y;
+	*pfBlue = pWickedObject->color.z;
+	return true;
+}
+
+bool WickedCall_GetObjectEmissiveTint(sObject* pObject, float* pfRed, float* pfGreen, float* pfBlue, float* pfStrength)
+{
+	if (!pObject) return false;
+	wiScene::ObjectComponent* pWickedObject = NULL;
+	uint64_t rootEntity = WickedCall_GetFirstRootEntityID(pObject);
+	if (rootEntity > 0) pWickedObject = wiScene::GetScene().objects.GetComponent(rootEntity);
+	for (int iF = 0; !pWickedObject && pObject->ppFrameList && iF < pObject->iFrameCount; iF++)
+	{
+		if (pObject->ppFrameList[iF] && pObject->ppFrameList[iF]->wickedobjindex > 0)
+			pWickedObject = wiScene::GetScene().objects.GetComponent(pObject->ppFrameList[iF]->wickedobjindex);
+	}
+	if (!pWickedObject) return false;
+	*pfRed = pWickedObject->emissiveColor.x;
+	*pfGreen = pWickedObject->emissiveColor.y;
+	*pfBlue = pWickedObject->emissiveColor.z;
+	*pfStrength = pWickedObject->emissiveColor.w;
+	return true;
+}
+
+// a limb's alpha on its own Wicked object (ObjectComponent::color.w). Below 1 the renderer fades the object by dithering it
+// in the depth prepass (forceAlphatestForDithering), with no blend mode change; the instance data carries color.w times
+// itself, so color.w is the square root of the alpha. Shadows are not dithered
+static void WickedCall_SetFrameAlpha(sFrame* pFrame, float fColorW, bool bChildren)
+{
+	if (pFrame->wickedobjindex > 0)
+	{
+		wiScene::ObjectComponent* pWickedObject = wiScene::GetScene().objects.GetComponent(pFrame->wickedobjindex);
+		if (pWickedObject) pWickedObject->color.w = fColorW;
+	}
+	if (bChildren)
+	{
+		for (sFrame* pChild = pFrame->pChild; pChild; pChild = pChild->pSibling)
+			WickedCall_SetFrameAlpha(pChild, fColorW, true);
+	}
+}
+
+// fAlpha 0 to 1 (1 = as made); bChildren also the limbs under it; iLimb -1 is every Wicked object of this DBO object
+void WickedCall_SetLimbAlpha(sObject* pObject, int iLimb, float fAlpha, bool bChildren)
+{
+	if (!pObject || !pObject->ppFrameList) return;
+	float fColorW = sqrt(max(0.0f, min(1.0f, fAlpha)));
+	if (iLimb == -1)
+	{
+		uint64_t rootEntity = WickedCall_GetFirstRootEntityID(pObject);
+		wiScene::ObjectComponent* pWickedObject = NULL;
+		if (rootEntity > 0) pWickedObject = wiScene::GetScene().objects.GetComponent(rootEntity);
+		if (pWickedObject) pWickedObject->color.w = fColorW;
+		for (int iF = 0; iF < pObject->iFrameCount; iF++)
+		{
+			if (pObject->ppFrameList[iF]) WickedCall_SetFrameAlpha(pObject->ppFrameList[iF], fColorW, false);
+		}
+		return;
+	}
+	if (iLimb < 0 || iLimb >= pObject->iFrameCount || !pObject->ppFrameList[iLimb]) return;
+	WickedCall_SetFrameAlpha(pObject->ppFrameList[iLimb], fColorW, bChildren);
+}
+
+// the limb's own Wicked object, or the first one under it (a rotor frame without a mesh)
+static wiScene::ObjectComponent* WickedCall_FindFrameObject(sFrame* pFrame)
+{
+	if (pFrame->wickedobjindex > 0)
+	{
+		wiScene::ObjectComponent* pWickedObject = wiScene::GetScene().objects.GetComponent(pFrame->wickedobjindex);
+		if (pWickedObject) return pWickedObject;
+	}
+	for (sFrame* pChild = pFrame->pChild; pChild; pChild = pChild->pSibling)
+	{
+		wiScene::ObjectComponent* pWickedObject = WickedCall_FindFrameObject(pChild);
+		if (pWickedObject) return pWickedObject;
+	}
+	return NULL;
+}
+
+float WickedCall_GetLimbAlpha(sObject* pObject, int iLimb)
+{
+	if (!pObject || !pObject->ppFrameList || iLimb < 0 || iLimb >= pObject->iFrameCount || !pObject->ppFrameList[iLimb]) return 1.0f;
+	wiScene::ObjectComponent* pWickedObject = WickedCall_FindFrameObject(pObject->ppFrameList[iLimb]);
+	if (!pWickedObject) return 1.0f;
+	return pWickedObject->color.w * pWickedObject->color.w;
 }
 
 void WickedCall_SetObjectHighlightColor(sObject* pObject, bool bHighlight, int highlightColorType)
@@ -2016,6 +2195,62 @@ void GGTrees_SetSwayFromVisuals( float treeWind, wi::scene::WeatherComponent* we
 	if ( treeWind > 100.0f ) treeWind = 100.0f;   // >1 is diagnostic only; the UI slider caps at 1
 	weather->gg_objectWindSpaceRcp  = 1.0f / g_ggTreeSwaySpace;
 	weather->gg_objectWindAmplitude = treeWind * GG_TREE_SWAY_AMPLITUDE;
+}
+
+static const char* g_pWickedCallProbeNames[WICKEDCALL_PROBE_COUNT] = { "pick", "pick layers", "pick wicked", "pick lookup", "decal create", "decal fade" };
+static double g_dWickedCallProbeFrame[WICKEDCALL_PROBE_COUNT] = {};
+static int g_iWickedCallProbeFrameCalls[WICKEDCALL_PROBE_COUNT] = {};
+static float g_fWickedCallProbeMilliseconds[WICKEDCALL_PROBE_COUNT][20] = {};
+static float g_fWickedCallProbeCalls[WICKEDCALL_PROBE_COUNT][20] = {};
+static int g_iWickedCallProbeSlot = 0;
+
+// milliseconds on the performance counter
+double WickedCall_ProbeNow(void)
+{
+	static LARGE_INTEGER freq = {};
+	if (freq.QuadPart == 0) QueryPerformanceFrequency(&freq);
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	return (double)now.QuadPart * 1000.0 / (double)freq.QuadPart;
+}
+
+void WickedCall_ProbeAdd(int iProbe, double dMilliseconds)
+{
+	if (iProbe < 0 || iProbe >= WICKEDCALL_PROBE_COUNT) return;
+	g_dWickedCallProbeFrame[iProbe] += dMilliseconds;
+	g_iWickedCallProbeFrameCalls[iProbe]++;
+}
+
+// once a frame: the frame's totals join the last 20 frames'
+void WickedCall_ProbeFrame(void)
+{
+	for (int i = 0; i < WICKEDCALL_PROBE_COUNT; i++)
+	{
+		g_fWickedCallProbeMilliseconds[i][g_iWickedCallProbeSlot] = (float)g_dWickedCallProbeFrame[i];
+		g_fWickedCallProbeCalls[i][g_iWickedCallProbeSlot] = (float)g_iWickedCallProbeFrameCalls[i];
+		g_dWickedCallProbeFrame[i] = 0;
+		g_iWickedCallProbeFrameCalls[i] = 0;
+	}
+	g_iWickedCallProbeSlot = (g_iWickedCallProbeSlot + 1) % 20;
+}
+
+// a probe's milliseconds and calls a frame, averaged over the last 20 frames; false for an unknown name
+bool WickedCall_ProbeGet(const char* pName, float* pMilliseconds, float* pCalls)
+{
+	for (int i = 0; i < WICKEDCALL_PROBE_COUNT; i++)
+	{
+		if (_stricmp(pName, g_pWickedCallProbeNames[i]) != 0) continue;
+		float fMilliseconds = 0, fCalls = 0;
+		for (int s = 0; s < 20; s++)
+		{
+			fMilliseconds += g_fWickedCallProbeMilliseconds[i][s];
+			fCalls += g_fWickedCallProbeCalls[i][s];
+		}
+		*pMilliseconds = fMilliseconds / 20.0f;
+		*pCalls = fCalls / 20.0f;
+		return true;
+	}
+	return false;
 }
 
 void WickedCall_UpdateTreeWind(float wind)

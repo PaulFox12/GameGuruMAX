@@ -1,6 +1,7 @@
 //
 // Wicked Calls Header
 //
+#pragma once
 
 // Includes
 #include <memory>
@@ -157,6 +158,11 @@ void WickedCall_TextureObject ( sObject* pObject, sMesh* pJustThisMesh );
 void WickedCall_SetObjectBaseColor(sObject* pObject, int r, int g, int b);
 void WickedCall_GetObjectBaseColor(sObject* pObject, int* r, int* g, int* b);
 void WickedCall_SetObjectEmissiveColor(sObject* pObject, int r, int g, int b);
+void WickedCall_CopyMaterialColorsToMeshes(sObject* pObject);
+void WickedCall_SetMeshBaseColor(sMesh* pMesh, int r, int g, int b);
+void WickedCall_GetMeshBaseColor(sMesh* pMesh, int* r, int* g, int* b);
+void WickedCall_SetMeshEmissiveColor(sMesh* pMesh, int r, int g, int b);
+void WickedCall_GetMeshEmissiveColor(sMesh* pMesh, int* r, int* g, int* b);
 void WickedCall_GetObjectEmissiveColor(sObject* pObject, int* r, int* g, int* b);
 void WickedCall_SetObjectNormalness(sObject* pObject, float normalness);
 float WickedCall_GetObjectNormalness(sObject* pObject);
@@ -196,6 +202,7 @@ void WickedCall_RotateLimb(sObject* pObject, sFrame* pFrame, float fAX, float fA
 void WickedCall_CalculateWorldQuat(GGVECTOR4* pQuatA, GGVECTOR4* pQuatB, GGVECTOR4* pQuatResult);
 void WickedCall_CalculateQuatDiff(GGVECTOR4* pQuatA, GGVECTOR4* pQuatB, GGVECTOR4* pQuatDiff);
 void WickedCall_CalculateQuatFromCombined(sObject* pObject, sFrame* pFrame, GGVECTOR4* pQuat);
+bool WickedCall_ObjectRay(sObject* pObject, const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal, int* pLimb);
 void WickedCall_OverrideLimbWithCombined(sObject* pObject, sFrame* pFrame, bool bIncludeTranslation);
 void WickedCall_OverrideLimbOff(sObject* pObject, sFrame* pFrame);
 void WickedCall_SetBip01Position(sObject* pObject, sFrame* pFrame, int iUseMode, float fX, float fZ);
@@ -217,13 +224,20 @@ bool WickedCall_SentRay(float originx, float originy, float originz, float direc
 bool WickedCall_SentRay2(float originx, float originy, float originz, float directionx, float directiony, float directionz, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, uint64_t* pHitEntity, int iLayerMask);
 bool WickedCall_SentRay3(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit);
 bool WickedCall_SentRay4(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly);
-bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly);
+// pIgnore1 and pIgnore2 (or NULL) are left out of the pick without changing their layers, as a thread must not
+bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly, sObject* pIgnore1 = NULL, sObject* pIgnore2 = NULL);
 void WickedCall_GetMouseDeltas(float* pfX, float* pfY);
 uint32_t WickedCall_GetTextureWidth(void* ptex);
 uint32_t WickedCall_GetTextureHeight(void* ptex);
 void WickedCall_SetObjectOutline(sObject* pObject, float fHighlight);
 bool WickedCall_GetObjectOutline(sObject* pObject);
 void WickedCall_SetObjectHighlightColor(sObject* pObject, bool bHighlight, int highlightColorType);
+void WickedCall_SetObjectEmissiveTint(sObject* pObject, float fRed, float fGreen, float fBlue, float fStrength);
+bool WickedCall_GetObjectEmissiveTint(sObject* pObject, float* pfRed, float* pfGreen, float* pfBlue, float* pfStrength);
+void WickedCall_SetObjectColorTint(sObject* pObject, float fRed, float fGreen, float fBlue);
+bool WickedCall_GetObjectColorTint(sObject* pObject, float* pfRed, float* pfGreen, float* pfBlue);
+void WickedCall_SetLimbAlpha(sObject* pObject, int iLimb, float fAlpha, bool bChildren);
+float WickedCall_GetLimbAlpha(sObject* pObject, int iLimb);
 void WickedCall_SetObjectHighlightRed(sObject* pObject, bool bHighlight);
 void WickedCall_SetObjectHighlightBlue(sObject* pObject, bool bHighlight);
 void WickedCall_RenderEditorFunctions(void);
@@ -245,6 +259,8 @@ void WickedCall_GetFrameWorldPos(sFrame* pFrame, float* pfX, float* pfY, float* 
 void WickedCall_GetGluedLimbWorldPos(sObject* pObject, int iLimbID, float* pfX, float* pfY, float* pfZ);
 void WickedCall_GetLimbDataEx(sObject* pObject, int iLimbID, bool bAdjustLimb, float fX, float fY, float fZ, float fAX, float fAY, float fAZ, float* pX, float* pY, float* pZ, float* pQAX, float* pQAY, float* pQAZ, float* pQAW);
 void WickedCall_GetLimbLocalPosAndRot(sObject* pObject, int iLimbID, float* pX, float* pY, float* pZ, float* pQAX, float* pQAY, float* pQAZ, float* pQAW);
+void WickedCall_GetLimbLocalAndWorld(sObject* pObject, int iLimbID, float* pLocal, float* pWorld);
+bool WickedCall_GetLimbWorldsAtFrame(sObject* pObject, float fFrame, const float* pMadeLocals, const float* pMadeWorlds, float* pWorlds);
 void WickedCall_GetLimbData(sObject* pObject, int iLimbID, float* pX, float* pY, float* pZ, float* pQAX, float* pQAY, float* pQAZ, float* pQAW);
 void WickedCall_UpdateMeshVertexData(sMesh* pMesh);
 void WickedCall_SetObjectAlpha(sObject* pObject, float fPercentage);
@@ -295,6 +311,21 @@ void WickedCall_GetLightShaftParameters(float& density, float& weight, float& de
 void WickedCall_SetRenderTargetMouseFocus(bool focus);
 
 void WickedCall_UpdateWaterHeight(float height);
+// per-frame totals for calls made many times a frame, where a profiler range keeps only the first call (GetEngineProbe);
+// main thread only. WickedCall_ProbeFrame closes a frame; a probe of -1 is not counted
+enum eWickedCallProbe { WICKEDCALL_PROBE_PICK, WICKEDCALL_PROBE_PICK_LAYERS, WICKEDCALL_PROBE_PICK_WICKED, WICKEDCALL_PROBE_PICK_LOOKUP,
+	WICKEDCALL_PROBE_DECAL_CREATE, WICKEDCALL_PROBE_DECAL_FADE, WICKEDCALL_PROBE_COUNT };
+double WickedCall_ProbeNow(void);
+void WickedCall_ProbeAdd(int iProbe, double dMilliseconds);
+void WickedCall_ProbeFrame(void);
+bool WickedCall_ProbeGet(const char* pName, float* pMilliseconds, float* pCalls);
+struct WickedCallProbeScope
+{
+	int iProbe;
+	double dStart;
+	WickedCallProbeScope(int iProbeIndex) : iProbe(iProbeIndex), dStart(WickedCall_ProbeNow()) {}
+	~WickedCallProbeScope() { WickedCall_ProbeAdd(iProbe, WickedCall_ProbeNow() - dStart); }
+};
 void WickedCall_UpdateWaterColor(float red, float green, float blue);
 void WickedCall_PutWaterRipple(float fX, float fY, float fZ, float fSize);
 void WickedCall_UpdateTreeWind(float wind);

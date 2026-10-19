@@ -17,8 +17,13 @@ void game_main_loop ( void )
 #endif
 
 	// this trigger informs the in-game extra thread to begin for one frame (extra stuff done at end (when GPU/Wicked doing its thing)
+	// SetGamePaused has no AI for it to serve
 	extern bool g_bInGameCPUFrameComplete;
-	g_bInGameCPUFrameComplete = true;
+	if ( g_bGamePaused == false ) g_bInGameCPUFrameComplete = true;
+
+	// the engine probes' totals (GetEngineProbe) are per game frame
+	extern void WickedCall_ProbeFrame(void);
+	WickedCall_ProbeFrame();
 
 	//  Timer (  based movement )
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling game_timeelapsed");
@@ -31,7 +36,7 @@ void game_main_loop ( void )
 	//  Character sound update
 	//  110315 - 019 - If spawning in, no sound for the player
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling character_sound_update");
-	if (  t.game.runasmultiplayer  ==  0 || g.mp.noplayermovement  ==  0 ) 
+	if ( (t.game.runasmultiplayer  ==  0 || g.mp.noplayermovement  ==  0) && g_bGamePaused == false )
 	{
 		character_sound_update ( );
 	}
@@ -144,7 +149,7 @@ void game_main_loop ( void )
 
 		//  update all projectiles
 		if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling weapon_projectile_loop");
-		weapon_projectile_loop ( );
+		if ( g_bGamePaused == false ) weapon_projectile_loop ( );
 
 		//  Prompt
 		if ( g.gproducelogfiles == 2 ) timestampactivity(0,"checking prompts");
@@ -194,7 +199,7 @@ void game_main_loop ( void )
 		}
 
 		//  loop physics
-		if (  t.hardwareinfoglobals.nophysics == 0 )
+		if (  t.hardwareinfoglobals.nophysics == 0 && g_bGamePaused == false )
 		{
 			// Handle physics
 			if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling physics_loop");
@@ -202,6 +207,9 @@ void game_main_loop ( void )
 
 			// reinstated physics into main CPU thread for stability over performance
 			physics_loop ( );
+
+			// a knocked out character's entity is where his ragdoll's pelvis now is
+			ragdoll_knockoutloop ( );
 
 			// special mode for testing
 			if (iEnterGodMode != 2)
@@ -260,14 +268,17 @@ void game_main_loop ( void )
 				// Entity Logic
 				auto range2 = wiProfiler::BeginRangeCPU("Update - Logic - Objects");
 				t.game.perf.ai1 += PerformanceTimer()-g.gameperftimestamp ; g.gameperftimestamp=PerformanceTimer();
-				entity_loop ( );
-				entity_loopanim ( );
+				if ( g_bGamePaused == false )
+				{
+					entity_loop ( );
+					entity_loopanim ( );
+				}
 				t.game.perf.ai2 += PerformanceTimer()-g.gameperftimestamp ; g.gameperftimestamp=PerformanceTimer();
 				wiProfiler::EndRange(range2);
 
 				// Update all AI and Characters and VWeaps
 				auto range3 = wiProfiler::BeginRangeCPU("Update - Logic - AI");
-				if ( t.aisystem.processlogic == 1 )
+				if ( t.aisystem.processlogic == 1 && g_bGamePaused == false )
 				{
 					if ( t.visuals.debugvisualsmode<100 ) 
 					{
@@ -280,7 +291,7 @@ void game_main_loop ( void )
 				wiProfiler::EndRange(range3);
 
 				// handle any AI stuff related to recastretour
-				game_updatenavmeshsystem();
+				if ( g_bGamePaused == false ) game_updatenavmeshsystem();
 			}
 			t.game.perf.ai += PerformanceTimer()-t.ttempoverallaiperftimerstamp;
 		}
@@ -315,7 +326,7 @@ void game_main_loop ( void )
 		}
 
 		//  Gun control
-		if ( t.hardwareinfoglobals.noguns == 0 ) 
+		if ( t.hardwareinfoglobals.noguns == 0 && g_bGamePaused == false )
 		{
 			if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling gun_manager");
 			gun_manager ( );
@@ -325,8 +336,11 @@ void game_main_loop ( void )
 	}
 
 	//  update all particles and emitters
-	update_env_particles();
-	ravey_particles_update();
+	if ( g_bGamePaused == false )
+	{
+		update_env_particles();
+		ravey_particles_update();
+	}
 
 	if (t.visuals.bPPSnow && t.visuals.bpp_disable_indoor)
 	{
@@ -462,7 +476,7 @@ void game_main_loop ( void )
 
 	//  explosions and fire
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling draw_particles");
-	draw_particles();
+	if ( g_bGamePaused == false ) draw_particles();
 
 	//  handle fade out for level progression
 	if (  t.game.levelendingcycle > 0 ) 
@@ -479,7 +493,7 @@ void game_main_loop ( void )
 	t.game.perf.postprocessing += PerformanceTimer()-g.gameperftimestamp ; g.gameperftimestamp=PerformanceTimer();
 
 	// Check for player guns switched off
-	if ( g.noPlayerGuns )
+	if ( g.noPlayerGuns && g_bGamePaused == false )
 	{
 		if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling physics_no_gun_zoom");
 		physics_no_gun_zoom ( );
