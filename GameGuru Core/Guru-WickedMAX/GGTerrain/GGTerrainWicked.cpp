@@ -770,9 +770,29 @@ static void SetupTerrainMaterial(wi::scene::Scene& scene, wi::ecs::Entity entity
 
 	// Build paths from EXE directory (CWD-independent)
 	char colorPath[512], normalPath[512], surfacePath[512];
-	sprintf_s(colorPath, "%s/Files/terraintextures/mat%d/Color.dds", wickedTerrainExeDir.c_str(), folderNum);
-	sprintf_s(normalPath, "%s/Files/terraintextures/mat%d/Normal.dds", wickedTerrainExeDir.c_str(), folderNum);
-	sprintf_s(surfacePath, "%s/Files/terraintextures/mat%d/Surface.dds", wickedTerrainExeDir.c_str(), folderNum);
+	// the level's own texture for the slot first (a palette folder chosen in the editor, visuals.TerrainTextures): the
+	// GameGuru terrain always loaded those per slot, so a level painted with its palette's asphalt showed the matN
+	// folder's snow here
+	extern const char* GGGame_TerrainSlotTexture(int iSlot);
+	const char* pOwn = GGGame_TerrainSlotTexture(ggMatIndex & 0xFF);
+	if (pOwn && pOwn[0])
+	{
+		strcpy_s(colorPath, pOwn);
+		// the folder's Normal.dds and Surface.dds beside its Color.dds, whatever the colour file is called
+		char folder[512];
+		strcpy_s(folder, pOwn);
+		char* pSlash = strrchr(folder, '\\');
+		if (!pSlash) pSlash = strrchr(folder, '/');
+		if (pSlash) pSlash[1] = 0; else folder[0] = 0;
+		sprintf_s(normalPath, "%sNormal.dds", folder);
+		sprintf_s(surfacePath, "%sSurface.dds", folder);
+	}
+	else
+	{
+		sprintf_s(colorPath, "%s/Files/terraintextures/mat%d/Color.dds", wickedTerrainExeDir.c_str(), folderNum);
+		sprintf_s(normalPath, "%s/Files/terraintextures/mat%d/Normal.dds", wickedTerrainExeDir.c_str(), folderNum);
+		sprintf_s(surfacePath, "%s/Files/terraintextures/mat%d/Surface.dds", wickedTerrainExeDir.c_str(), folderNum);
+	}
 
 	MaterialComponent* mat = scene.materials.GetComponent(entity);
 	if (!mat)

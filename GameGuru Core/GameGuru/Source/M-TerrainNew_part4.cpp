@@ -1125,6 +1125,23 @@ bool GGGame_IsEmptyLevelMode ( void )
 	return t.visuals.bEnableEmptyLevelMode;
 }
 
+// the level's own texture for a terrain slot (visuals.TerrainTextures, a palette folder's Color.dds), as a full path in
+// the writable folder, or an empty string when the slot has none or the file is not there; the Wicked terrain's materials
+// take it in place of the matN folder (GGTerrainWicked.cpp), as GameGuru's own terrain always has
+const char* GGGame_TerrainSlotTexture ( int iSlot )
+{
+	static char szPath[MAX_PATH];
+	szPath[0] = 0;
+	if ( iSlot < 0 || iSlot >= 32 ) return szPath;
+	const char* pSlot = t.visuals.sTerrainTextures[iSlot].Get();
+	if ( !pSlot || !pSlot[0] ) return szPath;
+	if ( strstr ( pSlot, "terraintextures\\mat" ) == pSlot || strstr ( pSlot, "terraintextures/mat" ) == pSlot ) return szPath;
+	strcpy_s ( szPath, MAX_PATH, pSlot );
+	GG_GetRealPath ( szPath, 0 );
+	if ( !FileExist ( szPath ) ) szPath[0] = 0;
+	return szPath;
+}
+
 float BT_GetGroundHeight ( unsigned long value, float x, float z )
 {
 	extern int g_iDisableTerrainSystem;
