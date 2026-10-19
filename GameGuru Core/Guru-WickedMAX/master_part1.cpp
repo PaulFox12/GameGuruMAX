@@ -430,6 +430,8 @@ void GGPerf_TracePumpAccum(unsigned long long us)
 	gg_dbg_pump_us.fetch_add(us, std::memory_order_relaxed);
 }
 
+namespace wi::scene { extern float gg_lod_step; } // the LOD distance step (wiScene.cpp), from the level's LOD Multiplier
+
 // Phase 3: Forward declarations for GG custom draw functions (terrain/trees/grass)
 extern "C" void GGTerrain_Draw_Prepass(const wi::primitive::Frustum*, wi::graphics::CommandList);
 extern "C" void GGTerrain_Draw_Prepass_Reflections(const wi::primitive::Frustum*, wi::graphics::CommandList);
@@ -994,6 +996,16 @@ void MasterRenderer::Update(float dt)
 			int rb = t.visuals.iReflectionBlur;
 			if (rb < 0 || rb > 3) rb = 0;   // pre-3.90 levels parse as 0 = off
 			wi::renderer::gg_reflection_blur = rb;
+		}
+
+		// LOD Multiplier -> the engine's LOD distance step (the DX11 rule, 200 units a step), and Reflections Use
+		// Fastest LOD -> the planar reflection passes at the last LOD. Both globals are already kept in step with
+		// the visuals (M-GridEditB_part3.cpp) and the Lua render settings.
+		{
+			extern float fLODMultiplier;
+			extern bool bReflectionsLowestLOD;
+			wi::scene::gg_lod_step = 200.0f * fLODMultiplier;
+			wi::renderer::gg_reflection_lowest_lod = bReflectionsLowestLOD ? 1 : 0;
 		}
 
 		// ★★★ GGMAX 3.34: Super Quick Objects -> which rung of the cut-down opaque shader.

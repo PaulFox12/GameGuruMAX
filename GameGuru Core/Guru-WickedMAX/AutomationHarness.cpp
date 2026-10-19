@@ -4263,6 +4263,7 @@ namespace wi::scene         { extern bool     gg_instinit_parallel; }
 namespace wi::scene         { extern float    gg_envprobe_brightness; } // GGMAX 1.55 knob (wiScene.cpp:46), SET_ENVPROBE_BRIGHTNESS
 namespace wi::scene         { extern int      gg_probeparallax; }       // GGMAX 2.89 knob (wiScene.cpp:47), SET_PROBEPARALLAX
 namespace wi::scene         { extern int      gg_probeonlyglobal; }     // GGMAX 2.89 knob (wiScene.cpp:51), SET_PROBEONLYGLOBAL
+namespace wi::scene         { extern float    gg_lod_step; }            // the LOD distance step, DUMP_LODSTATS
 
 namespace GPUParticles {
 	int gpup_debug_dump(char* summary, int summarySize);
@@ -7932,6 +7933,48 @@ static bool AutoHarness_CensusCommands(const char* cmd, const char* arg, char* r
 			wi::profiler::GetCPUFrameTime(),
 			fps, (unsigned long long)GGPerf_GetPolyCount(),
 			gg_no_terrain ? 1 : 0, gg_no_trees ? 1 : 0, gg_no_grass ? 1 : 0, gg_no_water ? 1 : 0);
+		result[resultSize - 1] = 0;
+		return true;
+	}
+
+	if (_stricmp(cmd, "SET_REFLTRANSPARENT") == 0)
+	{
+		// SET_REFLTRANSPARENT <0|1>: whether the planar reflection draws the transparent objects (an A/B lever)
+		int on = atoi(arg) != 0 ? 1 : 0;
+		wi::renderer::gg_reflection_transparent = on;
+		_snprintf(result, resultSize, "OK: SET_REFLTRANSPARENT %d", on);
+		result[resultSize - 1] = 0;
+		return true;
+	}
+	if (_stricmp(cmd, "DUMP_LODSTATS") == 0)
+	{
+		// DUMP_LODSTATS: the meshes by LOD count, and the objects with LODs by the LOD they draw at this frame
+		wi::scene::Scene& ls = wi::scene::GetScene();
+		int meshByLod[5] = {};
+		int objByLod[5] = {};
+		int objLodded = 0;
+		for (size_t i = 0; i < ls.meshes.GetCount(); ++i)
+		{
+			uint32_t n = ls.meshes[i].GetLODCount();
+			if (n > 4) n = 4;
+			meshByLod[n]++;
+		}
+		for (size_t i = 0; i < ls.objects.GetCount(); ++i)
+		{
+			const wi::scene::ObjectComponent& o = ls.objects[i];
+			if (o.mesh_index >= ls.meshes.GetCount()) continue;
+			if (ls.meshes[o.mesh_index].GetLODCount() <= 1) continue;
+			objLodded++;
+			uint32_t l = o.lod;
+			if (l > 4) l = 4;
+			objByLod[l]++;
+		}
+		_snprintf(result, resultSize, "OK: DUMP_LODSTATS meshes=%d lodcount1=%d lodcount2=%d lodcount3=%d lodcount4=%d  objects_with_lods=%d at_lod0=%d lod1=%d lod2=%d lod3=%d  lod_step=%.0f reflections_lowest_lod=%d  batches main_opaque=%d main_transparent=%d refl_opaque=%d refl_transparent=%d",
+			(int)ls.meshes.GetCount(), meshByLod[1], meshByLod[2], meshByLod[3], meshByLod[4],
+			objLodded, objByLod[0], objByLod[1], objByLod[2], objByLod[3],
+			wi::scene::gg_lod_step, wi::renderer::gg_reflection_lowest_lod,
+			wi::renderer::gg_dbg_main_opaque_batches, wi::renderer::gg_dbg_main_transparent_batches,
+			wi::renderer::gg_dbg_refl_opaque_batches, wi::renderer::gg_dbg_refl_transparent_batches);
 		result[resultSize - 1] = 0;
 		return true;
 	}
