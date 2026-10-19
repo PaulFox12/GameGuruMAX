@@ -5,6 +5,58 @@
 #include "..\GGTerrain\GGTrees.h"
 #include "..\..\..\..\GameGuru\Include\GGPhysicsQuery.h"
 
+// declared as the DX11 branch's DarkLUA.cpp declares them
+extern void WickedCall_SetSunColors(float fRed, float fGreen, float fBlue, float fEnergy, float fFov, float fShadowBias);
+extern void LuaPostEffects_SetBloom(int iEnabled, float fStrength, float fThreshold, float fRadius, float fCap);
+extern void LuaPostEffects_GetBloom(int* piEnabled, float* pfStrength, float* pfThreshold, float* pfRadius, float* pfCap);
+extern void LuaPostEffects_SetDepthOfField(int iEnabled, float fStrength, float fFocalLength, float fApertureSize);
+extern void LuaPostEffects_GetDepthOfField(int* piEnabled, float* pfStrength, float* pfFocalLength, float* pfApertureSize);
+extern void LuaPostEffects_SetLightShafts(int iEnabled);
+extern void LuaPostEffects_SetLensFlare(int iEnabled, float fSunHue, float fSunBrightness);
+extern void LuaPostEffects_SetScreenLensFlare(int iEnabled, float fIntensity, float fThreshold, float fSpacing, float fHalo, int iNoSky, float fCap, int iFollowBloom);
+extern void LuaPostEffects_GetScreenLensFlare(int* piEnabled, float* pfIntensity, float* pfThreshold, float* pfSpacing, float* pfHalo, int* piNoSky, float* pfCap, int* piFollowBloom);
+extern bool GetLightShaftState(void);
+extern bool GetLensFlareState(void);
+extern void LuaRenderSettings_SetOcclusionCulling(int iOn, int iObjects, int iAnimations, int iTerrain, int iShadows);
+extern void LuaRenderSettings_SetLODMultiplier(float fMultiplier);
+extern void LuaRenderSettings_SetShadowsLowestLOD(int iOn);
+extern void LuaRenderSettings_SetDelayedShadows(int iOn, int iLaptop);
+extern void LuaRenderSettings_ResetDelayedShadows(void);
+extern void LuaRenderSettings_GetDelayedShadows(int* pOn, int* pLaptop, int* pScript);
+extern void LuaRenderSettings_SetShadowRange(float fRange);
+extern void LuaRenderSettings_SetSSR(int iOn);
+extern void LuaRenderSettings_SetAO(int iOn, float fPower);
+extern void LuaRenderSettings_SetSpotShadowCulling(int iOn);
+extern void LuaRenderSettings_SetFXAA(int iOn);
+extern void LuaRenderSettings_SetReflections(int iOn);
+extern void LuaRenderSettings_SetLowestLOD(int iProbes, int iReflections);
+extern void LuaRenderSettings_SetAnimations30Fps(int iOn);
+extern void LuaRenderSettings_SetMaxApparentSize(float fSize);
+extern void LuaRenderSettings_SetShadowResolution(int iSun, int iSpot, int iPoint);
+extern void LuaRenderSettings_SetShadowLights(int iSpotMax, int iPointMax);
+extern void LuaRenderSettings_SetShadowCascades(int iCascades, const float* pSplits);
+extern void LuaRenderSettings_SetTerrainDetail(int iLimit, float fScale, int iReadBack);
+extern void LuaRenderSettings_SetGrassSimpleLighting(int iOn);
+extern void LuaRenderSettings_ResetGraphics(void);
+extern void LuaRenderSettings_SetShadowJobWait(int iOn);
+extern void LuaRenderSettings_SetVsync(int iOn);
+extern void LuaRenderSettings_SetFrameRateCap(int iFramesPerSecond);
+extern void LuaRenderSettings_GetDisplay(int* pVsync, int* pFrameRateCap);
+extern void LuaRenderSettings_SetRenderScale(float fScale);
+extern float LuaRenderSettings_GetRenderScale(void);
+extern void LuaRenderSettings_SetMSAA(int iSamples);
+extern int LuaRenderSettings_GetMSAA(void);
+extern void LuaRenderSettings_SetGamma(float fGamma);
+extern void LuaRenderSettings_SetFSRSharpness(float fSharpness);
+extern void LuaRenderSettings_SetRaycastLowestLOD(int iOn);
+extern void LuaRenderSettings_SetTransparentShadows(int iOn);
+extern void LuaRenderSettings_GetPicture(float* pGamma, float* pFSRSharpness, int* pRaycastLowestLOD, int* pTransparentShadows);
+extern void LuaRenderSettings_GetCulling(int* pOcclusion, int* pObjects, int* pAnimations, int* pTerrain, int* pShadows, int* pSpotShadows, int* pShadowsLowestLOD);
+extern void LuaRenderSettings_GetLevers(int* pSSR, int* pAO, float* pAOPower, float* pLODMultiplier, float* pShadowRange);
+extern void LuaRenderSettings_GetValues(int* pFXAA, int* pReflections, int* pProbesLowestLOD, int* pReflectionsLowestLOD, int* pAnimations30Fps, float* pMaxApparentSize);
+extern void LuaRenderSettings_GetShadows(int* pSun, int* pSpot, int* pPoint, int* pSpotMax, int* pPointMax, int* pCascades, float* pSplits);
+extern void LuaRenderSettings_GetTerrainDetail(int* pLimit, float* pScale, int* pReadBack, int* pGrassSimpleLighting);
+
 // helpers the carried functions share
 
 // Entity commands index t.entityelement directly, so an id outside it (such as an object number passed by mistake)
@@ -157,6 +209,12 @@ static int LuaPushPhysicsHit(lua_State* L, const PhysicsHit& hit, bool bTree, in
 	return 12;
 }
 
+float LuaOptionalNumber(lua_State* L, int n, int index)
+{
+	if (n < index) return -1.0f;
+	return lua_tonumber(L, index);
+}
+
 // SetEntityVelocity(e, vx, vy, vz): e's physics body moving at that velocity (units a second), woken;
 // SetEntityAngularVelocity(e, wx, wy, wz): spinning at that rate (degrees a second) about the world's x, y and z axes,
 // woken. A frozen entity (FreezeEntity) or one with no body is left as it is
@@ -180,10 +238,46 @@ int SetEntityVelocityCore ( lua_State *L, int iAngular )
 
 // carried from the DX11 branch
 
+int GetBloom(lua_State* L)
+{
+	int iEnabled = 0;
+	float fStrength = 0, fThreshold = 0, fRadius = 0, fCap = 0;
+	LuaPostEffects_GetBloom(&iEnabled, &fStrength, &fThreshold, &fRadius, &fCap);
+	lua_pushnumber(L, iEnabled);
+	lua_pushnumber(L, fStrength);
+	lua_pushnumber(L, fThreshold);
+	lua_pushnumber(L, fRadius);
+	lua_pushnumber(L, fCap);
+	return 5;
+}
+
 int GetDecalRange(lua_State *L)
 {
 	lua_pushinteger(L, g.decalrange);
 	return 1;
+}
+
+// GetDelayedShadows(): on, laptop as in force now, and script 1 while a SetDelayedShadows value holds
+int GetDelayedShadows(lua_State* L)
+{
+	int iOn, iLaptop, iScript;
+	LuaRenderSettings_GetDelayedShadows(&iOn, &iLaptop, &iScript);
+	lua_pushinteger(L, iOn);
+	lua_pushinteger(L, iLaptop);
+	lua_pushinteger(L, iScript);
+	return 3;
+}
+
+int GetDepthOfField(lua_State* L)
+{
+	int iEnabled = 0;
+	float fStrength = 0, fFocalLength = 0, fApertureSize = 0;
+	LuaPostEffects_GetDepthOfField(&iEnabled, &fStrength, &fFocalLength, &fApertureSize);
+	lua_pushnumber(L, iEnabled);
+	lua_pushnumber(L, fStrength);
+	lua_pushnumber(L, fFocalLength);
+	lua_pushnumber(L, fApertureSize);
+	return 4;
 }
 
 // GetEntityAxes(e): the world directions of e's model's own forward (z) and up (y) axes as it is drawn, each of unit
@@ -322,6 +416,73 @@ int GetEntityRagdollHoldStiffness ( lua_State *L )
 	lua_pushnumber ( L, fHipFold );
 	lua_pushnumber ( L, fKneeFold );
 	return 5;
+}
+
+// GetGraphicsSettings(): the values in force as a table: fxaa, reflections, probesLowestLOD, reflectionsLowestLOD,
+// animations30Fps, maxApparentSize, sunShadow, spotShadow, pointShadow (resolutions), spotShadowLights, pointShadowLights,
+// shadowCascades, shadowSplits (a table of four), terrainDetailLimit, terrainDetailScale, terrainReadBack, grassSimpleLighting
+int GetGraphicsSettings(lua_State* L)
+{
+	int iFXAA, iReflections, iProbes, iReflectionsLOD, i30Fps;
+	float fApparentSize;
+	LuaRenderSettings_GetValues(&iFXAA, &iReflections, &iProbes, &iReflectionsLOD, &i30Fps, &fApparentSize);
+	int iSun, iSpot, iPoint, iSpotMax, iPointMax, iCascades;
+	float fSplits[4];
+	LuaRenderSettings_GetShadows(&iSun, &iSpot, &iPoint, &iSpotMax, &iPointMax, &iCascades, fSplits);
+	int iLimit, iReadBack, iGrassSimple;
+	float fScale;
+	LuaRenderSettings_GetTerrainDetail(&iLimit, &fScale, &iReadBack, &iGrassSimple);
+	int iVsync, iFrameRateCap;
+	LuaRenderSettings_GetDisplay(&iVsync, &iFrameRateCap);
+	lua_newtable(L);
+	lua_pushinteger(L, iFXAA); lua_setfield(L, -2, "fxaa");
+	lua_pushinteger(L, iReflections); lua_setfield(L, -2, "reflections");
+	lua_pushinteger(L, iProbes); lua_setfield(L, -2, "probesLowestLOD");
+	lua_pushinteger(L, iReflectionsLOD); lua_setfield(L, -2, "reflectionsLowestLOD");
+	lua_pushinteger(L, i30Fps); lua_setfield(L, -2, "animations30Fps");
+	lua_pushnumber(L, fApparentSize); lua_setfield(L, -2, "maxApparentSize");
+	lua_pushinteger(L, iSun); lua_setfield(L, -2, "sunShadow");
+	lua_pushinteger(L, iSpot); lua_setfield(L, -2, "spotShadow");
+	lua_pushinteger(L, iPoint); lua_setfield(L, -2, "pointShadow");
+	lua_pushinteger(L, iSpotMax); lua_setfield(L, -2, "spotShadowLights");
+	lua_pushinteger(L, iPointMax); lua_setfield(L, -2, "pointShadowLights");
+	lua_pushinteger(L, iCascades); lua_setfield(L, -2, "shadowCascades");
+	lua_newtable(L);
+	for (int i = 0; i < 4; i++) { lua_pushnumber(L, fSplits[i]); lua_rawseti(L, -2, i + 1); }
+	lua_setfield(L, -2, "shadowSplits");
+	lua_pushinteger(L, iLimit); lua_setfield(L, -2, "terrainDetailLimit");
+	lua_pushnumber(L, fScale); lua_setfield(L, -2, "terrainDetailScale");
+	lua_pushinteger(L, iReadBack); lua_setfield(L, -2, "terrainReadBack");
+	lua_pushinteger(L, iGrassSimple); lua_setfield(L, -2, "grassSimpleLighting");
+	lua_pushinteger(L, iVsync); lua_setfield(L, -2, "vsync");
+	lua_pushinteger(L, iFrameRateCap); lua_setfield(L, -2, "frameRateCap");
+	lua_pushnumber(L, LuaRenderSettings_GetRenderScale()); lua_setfield(L, -2, "renderScale");
+	lua_pushinteger(L, LuaRenderSettings_GetMSAA()); lua_setfield(L, -2, "msaa");
+	int iOcclusion, iObjects, iAnimations, iTerrain, iShadows, iSpotShadows, iShadowsLowestLOD;
+	LuaRenderSettings_GetCulling(&iOcclusion, &iObjects, &iAnimations, &iTerrain, &iShadows, &iSpotShadows, &iShadowsLowestLOD);
+	lua_pushinteger(L, iOcclusion); lua_setfield(L, -2, "occlusion");
+	lua_pushinteger(L, iObjects); lua_setfield(L, -2, "objectCulling");
+	lua_pushinteger(L, iAnimations); lua_setfield(L, -2, "animationCulling");
+	lua_pushinteger(L, iTerrain); lua_setfield(L, -2, "terrainCulling");
+	lua_pushinteger(L, iShadows); lua_setfield(L, -2, "shadowCulling");
+	lua_pushinteger(L, iSpotShadows); lua_setfield(L, -2, "spotShadowCulling");
+	lua_pushinteger(L, iShadowsLowestLOD); lua_setfield(L, -2, "shadowsLowestLOD");
+	float fGamma, fFSRSharpness;
+	int iRaycastLowestLOD, iTransparentShadows;
+	LuaRenderSettings_GetPicture(&fGamma, &fFSRSharpness, &iRaycastLowestLOD, &iTransparentShadows);
+	lua_pushnumber(L, fGamma); lua_setfield(L, -2, "gamma");
+	lua_pushnumber(L, fFSRSharpness); lua_setfield(L, -2, "fsrSharpness");
+	lua_pushinteger(L, iRaycastLowestLOD); lua_setfield(L, -2, "raycastLowestLOD");
+	lua_pushinteger(L, iTransparentShadows); lua_setfield(L, -2, "transparentShadows");
+	int iSSR, iAO;
+	float fAOPower, fLODMultiplier, fShadowRange;
+	LuaRenderSettings_GetLevers(&iSSR, &iAO, &fAOPower, &fLODMultiplier, &fShadowRange);
+	lua_pushinteger(L, iSSR); lua_setfield(L, -2, "ssr");
+	lua_pushinteger(L, iAO); lua_setfield(L, -2, "ao");
+	lua_pushnumber(L, fAOPower); lua_setfield(L, -2, "aoPower");
+	lua_pushnumber(L, fLODMultiplier); lua_setfield(L, -2, "lodMultiplier");
+	lua_pushnumber(L, fShadowRange); lua_setfield(L, -2, "shadowRange");
+	return 1;
 }
 
 int GetGrassDistance(lua_State* L)
@@ -780,6 +941,66 @@ int RayTrees(lua_State* L)
 	return 7;
 }
 
+// ResetDelayedShadows(): forget what SetDelayedShadows set and go back to the level's or the graphics quality's choice
+int ResetDelayedShadows(lua_State* L)
+{
+	LuaRenderSettings_ResetDelayedShadows();
+	return 0;
+}
+
+// ResetGraphicsSettings(): forget every value the graphics setters above set and go back to the level's and the graphics
+// quality's, so a quality change moves them again (a menu's Default)
+int ResetGraphicsSettings(lua_State* L)
+{
+	LuaRenderSettings_ResetGraphics();
+	return 0;
+}
+
+// SetAO(on [, power]): ambient occlusion (corners and gaps take less ambient light) on (1) or off (0), and its power, 0
+// to 5 (1 is the editor's default)
+int SetAO(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaRenderSettings_SetAO((int)lua_tonumber(L, 1), LuaOptionalNumber(L, n, 2));
+	return 0;
+}
+
+// SetAnimations30Fps(on): far characters animate at 30 frames a second
+int SetAnimations30Fps(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetAnimations30Fps((int)lua_tonumber(L, 1));
+	return 0;
+}
+
+int SetBloom(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaPostEffects_SetBloom((int)lua_tonumber(L, 1), LuaOptionalNumber(L, n, 2), LuaOptionalNumber(L, n, 3), LuaOptionalNumber(L, n, 4), LuaOptionalNumber(L, n, 5));
+	return 0;
+}
+
+// SetDelayedShadows(on [, laptop]): the sun's shadow cascades 1 to 4 are redrawn every 2, 3, 4 and 9 frames instead of
+// every frame, and point light shadows less often too; laptop also redraws cascade 0 every other frame and the rest every
+// 3, 4, 5 and 9. On unless the level turned it off
+int SetDelayedShadows(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaRenderSettings_SetDelayedShadows((int)lua_tonumber(L, 1), (int)LuaOptionalNumber(L, n, 2));
+	return 0;
+}
+
+int SetDepthOfField(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaPostEffects_SetDepthOfField((int)lua_tonumber(L, 1), LuaOptionalNumber(L, n, 2), LuaOptionalNumber(L, n, 3), LuaOptionalNumber(L, n, 4));
+	return 0;
+}
+
 int SetEntityAngularVelocity(lua_State *L) { return SetEntityVelocityCore ( L, 1 ); }
 
 // SetEntityRagdollHoldStiffness(e, stiffness [, damping [, waistfold [, hipfold [, kneefold]]]]): for e's ragdoll while
@@ -814,6 +1035,65 @@ int SetEntityRagdollHoldStiffness ( lua_State *L )
 
 int SetEntityVelocity(lua_State *L) { return SetEntityVelocityCore ( L, 0 ); }
 
+// SetFSRSharpness(s): the sharpening of the FSR upscale (the level's FSR setting or SetRenderScale), 0 to 2
+int SetFSRSharpness(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetFSRSharpness(lua_tonumber(L, 1));
+	return 0;
+}
+
+// the rest of what the graphics quality sets, for a graphics menu with its own options (kept through visuals pushes and
+// quality changes, the level's own again at the next level and when a test game ends; a negative value keeps the current)
+// SetFXAA(on), SetReflections(on): the FXAA pass and the planar reflections
+int SetFXAA(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetFXAA((int)lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetFrameRateCap(fps): the most frames a second, 10 to 1000; 0 for no cap
+int SetFrameRateCap(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetFrameRateCap((int)lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetGamma(g): the gamma, 0.1 to 10, which the level start's fade-in heads for; 0 goes back to the level's
+int SetGamma(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetGamma(lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetGrassSimpleLighting(on): the grass lit by the simpler, cheaper PBR (Low and Medium quality)
+int SetGrassSimpleLighting(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetGrassSimpleLighting((int)lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetLODMultiplier(v): models with LOD levels switch to LOD 1, 2 and 3 past 400, 600 and 800 units times v (0 to 15; the
+// graphics quality sets 1 to 3)
+int SetLODMultiplier(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetLODMultiplier(lua_tonumber(L, 1));
+	return 0;
+}
+
+int SetLensFlare(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaPostEffects_SetLensFlare((int)lua_tonumber(L, 1), LuaOptionalNumber(L, n, 2), LuaOptionalNumber(L, n, 3));
+	return 0;
+}
+
 // SetLightShadow(light, on): whether the light casts shadows (1 or 0), for the same light numbers as SetLightRGB. A
 // shadow is the costliest part of a point or spot light, so turn it off on lights that don't need one
 int SetLightShadow(lua_State *L)
@@ -824,6 +1104,37 @@ int SetLightShadow(lua_State *L)
 	{
 		t.infinilight[i].bCanShadow = lua_tointeger(L, 2) != 0;
 	}
+	return 0;
+}
+
+int SetLightShafts(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaPostEffects_SetLightShafts((int)lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetMSAA(samples): multisample anti-aliasing, 1 (off), 2, 4 or 8 samples, with or without FXAA; under a render scale it
+// samples the smaller 3D before the upscale. The render targets are made again at the next update (a hitch), so set it on
+// a choice, not every frame. 0 goes back to the level's
+int SetMSAA(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetMSAA((int)lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetOcclusionCulling(on [, objects [, animations [, terrain [, shadows [, spotShadows]]]]]): the GPU occlusion culling,
+// which skips what stands wholly behind something (a frame late, and nothing within 1500 units), and what it is used for:
+// objects, the animation of an occluded character (it pauses), terrain chunks, and point and spot light shadows (shadows
+// both, or point only when spotShadows is given). 1 or 0 each
+int SetOcclusionCulling(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaRenderSettings_SetOcclusionCulling((int)lua_tonumber(L, 1), (int)LuaOptionalNumber(L, n, 2), (int)LuaOptionalNumber(L, n, 3), (int)LuaOptionalNumber(L, n, 4), (int)LuaOptionalNumber(L, n, 5));
+	if (n >= 6) LuaRenderSettings_SetSpotShadowCulling((int)lua_tonumber(L, 6));
 	return 0;
 }
 
@@ -849,7 +1160,132 @@ int SetPhysicsWorldRate(lua_State* L)
 	return 0;
 }
 
+// SetProbesLowestLOD(on), SetReflectionsLowestLOD(on): environment probes and reflections drawn from each model's lowest LOD
+int SetProbesLowestLOD(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetLowestLOD((int)lua_tonumber(L, 1), -1);
+	return 0;
+}
+
 int SetRawSoundDistanceScale ( lua_State *L ) { return SetRawSoundData ( L, 6 ); }
+
+// SetRaycastLowestLOD(on): rays and picks test models with LOD levels against their lowest LOD, which is cheaper and less exact
+int SetRaycastLowestLOD(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetRaycastLowestLOD((int)lua_tonumber(L, 1));
+	return 0;
+}
+
+int SetReflections(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetReflections((int)lua_tonumber(L, 1));
+	return 0;
+}
+
+int SetReflectionsLowestLOD(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetLowestLOD(-1, (int)lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetRenderScale(f): the 3D drawn at f of the screen's resolution, 0.5 to 1, and upscaled with FSR 1, the HUD and sprites
+// at the screen's; FXAA stays on below 1. It stands in for the level's FSR setting; 0 goes back to it. The render targets
+// are made again (a hitch), so set it when the player lets go of a slider, not every step
+int SetRenderScale(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetRenderScale(lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetSSR(on): screen space reflections on (1) or off (0)
+int SetSSR(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetSSR((int)lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetShadowCascades(n [, split1, split2, split3, split4]): the sun's shadow cascades in use, 1 to 5 (past the last, no sun
+// shadow), and the view depths the first four end at (380, 950, 7500, 30000 unless set; used only if all four are given,
+// above 0 and rising). Moving a split changes that cascade's texel size, so its shadows sharpen or blur; each cascade's depth
+// bias was tuned to the stock splits, so acne or light leaks may show
+int SetShadowCascades(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	float fSplits[4];
+	bool bSplits = n >= 5;
+	for (int i = 0; i < 4 && bSplits; i++) fSplits[i] = (float)lua_tonumber(L, 2 + i);
+	LuaRenderSettings_SetShadowCascades((int)lua_tonumber(L, 1), bSplits ? fSplits : NULL);
+	return 0;
+}
+
+// SetShadowLights(spotMax [, pointMax]): how many spot and point lights cast shadows at once, 0 to 16
+int SetShadowLights(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaRenderSettings_SetShadowLights((int)lua_tonumber(L, 1), (int)LuaOptionalNumber(L, n, 2));
+	return 0;
+}
+
+// SetShadowRange(d): how far the sun's last shadow cascade reaches, 31000 to 500000 units (500000 unless set); nothing
+// beyond it casts a sun shadow, and nearer makes the far shadows sharper. 0 goes back to the level's
+int SetShadowRange(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetShadowRange(lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetShadowResolution(sun [, spot [, point]]): shadow map sizes, 0 (none) to 2048; a change recreates the maps (a hitch)
+int SetShadowResolution(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaRenderSettings_SetShadowResolution((int)lua_tonumber(L, 1), (int)LuaOptionalNumber(L, n, 2), (int)LuaOptionalNumber(L, n, 3));
+	return 0;
+}
+
+// SetShadowsLowestLOD(on): models cast their shadows from their lowest LOD, which is cheaper
+int SetShadowsLowestLOD(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetShadowsLowestLOD((int)lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetTerrainDetail(limit [, scale [, readBack]]): the terrain texture's detail as the graphics quality sets it: the detail
+// limit 0 (finest) to 4, the detail scale 0.25 to 2, the read back reduction 4 to 6 (higher reads back less, coarser pages)
+int SetTerrainDetail(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	LuaRenderSettings_SetTerrainDetail((int)lua_tonumber(L, 1), (float)LuaOptionalNumber(L, n, 2), (int)LuaOptionalNumber(L, n, 3));
+	return 0;
+}
+
+// SetTransparentShadows(on): shadows cast through transparent surfaces, tinted by them; a change makes the shadow maps
+// again (a hitch)
+int SetTransparentShadows(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetTransparentShadows((int)lua_tonumber(L, 1));
+	return 0;
+}
+
+// SetVsync(on): vsync on (1) or off (0), outranking the level's and SETUP.INI's; the swap chain is made again (a blip)
+int SetVsync(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	LuaRenderSettings_SetVsync((int)lua_tonumber(L, 1));
+	return 0;
+}
 
 // SleepEntity(e): puts a physics entity's body to sleep with every moving body touching it, directly or through others
 // (its island), their velocities zeroed, as a body settled at rest sleeps; they wake as any sleeping body does (a blast,
@@ -915,17 +1351,6 @@ int ClearGrassKillBox ( lua_State* L )
 	return 0;
 }
 
-// GetBloom: neutral until its engine side is here; needs LuaPostEffects_GetBloom (M-GridEditB.cpp)
-int GetBloom ( lua_State* L )
-{
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	return 5;
-}
-
 // GetDecalLimit(): the element count, and the ripple elements, none reserved until the decal work is here
 int GetDecalLimit(lua_State *L)
 {
@@ -941,25 +1366,6 @@ int GetDecalStats ( lua_State* L )
 	lua_pushinteger ( L, 0 );
 	lua_pushinteger ( L, 0 );
 	return 3;
-}
-
-// GetDelayedShadows: neutral until its engine side is here; needs LuaRenderSettings_GetDelayedShadows (M-GridEditB.cpp)
-int GetDelayedShadows ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	lua_pushinteger ( L, 0 );
-	return 3;
-}
-
-// GetDepthOfField: neutral until its engine side is here; needs LuaPostEffects_GetDepthOfField (M-GridEditB.cpp)
-int GetDepthOfField ( lua_State* L )
-{
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	return 4;
 }
 
 // GetDopplerScale(): 0 until the audio doppler (the DX11 branch's wiAudio addition) is in this engine
@@ -1081,13 +1487,6 @@ int GetGameQuality(lua_State* L)
 int GetGpuFrameCosts ( lua_State* L )
 {
 	lua_pushnil ( L );
-	return 1;
-}
-
-// GetGraphicsSettings: neutral until its engine side is here; needs LuaRenderSettings_GetCulling (M-GridEditB.cpp); LuaRenderSettings_GetDisplay (M-GridEditB.cpp); LuaRenderSettings_GetLevers (M-GridEditB.cpp); LuaRenderSettings_GetMSAA (M-GridEditB.cpp); LuaRenderSettings_GetPicture (M-GridEditB.cpp); LuaRenderSettings_GetRenderScale (M-GridEditB.cpp); LuaRenderSettings_GetShadows (M-GridEditB.cpp); LuaRenderSettings_GetTerrainDetail (M-GridEditB.cpp); LuaRenderSettings_GetValues (M-GridEditB.cpp)
-int GetGraphicsSettings ( lua_State* L )
-{
-	lua_newtable ( L );
 	return 1;
 }
 
@@ -1261,38 +1660,8 @@ int RemoveProjectedDecal ( lua_State* L )
 	return 0;
 }
 
-// ResetDelayedShadows: neutral until its engine side is here; needs LuaRenderSettings_ResetDelayedShadows (M-GridEditB.cpp)
-int ResetDelayedShadows ( lua_State* L )
-{
-	return 0;
-}
-
 // ResetEntityMaterial: neutral until its engine side is here; needs entity_resetmaterial (G-Entity.cpp, G-Entity.h)
 int ResetEntityMaterial ( lua_State* L )
-{
-	return 0;
-}
-
-// ResetGraphicsSettings: neutral until its engine side is here; needs LuaRenderSettings_ResetGraphics (M-GridEditB.cpp)
-int ResetGraphicsSettings ( lua_State* L )
-{
-	return 0;
-}
-
-// SetAO: neutral until its engine side is here; needs LuaRenderSettings_SetAO (M-GridEditB.cpp)
-int SetAO ( lua_State* L )
-{
-	return 0;
-}
-
-// SetAnimations30Fps: neutral until its engine side is here; needs LuaRenderSettings_SetAnimations30Fps (M-GridEditB.cpp)
-int SetAnimations30Fps ( lua_State* L )
-{
-	return 0;
-}
-
-// SetBloom: neutral until its engine side is here; needs LuaPostEffects_SetBloom (M-GridEditB.cpp)
-int SetBloom ( lua_State* L )
 {
 	return 0;
 }
@@ -1305,18 +1674,6 @@ int SetDecalLimit ( lua_State* L )
 
 // SetDecalRange: neutral until its engine side is here; needs decal_setrange (M-Decal.cpp, M-Decal.h)
 int SetDecalRange ( lua_State* L )
-{
-	return 0;
-}
-
-// SetDelayedShadows: neutral until its engine side is here; needs LuaRenderSettings_SetDelayedShadows (M-GridEditB.cpp)
-int SetDelayedShadows ( lua_State* L )
-{
-	return 0;
-}
-
-// SetDepthOfField: neutral until its engine side is here; needs LuaPostEffects_SetDepthOfField (M-GridEditB.cpp)
-int SetDepthOfField ( lua_State* L )
 {
 	return 0;
 }
@@ -1372,32 +1729,8 @@ int SetEscapeMenu ( lua_State *L )
 	return 0;
 }
 
-// SetFSRSharpness: neutral until its engine side is here; needs LuaRenderSettings_SetFSRSharpness (M-GridEditB.cpp)
-int SetFSRSharpness ( lua_State* L )
-{
-	return 0;
-}
-
-// SetFXAA: neutral until its engine side is here; needs LuaRenderSettings_SetFXAA (M-GridEditB.cpp)
-int SetFXAA ( lua_State* L )
-{
-	return 0;
-}
-
-// SetFrameRateCap: neutral until its engine side is here; needs LuaRenderSettings_SetFrameRateCap (M-GridEditB.cpp)
-int SetFrameRateCap ( lua_State* L )
-{
-	return 0;
-}
-
 // SetGamePaused: neutral until its engine side is here; needs game_setgamepaused (M-Game.cpp)
 int SetGamePaused ( lua_State* L )
-{
-	return 0;
-}
-
-// SetGamma: neutral until its engine side is here; needs LuaRenderSettings_SetGamma (M-GridEditB.cpp)
-int SetGamma ( lua_State* L )
 {
 	return 0;
 }
@@ -1452,12 +1785,6 @@ int SetGrassShade ( lua_State* L )
 	return 0;
 }
 
-// SetGrassSimpleLighting: neutral until its engine side is here; needs LuaRenderSettings_SetGrassSimpleLighting (M-GridEditB.cpp)
-int SetGrassSimpleLighting ( lua_State* L )
-{
-	return 0;
-}
-
 // SetGrassTightBounds: neutral until its engine side is here; needs GGGrass_SetTightBounds (GGGrass.cpp, GGGrass.h, M-GridEditB.cpp)
 int SetGrassTightBounds ( lua_State* L )
 {
@@ -1470,50 +1797,14 @@ int SetGunReloadWhileRunning(lua_State* L)
 	return 0;
 }
 
-// SetLODMultiplier: neutral until its engine side is here; needs LuaRenderSettings_SetLODMultiplier (M-GridEditB.cpp)
-int SetLODMultiplier ( lua_State* L )
-{
-	return 0;
-}
-
-// SetLensFlare: neutral until its engine side is here; needs LuaPostEffects_SetLensFlare (M-GridEditB.cpp)
-int SetLensFlare ( lua_State* L )
-{
-	return 0;
-}
-
 // SetLightMaxDistance(distance): neutral until its engine side is here; every light stays in the frame
 int SetLightMaxDistance(lua_State* L)
 {
 	return 0;
 }
 
-// SetLightShafts: neutral until its engine side is here; needs LuaPostEffects_SetLightShafts (M-GridEditB.cpp)
-int SetLightShafts ( lua_State* L )
-{
-	return 0;
-}
-
-// SetMSAA: neutral until its engine side is here; needs LuaRenderSettings_SetMSAA (M-GridEditB.cpp)
-int SetMSAA ( lua_State* L )
-{
-	return 0;
-}
-
-// SetOcclusionCulling: neutral until its engine side is here; needs LuaRenderSettings_SetOcclusionCulling (M-GridEditB.cpp); LuaRenderSettings_SetSpotShadowCulling (M-GridEditB.cpp)
-int SetOcclusionCulling ( lua_State* L )
-{
-	return 0;
-}
-
 // SetParticleHalfResolution: neutral until its engine side is here; needs WickedCall_SetParticleHalfResolution (wickedcalls.cpp, wickedcalls.h)
 int SetParticleHalfResolution ( lua_State* L )
-{
-	return 0;
-}
-
-// SetProbesLowestLOD: neutral until its engine side is here; needs LuaRenderSettings_SetLowestLOD (M-GridEditB.cpp)
-int SetProbesLowestLOD ( lua_State* L )
 {
 	return 0;
 }
@@ -1554,30 +1845,6 @@ int SetRagdollAllDeaths ( lua_State *L )
 	return 0;
 }
 
-// SetRaycastLowestLOD: neutral until its engine side is here; needs LuaRenderSettings_SetRaycastLowestLOD (M-GridEditB.cpp)
-int SetRaycastLowestLOD ( lua_State* L )
-{
-	return 0;
-}
-
-// SetReflections: neutral until its engine side is here; needs LuaRenderSettings_SetReflections (M-GridEditB.cpp)
-int SetReflections ( lua_State* L )
-{
-	return 0;
-}
-
-// SetReflectionsLowestLOD: neutral until its engine side is here; needs LuaRenderSettings_SetLowestLOD (M-GridEditB.cpp)
-int SetReflectionsLowestLOD ( lua_State* L )
-{
-	return 0;
-}
-
-// SetRenderScale: neutral until its engine side is here; needs LuaRenderSettings_SetRenderScale (M-GridEditB.cpp)
-int SetRenderScale ( lua_State* L )
-{
-	return 0;
-}
-
 // SetRenderTiming(mode): 1 times the renderer's work every frame so GetRenderTime can read them, 0 stops. This engine's
 // profiler has no CPU-only mode, so 2 times the GPU as well
 int SetRenderTiming ( lua_State *L )
@@ -1594,50 +1861,8 @@ int SetRippleBatching ( lua_State* L )
 	return 0;
 }
 
-// SetSSR: neutral until its engine side is here; needs LuaRenderSettings_SetSSR (M-GridEditB.cpp)
-int SetSSR ( lua_State* L )
-{
-	return 0;
-}
-
-// SetShadowCascades: neutral until its engine side is here; needs LuaRenderSettings_SetShadowCascades (M-GridEditB.cpp)
-int SetShadowCascades ( lua_State* L )
-{
-	return 0;
-}
-
-// SetShadowLights: neutral until its engine side is here; needs LuaRenderSettings_SetShadowLights (M-GridEditB.cpp)
-int SetShadowLights ( lua_State* L )
-{
-	return 0;
-}
-
-// SetShadowRange: neutral until its engine side is here; needs LuaRenderSettings_SetShadowRange (M-GridEditB.cpp)
-int SetShadowRange ( lua_State* L )
-{
-	return 0;
-}
-
-// SetShadowResolution: neutral until its engine side is here; needs LuaRenderSettings_SetShadowResolution (M-GridEditB.cpp)
-int SetShadowResolution ( lua_State* L )
-{
-	return 0;
-}
-
-// SetShadowsLowestLOD: neutral until its engine side is here; needs LuaRenderSettings_SetShadowsLowestLOD (M-GridEditB.cpp)
-int SetShadowsLowestLOD ( lua_State* L )
-{
-	return 0;
-}
-
 // SetSunShadowDirection: neutral until its engine side is here; needs WickedCall_SetSunShadowDirection (M-GridEditB.cpp, wickedcalls.cpp, wickedcalls.h)
 int SetSunShadowDirection ( lua_State* L )
-{
-	return 0;
-}
-
-// SetTerrainDetail: neutral until its engine side is here; needs LuaRenderSettings_SetTerrainDetail (M-GridEditB.cpp)
-int SetTerrainDetail ( lua_State* L )
 {
 	return 0;
 }
@@ -1662,12 +1887,6 @@ int SetTerrainSeabedSkip ( lua_State* L )
 
 // SetTerrainWetness: neutral until its engine side is here; needs GGTerrain_SetWetness (GGTerrain.cpp, GGTerrain.h)
 int SetTerrainWetness ( lua_State* L )
-{
-	return 0;
-}
-
-// SetTransparentShadows: neutral until its engine side is here; needs LuaRenderSettings_SetTransparentShadows (M-GridEditB.cpp)
-int SetTransparentShadows ( lua_State* L )
 {
 	return 0;
 }
@@ -1698,12 +1917,6 @@ int SetTreeSubsurface ( lua_State* L )
 
 // SetTreeVariety: neutral until its engine side is here; needs GGTrees_SetVariety (GGTrees.cpp, GGTrees.h)
 int SetTreeVariety ( lua_State* L )
-{
-	return 0;
-}
-
-// SetVsync: neutral until its engine side is here; needs LuaRenderSettings_SetVsync (M-GridEditB.cpp)
-int SetVsync ( lua_State* L )
 {
 	return 0;
 }

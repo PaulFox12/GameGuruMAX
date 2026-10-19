@@ -1307,6 +1307,11 @@ void game_preparelevel_finally ( void )
 	//  Final states of entities and call ALL entity script INIT functions
 	timestampactivity(0,"Entity Initiations");
 	entity_initafterphysics ( );
+	// each level starts with its own post effects and performance levers until a script sets them
+	extern void LuaPostEffects_Clear(void* pVisualsToRestore);
+	LuaPostEffects_Clear(NULL);
+	extern void LuaRenderSettings_Clear(void);
+	LuaRenderSettings_Clear();
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );
 	lua_launchallinitscripts ( );
 	if ( t.game.runasmultiplayer == 1 ) mp_refresh ( );

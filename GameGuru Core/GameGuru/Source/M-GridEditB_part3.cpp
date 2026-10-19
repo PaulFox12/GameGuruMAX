@@ -1312,6 +1312,15 @@ void Wicked_Update_Shadows(void *voidvisual)
 	visualstype* visuals = (visualstype *)voidvisual;
 	if (visuals == NULL) visuals = &t.visuals;
 
+	// shadow sizes and counts a game script set (SetShadowResolution, SetShadowLights, SetTransparentShadows) replace the
+	// visuals' for this push
+	extern void LuaRenderSettings_ShadowValues(int* pSun, int* pSpot, int* pPoint, int* pSpotMax, int* pPointMax);
+	extern bool LuaRenderSettings_TransparentShadows(bool bVisuals);
+	int iSunRes = visuals->iShadowSpotCascadeResolution, iSpotRes = visuals->iShadowSpotResolution, iPointRes = visuals->iShadowPointResolution;
+	int iSpotMax = visuals->iShadowSpotMax, iPointMax = visuals->iShadowPointMax;
+	LuaRenderSettings_ShadowValues(&iSunRes, &iSpotRes, &iPointRes, &iSpotMax, &iPointMax);
+	bool bTransparentShadows = LuaRenderSettings_TransparentShadows(visuals->bTransparentShadows);
+
 	// Tree shadow LOD distance + cascade range live in the level visuals (saved with
 	// the FPM, carried into test game like Transparent Shadows). Visuals are the master
 	// copy — every (re)apply (level load, panel edit, preset change) syncs the tree
@@ -1328,10 +1337,10 @@ void Wicked_Update_Shadows(void *voidvisual)
 
 	bool bTransparentChanged = false;
 	static bool bOldTransparent = false;
-	//wiRenderer::SetTransparentShadowsEnabled(visuals->bTransparentShadows); // removed from wi::renderer
-	if (bOldTransparent != visuals->bTransparentShadows)
+	//wiRenderer::SetTransparentShadowsEnabled(bTransparentShadows); // removed from wi::renderer
+	if (bOldTransparent != bTransparentShadows)
 	{
-		bOldTransparent = visuals->bTransparentShadows;
+		bOldTransparent = bTransparentShadows;
 		bTransparentChanged = true;
 	}
 
@@ -1340,7 +1349,7 @@ void Wicked_Update_Shadows(void *voidvisual)
 	// round-trip tick/untick, and saving the level must not persist the degraded value). The
 	// change detector keys on the CAPPED value, so a preset flip re-applies on the next
 	// Wicked_Update_Visuals call. Worth ~60-150 MB on the heavier demos at 2048->1024.
-	int ggCascadeRes = visuals->iShadowSpotCascadeResolution;
+	int ggCascadeRes = iSunRes;
 	{
 		extern bool gg_lowvram; // GGTerrainWicked.cpp (effective machine||level flag)
 		if (gg_lowvram && ggCascadeRes > 1024) ggCascadeRes = 1024;
@@ -1364,21 +1373,21 @@ void Wicked_Update_Shadows(void *voidvisual)
 	else if (shadows <= 8) shadows = 8;
 	else if (shadows <= 12) shadows = 12;
 	else if (shadows <= 16) shadows = 16;
-	if (shadows > visuals->iShadowSpotMax) shadows = visuals->iShadowSpotMax;
+	if (shadows > iSpotMax) shadows = iSpotMax;
 
 	// GGMAX 2.07: the spot RESOLUTION knob is live again — its old consumer
 	// (SetShadowPropsSpot2D) was removed in the port, leaving spots to silently ride the
 	// sun cascade resolution. The spot COUNT is applied below via the split budget.
-	if (visuals->iShadowSpotResolution > 2048) visuals->iShadowSpotResolution = 2048;
-	if (old_iShadowSpotResolution != visuals->iShadowSpotResolution || shadows != total_active_2d_shadows)
+	if (iSpotRes > 2048) iSpotRes = 2048;
+	if (old_iShadowSpotResolution != iSpotRes || shadows != total_active_2d_shadows)
 	{
 		char debug[256];
-		sprintf(debug, "wiRenderer::SetShadowPropsSpot: res %d count %d", visuals->iShadowSpotResolution, shadows);
+		sprintf(debug, "wiRenderer::SetShadowPropsSpot: res %d count %d", iSpotRes, shadows);
 		timestampactivity(0, debug);
-		old_iShadowSpotResolution = visuals->iShadowSpotResolution;
+		old_iShadowSpotResolution = iSpotRes;
 		total_active_2d_shadows = shadows;
 	}
-	wiRenderer::SetShadowPropsSpot(visuals->iShadowSpotResolution);
+	wiRenderer::SetShadowPropsSpot(iSpotRes);
 
 	//PE: MEM - 1546 : END SetShadowProps2D                                     S:529MB V: (4157,0)     
 	static int total_active_cube_shadows = -1;
@@ -1390,21 +1399,21 @@ void Wicked_Update_Shadows(void *voidvisual)
 	else if (shadowscube <= 16) shadowscube = 16;
 
 	//LB: Increased cap in Wicked to SIXTEEN as hitting issues on even small interior levels, lets see what the fall out is
-	if (shadowscube > visuals->iShadowPointMax) shadowscube = visuals->iShadowPointMax;
+	if (shadowscube > iPointMax) shadowscube = iPointMax;
 	
-	if (old_iShadowPointResolution != visuals->iShadowPointResolution || shadowscube > total_active_cube_shadows || (bForceRefreshLightCount && shadowscube != total_active_cube_shadows ) || bTransparentChanged )
+	if (old_iShadowPointResolution != iPointRes || shadowscube > total_active_cube_shadows || (bForceRefreshLightCount && shadowscube != total_active_cube_shadows ) || bTransparentChanged )
 	{
 		bForceRefreshLightCount = false;
 		char debug[256];
 		sprintf(debug, "wiRenderer::SetShadowPropsCube: %d", shadowscube);
 		timestampactivity(0, debug);
 		total_active_cube_shadows = shadowscube;
-		if (visuals->iShadowPointResolution > 2048) visuals->iShadowPointResolution = 2048;
-		old_iShadowPointResolution = visuals->iShadowPointResolution;
-		if(visuals->iShadowPointResolution == 0 || visuals->iShadowPointMax == 0)
-			wiRenderer::SetShadowPropsCube(visuals->iShadowPointResolution);
+		if (iPointRes > 2048) iPointRes = 2048;
+		old_iShadowPointResolution = iPointRes;
+		if(iPointRes == 0 || iPointMax == 0)
+			wiRenderer::SetShadowPropsCube(iPointRes);
 		else
-			wiRenderer::SetShadowPropsCube(visuals->iShadowPointResolution);
+			wiRenderer::SetShadowPropsCube(iPointRes);
 	}
 
 	// GG Phase 1 (GGMAX 2.07: SPLIT PER TYPE): each light type's shadow count is capped by its
@@ -1412,8 +1421,8 @@ void Wicked_Update_Shadows(void *voidvisual)
 	// pool sized from the POINT knob gated both, so the spot count dropdown did nothing and the
 	// point count dropdown turned spot shadows on/off (user-proven on TESTPRO2, 2026-08-06).
 	// Pushed EVERY call (outside the change-gates above) so a LOWERED cap takes effect immediately.
-	int iSpotShadowBudget = (visuals->iShadowSpotResolution == 0 || visuals->iShadowSpotMax == 0) ? 0 : shadows;
-	int iPointShadowBudget = (visuals->iShadowPointResolution == 0 || visuals->iShadowPointMax == 0) ? 0 : shadowscube;
+	int iSpotShadowBudget = (iSpotRes == 0 || iSpotMax == 0) ? 0 : shadows;
+	int iPointShadowBudget = (iPointRes == 0 || iPointMax == 0) ? 0 : shadowscube;
 	wiRenderer::SetLocalShadowBudget(iSpotShadowBudget, iPointShadowBudget);
 	// GG Phase 2: cache static local shadows so a bank of static lights (e.g. 16 torches all casting)
 	// is cheap - render each once, reuse its atlas texels until it (or the granted set) changes.
@@ -2165,6 +2174,11 @@ void Wicked_Update_Visuals(void *voidvisual)
 	ggCustomFrameStaging.cloudiness = visuals->SkyCloudiness;
 	ggCustomFrameStaging.cloudSpeed = visuals->SkyCloudSpeed;
 
+	// values a game script set keep them through this push
+	extern void LuaRenderSettings_Apply(void);
+	extern void LuaPostEffects_Apply(void);
+	LuaRenderSettings_Apply();
+	LuaPostEffects_Apply();
 }
 
 void Wicked_Update_Visibles(void* voidvisual)

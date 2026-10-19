@@ -1471,6 +1471,11 @@ void mapeditorexecutable_loop_leavetestgame(void)
 	bImGuiInTestGame = false;
 	fpe_current_loaded_script = -1; //Refresh dlua after testgame.
 	sky_show(); //Restore skybox.
+	// nor post effects and performance levers set from Lua: put back the editor's own
+	extern void LuaPostEffects_Clear(void* pVisualsToRestore);
+	LuaPostEffects_Clear(&t.visuals);
+	extern void LuaRenderSettings_Clear(void);
+	LuaRenderSettings_Clear();
 	iLastUpdateVeg = 0; //Veg: update any changes from F9
 	bUpdateVeg = true;
 

@@ -746,6 +746,9 @@
     <ClCompile Include="..\GameGuru\Source\M-Visuals.cpp">
       <Filter>GameGuruEngine\GameGuruSourceCode</Filter>
     </ClCompile>
+    <ClCompile Include="..\GameGuru\Source\M-LuaRenderSettings.cpp">
+      <Filter>GameGuruEngine\GameGuruSourceCode</Filter>
+    </ClCompile>
     <ClCompile Include="..\GameGuru\Source\M-Waypoint.cpp">
       <Filter>GameGuruEngine\GameGuruSourceCode</Filter>
     </ClCompile>

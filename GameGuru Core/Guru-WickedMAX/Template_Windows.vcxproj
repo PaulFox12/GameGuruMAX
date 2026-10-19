@@ -1788,6 +1788,7 @@
     <ClCompile Include="..\GameGuru\Source\M-UndoSys-Terrain.cpp" />
     <ClCompile Include="..\GameGuru\Source\M-UndoSys.cpp" />
     <ClCompile Include="..\GameGuru\Source\M-Visuals.cpp" />
+    <ClCompile Include="..\GameGuru\Source\M-LuaRenderSettings.cpp" />
     <None Include="..\GameGuru\Source\M-Visuals_part0.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseTEST|x64'">true</ExcludedFromBuild>
