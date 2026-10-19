@@ -10811,6 +10811,72 @@ int GGTerrain_RayCast( RAY pickRay, float* pOutX, float* pOutY, float* pOutZ, fl
 	return ggterrain.RayCast( pickRay, pOutX, pOutY, pOutZ, pNormX, pNormY, pNormZ, lodLevel, includeFlatAreas );
 }
 
+int GGTerrain_RayCastHeightmapSegment( float fX, float fY, float fZ, float fToX, float fToY, float fToZ, float* pOut, float* pNorm )
+{
+	RAY ray;
+	ray.origin = XMFLOAT3( fX, fY, fZ );
+	float dx = fToX - fX, dy = fToY - fY, dz = fToZ - fZ;
+	float fLen = sqrtf( dx * dx + dy * dy + dz * dz );
+	if ( fLen < 0.001f ) return 0;
+	ray.direction = XMFLOAT3( dx / fLen, dy / fLen, dz / fLen );
+	ray.TMax = fLen;
+	return GGTerrain_RayCastHeightmap( ray, pOut, pOut + 1, pOut + 2, pNorm, pNorm + 1, pNorm + 2 );
+}
+
+int GGTerrain_RayCastHeightmap( RAY pickRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ )
+{
+	float fLength = pickRay.TMax;
+	if ( !(fLength > 0.0f) || fLength > 200000.0f ) fLength = 200000.0f;
+	float fDirLen = sqrtf( pickRay.direction.x * pickRay.direction.x + pickRay.direction.y * pickRay.direction.y + pickRay.direction.z * pickRay.direction.z );
+	if ( fDirLen < 0.000001f ) return 0;
+	float dx = pickRay.direction.x / fDirLen, dy = pickRay.direction.y / fDirLen, dz = pickRay.direction.z / fDirLen;
+	float ox = pickRay.origin.x, oy = pickRay.origin.y, oz = pickRay.origin.z;
+	// a march, then the crossing refined; a ray starting below the ground meets nothing (as the chunk ray does). Each
+	// step is a quarter of the height above the ground, never under 40 units nor over 1000, so a ray high up marches
+	// in a few samples and one near the ground in fine ones
+	float fPrevT = 0.0f;
+	float fPrevAbove = oy - GGTerrain_CalculateHeight( ox, oz );
+	if ( fPrevAbove < 0.0f ) return 0;
+	bool bCrossed = false;
+	float fT = 0.0f;
+	while ( fPrevT < fLength )
+	{
+		float fStep = fPrevAbove * 0.25f;
+		if ( fStep < 40.0f ) fStep = 40.0f;
+		if ( fStep > 1000.0f ) fStep = 1000.0f;
+		fT = fPrevT + fStep;
+		if ( fT > fLength ) fT = fLength;
+		float px = ox + dx * fT, py = oy + dy * fT, pz = oz + dz * fT;
+		float fAbove = py - GGTerrain_CalculateHeight( px, pz );
+		if ( fAbove <= 0.0f ) { bCrossed = true; break; }
+		fPrevT = fT;
+		fPrevAbove = fAbove;
+	}
+	if ( !bCrossed ) return 0;
+	float fLo = fPrevT, fHi = fT;
+	for ( int i = 0; i < 16; i++ )
+	{
+		float fMid = ( fLo + fHi ) * 0.5f;
+		float px = ox + dx * fMid, py = oy + dy * fMid, pz = oz + dz * fMid;
+		if ( py - GGTerrain_CalculateHeight( px, pz ) > 0.0f ) fLo = fMid; else fHi = fMid;
+	}
+	float hx = ox + dx * fHi, hz = oz + dz * fHi;
+	float hy = GGTerrain_CalculateHeight( hx, hz );
+	if ( pOutX ) *pOutX = hx;
+	if ( pOutY ) *pOutY = hy;
+	if ( pOutZ ) *pOutZ = hz;
+	if ( pNormX && pNormY && pNormZ )
+	{
+		const float d = 20.0f;
+		float nx = GGTerrain_CalculateHeight( hx - d, hz ) - GGTerrain_CalculateHeight( hx + d, hz );
+		float nz = GGTerrain_CalculateHeight( hx, hz - d ) - GGTerrain_CalculateHeight( hx, hz + d );
+		float ny = 2.0f * d;
+		float fN = sqrtf( nx * nx + ny * ny + nz * nz );
+		*pNormX = nx / fN; *pNormY = ny / fN; *pNormZ = nz / fN;
+	}
+	return 1;
+}
+
 int GGTerrain_GetHeight( float x, float z, float* outHeight, int accurateButSlow, int includeFlatAreas )
 {
 	if (!ggterrain_update_enabled) return(0);

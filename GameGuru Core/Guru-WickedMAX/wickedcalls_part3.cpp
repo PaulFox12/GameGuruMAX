@@ -454,6 +454,24 @@ static unsigned long long gg_dbg_ray_qpc_us(void)
 // the limb (frame index) of the object the last WickedCall_SentRay4 hit, -1 if none; IntersectAllEx reports it
 int g_iWickedCallRayLimbHit = -1;
 
+// the ground when the scene pick met nothing: the Wicked terrain is chunk meshes made around the camera as it moves, so a
+// ray under a fast vehicle or just after a teleport finds no chunk yet, and one exactly down a mesh edge (x or z on the
+// vertex spacing) slips between the triangles; both fell to the ray's full range, and a weapon's crosshair ray aimed its
+// rockets 2,600 units under the ground. The heightmap answers for the ground then, as the GameGuru terrain's own ray did
+static bool WickedCall_SentRay4_Terrain(const RAY& pickRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit)
+{
+	float fNX, fNY, fNZ;
+	if (GGTerrain::GGTerrain_RayCastHeightmap(pickRay, pOutX, pOutY, pOutZ, &fNX, &fNY, &fNZ) != 1) return false;
+	if (pNormX)
+	{
+		*pNormX = fNX;
+		*pNormY = fNY;
+		*pNormZ = fNZ;
+	}
+	*pdwObjectNumberHit = 0;
+	return true;
+}
+
 bool WickedCall_SentRay4(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly)
 {
 	g_iWickedCallRayLimbHit = -1;
@@ -524,7 +542,7 @@ bool WickedCall_SentRay4(float originx, float originy, float originz, float dire
 			return true;
 		}
 	}
-	return false;
+	return WickedCall_SentRay4_Terrain(pickRay, pOutX, pOutY, pOutZ, pNormX, pNormY, pNormZ, pdwObjectNumberHit);
 }
 
 #ifdef PICKBVHTHREADED
@@ -589,7 +607,7 @@ bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz,
 			return true;
 		}
 	}
-	return false;
+	return WickedCall_SentRay4_Terrain(pickRay, pOutX, pOutY, pOutZ, pNormX, pNormY, pNormZ, pdwObjectNumberHit);
 }
 #endif
 

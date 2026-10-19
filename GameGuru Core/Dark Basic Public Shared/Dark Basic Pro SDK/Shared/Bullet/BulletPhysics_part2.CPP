@@ -233,6 +233,7 @@ void ODESetBodyScaling(int iObjectNumber, float fX, float fY, float fZ)
 // 1 when the last ODERayTerrain hit a tree rather than the ground
 int g_iODERayTerrainHitTree = 0;
 
+namespace GGTerrain { int GGTerrain_RayCastHeightmapSegment ( float fX, float fY, float fZ, float fToX, float fToY, float fToZ, float* pOut, float* pNorm ); }
 int ODERayTerrain ( float fX, float fY, float fZ, float fToX, float fToY, float fToZ, bool bUpdateDebugObj)
 {
 	// the ground first, then the tree trunks up to where the ray met it, so a trunk it reports is always the nearer and one
@@ -240,6 +241,20 @@ int ODERayTerrain ( float fX, float fY, float fZ, float fToX, float fToY, float 
 	extern int physics_rayintersecttree (float fX, float fY, float fZ, float fToX, float fToY, float fToZ);
 	g_iODERayTerrainHitTree = 0;
 	int iGround = ODERayTerrainEx ( fX, fY, fZ, fToX, fToY, fToZ, COL_TERRAIN, bUpdateDebugObj);
+	if (iGround == 0)
+	{
+		// the terrain's bodies are made chunk by chunk around the camera as the terrain generates, so a ray under a vehicle
+		// that has outrun them, or just after a teleport, meets no ground; the heightmap answers for the ground then (a
+		// weapon's crosshair ray fell to its full range and aimed rockets 2,600 units under the ground without this)
+		float pOut[3], pNorm[3];
+		if (GGTerrain::GGTerrain_RayCastHeightmapSegment ( fX, fY, fZ, fToX, fToY, fToZ, pOut, pNorm ) == 1)
+		{
+			g_hitObjectNumber = 0;
+			g_hitPointWorld = btVector3 ( pOut[0], pOut[1], pOut[2] );
+			g_hitNormalWorld = btVector3 ( pNorm[0], pNorm[1], pNorm[2] );
+			iGround = 1;
+		}
+	}
 	float fEndX = fToX, fEndY = fToY, fEndZ = fToZ;
 	if (iGround == 1)
 	{

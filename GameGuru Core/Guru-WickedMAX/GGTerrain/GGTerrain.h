@@ -294,6 +294,12 @@ int GGTerrain_IsReady();
 
 int GGTerrain_RayCast( RAY pickRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, uint32_t* lodLevel, int includeFlatAreas=1 );
 int GGTerrain_GetHeight( float x, float z, float* outHeight, int accurateButSlow=0, int includeFlatAreas=1 );
+// a ray against the heightmap itself, for when the chunk ray above has no GameGuru chunks to meet (the Wicked terrain is
+// the live one): the first crossing from above the ground to below along the ray, refined, with the normal from the
+// heights around it. 1 with the hit, 0 for none within the ray's length
+int GGTerrain_RayCastHeightmap( RAY pickRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ );
+// the same from a start and an end point, for the physics layer (ODERayTerrain)
+int GGTerrain_RayCastHeightmapSegment( float fX, float fY, float fZ, float fToX, float fToY, float fToZ, float* pOut, float* pNorm );
 float GGTerrain_CalculateHeight( float x, float z ); // Direct height calc from heightmap+fractal+sculpt+flat areas, no chunk/LOD needed
 void GGTerrain_CommitGeneratorOffset( float fOffsetX, float fOffsetZ ); // GGMAX 2.65: recentre commit that does NOT trip CheckParams (writes global AND local)
 int GGTerrain_GetNormal( float x, float z, float* outNx, float* outNy, float* outNz );
