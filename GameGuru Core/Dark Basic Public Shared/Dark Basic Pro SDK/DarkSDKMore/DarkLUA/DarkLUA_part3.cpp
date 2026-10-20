@@ -144,7 +144,18 @@ int IntersectCore (lua_State* L, int iMode)
 	}
 	bool bFullWickedAccuracy = true;
 	if (iMode == 2) bFullWickedAccuracy = false;
-	if (tthitvalue == 0 ) tthitvalue = IntersectAllEx(g.entityviewstartobj, g.entityviewendobj, fX, fY, fZ, fNewX, fNewY, fNewZ, iIgnoreObjNo, iMode, iIndexInIntersectDatabase, iLifeInMilliseconds, iIgnorePlayerCapsule, bFullWickedAccuracy);
+	if (tthitvalue == 0 )
+	{
+		tthitvalue = IntersectAllEx(g.entityviewstartobj, g.entityviewendobj, fX, fY, fZ, fNewX, fNewY, fNewZ, iIgnoreObjNo, iMode, iIndexInIntersectDatabase, iLifeInMilliseconds, iIgnorePlayerCapsule, bFullWickedAccuracy);
+		if (tthitvalue == -1)
+		{
+			// the Wicked terrain's chunks answer the scene pick, so -1 comes without a terrain ray here (the old terrain gave
+			// it only through ODERayTerrain); scripts read GetRayCollisionX/Y/Z for -1, which held the previous terrain
+			// ray's point: a weapon's crosshair ray at bare ground converged on the craft's own downward probe
+			extern void ODESetRayCollision ( float fX, float fY, float fZ, float fNX, float fNY, float fNZ );
+			ODESetRayCollision ( ChecklistFValueA(6), ChecklistFValueB(6), ChecklistFValueC(6), ChecklistFValueA(7), ChecklistFValueB(7), ChecklistFValueC(7) );
+		}
+	}
 	gg_dbg_lua_isect_us += gg_dbg_lua_qpc_us() - ggT0;
 	lua_pushinteger ( L, (lua_Integer)tthitvalue );
 	return 1;

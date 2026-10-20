@@ -400,6 +400,15 @@ void ODEGetPosAndNorm(float* pOutX, float* pOutY, float* pOutZ, float* pNormX, f
 	*pNormZ = g_hitNormalWorld.getZ();
 }
 
+void ODESetRayCollision ( float fX, float fY, float fZ, float fNX, float fNY, float fNZ )
+{
+	// the scene pick met the terrain (IntersectCore answers -1 without a terrain ray): the ray collision getters answer
+	// with that point, as they do after a terrain ray, so a script reading them for -1 is not handed the last ray's point
+	g_hitObjectNumber = 0;
+	g_hitPointWorld = btVector3 ( fX, fY, fZ );
+	g_hitNormalWorld = btVector3 ( fNX, fNY, fNZ );
+}
+
 float ODEGetRayCollisionX()
 {
 	float value = g_hitPointWorld.getX();
