@@ -2588,6 +2588,7 @@ namespace ggwpe
 		uint8_t blendMode = 0;
 		std::string basecolormap;
 		std::string normalmap;
+		std::string emissivemap;
 	};
 
 	struct EmitInfo
@@ -2634,6 +2635,27 @@ namespace ggwpe
 		}
 	}
 
+	// GG: a particle sheet: the .dds beside the .png (or .jpg) the effect names, when there is one, for its smaller footprint
+	// (the game's DDS copies); sampled as stored, linear, as the DX11 build did (the sRGB view the loader makes darkens every
+	// sprite: the effects' colours were made against the stored values)
+	static wi::Resource LoadParticleSheet(std::string& name)
+	{
+		const size_t dot = name.find_last_of('.');
+		if (dot != std::string::npos)
+		{
+			std::string ext = name.substr(dot);
+			for (char& c : ext) c = (char)tolower((unsigned char)c);
+			if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga")
+			{
+				const std::string dds = name.substr(0, dot) + ".dds";
+				if (GetFileAttributesA(dds.c_str()) != INVALID_FILE_ATTRIBUTES) name = dds;
+			}
+		}
+		wi::Resource res = wi::resourcemanager::Load(name);
+		if (res.IsValid() && res.GetTextureSRGBSubresource() >= 0) res.SetTexture(res.GetTexture(), -1);
+		return res;
+	}
+
 	static void ReadMaterial(Reader& r, uint64_t ver, MatInfo& m)
 	{
 		r.u64();               // _flags
@@ -2653,7 +2675,7 @@ namespace ggwpe
 		r.str();                        // SURFACEMAP
 		m.normalmap = r.str();          // NORMALMAP
 		r.str();                        // DISPLACEMENTMAP
-		if (ver >= 24) r.str();         // EMISSIVEMAP
+		if (ver >= 24) m.emissivemap = r.str(); // EMISSIVEMAP (GG: loaded, the sprite's glow)
 		if (ver >= 28)
 		{
 			r.str();                    // OCCLUSIONMAP
@@ -2972,14 +2994,18 @@ uint32_t WickedCall_LoadLegacyWPE(const char* filename)
 		if (!mats[i].basecolormap.empty())
 		{
 			m.textures[MaterialComponent::BASECOLORMAP].name = dir + mats[i].basecolormap;
-			m.textures[MaterialComponent::BASECOLORMAP].resource =
-				wi::resourcemanager::Load(m.textures[MaterialComponent::BASECOLORMAP].name);
+			m.textures[MaterialComponent::BASECOLORMAP].resource = LoadParticleSheet(m.textures[MaterialComponent::BASECOLORMAP].name);
 		}
 		if (!mats[i].normalmap.empty())
 		{
 			m.textures[MaterialComponent::NORMALMAP].name = dir + mats[i].normalmap;
 			m.textures[MaterialComponent::NORMALMAP].resource =
 				wi::resourcemanager::Load(m.textures[MaterialComponent::NORMALMAP].name);
+		}
+		if (!mats[i].emissivemap.empty())
+		{
+			m.textures[MaterialComponent::EMISSIVEMAP].name = dir + mats[i].emissivemap;
+			m.textures[MaterialComponent::EMISSIVEMAP].resource = LoadParticleSheet(m.textures[MaterialComponent::EMISSIVEMAP].name);
 		}
 		m.SetDirty();
 		m.CreateRenderData();
