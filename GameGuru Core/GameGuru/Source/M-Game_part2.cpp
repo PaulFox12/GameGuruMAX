@@ -1345,6 +1345,8 @@ void game_preparelevel_finally ( void )
 
 	// The start marker may have given the play an initial gun, so lets call physics_player_refreshcount just incase it has
 	physics_player_refreshcount();
+	// the physics world's rate from the level's performance setting (SetPhysicsWorldRate changes it for the game)
+	extern bool g_bPhysicsWorldAt60; g_bPhysicsWorldAt60 = t.visuals.bPhysicsWorldAt60;
 	// the player's hit record starts empty on every level
 	playerhit_clear();
 }

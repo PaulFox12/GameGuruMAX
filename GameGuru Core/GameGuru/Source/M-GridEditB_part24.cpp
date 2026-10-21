@@ -439,6 +439,17 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			ImGui::PopItemWidth();
 		}
 
+		// Physics World At 60Hz: the physics world steps 60 times a second in the game, the player's controller its own 120
+		bool bPhysicsWorldAt60 = t.visuals.bPhysicsWorldAt60;
+		ImGui::PushItemWidth(-10);
+		if (ImGui::Checkbox("Physics World At 60Hz##Animationsculling", &bPhysicsWorldAt60))
+		{
+			t.gamevisuals.bPhysicsWorldAt60 = t.visuals.bPhysicsWorldAt60 = bPhysicsWorldAt60;
+			g.projectmodified = 1;
+		}
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("The physics world steps 60 times a second in the game instead of 120, about half the physics work of each frame.\nThe player controller keeps its own 120 steps, so player movement does not change.\nScripts can still set it with SetPhysicsWorldRate.");
+		ImGui::PopItemWidth();
+
 		// FSR Mode (FidelityFX Super Resolution)
 		const char* fsr_items_align[] = { "None", "Ultra Quality","Quality", "Balanced", "Performance" };
 		int fsr_current_type_selection = t.visuals.iFSRMode;

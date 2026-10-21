@@ -1026,6 +1026,7 @@ void editor_previewmapormultiplayer_initcode ( int iUseVRTest )
 	t.gamevisuals.bRaycastLowestLOD = t.visuals.bRaycastLowestLOD;
 	t.gamevisuals.bPhysicsLowestLOD = t.visuals.bPhysicsLowestLOD;
 	t.gamevisuals.bThreadedPhysics = t.visuals.bThreadedPhysics;
+	t.gamevisuals.bPhysicsWorldAt60 = t.visuals.bPhysicsWorldAt60;
 	t.gamevisuals.bReflectionsLowestLOD = t.visuals.bReflectionsLowestLOD;
 
 	t.gamevisuals.g_bDelayedShadows = t.visuals.g_bDelayedShadows;
@@ -1812,6 +1813,9 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.bRaycastLowestLOD = t.gamevisuals.bRaycastLowestLOD;
 	t.visuals.bPhysicsLowestLOD = t.gamevisuals.bPhysicsLowestLOD;
 	t.visuals.bThreadedPhysics = t.gamevisuals.bThreadedPhysics;
+	t.visuals.bPhysicsWorldAt60 = t.gamevisuals.bPhysicsWorldAt60;
+	// and the physics world's rate back from the level's setting, after a script's SetPhysicsWorldRate
+	extern bool g_bPhysicsWorldAt60; g_bPhysicsWorldAt60 = t.visuals.bPhysicsWorldAt60;
 	t.visuals.bReflectionsLowestLOD = t.gamevisuals.bReflectionsLowestLOD;
 
 	

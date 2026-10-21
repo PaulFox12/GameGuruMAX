@@ -3892,6 +3892,7 @@ struct visualstype
 	bool bProbesLowestLOD;
 	bool bRaycastLowestLOD;
 	bool bThreadedPhysics;
+	bool bPhysicsWorldAt60;
 	bool bReflectionsLowestLOD;
 
 	bool g_bDelayedShadows;
@@ -4176,6 +4177,7 @@ struct visualstype
 		 bProbesLowestLOD = false;
 		 bRaycastLowestLOD = false;
 		 bThreadedPhysics = false;
+		 bPhysicsWorldAt60 = false;
 		 bReflectionsLowestLOD = false;
 
 		 g_bDelayedShadows = true;
@@ -4400,6 +4402,7 @@ struct visualsdatastoragetype
 	bool bProbesLowestLOD;
 	bool bRaycastLowestLOD;
 	bool bThreadedPhysics;
+	bool bPhysicsWorldAt60;
 	bool bReflectionsLowestLOD;
 
 	bool g_bDelayedShadows;
@@ -4450,6 +4453,7 @@ struct visualsdatastoragetype
 		bProbesLowestLOD = false;
 		bRaycastLowestLOD = false;
 		bThreadedPhysics = false;
+		bPhysicsWorldAt60 = false;
 		bReflectionsLowestLOD = false;
 
 		g_bDelayedShadows = true;
@@ -4496,6 +4500,7 @@ struct visualsdatastoragetype
 		bEnableAnimationCulling = visuals.bEnableAnimationCulling;
 		fLODMultiplier = visuals.fLODMultiplier;
 		bThreadedPhysics = visuals.bThreadedPhysics;
+		bPhysicsWorldAt60 = visuals.bPhysicsWorldAt60;
 
 		bEnable30FpsAnimations = visuals.bEnable30FpsAnimations;
 

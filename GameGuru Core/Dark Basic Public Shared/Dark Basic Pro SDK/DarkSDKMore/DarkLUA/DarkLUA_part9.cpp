@@ -1667,8 +1667,8 @@ int SetPhysicsPushLog(lua_State* L)
 }
 
 // SetPhysicsWorldRate(rate) - 60 steps the physics world 60 times a second (half the work) while the player keeps its own
-// 120 steps, as its controller moves a set distance each step; 120 (at first, at a test game's end, and for any other
-// value) steps all of it at 120 as before
+// 120 steps, as its controller moves a set distance each step; any other value steps all of it at 120 as before. At first
+// and at a test game's end the level's Performance setting (Physics World At 60Hz, visuals.PhysicsWorldAt60) applies
 int SetPhysicsWorldRate(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
