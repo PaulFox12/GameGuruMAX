@@ -705,7 +705,11 @@ struct TreeChunk
 			if ( pInstance->y < minHeight ) minHeight = pInstance->y;
 			if ( pInstance->y + treeHeight > maxHeight ) maxHeight = pInstance->y + treeHeight;
 
-
+			if ( pInstance->IsVisible() && !pInstance->IsFlattened() && !pInstance->IsInvalid() )
+			{
+				// a trunk collider only for a tree that is drawn: the lattice keeps every slot, and the ones the paint density
+				// leaves invisible (and trees hidden, flattened or outside the chunk grid) had a trunk the rays and the
+				// vehicle sweep met where nothing was drawn
 				TreeTrunk trunk;
 				pInstance->GetTrunkCentre( &trunk.x, &trunk.z );
 				trunk.radius = pInstance->GetTreeThickness() * pInstance->GetScaleFloat() * 0.5f;
@@ -714,8 +718,6 @@ struct TreeChunk
 				trunk.crown = pInstance->y + GGTrees_CrownBase( type ) * pInstance->GetScaleFloat();
 				trunk.type = pInstance->GetType();
 				trunks.push_back( trunk );
-			if ( pInstance->IsVisible() && !pInstance->IsFlattened() && !pInstance->IsInvalid() ) 
-			{
 				pData[ count ].x = pInstance->x;
 				pData[ count ].y = pInstance->y;
 				pData[ count ].z = pInstance->z;
