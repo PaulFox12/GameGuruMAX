@@ -2137,10 +2137,20 @@ int SetLightMaxDistance(lua_State* L)
 	return 0;
 }
 
-// SetParticleHalfResolution: neutral until its engine side is here; needs WickedCall_SetParticleHalfResolution (wickedcalls.cpp, wickedcalls.h)
+// SetParticleHalfResolution(on): the particle layers marked for half resolution (their option bit 8) drawn at it, a quarter of
+// the pixels laid over the scene (1, the default), or at full resolution as the rest (0)
+namespace wi::renderer { void SetParticleHalfResolutionEnabled(bool value); bool GetParticleHalfResolutionEnabled(); }
 int SetParticleHalfResolution ( lua_State* L )
 {
+	if (LUA_GETTOP(L) < 1) return 0;
+	wi::renderer::SetParticleHalfResolutionEnabled(lua_tonumber(L, 1) != 0);
 	return 0;
+}
+// GetParticleHalfResolution(): 1 when the marked particle layers are drawn at half resolution, else 0
+int GetParticleHalfResolution ( lua_State* L )
+{
+	lua_pushnumber(L, wi::renderer::GetParticleHalfResolutionEnabled() ? 1 : 0);
+	return 1;
 }
 
 // SetProjectedDecalBlend: neutral until its engine side is here; needs WickedCall_SetProjectedDecalBlend (wickedcalls.cpp, wickedcalls.h)
@@ -2249,62 +2259,291 @@ int SetTreeVariety ( lua_State* L )
 	return 0;
 }
 
-// WParticleEffectClearKillBoxes: neutral until its engine side is here; needs killbox_count ()
-int WParticleEffectClearKillBoxes ( lua_State* L )
+// GG: the Wicked particle effect controls the DX11 branch had, on this engine's scene: an effect is the root entity
+// WParticleEffectLoad gave back, its layers the emitters parented to it (a layer named as its emitter)
+static bool WParticleEffectLayerMatches(wi::scene::Scene& scene, wi::ecs::Entity emitter, const char* pName)
 {
-	return 0;
+	if (pName == nullptr || pName[0] == 0 || (pName[0] == '*' && pName[1] == 0)) return true;
+	const wi::scene::NameComponent* name = scene.names.GetComponent(emitter);
+	return name && _stricmp(name->name.c_str(), pName) == 0;
 }
+#define GG_FOR_EFFECT_LAYERS(root) \
+	wi::scene::Scene& scene = wiScene::GetScene(); \
+	for (size_t i = 0; i < scene.emitters.GetCount(); i++) \
+	{ \
+		wi::ecs::Entity emitter = scene.emitters.GetEntity(i); \
+		wi::scene::HierarchyComponent* hier = scene.hierarchy.GetComponent(emitter); \
+		if (!hier || hier->parentID != (root)) continue;
 
-// WParticleEffectGetBounds: neutral until its engine side is here; needs EMITTER_VOLUME ()
-int WParticleEffectGetBounds ( lua_State* L )
-{
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	lua_pushnumber ( L, 0 );
-	return 6;
-}
-
-// WParticleEffectSetKillBox: neutral until its engine side is here; needs EMITTER_KILLBOX_COUNT (ShaderInterop_EmittedParticle.h); killbox_count (); killbox_max (); killbox_min ()
-int WParticleEffectSetKillBox ( lua_State* L )
-{
-	return 0;
-}
-
-// WParticleEffectSetLayer: neutral until its engine side is here; needs count_scale (); emissive_scale (); layer_size_scale (); life_scale (); speed_scale (); spread_scale ()
-int WParticleEffectSetLayer ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	return 1;
-}
-
-// WParticleEffectSetLayerWind: neutral until its engine side is here; needs layer_wind ()
-int WParticleEffectSetLayerWind ( lua_State* L )
-{
-	lua_pushinteger ( L, 0 );
-	return 1;
-}
-
-// WParticleEffectSetOpacity: neutral until its engine side is here; needs opacity_scale ()
-int WParticleEffectSetOpacity ( lua_State* L )
-{
-	return 0;
-}
-
-// WParticleEffectSetSize: neutral until its engine side is here; needs size_scale ()
+// WParticleEffectSetSize(EffectID, percent): the particle size of every layer, as a percentage (100 as authored)
 int WParticleEffectSetSize ( lua_State* L )
 {
+	lua2 = L;
+	if (LUA_GETTOP(L) < 2) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	float fSize = max(0.0f, (float)lua_tonumber(L, 2) / 100.0f);
+	GG_FOR_EFFECT_LAYERS(root)
+		scene.emitters[i].size_scale = fSize;
+	}
 	return 0;
 }
-
-// WParticleEffectSetWrapMotion: neutral until its engine side is here; needs bWrapMotion (); wrap_motion ()
-int WParticleEffectSetWrapMotion ( lua_State* L )
+int WParticleEffectGetSize ( lua_State* L )
 {
-	lua_pushinteger ( L, 0 );
+	lua2 = L;
+	if (LUA_GETTOP(L) < 1) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	GG_FOR_EFFECT_LAYERS(root)
+		lua_pushnumber(L, scene.emitters[i].size_scale * 100.0f);
+		return 1;
+	}
+	return 0;
+}
+// WParticleEffectSetColor(EffectID, r, g, b): a colour tint on every layer (255, 255, 255 as authored)
+int WParticleEffectSetColor ( lua_State* L )
+{
+	lua2 = L;
+	if (LUA_GETTOP(L) < 4) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	XMFLOAT3 tint = XMFLOAT3(max(0.0f, (float)lua_tonumber(L, 2) / 255.0f), max(0.0f, (float)lua_tonumber(L, 3) / 255.0f), max(0.0f, (float)lua_tonumber(L, 4) / 255.0f));
+	GG_FOR_EFFECT_LAYERS(root)
+		scene.emitters[i].color_tint = tint;
+	}
+	return 0;
+}
+int WParticleEffectGetColor ( lua_State* L )
+{
+	lua2 = L;
+	if (LUA_GETTOP(L) < 1) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	GG_FOR_EFFECT_LAYERS(root)
+		lua_pushnumber(L, scene.emitters[i].color_tint.x * 255.0f);
+		lua_pushnumber(L, scene.emitters[i].color_tint.y * 255.0f);
+		lua_pushnumber(L, scene.emitters[i].color_tint.z * 255.0f);
+		return 3;
+	}
+	return 0;
+}
+// WParticleEffectSetOpacity(EffectID, percent): the opacity of every layer, as a percentage (100 as authored)
+int WParticleEffectSetOpacity ( lua_State* L )
+{
+	lua2 = L;
+	if (LUA_GETTOP(L) < 2) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	float fOpacity = max(0.0f, (float)lua_tonumber(L, 2) / 100.0f);
+	GG_FOR_EFFECT_LAYERS(root)
+		scene.emitters[i].opacity_scale = fOpacity;
+	}
+	return 0;
+}
+int WParticleEffectGetOpacity ( lua_State* L )
+{
+	lua2 = L;
+	if (LUA_GETTOP(L) < 1) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	GG_FOR_EFFECT_LAYERS(root)
+		lua_pushnumber(L, scene.emitters[i].opacity_scale * 100.0f);
+		return 1;
+	}
+	return 0;
+}
+// WParticleEffectSetKillBox(EffectID, slot [, x1, y1, z1, x2, y2, z2]): a box (1 to 8) a particle of the effect dies in;
+// without the corners the slot is cleared
+int WParticleEffectSetKillBox ( lua_State* L )
+{
+	lua2 = L;
+	int n = LUA_GETTOP(L);
+	if (n < 2) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	int iSlot = (int)lua_tonumber(L, 2) - 1;
+	if (iSlot < 0 || iSlot >= 8) return 0;
+	XMFLOAT4 vMin = XMFLOAT4(FLT_MAX, FLT_MAX, FLT_MAX, 0);
+	XMFLOAT4 vMax = XMFLOAT4(-FLT_MAX, -FLT_MAX, -FLT_MAX, 0);
+	if (n >= 8)
+	{
+		float fX1 = (float)lua_tonumber(L, 3), fY1 = (float)lua_tonumber(L, 4), fZ1 = (float)lua_tonumber(L, 5);
+		float fX2 = (float)lua_tonumber(L, 6), fY2 = (float)lua_tonumber(L, 7), fZ2 = (float)lua_tonumber(L, 8);
+		vMin = XMFLOAT4(min(fX1, fX2), min(fY1, fY2), min(fZ1, fZ2), 0);
+		vMax = XMFLOAT4(max(fX1, fX2), max(fY1, fY2), max(fZ1, fZ2), 0);
+	}
+	GG_FOR_EFFECT_LAYERS(root)
+		wi::EmittedParticleSystem& ec = scene.emitters[i];
+		ec.killbox_min[iSlot] = vMin;
+		ec.killbox_max[iSlot] = vMax;
+		if (ec.killbox_count < (uint32_t)iSlot + 1) ec.killbox_count = (uint32_t)iSlot + 1;
+	}
+	return 0;
+}
+int WParticleEffectClearKillBoxes ( lua_State* L )
+{
+	lua2 = L;
+	if (LUA_GETTOP(L) < 1) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	GG_FOR_EFFECT_LAYERS(root)
+		scene.emitters[i].killbox_count = 0;
+	}
+	return 0;
+}
+// WParticleEffectGetBounds(EffectID): the box the effect's layers spawn in (their meshes or volumes, the orbital offset
+// and the random position added), as minx, miny, minz, maxx, maxy, maxz; nothing for an effect with no layers
+int WParticleEffectGetBounds ( lua_State* L )
+{
+	lua2 = L;
+	if (LUA_GETTOP(L) < 1) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	wi::primitive::AABB bounds;
+	bool bFound = false;
+	GG_FOR_EFFECT_LAYERS(root)
+		wi::scene::TransformComponent* transform = scene.transforms.GetComponent(emitter);
+		if (!transform) continue;
+		const wi::EmittedParticleSystem& ec = scene.emitters[i];
+		const wi::scene::MeshComponent* mesh = scene.meshes.GetComponent(ec.meshID);
+		wi::primitive::AABB area;
+		if (mesh)
+		{
+			area = mesh->aabb.transform(transform->world);
+		}
+		else if (ec.IsVolumeEnabled())
+		{
+			area = wi::primitive::AABB(XMFLOAT3(-1, -1, -1), XMFLOAT3(1, 1, 1)).transform(transform->world);
+		}
+		else
+		{
+			XMFLOAT3 pos = transform->GetPosition();
+			float fHalf = fabsf(ec.random_position_scale) * 0.5f;
+			area = wi::primitive::AABB(XMFLOAT3(pos.x - fHalf, pos.y, pos.z - fHalf), XMFLOAT3(pos.x + fHalf, pos.y, pos.z + fHalf));
+		}
+		area._min.x -= fabsf(ec.startpos.x); area._max.x += fabsf(ec.startpos.x);
+		area._min.y -= fabsf(ec.startpos.y) * 0.5f; area._max.y += fabsf(ec.startpos.y) * 0.5f;
+		area._min.z -= fabsf(ec.startpos.z); area._max.z += fabsf(ec.startpos.z);
+		bounds = bFound ? wi::primitive::AABB::Merge(bounds, area) : area;
+		bFound = true;
+	}
+	if (!bFound) return 0;
+	lua_pushnumber(L, bounds._min.x); lua_pushnumber(L, bounds._min.y); lua_pushnumber(L, bounds._min.z);
+	lua_pushnumber(L, bounds._max.x); lua_pushnumber(L, bounds._max.y); lua_pushnumber(L, bounds._max.z);
+	return 6;
+}
+// WParticleEffectSetLayer(EffectID, Name [, Size [, Emissive [, Count [, Speed [, Spread [, Life]]]]]]): multiplies one layer of
+// the effect (its emitter named Name, or every layer for "" or "*"); a value below 0 or left out keeps the layer's; the
+// count of layers changed
+int WParticleEffectSetLayer ( lua_State* L )
+{
+	lua2 = L;
+	int n = LUA_GETTOP(L);
+	if (n < 2) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	const char* pName = lua_tostring(L, 2);
+	float fValues[6];
+	for (int v = 0; v < 6; v++) fValues[v] = (n >= 3 + v) ? (float)lua_tonumber(L, 3 + v) : -1.0f;
+	int iLayers = 0;
+	GG_FOR_EFFECT_LAYERS(root)
+		if (!WParticleEffectLayerMatches(scene, emitter, pName)) continue;
+		wi::EmittedParticleSystem& layer = scene.emitters[i];
+		if (fValues[0] >= 0) layer.layer_size_scale = fValues[0];
+		if (fValues[1] >= 0) layer.emissive_scale = fValues[1];
+		if (fValues[2] >= 0) layer.count_scale = fValues[2];
+		if (fValues[3] >= 0) layer.speed_scale = fValues[3];
+		if (fValues[4] >= 0) layer.spread_scale = fValues[4];
+		if (fValues[5] >= 0) layer.life_scale = fValues[5];
+		iLayers++;
+	}
+	lua_pushinteger(L, iLayers);
 	return 1;
 }
+// WParticleEffectGetLayer(EffectID, Name): Size, Emissive, Count, Speed, Spread, Life of the effect's first layer named Name
+int WParticleEffectGetLayer ( lua_State* L )
+{
+	lua2 = L;
+	if (LUA_GETTOP(L) < 2) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	const char* pName = lua_tostring(L, 2);
+	GG_FOR_EFFECT_LAYERS(root)
+		if (!WParticleEffectLayerMatches(scene, emitter, pName)) continue;
+		const wi::EmittedParticleSystem& layer = scene.emitters[i];
+		lua_pushnumber(L, layer.layer_size_scale);
+		lua_pushnumber(L, layer.emissive_scale);
+		lua_pushnumber(L, layer.count_scale);
+		lua_pushnumber(L, layer.speed_scale);
+		lua_pushnumber(L, layer.spread_scale);
+		lua_pushnumber(L, layer.life_scale);
+		return 6;
+	}
+	return 0;
+}
+// WParticleEffectGetLayers(EffectID): a table of the effect's layer names
+int WParticleEffectGetLayers ( lua_State* L )
+{
+	lua2 = L;
+	if (LUA_GETTOP(L) < 1) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	lua_newtable(L);
+	int iLayers = 0;
+	GG_FOR_EFFECT_LAYERS(root)
+		const wi::scene::NameComponent* name = scene.names.GetComponent(emitter);
+		lua_pushstring(L, name ? name->name.c_str() : "");
+		lua_rawseti(L, -2, ++iLayers);
+	}
+	return 1;
+}
+// WParticleEffectSetLayerWind(EffectID, Name, x, y, z): the air's velocity a layer's drag works against, so its particles
+// drift with it; the count of layers changed
+int WParticleEffectSetLayerWind ( lua_State* L )
+{
+	lua2 = L;
+	if (LUA_GETTOP(L) < 5) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	const char* pName = lua_tostring(L, 2);
+	XMFLOAT3 wind = XMFLOAT3((float)lua_tonumber(L, 3), (float)lua_tonumber(L, 4), (float)lua_tonumber(L, 5));
+	int iLayers = 0;
+	GG_FOR_EFFECT_LAYERS(root)
+		if (!WParticleEffectLayerMatches(scene, emitter, pName)) continue;
+		scene.emitters[i].layer_wind = wind;
+		iLayers++;
+	}
+	lua_pushinteger(L, iLayers);
+	return 1;
+}
+int WParticleEffectGetLayerWind ( lua_State* L )
+{
+	lua2 = L;
+	if (LUA_GETTOP(L) < 2) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	const char* pName = lua_tostring(L, 2);
+	GG_FOR_EFFECT_LAYERS(root)
+		if (!WParticleEffectLayerMatches(scene, emitter, pName)) continue;
+		const XMFLOAT3& wind = scene.emitters[i].layer_wind;
+		lua_pushnumber(L, wind.x); lua_pushnumber(L, wind.y); lua_pushnumber(L, wind.z);
+		return 3;
+	}
+	return 0;
+}
+// WParticleEffectSetWrapMotion(EffectID [, x, y, z]): the motion an effect's wrapping-volume layers draw their streaks
+// against (the emitter's own motion when left out); the count of layers changed
+int WParticleEffectSetWrapMotion ( lua_State* L )
+{
+	lua2 = L;
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	wi::ecs::Entity root = (wi::ecs::Entity)lua_tonumber(L, 1);
+	const bool bSet = n >= 4;
+	XMFLOAT3 motion = bSet ? XMFLOAT3((float)lua_tonumber(L, 2), (float)lua_tonumber(L, 3), (float)lua_tonumber(L, 4)) : XMFLOAT3(0, 0, 0);
+	int iLayers = 0;
+	GG_FOR_EFFECT_LAYERS(root)
+		scene.emitters[i].wrap_motion = motion;
+		scene.emitters[i].bWrapMotion = bSet;
+		iLayers++;
+	}
+	lua_pushinteger(L, iLayers);
+	return 1;
+}
+#undef GG_FOR_EFFECT_LAYERS
+
+
+
+
+
+
+
 
 // SetTAA(on): the engine's temporal anti-aliasing, 1 on, 0 off (this engine's; FSR 2 upscaling anti-aliases on its own).
 // Back to off at each level start and a test game's end
@@ -2464,6 +2703,7 @@ void addFunctions_hiredgun()
 	lua_register(lua2, "SetMSAA", SetMSAA);
 	lua_register(lua2, "SetOcclusionCulling", SetOcclusionCulling);
 	lua_register(lua2, "SetParticleHalfResolution", SetParticleHalfResolution);
+	lua_register(lua2, "GetParticleHalfResolution", GetParticleHalfResolution);
 	lua_register(lua2, "SetPhysicsPushLog", SetPhysicsPushLog);
 	lua_register(lua2, "SetPhysicsWorldRate", SetPhysicsWorldRate);
 	lua_register(lua2, "SetProbesLowestLOD", SetProbesLowestLOD);
@@ -2509,6 +2749,13 @@ void addFunctions_hiredgun()
 	lua_register(lua2, "WParticleEffectSetOpacity", WParticleEffectSetOpacity);
 	lua_register(lua2, "WParticleEffectSetSize", WParticleEffectSetSize);
 	lua_register(lua2, "WParticleEffectSetWrapMotion", WParticleEffectSetWrapMotion);
+	lua_register(lua2, "WParticleEffectGetSize", WParticleEffectGetSize);
+	lua_register(lua2, "WParticleEffectSetColor", WParticleEffectSetColor);
+	lua_register(lua2, "WParticleEffectGetColor", WParticleEffectGetColor);
+	lua_register(lua2, "WParticleEffectGetOpacity", WParticleEffectGetOpacity);
+	lua_register(lua2, "WParticleEffectGetLayer", WParticleEffectGetLayer);
+	lua_register(lua2, "WParticleEffectGetLayers", WParticleEffectGetLayers);
+	lua_register(lua2, "WParticleEffectGetLayerWind", WParticleEffectGetLayerWind);
 	lua_register(lua2, "SetTAA", SetTAA);
 	lua_register(lua2, "GetTAA", GetTAA);
 	lua_register(lua2, "SetUpscaler", SetUpscaler);

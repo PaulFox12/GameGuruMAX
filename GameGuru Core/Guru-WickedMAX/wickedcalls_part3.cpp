@@ -2615,6 +2615,7 @@ namespace ggwpe
 		bool followCamera = false;
 		float random_position = 0, random_position_scale = 1;
 		float distance_sort_bias = 0;
+		float wpe_filler_1 = 0, wpe_filler_2 = 0, wpe_filler_3 = 0; // the layer's fade-out start, mirroring and option bits (the DX11 fork's names)
 	};
 
 	// The fork's BLENDMODE had ALPHANOZ=1 and FORCEDEPTH=2 inserted after OPAQUE.
@@ -2720,7 +2721,7 @@ namespace ggwpe
 			e.followCamera = r.b32();
 		}
 		if (ver >= 5076) { e.random_position = r.f32(); e.random_position_scale = r.f32(); }
-		if (ver >= 5077) { e.distance_sort_bias = r.f32(); r.f32(); r.f32(); r.f32(); }
+		if (ver >= 5077) { e.distance_sort_bias = r.f32(); e.wpe_filler_1 = r.f32(); e.wpe_filler_2 = r.f32(); e.wpe_filler_3 = r.f32(); }
 	}
 }
 
@@ -3119,6 +3120,7 @@ uint32_t WickedCall_LoadLegacyWPE(const char* filename)
 		ec.restitution = s.restitution;
 
 		ec.fadein_time = s.fadein_time;
+		ec.wpe_filler_1 = s.wpe_filler_1; ec.wpe_filler_2 = s.wpe_filler_2; ec.wpe_filler_3 = s.wpe_filler_3;
 		ec.endcolor_red = (float)s.endR / 255.0f;
 		ec.endcolor_green = (float)s.endG / 255.0f;
 		ec.endcolor_blue = (float)s.endB / 255.0f;
