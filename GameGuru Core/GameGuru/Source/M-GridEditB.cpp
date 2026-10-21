@@ -8543,7 +8543,7 @@ void LuaGameVisuals_Clear(void)
 	GGTerrain::GGTerrain_SetShadeMeasure(0);
 	GGTerrain::GGTerrain_ResetWetness();
 	extern void decal_setripplebatching(bool bOn); decal_setripplebatching(false);
-	extern bool g_bPhysicsWorldAt60; g_bPhysicsWorldAt60 = false;
+	extern bool g_bPhysicsWorldAt60; g_bPhysicsWorldAt60 = t.visuals.bPhysicsWorldAt60;
 	extern int g_iGunReloadWhileRunning; extern bool g_bGunReloadWanted;
 	g_iGunReloadWhileRunning = 0; g_bGunReloadWanted = false;
 
@@ -54401,6 +54401,17 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("All reflection rendering is using fastest LOD.");
 			ImGui::PopItemWidth();
 		}
+
+		// Physics World At 60Hz: the physics world steps 60 times a second in the game, the player's controller its own 120
+		bool bPhysicsWorldAt60 = t.visuals.bPhysicsWorldAt60;
+		ImGui::PushItemWidth(-10);
+		if (ImGui::Checkbox("Physics World At 60Hz##Animationsculling", &bPhysicsWorldAt60))
+		{
+			t.gamevisuals.bPhysicsWorldAt60 = t.visuals.bPhysicsWorldAt60 = bPhysicsWorldAt60;
+			g.projectmodified = 1;
+		}
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("The physics world steps 60 times a second in the game instead of 120, about half the physics work of each frame.\nThe player controller keeps its own 120 steps, so player movement does not change.\nScripts can still set it with SetPhysicsWorldRate.");
+		ImGui::PopItemWidth();
 
 		// FSR Mode (FidelityFX Super Resolution)
 		// a script's render scale (SetRenderScale) shows as a sixth entry, and picking a mode takes over from it

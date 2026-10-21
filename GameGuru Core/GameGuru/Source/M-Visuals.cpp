@@ -220,6 +220,7 @@ void visuals_resetvalues (bool bNewLevel)
 	t.visuals.bRaycastLowestLOD = false;
 	t.visuals.bPhysicsLowestLOD = false;
 	t.visuals.bThreadedPhysics = false;
+	t.visuals.bPhysicsWorldAt60 = false;
 	t.visuals.bReflectionsLowestLOD = false;
 
 	t.visuals.g_bDelayedShadows = true;
@@ -764,6 +765,8 @@ void visuals_save ( void )
 
 	t.strwork = ""; t.strwork = t.strwork + "visuals.ThreadedPhysics=" + Str(t.visuals.bThreadedPhysics);
 	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.PhysicsWorldAt60=" + Str(t.visuals.bPhysicsWorldAt60);
+	WriteString(1, t.strwork.Get());
 	
 
 	t.strwork = ""; t.strwork = t.strwork + "visuals.Enable30FpsAnimations=" + Str(t.visuals.bEnable30FpsAnimations);
@@ -1152,6 +1155,7 @@ void visuals_load ( void )
 	t.visuals.bProbesLowestLOD = false;
 	t.visuals.bRaycastLowestLOD = false;
 	t.visuals.bThreadedPhysics = false;
+	t.visuals.bPhysicsWorldAt60 = false;
 	t.visuals.bReflectionsLowestLOD = false;
 
 	t.visuals.g_bDelayedShadows = true;
@@ -1470,6 +1474,7 @@ void visuals_load ( void )
 			t.try_s = "visuals.LODMultiplier"; if (t.tfield_s == t.try_s)  t.visuals.fLODMultiplier = ValF(t.tvalue_s.Get());
 			
 			t.try_s = "visuals.ThreadedPhysics"; if (t.tfield_s == t.try_s)  t.visuals.bThreadedPhysics = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.PhysicsWorldAt60"; if (t.tfield_s == t.try_s)  t.visuals.bPhysicsWorldAt60 = ValF(t.tvalue_s.Get());
 
 			t.try_s = "visuals.Enable30FpsAnimations"; if (t.tfield_s == t.try_s)  t.visuals.bEnable30FpsAnimations = ValF(t.tvalue_s.Get());
 
