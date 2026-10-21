@@ -933,7 +933,9 @@ void WickedCall_UpdateSceneForPick(void)
 		}
 	}
 	g_iPickSceneUpdateRuns++;
+	auto gg_range = wi::profiler::BeginRangeCPU("WC-PickSceneUpdate"); // the forced full scene update, timed (the spawn stall hunt)
 	wiScene::GetScene().Update(0);
+	wi::profiler::EndRange(gg_range);
 }
 
 void WickedCall_SetRenderOrderBias(sMesh* pMesh, float fDistanceToAdd)

@@ -2414,7 +2414,11 @@ void WickedCall_RemoveObject( sObject* pObject )
 
 		// finally update scene with removals
 		if(!bBlockSceneUpdate)
+		{
+			auto gg_range = wi::profiler::BeginRangeCPU("WC-RemoveObject SceneUpdate"); // the forced full scene update, timed (the spawn stall hunt)
 			wiScene::GetScene().Update(0);
+			wi::profiler::EndRange(gg_range);
+		}
 	}
 }
 

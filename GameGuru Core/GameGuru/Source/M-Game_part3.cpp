@@ -291,7 +291,12 @@ void game_main_loop ( void )
 				wiProfiler::EndRange(range3);
 
 				// handle any AI stuff related to recastretour
-				if ( g_bGamePaused == false ) game_updatenavmeshsystem();
+				if ( g_bGamePaused == false )
+				{
+					auto range4 = wiProfiler::BeginRangeCPU("Update - Logic - Navmesh");
+					game_updatenavmeshsystem();
+					wiProfiler::EndRange(range4);
+				}
 			}
 			t.game.perf.ai += PerformanceTimer()-t.ttempoverallaiperftimerstamp;
 		}
