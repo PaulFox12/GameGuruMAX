@@ -280,6 +280,29 @@ static void Cmd_SetCamera ( const char* arg, char* result, int resultSize )
 	result[resultSize - 1] = 0;
 }
 
+namespace wiGraphics { namespace DX11_Internal { void GG_DumpVRAMCensus ( const char* path ); } }
+static void Cmd_DumpVRAM ( const char* arg, char* result, int resultSize )
+{
+	// DUMP_VRAM [tag]: every live texture and buffer with its estimated bytes, dimensions, format and flags and its
+	// debug name, largest first, with the driver's usage and budget; written to Files\vram_census[_tag].txt, the
+	// same file the DX12 engine's DUMP_VRAM writes, for the two builds to be compared line for line
+	char vcPath[MAX_PATH];
+	if ( arg && arg[0] )
+	{
+		char vcTag[64]; _snprintf ( vcTag, sizeof(vcTag), "%s", arg ); vcTag[sizeof(vcTag) - 1] = 0;
+		for ( char* p = vcTag; *p; ++p ) { if ( *p == ' ' || *p == '\\' || *p == '/' || *p == ':' ) *p = '_'; }
+		_snprintf ( vcPath, sizeof(vcPath), "vram_census_%s.txt", vcTag );
+	}
+	else
+	{
+		_snprintf ( vcPath, sizeof(vcPath), "vram_census.txt" );
+	}
+	vcPath[sizeof(vcPath) - 1] = 0;
+	wiGraphics::DX11_Internal::GG_DumpVRAMCensus ( vcPath );
+	_snprintf ( result, resultSize, "OK: DUMP_VRAM written to %s (game CWD = Files dir)", vcPath );
+	result[resultSize - 1] = 0;
+}
+
 static void Cmd_GetPerfData ( char* result, int resultSize )
 {
 	float fps = ImGui::GetCurrentContext() ? ImGui::GetIO().Framerate : 0.0f;
@@ -365,6 +388,7 @@ void AutoHarness_CheckForCommand ( void )
 	else if ( _stricmp ( cmd, "SET_CAMERA" ) == 0 ) Cmd_SetCamera ( arg, result, sizeof(result) );
 	else if ( _stricmp ( cmd, "GET_PERF_DATA" ) == 0 ) Cmd_GetPerfData ( result, sizeof(result) );
 	else if ( _stricmp ( cmd, "SCREENSHOT" ) == 0 ) Cmd_Screenshot ( result, sizeof(result) );
+	else if ( _stricmp ( cmd, "DUMP_VRAM" ) == 0 ) Cmd_DumpVRAM ( arg, result, sizeof(result) );
 	else if ( _stricmp ( cmd, "QUIT" ) == 0 )
 	{
 		Cmd_Quit ( result, sizeof(result) );
