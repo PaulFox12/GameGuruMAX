@@ -2636,8 +2636,7 @@ namespace ggwpe
 	}
 
 	// GG: a particle sheet: the .dds beside the .png (or .jpg) the effect names, when there is one, for its smaller footprint
-	// (the game's DDS copies); sampled as stored, linear, as the DX11 build did (the sRGB view the loader makes darkens every
-	// sprite: the effects' colours were made against the stored values)
+	// (the game's DDS copies)
 	static wi::Resource LoadParticleSheet(std::string& name)
 	{
 		const size_t dot = name.find_last_of('.');
@@ -2652,7 +2651,6 @@ namespace ggwpe
 			}
 		}
 		wi::Resource res = wi::resourcemanager::Load(name);
-		if (res.IsValid() && res.GetTextureSRGBSubresource() >= 0) res.SetTexture(res.GetTexture(), -1);
 		return res;
 	}
 
@@ -3074,6 +3072,16 @@ uint32_t WickedCall_LoadLegacyWPE(const char* filename)
 				dm->SetDirty();
 				dm->CreateRenderData();
 			}
+		}
+
+		// GG: the sheets' colours were made against their stored values, which the DX11 build sampled as they are; a sheet
+		// stored plain that this engine reads through an sRGB view is put back to them in the particle shader
+		if (const MaterialComponent* sm = scene.materials.GetComponent(Resolve(emEnt[i])))
+		{
+			const wi::Resource& sheet = sm->textures[MaterialComponent::BASECOLORMAP].resource;
+			const wi::Resource& glow = sm->textures[MaterialComponent::EMISSIVEMAP].resource;
+			ec.gg_reencode_sheet = sheet.IsValid() && sheet.GetTextureSRGBSubresource() >= 0;
+			ec.gg_reencode_emissive = glow.IsValid() && glow.GetTextureSRGBSubresource() >= 0;
 		}
 
 		// GGMAX 2.02: clamp maxParticles - it is a raw uint64 off disk and sizes eleven GPU
