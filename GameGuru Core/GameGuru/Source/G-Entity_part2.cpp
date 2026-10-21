@@ -179,7 +179,10 @@
 			}
 		}
 	}
-	t.entityelement[t.ttte].lua.flagschanged=1;
+	// a hit that changed the health forces the entity's Lua row to be rewritten next frame at any distance (the value
+	// 2); with 1 a far entity's row waited for its turn, one frame in 25-50 past 750 units and never past the freeze
+	// distance, so a script saw the drop late or not at all
+	t.entityelement[t.ttte].lua.flagschanged = (t.entityelement[t.ttte].health != iHealthBefore) ? 2 : 1;
 
 	// 010216 - special case for ISIMMOBILE FPE that are not characters, they cannot get to zero health (COLLECTABLES)
 	if (  t.tallowanykindofdamage == 0 ) 
