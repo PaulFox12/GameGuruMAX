@@ -1697,6 +1697,7 @@ int SetRagdollAllDeaths ( lua_State *L )
 }
 
 int SetRawSoundDistanceScale ( lua_State *L ) { return SetRawSoundData ( L, 6 ); }
+int GetRawSoundDistanceScale ( lua_State *L ) { return GetRawSoundData ( L, 4 ); }
 
 // SetRaycastLowestLOD(on): rays and picks test models with LOD levels against their lowest LOD, which is cheaper and less exact
 int SetRaycastLowestLOD(lua_State* L)
@@ -2111,9 +2112,14 @@ int SetGunReloadWhileRunning(lua_State* L)
 	return 0;
 }
 
-// SetLightMaxDistance(distance): neutral until its engine side is here; every light stays in the frame
+// SetLightMaxDistance(distance): point and spot lights farther than this from the camera (their range added) are left out
+// of the frame, as lights out of view are; 0, the default, for no limit. Back to none at the next level and test end
+namespace wi::renderer { extern float gg_light_max_distance; }
 int SetLightMaxDistance(lua_State* L)
 {
+	if (LUA_GETTOP(L) < 1) return 0;
+	const float fDistance = (float)lua_tonumber(L, 1);
+	wi::renderer::gg_light_max_distance = fDistance > 0.0f ? fDistance : 0.0f;
 	return 0;
 }
 
@@ -2453,6 +2459,7 @@ void addFunctions_hiredgun()
 	lua_register(lua2, "SetProjectedDecalOpacity", SetProjectedDecalOpacity);
 	lua_register(lua2, "SetRagdollAllDeaths", SetRagdollAllDeaths);
 	lua_register(lua2, "SetRawSoundDistanceScale", SetRawSoundDistanceScale);
+	lua_register(lua2, "GetRawSoundDistanceScale", GetRawSoundDistanceScale);
 	lua_register(lua2, "SetRaycastLowestLOD", SetRaycastLowestLOD);
 	lua_register(lua2, "SetReflections", SetReflections);
 	lua_register(lua2, "SetReflectionsLowestLOD", SetReflectionsLowestLOD);

@@ -44,6 +44,8 @@ DARKSDK void PauseSound			   ( int iID );								// pause sound
 DARKSDK void SetSoundPan           ( int iID, int iPan );					// set sound pan
 DARKSDK void SetSoundSpeed		   ( int iID, int iFrequency );				// set sound speed / frequency
 DARKSDK void SetSoundVolume		   ( int iID, int iVolume );				// set sound volume
+DARKSDK void SetSoundDistanceScale ( int iID, float fScale );				// 3D distance scale for this sound, 0 = global
+DARKSDK float GetSoundDistanceScale ( int iID );							// 3D distance scale this sound plays with
 
 // recording commands
 DARKSDK void RecordSound           ( int iID );								// record sound

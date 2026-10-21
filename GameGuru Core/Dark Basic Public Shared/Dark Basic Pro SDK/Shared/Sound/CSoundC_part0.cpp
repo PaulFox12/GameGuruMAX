@@ -44,13 +44,16 @@
 #include "../../../../../../WickedEngineDX12/WickedEngine/WickedEngine.h"
 
 #include <xaudio2.h>
+#include <unordered_set>
 using namespace wiGraphics;
 using namespace wiScene;
 using namespace wiECS;
 using namespace wiAudio;
 std::string realname = "";
-float GetCurveDistanceScaler(void);
 #endif
+// GG: the global 3D distance scale (M-GridEdit's GetCurveDistanceScaler) and a sound's own (SetSoundDistanceScale), on both audio paths
+float GetCurveDistanceScaler(void);
+float SoundCurveDistanceScaler ( sSoundData* pSound );
 
 //////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////
@@ -549,6 +552,17 @@ bool bLoadWickedSound(LPSTR szFilename, int iID, bool b3DSound, int iSilentFail,
 		uint32_t channels = GetSoundChannels(&sound->soundinstance);
 		if (channels > 1)
 		{
+			if (b3DSound)
+			{
+				//Log once per file, so a sound meant to be positional that plays flat can be traced to its file.
+				static std::unordered_set<std::string> stereoFilesLogged;
+				if (stereoFilesLogged.insert(fileName).second)
+				{
+					char cLog[MAX_PATH + 64];
+					snprintf(cLog, sizeof(cLog), "Stereo sound plays as 2D, 3D needs mono: %s", szFilename);
+					timestampactivity(0, cLog);
+				}
+			}
 			b3DSound = false;
 		}
 
@@ -1069,7 +1083,7 @@ DARKSDK void PlaySound ( int iID )
 	SoundComponent* sound = myscene.sounds.GetComponent(m_ptr->wickedEntity);
 	if (sound != nullptr)
 	{
-		sound->CurveDistanceScaler = GetCurveDistanceScaler();
+		sound->CurveDistanceScaler = SoundCurveDistanceScaler ( m_ptr );
 		sound->SetLooped(false);
 		if (sound->soundinstance.IsLooped())
 		{
@@ -1411,7 +1425,7 @@ DARKSDK void LoopSound ( int iID, int iStart, int iEnd, int iInitialPos )
 	SoundComponent* sound = myscene.sounds.GetComponent(m_ptr->wickedEntity);
 	if (sound != nullptr)
 	{
-		sound->CurveDistanceScaler = GetCurveDistanceScaler();
+		sound->CurveDistanceScaler = SoundCurveDistanceScaler ( m_ptr );
 		const bool looped = true; //true
 		sound->SetLooped(looped);
 		if (!sound->soundinstance.IsLooped())
@@ -1559,7 +1573,7 @@ DARKSDK void ResumeSound ( int iID )
 	SoundComponent* sound = myscene.sounds.GetComponent(m_ptr->wickedEntity);
 	if (sound != nullptr)
 	{
-		sound->CurveDistanceScaler = GetCurveDistanceScaler();
+		sound->CurveDistanceScaler = SoundCurveDistanceScaler ( m_ptr );
 		sound->Play();
 	}
 #else
@@ -1643,6 +1657,32 @@ uint32_t GetSoundFrequency(int iID)
 #endif
 	return(0);
 }
+// the 3D distance scale a sound plays with: its own if one was set, else the global one
+float SoundCurveDistanceScaler ( sSoundData* pSound )
+{
+	if ( pSound && pSound->fCurveDistanceScaler > 0.0f ) return pSound->fCurveDistanceScaler;
+	return GetCurveDistanceScaler();
+}
+
+// fScale in world units (X3DAudio CurveDistanceScaler: the sound is at full volume within it and fades beyond), 0 = global
+DARKSDK void SetSoundDistanceScale ( int iID, float fScale )
+{
+	if ( iID < 1 || iID > MAXIMUMVALUE ) return;
+	if ( !UpdateSoundPtr ( iID ) ) return;
+	m_ptr->fCurveDistanceScaler = fScale > 0.0f ? fScale : 0.0f;
+#ifdef WICKEDAUDIO
+	SoundComponent* sound = GetScene().sounds.GetComponent(m_ptr->wickedEntity);
+	if ( sound != nullptr ) sound->CurveDistanceScaler = SoundCurveDistanceScaler ( m_ptr );
+#endif
+}
+
+DARKSDK float GetSoundDistanceScale ( int iID )
+{
+	if ( iID < 1 || iID > MAXIMUMVALUE ) return 0;
+	if ( !UpdateSoundPtr ( iID ) ) return 0;
+	return SoundCurveDistanceScaler ( m_ptr );
+}
+
 DARKSDK void SetSoundSpeed ( int iID, int iFrequency )
 {
 #ifdef WICKEDAUDIO
@@ -1761,11 +1801,11 @@ DARKSDK void SetSoundVolume ( int iID, int iVolume )
 		//wiAudio::SetVolume(sound->volume,&sound->soundinstance);
 	}
 #else
-	float newvolume = (int)( (float) -9600.0f * (float) ( (float) (100.0f - iVolume) / 100.0f));
-
-	if (newvolume < DSBVOLUME_MIN) newvolume = DSBVOLUME_MIN;
-	if (newvolume > DSBVOLUME_MAX) newvolume = DSBVOLUME_MAX;
-
+	// GG: the volume as an amplitude of iVolume/100, as the WICKEDAUDIO path plays it (sound->volume = iVolume/100): DirectSound
+	// takes hundredths of a decibel, so 2000 * log10(iVolume/100), 15 = -16.5 dB. The old line was linear in decibels,
+	// -9600 * (100 - iVolume)/100 * 0.75, so 15 was -61 dB and 47 was -38 dB: every sound mixed under about 70 on the
+	// WICKEDAUDIO build was 20-45 dB quieter here, and engines, rotors and guns at their usual 40-60 were not heard
+	float newvolume;
 	if (iVolume <= 0) {
 		newvolume = DSBVOLUME_MIN;
 	}
@@ -1773,9 +1813,11 @@ DARKSDK void SetSoundVolume ( int iID, int iVolume )
 		newvolume = DSBVOLUME_MAX;
 	}
 	else {
-		newvolume *= 0.75; //Get it closer to zero.
+		newvolume = 2000.0f * log10f((float)iVolume / 100.0f);
+		if (newvolume < DSBVOLUME_MIN) newvolume = DSBVOLUME_MIN;
+		if (newvolume > DSBVOLUME_MAX) newvolume = DSBVOLUME_MAX;
 	}
-	m_ptr->pSound->GetBuffer(0)->SetVolume (newvolume);
+	m_ptr->pSound->GetBuffer(0)->SetVolume ((LONG)newvolume);
 #endif
 }
 

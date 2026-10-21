@@ -1412,6 +1412,7 @@ int SetRawSoundData ( lua_State *L, int iDataMode )
 		case 2 : iParamNum = 1;	break;
 		case 3 : iParamNum = 1;	break;
 		case 4 : iParamNum = 2;	break;
+		case 6 : iParamNum = 2;	break;
 	}
 	int n = LUA_GETTOP(L);
 	if ( n < iParamNum ) return 0;
@@ -1433,6 +1434,7 @@ int SetRawSoundData ( lua_State *L, int iDataMode )
 			break;
 		}
 		case 5: SetSoundSpeed(lua_tonumber(L, 1), lua_tonumber(L, 2)); break;
+		case 6: SetSoundDistanceScale(lua_tonumber(L, 1), lua_tonumber(L, 2)); break; // GG: the sound's own 3D distance scale (SetRawSoundDistanceScale)
 		}
 	}
 	return 0;
@@ -1447,6 +1449,7 @@ int GetRawSoundData ( lua_State *L, int iDataMode )
 		case 1 : lua_pushinteger ( L , (lua_Integer)SoundExist ( lua_tonumber(L, 1) ) ); break;
 		case 2 : lua_pushinteger ( L , (lua_Integer)SoundPlaying ( lua_tonumber(L, 1) ) ); break;
 		case 3 : lua_pushinteger ( L , (lua_Integer)(t.entityelement[lua_tonumber(L, 1)].soundset) ); break;
+		case 4 : lua_pushnumber ( L , GetSoundDistanceScale ( lua_tonumber(L, 1) ) ); break; // GG: the sound's 3D distance scale, its own or the global one
 	}
 	return 1;
 }

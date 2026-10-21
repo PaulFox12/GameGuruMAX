@@ -157,6 +157,7 @@ namespace GGTerrain { void GGTerrainWicked_GetGrassDebug(int* pWickedEnabled, in
 namespace GGTerrain { bool GGTerrainWicked_IsTerrainHidden(); bool GGTerrainWicked_IsRingComplete(); } // GGMAX 2.68h
 
 // GGMAX 1.37: hair/grass sim static-skip master switch (wiRenderer.cpp)
+namespace wi::renderer { extern uint32_t gg_lights_visible; extern uint32_t gg_lights_packed; } // GGMAX: the light pool's counts
 namespace wi::renderer {
 	extern bool gg_hair_sim_static_skip;
 	extern uint32_t gg_hair_sim_wind_interval;
@@ -1195,6 +1196,12 @@ static void Cmd_GetPerfData(char* result, int resultSize)
 		"FPS: %.1f\n"
 		"FRAME_TIME_MS: %.2f\n",
 		state, fps, frameTimeMs);
+
+	// the lights in view this frame and how many the entity array took (the light pool: 1024 slots, nearest first)
+	written += _snprintf(result + written, resultSize - written,
+		"LIGHTS_VISIBLE: %u\n"
+		"LIGHTS_PACKED: %u\n",
+		wi::renderer::gg_lights_visible, wi::renderer::gg_lights_packed);
 
 	// System memory (MB)
 	int memMB = SMEMAvailable(1);
