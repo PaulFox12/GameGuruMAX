@@ -10681,6 +10681,17 @@ bool WickedCall_GetParticleHalfResolution(void)
 	return wiRenderer::GetParticleHalfResolutionEnabled();
 }
 
+// the sun's forward scattering on lit particle layers (0 off)
+void WickedCall_SetParticleScatter(float fStrength)
+{
+	wiRenderer::SetParticleScatter(fStrength);
+}
+
+float WickedCall_GetParticleScatter(void)
+{
+	return wiRenderer::GetParticleScatter();
+}
+
 // the texture files a mesh's first material was given (an entity's, as loaded), "" where none
 void WickedCall_GetMeshTextureNames(uint64_t meshIndex, std::string& colour, std::string& normal, std::string& surface)
 {

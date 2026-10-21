@@ -15029,6 +15029,22 @@ int GetParticleHalfResolution(lua_State* L)
 	lua_pushnumber(L, WickedCall_GetParticleHalfResolution() ? 1 : 0);
 	return 1;
 }
+// SetParticleScatter(strength): the sun's forward scattering on lit particle layers, 0 off (the default), 1 the phase
+// function as it is: a cloud with the sun behind it glows, brightest looking toward the sun through it
+int SetParticleScatter(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	extern void WickedCall_SetParticleScatter(float fStrength);
+	WickedCall_SetParticleScatter((float)lua_tonumber(L, 1));
+	return 0;
+}
+// GetParticleScatter(): the strength SetParticleScatter set
+int GetParticleScatter(lua_State* L)
+{
+	extern float WickedCall_GetParticleScatter(void);
+	lua_pushnumber(L, WickedCall_GetParticleScatter());
+	return 1;
+}
 // SetShadowResolution(sun [, spot [, point]]): shadow map sizes, 0 (none) to 2048; a change recreates the maps (a hitch)
 int SetShadowResolution(lua_State* L)
 {
@@ -18793,6 +18809,8 @@ void addFunctions()
 	lua_register(lua, "SetMaxApparentSize", SetMaxApparentSize);
 	lua_register(lua, "SetParticleHalfResolution", SetParticleHalfResolution);
 	lua_register(lua, "GetParticleHalfResolution", GetParticleHalfResolution);
+	lua_register(lua, "SetParticleScatter", SetParticleScatter);
+	lua_register(lua, "GetParticleScatter", GetParticleScatter);
 	lua_register(lua, "SetShadowResolution", SetShadowResolution);
 	lua_register(lua, "SetShadowLights", SetShadowLights);
 	lua_register(lua, "SetShadowCascades", SetShadowCascades);

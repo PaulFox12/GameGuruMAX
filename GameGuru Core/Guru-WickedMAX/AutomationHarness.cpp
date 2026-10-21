@@ -386,6 +386,15 @@ void AutoHarness_CheckForCommand ( void )
 	else if ( _stricmp ( cmd, "CLICK" ) == 0 ) Cmd_Click ( arg, result, sizeof(result) );
 	else if ( _stricmp ( cmd, "GET_CAMERA" ) == 0 ) Cmd_GetCamera ( result, sizeof(result) );
 	else if ( _stricmp ( cmd, "SET_CAMERA" ) == 0 ) Cmd_SetCamera ( arg, result, sizeof(result) );
+	else if ( _stricmp ( cmd, "SET_PARTICLESCATTER" ) == 0 )
+	{
+		// SET_PARTICLESCATTER <strength>: the sun's forward scattering on lit particle layers (as SetParticleScatter), 0 off
+		extern void WickedCall_SetParticleScatter(float fStrength);
+		extern float WickedCall_GetParticleScatter(void);
+		WickedCall_SetParticleScatter((float)atof(arg));
+		_snprintf(result, sizeof(result), "OK: SET_PARTICLESCATTER %.3f", WickedCall_GetParticleScatter());
+		result[sizeof(result) - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "GET_PERF_DATA" ) == 0 ) Cmd_GetPerfData ( result, sizeof(result) );
 	else if ( _stricmp ( cmd, "SCREENSHOT" ) == 0 ) Cmd_Screenshot ( result, sizeof(result) );
 	else if ( _stricmp ( cmd, "DUMP_VRAM" ) == 0 ) Cmd_DumpVRAM ( arg, result, sizeof(result) );

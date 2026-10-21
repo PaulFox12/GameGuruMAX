@@ -8443,6 +8443,8 @@ void LuaRenderSettings_Clear(void)
 	if (old.iShadowJobWait >= 0) g_bShadowJobWaits = false;
 	extern float g_fLightMaxDistance;
 	g_fLightMaxDistance = 0.0f;
+	extern void WickedCall_SetParticleScatter(float fStrength);
+	WickedCall_SetParticleScatter(0.0f); // the particles' forward scattering (SetParticleScatter) back to off
 }
 
 // clouds, tree wind, the tree backlight, wind, water colour, water fog and the LUT set from Lua are kept in
