@@ -109,6 +109,7 @@ namespace wi { namespace renderer { extern std::atomic<unsigned long long> gg_db
 // GGMAX: transparent shadow atlas write counter (wiRenderer.cpp). Must be declared at NAMESPACE
 // scope — a block-scope `extern` binds to the global namespace instead and fails to link.
 namespace wi { namespace renderer { extern std::atomic<unsigned long long> gg_dbg_transparent_shadow_batches; } }
+namespace wi { namespace renderer { extern bool gg_probe_capture; } } // SET_PROBECAPTURE: environment probe captures on or held
 namespace wi { namespace renderer { extern bool gg_transparent_shadows; } } // A/B: is the 512 MB atlas visually load-bearing?
 extern bool g_bTextureStreamingEnabled; // game-side enrollment kill-switch (wickedcalls_part0.cpp), harness SET_TEXSTREAM
 #include "wiGraphicsDevice.h"
@@ -7937,6 +7938,16 @@ static bool AutoHarness_CensusCommands(const char* cmd, const char* arg, char* r
 		return true;
 	}
 
+	if (_stricmp(cmd, "SET_PROBECAPTURE") == 0)
+	{
+		// SET_PROBECAPTURE <0|1>: environment probe captures on or held (wi::renderer::gg_probe_capture). With 0 the probes
+		// keep their last cube; a lever for the frames drawn from another direction while lights switch (2026-10-21)
+		int on = atoi(arg) != 0 ? 1 : 0;
+		wi::renderer::gg_probe_capture = on != 0;
+		_snprintf(result, resultSize, "OK: SET_PROBECAPTURE %d", on);
+		result[resultSize - 1] = 0;
+		return true;
+	}
 	if (_stricmp(cmd, "SET_TAA") == 0)
 	{
 		// SET_TAA <0|1>: the engine's temporal AA, as the game's SetTAA sets it (for the editor, where RUN_LUA has no state)
