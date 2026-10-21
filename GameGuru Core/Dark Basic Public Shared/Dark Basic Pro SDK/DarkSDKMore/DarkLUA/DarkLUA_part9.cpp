@@ -2152,6 +2152,21 @@ int GetParticleHalfResolution ( lua_State* L )
 	lua_pushnumber(L, wi::renderer::GetParticleHalfResolutionEnabled() ? 1 : 0);
 	return 1;
 }
+// SetParticleScatter(strength): the sun's forward scattering on lit particle layers, 0 off (the default), 1 the phase
+// function as it is: a cloud with the sun behind it glows, brightest looking toward the sun through it
+namespace wi::renderer { void SetParticleScatter(float value); float GetParticleScatter(); }
+int SetParticleScatter ( lua_State* L )
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	wi::renderer::SetParticleScatter((float)lua_tonumber(L, 1));
+	return 0;
+}
+// GetParticleScatter(): the strength SetParticleScatter set
+int GetParticleScatter ( lua_State* L )
+{
+	lua_pushnumber(L, wi::renderer::GetParticleScatter());
+	return 1;
+}
 
 // SetProjectedDecalBlend: neutral until its engine side is here; needs WickedCall_SetProjectedDecalBlend (wickedcalls.cpp, wickedcalls.h)
 int SetProjectedDecalBlend ( lua_State* L )
@@ -2704,6 +2719,8 @@ void addFunctions_hiredgun()
 	lua_register(lua2, "SetOcclusionCulling", SetOcclusionCulling);
 	lua_register(lua2, "SetParticleHalfResolution", SetParticleHalfResolution);
 	lua_register(lua2, "GetParticleHalfResolution", GetParticleHalfResolution);
+	lua_register(lua2, "SetParticleScatter", SetParticleScatter);
+	lua_register(lua2, "GetParticleScatter", GetParticleScatter);
 	lua_register(lua2, "SetPhysicsPushLog", SetPhysicsPushLog);
 	lua_register(lua2, "SetPhysicsWorldRate", SetPhysicsWorldRate);
 	lua_register(lua2, "SetProbesLowestLOD", SetProbesLowestLOD);

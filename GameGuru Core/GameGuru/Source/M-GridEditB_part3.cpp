@@ -1,4 +1,4 @@
-﻿namespace wi::renderer { extern float gg_light_max_distance; } // GGMAX: the light reach (wiRenderer.cpp)
+﻿namespace wi::renderer { extern float gg_light_max_distance; void SetParticleScatter(float value); } // GGMAX: the light reach, the particles' forward scattering (wiRenderer.cpp)
 // Ocean shore/wave foam tunables — Wicked's foam math is tuned for meters, GG is
 // inch-scaled. The pure conversion (0.0254) makes the depth-based shore band so wide
 // that shallow GG beaches drown in white; 0.08 was picked visually on TESTPRO1
@@ -2213,6 +2213,7 @@ void Wicked_Update_Visibles(void* voidvisual)
 	bool bSetting = false;
 
 	wi::renderer::gg_light_max_distance = 0.0f; // and the light reach (SetLightMaxDistance) back to none
+	wi::renderer::SetParticleScatter(0.0f); // and the particles' forward scattering (SetParticleScatter) back to off
 	if (t.visuals.bEnableEmptyLevelMode == false)
 	{
 		// If in Test Level or in standalone, use visual settings, otherwise just use the temporary editor setting.

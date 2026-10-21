@@ -7660,6 +7660,15 @@ static bool AutoHarness_CensusCommands(const char* cmd, const char* arg, char* r
 		return true;
 	}
 
+	if (_stricmp(cmd, "SET_PARTICLESCATTER") == 0)
+	{
+		// SET_PARTICLESCATTER <strength>: the sun's forward scattering on lit particle layers (as SetParticleScatter), 0 off
+		wi::renderer::SetParticleScatter((float)atof(arg));
+		_snprintf(result, resultSize, "OK: SET_PARTICLESCATTER %.3f", wi::renderer::GetParticleScatter());
+		result[resultSize - 1] = 0;
+		return true;
+	}
+
 	if (_stricmp(cmd, "SET_PARTICLEPCT") == 0)
 	{
 		// GGMAX 3.09: emit-rate scale for Wicked emitters, 0..100 percent. 100 = untouched.
