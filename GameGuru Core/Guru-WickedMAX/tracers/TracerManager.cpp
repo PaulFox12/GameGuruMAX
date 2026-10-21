@@ -75,11 +75,13 @@ namespace Tracers
     int  g_ggCulledBehind   = 0;
 
     struct Vertex { XMFLOAT3 pos; XMFLOAT2 uv; };
+    // GG: centred across (x -0.5 to 0.5), so the streak's core runs along the shot line; from 0 to 1 it lay width/2 to
+    // one side, the side turning with the camera
     Vertex vertices[] = {
-        { XMFLOAT3(0, -0.5f, 0), XMFLOAT2(0, 1) },
-        { XMFLOAT3(1, -0.5f, 0), XMFLOAT2(1, 1) },
-        { XMFLOAT3(0,  0.5f, 0), XMFLOAT2(0, 0) },
-        { XMFLOAT3(1,  0.5f, 0), XMFLOAT2(1, 0) },
+        { XMFLOAT3(-0.5f, -0.5f, 0), XMFLOAT2(0, 1) },
+        { XMFLOAT3( 0.5f, -0.5f, 0), XMFLOAT2(1, 1) },
+        { XMFLOAT3(-0.5f,  0.5f, 0), XMFLOAT2(0, 0) },
+        { XMFLOAT3( 0.5f,  0.5f, 0), XMFLOAT2(1, 0) },
     };
     uint16_t indices[] = { 0, 1, 2, 2, 1, 3 };
 
@@ -306,20 +308,12 @@ namespace Tracers
             float length = XMVectorGetX(XMVector3Length(dir)); //Hit weapon ? *0.97;
             dir = XMVector3Normalize(dir);
 
-            //PE: Rotate quad to face camera.
-            const XMFLOAT3 cameraPos = camera.Eye;
-            XMVECTOR mid = XMVectorLerp(start, end, 0.5f);
-            XMVECTOR toCamera = XMVectorSubtract(XMLoadFloat3(&cameraPos), mid);
-            toCamera = XMVector3Normalize(toCamera);
-
-            //PE: Rotation matrix
-            XMVECTOR right = XMVector3Cross(dir, toCamera);
-            right = XMVector3Normalize(right);
-            XMVECTOR up = XMVector3Cross(right, dir);
-
             const float width = tracer.width;
 
-            float lifeFraction = (gameTime - (tracer.spawnTime + t.ElapsedTime_f)) / tracer.lifeTime;
+            // GG: from the spawn time itself; a frame's elapsed time taken off it held every streak at its start for a second
+            // drawn frame (gameTime moves on after Draw), a frame behind a moving gun's muzzle, and it faded to 0 only after
+            // Update had removed it
+            float lifeFraction = (gameTime - tracer.spawnTime) / tracer.lifeTime;
             float alpha = std::clamp(1.0f - lifeFraction,0.0f, 1.0f);
 
             float max_width = tracer.max_length; // 50
@@ -328,22 +322,38 @@ namespace Tracers
                 length = max_width;
             }
 
+            //PE: Move middle point to start position using length.
+            XMVECTOR centre;
+            if (max_width > 0)
+            {
+                XMVECTOR newstart = XMVectorLerp(start, end - (dir * (max_width)), 1.0 - alpha);
+                centre = newstart + (dir * (length * 0.5f));
+            }
+            else
+                centre = start + (dir * (length * 0.5f));
+            XMMATRIX translation = XMMatrixTranslationFromVector(centre);
+
+            //PE: Rotate quad to face camera.
+            // GG: from the streak's own centre; from the middle of the whole shot, far downrange, a short streak near the gun
+            // seen from behind was turned nearly edge on and drawn as a wedge
+            const XMFLOAT3 cameraPos = camera.Eye;
+            XMVECTOR toCamera = XMVectorSubtract(XMLoadFloat3(&cameraPos), centre);
+            toCamera = XMVector3Normalize(toCamera);
+
+            //PE: Rotation matrix
+            XMVECTOR right = XMVector3Cross(dir, toCamera);
+            // GG: seen exactly end on there is no side to face; any side, rather than a matrix of NaNs
+            if (XMVectorGetX(XMVector3LengthSq(right)) < 0.000001f)
+                right = XMVector3Cross(dir, fabsf(XMVectorGetY(dir)) < 0.99f ? XMVectorSet(0, 1, 0, 0) : XMVectorSet(1, 0, 0, 0));
+            right = XMVector3Normalize(right);
+            XMVECTOR up = XMVector3Cross(right, dir);
+
             XMMATRIX rotation = XMMATRIX(
                 right * width,
                 dir * length,
                 up * width,
                 XMVectorSet(0, 0, 0, 1)
             );
-
-            //PE: Move middle point to start position using length.
-            XMMATRIX translation;
-            if (max_width > 0)
-            {
-                XMVECTOR newstart = XMVectorLerp(start, end - (dir * (max_width)), 1.0 - alpha);
-                translation = XMMatrixTranslationFromVector(newstart + (dir * (length * 0.5f)));
-            }
-            else
-                translation = XMMatrixTranslationFromVector(start + (dir * (length * 0.5f)));
 
             XMMATRIX world = rotation * translation;
 
