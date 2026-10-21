@@ -21,6 +21,49 @@
 #include "..\..\..\..\GameGuru\Imgui\imgui_internal.h"
 #include "..\..\..\..\GameGuru\Imgui\imgui_impl_win32.h"
 #include "..\..\..\..\GameGuru\Imgui\imgui_gg_dx11.h"
+
+// GG: a camera call log for the hit-frame hunt (harness SET_CAMERALOG 1): every camera position and rotation set, with the
+// game loop stage it came from (M-Game_part3) and the caller's address, kept in a ring of the last 600 lines and written to
+// camera_log.txt beside the exe for the frames round a player hit (M-Physics physics_player_takedamage), a script's
+// CameraLogMark, or the harness DUMP_CAMERALOG
+#include <intrin.h>
+#include <string>
+#include <vector>
+#include <cstdio>
+bool g_bCameraLog = false;
+int g_iCameraLogFrame = 0;
+int g_iCameraLogDumpIn = 0;
+const char* g_pCameraLogStage = "";
+static std::vector<std::string> g_cameraLogRing;
+static size_t g_cameraLogNext = 0;
+void CameraLogLine(const char* pText)
+{
+	if (!g_bCameraLog) return;
+	char line[360];
+	_snprintf(line, sizeof(line), "[f%d %s] %s", g_iCameraLogFrame, g_pCameraLogStage ? g_pCameraLogStage : "", pText);
+	line[sizeof(line) - 1] = 0;
+	if (g_cameraLogRing.size() < 600) { g_cameraLogRing.push_back(line); return; }
+	g_cameraLogRing[g_cameraLogNext] = line;
+	g_cameraLogNext = (g_cameraLogNext + 1) % g_cameraLogRing.size();
+}
+void CameraLogDump(const char* pWhy)
+{
+	FILE* f = fopen("camera_log.txt", "a");
+	if (!f) return;
+	fprintf(f, "=== %s (frame %d)\n", pWhy ? pWhy : "", g_iCameraLogFrame);
+	size_t n = g_cameraLogRing.size();
+	for (size_t i = 0; i < n; i++) fprintf(f, "%s\n", g_cameraLogRing[(g_cameraLogNext + i) % n].c_str());
+	fclose(f);
+	g_cameraLogRing.clear();
+	g_cameraLogNext = 0;
+}
+static void CameraLogCall(const char* pWhat, int iID, float a, float b, float c, void* pCaller)
+{
+	char t[200];
+	_snprintf(t, sizeof(t), "%s cam%d %.1f %.1f %.1f from %p", pWhat, iID, a, b, c, pCaller);
+	t[sizeof(t) - 1] = 0;
+	CameraLogLine(t);
+}
 #endif
 
 // Hack hook to call some master wicked from Camera LIB
@@ -1575,6 +1618,7 @@ DARKSDK void GetCameraRotationVector3 ( int iVector, int iID )
 
 DARKSDK void PositionCamera ( int iID, float fX, float fY, float fZ )
 {
+	if (g_bCameraLog) CameraLogCall("pos", iID, fX, fY, fZ, _ReturnAddress());
 	// sets the position of the camera
 	if ( iID < 0 || iID > MAXIMUMVALUE )
 	{
@@ -1596,6 +1640,7 @@ DARKSDK void PositionCamera ( int iID, float fX, float fY, float fZ )
 
 DARKSDK void RotateCamera ( int iID, float fX, float fY, float fZ )
 {
+	if (g_bCameraLog) CameraLogCall("rot", iID, fX, fY, fZ, _ReturnAddress());
 	// rotate the camera around all 3 axes
 	if ( iID < 0 || iID > MAXIMUMVALUE )
 	{
@@ -1620,6 +1665,7 @@ DARKSDK void RotateCamera ( int iID, float fX, float fY, float fZ )
 
 DARKSDK void XRotateCamera ( int iID, float fX )
 {
+	if (g_bCameraLog) CameraLogCall("rotx", iID, fX, 0, 0, _ReturnAddress());
 	// rotate the camera on it's x axis
 	if ( iID < 0 || iID > MAXIMUMVALUE )
 	{
@@ -1642,6 +1688,7 @@ DARKSDK void XRotateCamera ( int iID, float fX )
 
 DARKSDK void YRotateCamera ( int iID, float fY )
 {
+	if (g_bCameraLog) CameraLogCall("roty", iID, 0, fY, 0, _ReturnAddress());
 	// rotate the camera on it's y axis
 	if ( iID < 0 || iID > MAXIMUMVALUE )
 	{
@@ -1664,6 +1711,7 @@ DARKSDK void YRotateCamera ( int iID, float fY )
 
 DARKSDK void ZRotateCamera ( int iID, float fZ )
 {
+	if (g_bCameraLog) CameraLogCall("rotz", iID, 0, 0, fZ, _ReturnAddress());
 	// rotate the camera on it's z axis
 	if ( iID < 0 || iID > MAXIMUMVALUE )
 	{

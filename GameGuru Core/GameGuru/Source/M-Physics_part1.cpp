@@ -566,6 +566,16 @@ void physics_player_listener ( void )
 
 void physics_player_takedamage ( void )
 {
+	// GG: the camera call log marks the hit and asks for the dump two frames on (harness SET_CAMERALOG)
+	extern bool g_bCameraLog; extern int g_iCameraLogDumpIn; extern void CameraLogLine(const char* pText);
+	if (g_bCameraLog)
+	{
+		char szCamLog[120];
+		_snprintf(szCamLog, sizeof(szCamLog), "PLAYER HIT damage %d from entity %d", (int)t.tdamage, (int)t.te);
+		szCamLog[sizeof(szCamLog) - 1] = 0;
+		CameraLogLine(szCamLog);
+		if (g_iCameraLogDumpIn == 0) g_iCameraLogDumpIn = 3;
+	}
 	// Receives; tdamage, te, tDrownDamageFlag
 	// Uses tDrownDamageFlag to avoid blood splats and other non drowning damage effects.
 	// This is set to 0 after takedamage is called, so doesn't need to be unset elsewhere

@@ -1,4 +1,7 @@
-﻿extern bool g_bEarlyExcludeMode;
+﻿// GG: the camera call log (CCameraC_part0.cpp, harness SET_CAMERALOG): the frame, the loop stage, the dump round a hit
+extern bool g_bCameraLog; extern int g_iCameraLogFrame; extern int g_iCameraLogDumpIn; extern const char* g_pCameraLogStage;
+extern void CameraLogLine(const char* pText); extern void CameraLogDump(const char* pWhy);
+extern bool g_bEarlyExcludeMode;
 int oldSpaceKey = 0;
 
 extern int NumberOfObjects;
@@ -25,6 +28,13 @@ void game_main_loop ( void )
 	extern void WickedCall_ProbeFrame(void);
 	WickedCall_ProbeFrame();
 
+	// GG: the camera call log: a new frame, and the dump two frames after a player hit or a script's mark
+	if (g_bCameraLog)
+	{
+		g_iCameraLogFrame++;
+		g_pCameraLogStage = "loop start";
+		if (g_iCameraLogDumpIn > 0 && --g_iCameraLogDumpIn == 0) CameraLogDump("two frames after the mark");
+	}
 	//  Timer (  based movement )
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling game_timeelapsed");
 	game_timeelapsed ( );
@@ -214,6 +224,7 @@ void game_main_loop ( void )
 			// special mode for testing
 			if (iEnterGodMode != 2)
 			{
+				if (g_bCameraLog) g_pCameraLogStage = "physics_player_control";
 				physics_player_control (); // has LUA calls inside it
 			}
 
@@ -262,6 +273,7 @@ void game_main_loop ( void )
 			{
 				// LUA Logic
 				auto range1 = wiProfiler::BeginRangeCPU("Update - Logic - LUA");
+				if (g_bCameraLog) g_pCameraLogStage = "lua_loop";
 				lua_loop ( );
 				wiProfiler::EndRange(range1);
 
@@ -270,6 +282,7 @@ void game_main_loop ( void )
 				t.game.perf.ai1 += PerformanceTimer()-g.gameperftimestamp ; g.gameperftimestamp=PerformanceTimer();
 				if ( g_bGamePaused == false )
 				{
+					if (g_bCameraLog) g_pCameraLogStage = "entity_loop";
 					entity_loop ( );
 					entity_loopanim ( );
 				}
@@ -282,6 +295,7 @@ void game_main_loop ( void )
 				{
 					if ( t.visuals.debugvisualsmode<100 ) 
 					{
+						if (g_bCameraLog) g_pCameraLogStage = "darkai_loop";
 						darkai_loop ( );
 					}
 
@@ -334,6 +348,7 @@ void game_main_loop ( void )
 		if ( t.hardwareinfoglobals.noguns == 0 && g_bGamePaused == false )
 		{
 			if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling gun_manager");
+			if (g_bCameraLog) g_pCameraLogStage = "gun_manager";
 			gun_manager ( );
 			t.slidersmenuindex=t.slidersmenunames.weapon ; sliders_readall ( );
 		}
@@ -611,6 +626,14 @@ void game_sync ( void )
 	///realsense_loop ( );
 
 	//  Update screen
+	if (g_bCameraLog)
+	{
+		char szCamLog[200];
+		_snprintf(szCamLog, sizeof(szCamLog), "RENDER cam%d pos %.1f %.1f %.1f ang %.1f %.1f %.1f", t.terrain.gameplaycamera, CameraPositionX(t.terrain.gameplaycamera), CameraPositionY(t.terrain.gameplaycamera), CameraPositionZ(t.terrain.gameplaycamera), CameraAngleX(t.terrain.gameplaycamera), CameraAngleY(t.terrain.gameplaycamera), CameraAngleZ(t.terrain.gameplaycamera));
+		szCamLog[sizeof(szCamLog) - 1] = 0;
+		g_pCameraLogStage = "before sync";
+		CameraLogLine(szCamLog);
+	}
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling sync");
 	Sync (  );
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling game_dynamicRes");

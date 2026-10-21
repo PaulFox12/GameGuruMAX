@@ -2115,6 +2115,20 @@ int SetGunReloadWhileRunning(lua_State* L)
 // SetLightMaxDistance(distance): point and spot lights farther than this from the camera (their range added) are left out
 // of the frame, as lights out of view are; 0, the default, for no limit. Back to none at the next level and test end
 namespace wi::renderer { extern float gg_light_max_distance; }
+// CameraLogMark(text): a line in the engine's camera call log (harness SET_CAMERALOG 1) and its dump two frames on, for a
+// script to mark the frame of a hit; nothing when the log is off
+extern bool g_bCameraLog; extern int g_iCameraLogDumpIn; extern void CameraLogLine(const char* pText);
+int CameraLogMark(lua_State* L)
+{
+	if (!g_bCameraLog) return 0;
+	char t[200];
+	_snprintf(t, sizeof(t), "LUA MARK %s", LUA_GETTOP(L) >= 1 ? lua_tostring(L, 1) : "");
+	t[sizeof(t) - 1] = 0;
+	CameraLogLine(t);
+	if (g_iCameraLogDumpIn == 0) g_iCameraLogDumpIn = 3;
+	return 0;
+}
+
 int SetLightMaxDistance(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 1) return 0;
@@ -2444,6 +2458,7 @@ void addFunctions_hiredgun()
 	lua_register(lua2, "SetLODMultiplier", SetLODMultiplier);
 	lua_register(lua2, "SetLensFlare", SetLensFlare);
 	lua_register(lua2, "SetLightMaxDistance", SetLightMaxDistance);
+	lua_register(lua2, "CameraLogMark", CameraLogMark);
 	lua_register(lua2, "SetLightShadow", SetLightShadow);
 	lua_register(lua2, "SetLightShafts", SetLightShafts);
 	lua_register(lua2, "SetMSAA", SetMSAA);

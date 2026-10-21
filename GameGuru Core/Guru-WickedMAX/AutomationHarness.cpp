@@ -7945,6 +7945,26 @@ static bool AutoHarness_CensusCommands(const char* cmd, const char* arg, char* r
 		return true;
 	}
 
+	if (_stricmp(cmd, "SET_CAMERALOG") == 0)
+	{
+		// SET_CAMERALOG <0|1>: the camera call log (CCameraC_part0.cpp: every camera position and rotation set, with the game loop
+		// stage and the caller), written to camera_log.txt beside the exe for the frames round a player hit or a script's
+		// CameraLogMark; DUMP_CAMERALOG writes it now (2026-10-21, the vehicle camera's hit-frame jump)
+		extern bool g_bCameraLog;
+		int on = atoi(arg) != 0 ? 1 : 0;
+		g_bCameraLog = on != 0;
+		_snprintf(result, resultSize, "OK: SET_CAMERALOG %d", on);
+		result[resultSize - 1] = 0;
+		return true;
+	}
+	if (_stricmp(cmd, "DUMP_CAMERALOG") == 0)
+	{
+		extern void CameraLogDump(const char* pWhy);
+		CameraLogDump("on demand");
+		_snprintf(result, resultSize, "OK: camera_log.txt written beside the exe");
+		result[resultSize - 1] = 0;
+		return true;
+	}
 	if (_stricmp(cmd, "SET_PROBECAPTURE") == 0)
 	{
 		// SET_PROBECAPTURE <0|1>: environment probe captures on or held (wi::renderer::gg_probe_capture). With 0 the probes
