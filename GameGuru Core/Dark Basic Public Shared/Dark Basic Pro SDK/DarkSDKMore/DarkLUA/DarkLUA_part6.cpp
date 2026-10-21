@@ -109,9 +109,11 @@ int GetGrassScale(lua_State* L)
 //PE: USE - SetLutTo("editors\\lut\\sephia.png")
 //PE: USE - string = GetLut()
 void Wicked_Update_Visuals(void* voidvisual);
+void Wicked_Update_LUT(void* voidvisual);
 int lua_get_lut(lua_State* L)
 {
-	std::string retstr = t.visuals.ColorGradingLUT.Get();
+	// SetLutTo writes t.gamevisuals (in a test game only that, so the editor keeps its own LUT), so read it back from there
+	std::string retstr = t.gamevisuals.ColorGradingLUT.Get();
 	if(retstr.length() > 0)
 		lua_pushstring(lua2, retstr.c_str());
 	else
@@ -156,11 +158,9 @@ int lua_set_lut(lua_State* L)
 			t.visuals.bColorGrading = t.gamevisuals.bColorGrading;
 		}
 
-		//PE: g.gdefaultwaterheight must be = t.terrain.waterliney_f
-		float oldgdefaultwaterheight = g.gdefaultwaterheight;
-		g.gdefaultwaterheight = t.terrain.waterliney_f;
-		Wicked_Update_Visuals(&t.gamevisuals);
-		g.gdefaultwaterheight = oldgdefaultwaterheight;
+		// only the LUT: the full Wicked_Update_Visuals push also reset script-set exposure, fog, sun and ambience to the
+		// level values and recreated the swap chain (vsync), which showed as a blip
+		Wicked_Update_LUT(&t.gamevisuals);
 	}
 
 	t.e = storee;

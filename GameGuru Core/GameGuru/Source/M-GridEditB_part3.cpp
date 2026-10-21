@@ -29,7 +29,9 @@ void gridedit_setvsync(bool bLevelVSyncEnabled)
 			bLevelVSyncEnabled = false;
 	}
 	master.bVsyncEnabled = bLevelVSyncEnabled;
-	wiEvent::SetVSync(master.bVsyncEnabled);
+	// SetVSync recreates the swap chain (a visible blip), and every Wicked_Update_Visuals push calls this, so only on a change
+	if (master.swapChain.desc.vsync != master.bVsyncEnabled)
+		wiEvent::SetVSync(master.bVsyncEnabled);
 }
 
 void gridedit_setreflection(bool bReflecctionFlag)
@@ -1588,6 +1590,33 @@ void GGApplyVisualsNow()
 	Wicked_Update_Visuals((void*)&t.visuals);
 }
 
+// change only the colour grading LUT. Wicked_Update_Visuals would also push every other visual value (fog, sun,
+// exposure, clouds...) back to the pushed struct and set vsync. LUTs once used stay loaded (the resource manager only
+// holds weak references), so switching back to one does not load it from disk again
+void Wicked_Update_LUT(void* voidvisual)
+{
+	visualstype* visuals = (visualstype*)voidvisual;
+	if (!master_renderer) return;
+	master_renderer->setColorGradingEnabled(visuals->bColorGrading);
+	wiScene::WeatherComponent* weather = wiScene::GetScene().weathers.GetComponent(g_weatherEntityID);
+	if (!weather || !visuals->bColorGrading) return;
+
+	// on the heap and never freed: the textures must not be released after the graphics device at exit
+	static std::map<std::string, wiResource>* pLUTCache = new std::map<std::string, wiResource>();
+	std::string name = visuals->ColorGradingLUT.Get();
+	wiResource& lut = (*pLUTCache)[name];
+	if (!lut.IsValid())
+	{
+		// Wicked reads the file directly, so a LUT that is only in the writable folder needs its real path
+		char pRealPath[MAX_PATH];
+		strcpy_s(pRealPath, MAX_PATH, name.c_str());
+		GG_GetRealPath(pRealPath, 0);
+		lut = wiResourceManager::Load(pRealPath, wi::resourcemanager::Flags::IMPORT_COLORGRADINGLUT);
+	}
+	weather->colorGradingMapName = name;
+	weather->colorGradingMap = lut;
+}
+
 void Wicked_Update_Visuals(void *voidvisual)
 {
 	visualstype* visuals = (visualstype *) voidvisual;
@@ -1825,12 +1854,8 @@ void Wicked_Update_Visuals(void *voidvisual)
 		#endif
 
 		wiResource image;
-		master_renderer->setColorGradingEnabled(visuals->bColorGrading);
-		if (master_renderer->getColorGradingEnabled())
-		{
-			weather->colorGradingMapName = visuals->ColorGradingLUT.Get();
-			weather->colorGradingMap = wiResourceManager::Load(visuals->ColorGradingLUT.Get(), wi::resourcemanager::Flags::IMPORT_COLORGRADINGLUT);
-		}
+		// through the LUT cache, which also finds a LUT that is only in the writable folder
+		Wicked_Update_LUT(visuals);
 
 		master.bVsyncEnabled = visuals->bLevelVSyncEnabled;
 		if (g.gvsync == 0)
