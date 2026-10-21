@@ -2113,7 +2113,7 @@ int SetGunReloadWhileRunning(lua_State* L)
 }
 
 // SetLightMaxDistance(distance): point and spot lights farther than this from the camera (their range added) are left out
-// of the frame, as lights out of view are; 0, the default, for no limit. Back to none at the next level and test end
+// of the frame, as lights out of view are; 0, the default, for no limit. Back to none when a test game ends
 namespace wi::renderer { extern float gg_light_max_distance; }
 // CameraLogMark(text): a line in the engine's camera call log (harness SET_CAMERALOG 1) and its dump two frames on, for a
 // script to mark the frame of a hit; nothing when the log is off

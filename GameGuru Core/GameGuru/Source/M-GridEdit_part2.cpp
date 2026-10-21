@@ -1359,6 +1359,7 @@ bool editor_previewmapormultiplayer_loopcode ( int iUseVRTest )
 	return bEndThisLoop;
 }
 
+namespace wi::renderer { extern float gg_light_max_distance; void SetParticleScatter(float value); } // GGMAX (wiRenderer.cpp)
 void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 {
 	// game after loop code
@@ -1816,6 +1817,10 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.bPhysicsWorldAt60 = t.gamevisuals.bPhysicsWorldAt60;
 	// and the physics world's rate back from the level's setting, after a script's SetPhysicsWorldRate
 	extern bool g_bPhysicsWorldAt60; g_bPhysicsWorldAt60 = t.visuals.bPhysicsWorldAt60;
+	// and a script's light reach and particle forward scattering back to off (SetLightMaxDistance, SetParticleScatter); not in
+	// Wicked_Update_Visibles, which a visuals push and HideTerrain/ShowTerrain also run in a game
+	wi::renderer::gg_light_max_distance = 0.0f;
+	wi::renderer::SetParticleScatter(0.0f);
 	t.visuals.bReflectionsLowestLOD = t.gamevisuals.bReflectionsLowestLOD;
 
 	
