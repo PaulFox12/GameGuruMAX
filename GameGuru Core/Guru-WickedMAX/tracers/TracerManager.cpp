@@ -126,8 +126,13 @@ namespace Tracers
         samplerDesc.address_u = TextureAddressMode::WRAP;
         samplerDesc.address_v = TextureAddressMode::WRAP;
         samplerDesc.address_w = TextureAddressMode::WRAP;
-        samplerDesc.filter = Filter::MIN_MAG_MIP_LINEAR;
+        // GG: anisotropic, the one the streaks are drawn with: seen from low behind a streak's length is squashed into a few
+        // pixels, and trilinear took its mip from that, so the narrow core blurred across the whole width and the streak
+        // drew as a solid bar; anisotropic takes the mip from the width and samples along the length
+        samplerDesc.filter = Filter::ANISOTROPIC;
+        samplerDesc.max_anisotropy = 16;
         device->CreateSampler(&samplerDesc, &samplerTrilinearWrap);
+        samplerDesc.max_anisotropy = 0;
 
         samplerDesc.address_u = TextureAddressMode::CLAMP;
         samplerDesc.address_v = TextureAddressMode::CLAMP;
