@@ -182,7 +182,11 @@
 	// a hit that changed the health forces the entity's Lua row to be rewritten next frame at any distance (the value
 	// 2); with 1 a far entity's row waited for its turn, one frame in 25-50 past 750 units and never past the freeze
 	// distance, so a script saw the drop late or not at all
-	t.entityelement[t.ttte].lua.flagschanged = (t.entityelement[t.ttte].health != iHealthBefore) ? 2 : 1;
+	// 3, not 2: 2 is the loop's refresh-only turn (the row rewritten, the script NOT run that frame, meant for entities out
+	// of logic range), so a hit on a scripted entity in range lost its script for one frame: a vehicle the player was in
+	// skipped its camera write and the frame rendered from the player's eye inside the hull (2026-10-21). 3 refreshes the
+	// row at any distance and runs the script as every frame
+	t.entityelement[t.ttte].lua.flagschanged = (t.entityelement[t.ttte].health != iHealthBefore) ? 3 : 1;
 
 	// 010216 - special case for ISIMMOBILE FPE that are not characters, they cannot get to zero health (COLLECTABLES)
 	if (  t.tallowanykindofdamage == 0 ) 

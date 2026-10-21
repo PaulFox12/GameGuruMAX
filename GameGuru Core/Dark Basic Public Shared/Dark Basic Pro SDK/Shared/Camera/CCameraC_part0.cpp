@@ -23,7 +23,8 @@
 #include "..\..\..\..\GameGuru\Imgui\imgui_gg_dx11.h"
 
 // GG: a camera call log for the hit-frame hunt (harness SET_CAMERALOG 1): every camera position and rotation set, with the
-// game loop stage it came from (M-Game_part3) and the caller's address, kept in a ring of the last 600 lines and written to
+// game loop stage it came from (M-Game_part3) and the caller's address, with each entity's main call and forced row refresh
+// in the Lua loop (M-LUA), kept in a ring of the last 4000 lines and written to
 // camera_log.txt beside the exe for the frames round a player hit (M-Physics physics_player_takedamage), a script's
 // CameraLogMark, or the harness DUMP_CAMERALOG
 #include <intrin.h>
@@ -42,7 +43,7 @@ void CameraLogLine(const char* pText)
 	char line[360];
 	_snprintf(line, sizeof(line), "[f%d %s] %s", g_iCameraLogFrame, g_pCameraLogStage ? g_pCameraLogStage : "", pText);
 	line[sizeof(line) - 1] = 0;
-	if (g_cameraLogRing.size() < 600) { g_cameraLogRing.push_back(line); return; }
+	if (g_cameraLogRing.size() < 4000) { g_cameraLogRing.push_back(line); return; }
 	g_cameraLogRing[g_cameraLogNext] = line;
 	g_cameraLogNext = (g_cameraLogNext + 1) % g_cameraLogRing.size();
 }
