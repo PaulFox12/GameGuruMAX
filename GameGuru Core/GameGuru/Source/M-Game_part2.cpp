@@ -1622,9 +1622,10 @@ void game_timeelapsed_init ( void )
 void game_timeelapsed ( void )
 {
 	// Calculate time between cycles
-	// room for 512 more entities before the scripts start spawning, so the array (copied out and back whenever it grows)
-	// rarely grows in play
-	entity_growelementarray ( g.entityelementlist + 512 );
+	// room for the scripts' spawns: the array is copied out and back whenever it grows, so it grows by 1024 when the next
+	// 256 slots are gone, not by one at every spawn (asking for the count plus 512 every frame did that: every clone
+	// raised the count by one and the frame after it copied the whole array, 600 ms on the DX12 build)
+	if ( g.entityelementlist + 256 > g.entityelementmax ) entity_growelementarray ( g.entityelementmax + 1024 );
 	float fThisTimeCount = timeGetSecond();
 	t.ElapsedTime_f = fThisTimeCount - t.LastTimeStamp_f;
 	g.timeelapsed_f = t.ElapsedTime_f * 20.0;
