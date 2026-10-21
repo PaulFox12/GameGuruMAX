@@ -880,9 +880,9 @@ DARKSDK_DLL void UpdateUserMatrix ( sFrame* pFrame )
 	// temp var
 	GGMATRIX matTemp;
 
-	// user matrix ptr
+	// user matrix ptr, starting at the pivot so scale and rotation turn about it (identity when the pivot is the frame origin)
 	GGMATRIX*	pWorkMat = &pFrame->matUserMatrix;
-    GGMatrixIdentity		( pWorkMat );
+	GGMatrixTranslation	( pWorkMat, -pFrame->vecPivot.x, -pFrame->vecPivot.y, -pFrame->vecPivot.z );
 
 	// scale
 	GGMatrixScaling		( &matTemp, pFrame->vecScale.x, pFrame->vecScale.y, pFrame->vecScale.z );
@@ -896,8 +896,8 @@ DARKSDK_DLL void UpdateUserMatrix ( sFrame* pFrame )
 	GGMatrixRotationZ		( &matTemp, GGToRadian ( pFrame->vecRotation.z ) );
 	GGMatrixMultiply		( pWorkMat, pWorkMat, &matTemp );
 
-	// translation
-	GGMatrixTranslation	( &matTemp, pFrame->vecOffset.x, pFrame->vecOffset.y, pFrame->vecOffset.z );
+	// translation, back from the pivot plus the offset
+	GGMatrixTranslation	( &matTemp, pFrame->vecPivot.x + pFrame->vecOffset.x, pFrame->vecPivot.y + pFrame->vecOffset.y, pFrame->vecPivot.z + pFrame->vecOffset.z );
 	GGMatrixMultiply		( pWorkMat, pWorkMat, &matTemp );
 }
 

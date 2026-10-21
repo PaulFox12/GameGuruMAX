@@ -178,6 +178,7 @@ void WickedCall_TextureMeshWithImagePtr(sMesh* pMesh, int iPutInEmissivemode);
 void WickedCall_TextureObjectWithImagePtr ( sObject* pObject, int iPutInEmissivemode );
 void WickedCall_UpdateObject(sObject* pObject);
 void WickedCall_UpdateLimbsOfObject( sObject* pObject );
+void WickedCall_UpdateLimbFromFrame( sObject* pObject, int iLimb );
 void WickedCall_UpdateSceneForPick(void);
 void WickedCall_SetRenderOrderBias(sMesh* pMesh, float fDistanceToAdd);
 float WickedCall_GetRenderOrderBias(sMesh* pMesh);
@@ -226,6 +227,10 @@ bool WickedCall_SentRay3(float originx, float originy, float originz, float dire
 bool WickedCall_SentRay4(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly);
 // pIgnore1 and pIgnore2 (or NULL) are left out of the pick without changing their layers, as a thread must not
 bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit, bool bOpaqueOnly, sObject* pIgnore1 = NULL, sObject* pIgnore2 = NULL);
+int WickedCall_BeginRegionRays(float fX, float fY, float fZ, float fRadius);
+void WickedCall_EndRegionRays(void);
+bool WickedCall_RegionRay(float originx, float originy, float originz, float directionx, float directiony, float directionz, float fDistanceOfRay, const int* pIgnore, int iIgnoreCount, float* pOutX, float* pOutY, float* pOutZ, float* pNormX, float* pNormY, float* pNormZ, DWORD* pdwObjectNumberHit);
+void WickedCall_GetObjectLOD(sObject* pObject, int* pLOD, int* pLevels);
 void WickedCall_GetMouseDeltas(float* pfX, float* pfY);
 uint32_t WickedCall_GetTextureWidth(void* ptex);
 uint32_t WickedCall_GetTextureHeight(void* ptex);

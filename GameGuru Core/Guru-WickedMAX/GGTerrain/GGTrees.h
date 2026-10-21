@@ -135,6 +135,11 @@ namespace GGTrees
 
 	const char* GGTrees_GetTextureName( uint32_t index );
 	void GGTrees_GetTypeName( uint32_t index, char* pOut, int size ); // the type's name as its billboard file gives it ("jungletree3a"), "" if none
+	// the file a tree type's texture was last loaded from, kind 0 billboard, 1 billboard normal (the far billboard atlases),
+	// 2 trunk, 3 leaves (the branches; the type's Wicked materials): "" none, 0 a bad type or kind; *pChanged as
+	// GGTerrain_CheckTextureSource
+	const char* GGTrees_GetTextureSource( int type, int kind, int* pChanged );
+	void GGTrees_RecordTextureSource( int type, int kind, const char* path, bool bRedirected );
 	float GGTrees_GetImageScale( uint32_t index );
 
 	void GGTrees_BindTreeMap( int slot, wiGraphics::CommandList cmd );

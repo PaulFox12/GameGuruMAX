@@ -806,6 +806,9 @@ static void SetupTerrainMaterial(wi::scene::Scene& scene, wi::ecs::Entity entity
 	// convention (R=occlusion, G=roughness, B=metalness, A=reflectance). A=255 means reflectance
 	// multiplier is 1.0, so the base reflectance value set below is used directly.
 	mat->textures[MaterialComponent::SURFACEMAP].name = surfacePath;
+	GGTerrain::GGTerrain_RecordSlotTextureSource(ggMatIndex & 0xFF, 0, colorPath);
+	GGTerrain::GGTerrain_RecordSlotTextureSource(ggMatIndex & 0xFF, 1, normalPath);
+	GGTerrain::GGTerrain_RecordSlotTextureSource(ggMatIndex & 0xFF, 2, surfacePath);
 
 	// PBR defaults matching Wicked Editor terrain presets
 	mat->SetRoughness(1.0f);
@@ -1771,6 +1774,7 @@ static wi::scene::MaterialComponent* BuildGrassMaterial(uint32_t typeIdx)
 	mat.SetCastShadow(false);
 	mat.SetTextureStreamingDisabled(true);
 	mat.CreateRenderData();
+	GGGrass::GGGrass_RecordTextureSource(typeIdx, colorPath);
 
 	g_grassMaterialReady[typeIdx] = true;
 	return &mat;

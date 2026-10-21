@@ -321,7 +321,7 @@ static wi::ecs::Entity BuildTreeMesh(
 // Build a PBR MaterialComponent that samples one tree DDS as basecolor.
 // `isBranches` = true switches to alpha-tested + double-sided leaves. Trunks
 // stay opaque + single-sided (BACK-face culled).
-static wi::ecs::Entity BuildTreeMaterial( const char* textureName, bool isBranches )
+static wi::ecs::Entity BuildTreeMaterial( const char* textureName, bool isBranches, int recordType = -1 )
 {
 	auto& scene = wi::scene::GetScene();
 
@@ -342,6 +342,7 @@ static wi::ecs::Entity BuildTreeMaterial( const char* textureName, bool isBranch
 	char colorPath[ 512 ];
 	sprintf_s( colorPath, "%s/Files/treebank/textures/%s", g_treesExeDir.c_str(), textureName );
 	mat.textures[ wi::scene::MaterialComponent::BASECOLORMAP ].name = colorPath;
+	if ( recordType >= 0 ) GGTrees_RecordTextureSource( recordType, isBranches ? 3 : 2, colorPath, false );
 
 	if ( isBranches )
 	{
@@ -392,12 +393,12 @@ static bool EnsureTreeType( uint32_t t )
 	const GGTree& tree = g_GGTrees[ t ];
 	if ( !tree.trunk ) return false;                                        // nothing to build, ever
 
-	g_treeTrunkMaterialEntity[ t ] = BuildTreeMaterial( tree.trunk->textureName, false );
+	g_treeTrunkMaterialEntity[ t ] = BuildTreeMaterial( tree.trunk->textureName, false, (int)t );
 
 	wi::ecs::Entity branchesMat = wi::ecs::INVALID_ENTITY;
 	if ( tree.branches )
 	{
-		branchesMat = BuildTreeMaterial( tree.branches->textureName, true );
+		branchesMat = BuildTreeMaterial( tree.branches->textureName, true, (int)t );
 		g_treeBranchesMaterialEntity[ t ] = branchesMat;
 	}
 
@@ -415,7 +416,7 @@ static bool EnsureTreeType( uint32_t t )
 		wi::ecs::Entity lodBranchesMat = branchesMat;
 		if ( lodTree.branches && lodBranchesMat == wi::ecs::INVALID_ENTITY )
 		{
-			lodBranchesMat = BuildTreeMaterial( lodTree.branches->textureName, true );
+			lodBranchesMat = BuildTreeMaterial( lodTree.branches->textureName, true, (int)t );
 			g_treeBranchesMaterialEntity[ t ] = lodBranchesMat;
 		}
 		return BuildTreeMesh( lodTree.trunk, g_treeTrunkMaterialEntity[ t ],

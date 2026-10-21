@@ -12425,6 +12425,57 @@ float GG_GetTerrainViewRadius()
 	return ring;
 }
 
+// where each terrain material slot's textures were last loaded from (GetTextureSource): color, normal, surface
+static GGTerrain::GGTextureSource ggterrain_textureSource[ 3 ][ 32 ];
+
+void GGTerrain::GGTerrain_RecordTextureSource( GGTextureSource* pSource, const char* requested, bool bRedirected )
+{
+	// absolute against the current folder, as GG_GetRealPath makes it, so it resolves the same way later
+	char fullPath[ MAX_PATH ];
+	if ( GetFullPathNameA( requested, MAX_PATH, fullPath, NULL ) == 0 ) strcpy_s( fullPath, MAX_PATH, requested );
+	pSource->requested = fullPath;
+	pSource->bRedirected = bRedirected;
+	char loaded[ MAX_PATH ];
+	strcpy_s( loaded, MAX_PATH, fullPath );
+	if ( bRedirected ) GG_GetRealPath( loaded, 0 );
+	pSource->loaded = loaded;
+	pSource->writeTime = 0;
+	WIN32_FILE_ATTRIBUTE_DATA data;
+	if ( GetFileAttributesExA( loaded, GetFileExInfoStandard, &data ) )
+	{
+		pSource->writeTime = ((uint64_t)data.ftLastWriteTime.dwHighDateTime << 32) | data.ftLastWriteTime.dwLowDateTime;
+	}
+}
+
+int GGTerrain::GGTerrain_CheckTextureSource( const GGTextureSource* pSource )
+{
+	if ( pSource->loaded.empty() ) return 0;
+	char path[ MAX_PATH ];
+	strcpy_s( path, MAX_PATH, pSource->requested.c_str() );
+	if ( pSource->bRedirected ) GG_GetRealPath( path, 0 );
+	if ( _stricmp( path, pSource->loaded.c_str() ) != 0 ) return 2;
+	WIN32_FILE_ATTRIBUTE_DATA data;
+	if ( !GetFileAttributesExA( path, GetFileExInfoStandard, &data ) ) return 3;
+	uint64_t writeTime = ((uint64_t)data.ftLastWriteTime.dwHighDateTime << 32) | data.ftLastWriteTime.dwLowDateTime;
+	if ( writeTime != pSource->writeTime ) return 1;
+	return 0;
+}
+
+void GGTerrain::GGTerrain_RecordSlotTextureSource( int slot, int kind, const char* path )
+{
+	if ( slot < 0 || slot >= 32 || kind < 0 || kind > 2 || !path ) return;
+	GGTerrain_RecordTextureSource( &ggterrain_textureSource[ kind ][ slot ], path, false );
+}
+
+const char* GGTerrain::GGTerrain_GetTextureSource( int slot, int kind, int* pChanged )
+{
+	*pChanged = 0;
+	if ( slot < 0 || slot >= 32 || kind < 0 || kind > 2 ) return 0;
+	const GGTextureSource* pSource = &ggterrain_textureSource[ kind ][ slot ];
+	*pChanged = GGTerrain_CheckTextureSource( pSource );
+	return pSource->loaded.c_str();
+}
+
 // GGMAX 2.96: GLOBAL-SCOPE shim so GGTrees can reuse this DDS-into-array-slice loader.
 // Deliberately outside `namespace GGTerrain`: a declaration written inside `namespace GGTrees`
 // mangles to GGTrees::… and fails to link (the 2.53 linkage rule, hit again on this very call).

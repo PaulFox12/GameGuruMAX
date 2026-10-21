@@ -1617,6 +1617,37 @@ void Wicked_Update_LUT(void* voidvisual)
 	weather->colorGradingMap = lut;
 }
 
+// the weather wind (rain and snow drift, Wicked's wind) a script set, as Wicked_Update_Visuals applies the editor's: no
+// vertical part, the gust size left as the level has it
+void Wicked_Update_Wind(void* visual)
+{
+	visualstype* visuals = (visualstype*)visual;
+	wiScene::WeatherComponent* weather = wiScene::GetScene().weathers.GetComponent(g_weatherEntityID);
+	if (weather)
+	{
+		weather->windDirection = XMFLOAT3(visuals->wind_direction_x, 0.0f, visuals->wind_direction_z);
+		weather->windSpeed = visuals->wind_speed;
+		weather->windRandomness = visuals->wind_randomness;
+	}
+}
+
+// the wind set from Lua is kept in t.gamevisuals, which the end of a test game overwrites, so it never reaches the editor.
+// A full visuals push applies t.visuals, so a script's wind is applied again after it, until the level ends (the DX11
+// branch's 5651c03c does the same for clouds, tree wind, water colour, water fog and the LUT; only the wind is carried)
+bool g_bLuaSetWind = false;
+
+void LuaGameVisuals_Apply(void* pPushedVisuals)
+{
+	if (pPushedVisuals == &t.gamevisuals) return;
+	if (g_bLuaSetWind) Wicked_Update_Wind(&t.gamevisuals);
+}
+
+// at each level start and when a test game ends
+void LuaGameVisuals_Clear(void)
+{
+	g_bLuaSetWind = false;
+}
+
 void Wicked_Update_Visuals(void *voidvisual)
 {
 	visualstype* visuals = (visualstype *) voidvisual;
@@ -2204,6 +2235,7 @@ void Wicked_Update_Visuals(void *voidvisual)
 	extern void LuaPostEffects_Apply(void);
 	LuaRenderSettings_Apply();
 	LuaPostEffects_Apply();
+	LuaGameVisuals_Apply(voidvisual);
 }
 
 void Wicked_Update_Visibles(void* voidvisual)

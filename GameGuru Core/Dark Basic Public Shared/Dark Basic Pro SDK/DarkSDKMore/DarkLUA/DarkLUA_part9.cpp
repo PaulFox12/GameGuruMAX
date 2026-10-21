@@ -6,6 +6,7 @@
 #include "..\..\..\..\GameGuru\Include\GGPhysicsQuery.h"
 
 // declared as the DX11 branch's DarkLUA.cpp declares them
+namespace GGTerrain { const char* GGTerrain_GetTextureSource( int slot, int kind, int* pChanged ); }
 extern void WickedCall_SetSunColors(float fRed, float fGreen, float fBlue, float fEnergy, float fFov, float fShadowBias);
 extern void LuaPostEffects_SetBloom(int iEnabled, float fStrength, float fThreshold, float fRadius, float fCap);
 extern void LuaPostEffects_GetBloom(int* piEnabled, float* pfStrength, float* pfThreshold, float* pfRadius, float* pfCap);
@@ -472,6 +473,326 @@ int GetEntityLimbBounds ( lua_State* L )
 	 lua_pushnumber(L, vecMax.y);
 	 lua_pushnumber(L, vecMax.z);
 	 return 6;
+}
+
+// SetEntityLimbRotation(e, limb, ax, ay, az): degrees, in the limb's own space on top of its pose in the model file
+int SetEntityLimbRotation ( lua_State* L )
+{
+	 if ( LUA_GETTOP(L) < 5 ) return 0;
+	 int e = lua_tointeger(L, 1);
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, e, iLimb );
+	 if ( !pObject ) return 0;
+	 RotateLimb ( t.entityelement[e].obj, iLimb, lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5) );
+	 WickedCall_UpdateLimbFromFrame ( pObject, iLimb );
+	 return 0;
+}
+int GetEntityLimbRotation ( lua_State* L )
+{
+	 if ( LUA_GETTOP(L) < 2 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 GGVECTOR3 vecRotation = pObject ? pObject->ppFrameList[iLimb]->vecRotation : GGVECTOR3(0, 0, 0);
+	 lua_pushnumber(L, vecRotation.x);
+	 lua_pushnumber(L, vecRotation.y);
+	 lua_pushnumber(L, vecRotation.z);
+	 return 3;
+}
+// SetEntityLimbOffset(e, limb, x, y, z): moves the limb in its own space, for suspension travel or recoil
+int SetEntityLimbOffset ( lua_State* L )
+{
+	 if ( LUA_GETTOP(L) < 5 ) return 0;
+	 int e = lua_tointeger(L, 1);
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, e, iLimb );
+	 if ( !pObject ) return 0;
+	 OffsetLimb ( t.entityelement[e].obj, iLimb, lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5) );
+	 WickedCall_UpdateLimbFromFrame ( pObject, iLimb );
+	 return 0;
+}
+int GetEntityLimbOffset ( lua_State* L )
+{
+	 if ( LUA_GETTOP(L) < 2 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 GGVECTOR3 vecOffset = pObject ? pObject->ppFrameList[iLimb]->vecOffset : GGVECTOR3(0, 0, 0);
+	 lua_pushnumber(L, vecOffset.x);
+	 lua_pushnumber(L, vecOffset.y);
+	 lua_pushnumber(L, vecOffset.z);
+	 return 3;
+}
+// SetEntityLimbPivot(e, limb, x, y, z): the point in the limb's own space that its rotation turns about. 0,0,0 is the limb's
+// origin, which on models whose parts were exported in place is the model's origin; GetEntityLimbBounds gives the limb's
+// extent in the same space, so its centre is a rotor hub or a wheel axle
+int SetEntityLimbPivot ( lua_State* L )
+{
+	 if ( LUA_GETTOP(L) < 5 ) return 0;
+	 int e = lua_tointeger(L, 1);
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, e, iLimb );
+	 if ( !pObject ) return 0;
+	 sFrame* pFrame = pObject->ppFrameList[iLimb];
+	 pFrame->vecPivot = GGVECTOR3 ( lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5) );
+	 RotateLimb ( t.entityelement[e].obj, iLimb, pFrame->vecRotation.x, pFrame->vecRotation.y, pFrame->vecRotation.z );
+	 WickedCall_UpdateLimbFromFrame ( pObject, iLimb );
+	 return 0;
+}
+int GetEntityLimbPivot ( lua_State* L )
+{
+	 if ( LUA_GETTOP(L) < 2 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 GGVECTOR3 vecPivot = pObject ? pObject->ppFrameList[iLimb]->vecPivot : GGVECTOR3(0, 0, 0);
+	 lua_pushnumber(L, vecPivot.x);
+	 lua_pushnumber(L, vecPivot.y);
+	 lua_pushnumber(L, vecPivot.z);
+	 return 3;
+}
+
+// GetIntersectCollisionLimb(): the limb of the object the last intersect hit, numbered as GetLimbName numbers them; -1 when
+// it hit terrain or the pick was not the full-accuracy one (IntersectAllEx fills it from WickedCall_SentRay4)
+int GetIntersectCollisionLimb ( lua_State *L )
+{
+	lua_pushinteger ( L, ChecklistValueB(1) );
+	return 1;
+}
+
+// RayRegionBegin(x, y, z, radius): lists the objects whose bounds reach the sphere, for RayRegion until the frame ends;
+// returns how many
+int RayRegionBegin ( lua_State* L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 4 ) return 0;
+	lua_pushinteger(L, WickedCall_BeginRegionRays(lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4)));
+	return 1;
+}
+
+// RayRegion(x1, y1, z1, x2, y2, z2 [, ignore]): a full-accuracy pick against RayRegionBegin's objects only, with
+// IntersectRay's returns (no terrain). Hits nothing outside the frame of RayRegionBegin
+int RayRegion ( lua_State* L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 6 ) return 0;
+	float fX = lua_tonumber(L, 1), fY = lua_tonumber(L, 2), fZ = lua_tonumber(L, 3);
+	float fEndX = lua_tonumber(L, 4), fEndY = lua_tonumber(L, 5), fEndZ = lua_tonumber(L, 6);
+	std::vector<int> ignore;
+	if ( n >= 7 ) LuaReadIntersectIgnore(L, 7, ignore);
+	extern int g_iCurrentGunObj;
+	if ( g_iCurrentGunObj > 0 ) ignore.push_back(g_iCurrentGunObj);
+
+	int iHitObj = 0, iHitE = 0, iLimb = -1;
+	float fHitX = fEndX, fHitY = fEndY, fHitZ = fEndZ, fNX = 0, fNY = 0, fNZ = 0;
+	float fDX = fEndX - fX, fDY = fEndY - fY, fDZ = fEndZ - fZ;
+	float fLength = sqrtf(fDX * fDX + fDY * fDY + fDZ * fDZ);
+	float fOutX, fOutY, fOutZ, fOutNX, fOutNY, fOutNZ;
+	DWORD dwObj = 0;
+	if ( fLength > 0 && WickedCall_RegionRay(fX, fY, fZ, fDX, fDY, fDZ, fLength, ignore.data(), (int)ignore.size(), &fOutX, &fOutY, &fOutZ, &fOutNX, &fOutNY, &fOutNZ, &dwObj) )
+	{
+		// as IntersectAllEx reports it: an entity's object, -1 for geometry with no object, nothing for other objects
+		if ( dwObj == 0 ) iHitObj = -1;
+		else if ( (int)dwObj >= g.entityviewstartobj && (int)dwObj <= g.entityviewendobj ) iHitObj = (int)dwObj;
+		if ( iHitObj != 0 )
+		{
+			fHitX = fOutX; fHitY = fOutY; fHitZ = fOutZ;
+			fNX = fOutNX; fNY = fOutNY; fNZ = fOutNZ;
+			extern int g_iWickedCallRayLimbHit;
+			if ( iHitObj > 0 ) iLimb = g_iWickedCallRayLimbHit;
+		}
+		if ( iHitObj > 0 )
+		{
+			for ( int e = 1; e <= g.entityelementlist; e++ )
+			{
+				if ( t.entityelement[e].obj == iHitObj ) { iHitE = e; break; }
+			}
+		}
+	}
+
+	lua_pushinteger(L, iHitObj);
+	lua_pushinteger(L, iHitE);
+	lua_pushnumber(L, fHitX);
+	lua_pushnumber(L, fHitY);
+	lua_pushnumber(L, fHitZ);
+	lua_pushnumber(L, fNX);
+	lua_pushnumber(L, fNY);
+	lua_pushnumber(L, fNZ);
+	lua_pushinteger(L, iLimb);
+	return 9;
+}
+
+int RayRegionEnd ( lua_State* L )
+{
+	WickedCall_EndRegionRays();
+	return 0;
+}
+
+// QuatToEuler and EulerToQuat work in radians and turn pitch and roll the opposite way to the engine's angles (they
+// agree with each other). AnglesToQuat and QuatToAngles use the engine's own: degrees, rotated X then Y then Z, as
+// SetRotation and GetEntityAngleX/Y/Z and every object, with quaternions as QuatMultiply and QuatSLERP take them
+int AnglesToQuat ( lua_State *L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 3 ) return 0;
+	GGMATRIX matRotateX, matRotateY, matRotateZ;
+	GGMatrixRotationX( &matRotateX, GGToRadian( lua_tonumber( L, 1 ) ) );
+	GGMatrixRotationY( &matRotateY, GGToRadian( lua_tonumber( L, 2 ) ) );
+	GGMatrixRotationZ( &matRotateZ, GGToRadian( lua_tonumber( L, 3 ) ) );
+	GGMATRIX m = matRotateX * matRotateY * matRotateZ;
+
+	// the quaternion GGMatrixRotationQuaternion turns back into this matrix
+	float x, y, z, w;
+	float fTrace = m._11 + m._22 + m._33;
+	if ( fTrace > 0.0f )
+	{
+		float s = sqrtf( fTrace + 1.0f ) * 2.0f;
+		w = 0.25f * s; x = ( m._23 - m._32 ) / s; y = ( m._31 - m._13 ) / s; z = ( m._12 - m._21 ) / s;
+	}
+	else if ( m._11 > m._22 && m._11 > m._33 )
+	{
+		float s = sqrtf( 1.0f + m._11 - m._22 - m._33 ) * 2.0f;
+		w = ( m._23 - m._32 ) / s; x = 0.25f * s; y = ( m._12 + m._21 ) / s; z = ( m._31 + m._13 ) / s;
+	}
+	else if ( m._22 > m._33 )
+	{
+		float s = sqrtf( 1.0f + m._22 - m._11 - m._33 ) * 2.0f;
+		w = ( m._31 - m._13 ) / s; x = ( m._12 + m._21 ) / s; y = 0.25f * s; z = ( m._23 + m._32 ) / s;
+	}
+	else
+	{
+		float s = sqrtf( 1.0f + m._33 - m._11 - m._22 ) * 2.0f;
+		w = ( m._12 - m._21 ) / s; x = ( m._31 + m._13 ) / s; y = ( m._23 + m._32 ) / s; z = 0.25f * s;
+	}
+	lua_pushnumber( L, x );
+	lua_pushnumber( L, y );
+	lua_pushnumber( L, z );
+	lua_pushnumber( L, w );
+	return 4;
+}
+
+int QuatToAngles ( lua_State *L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 4 ) return 0;
+	GGQUATERNION q( lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4) );
+	float fLength = sqrtf( q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w );
+	if ( fLength > 0.0f ) { q.x /= fLength; q.y /= fLength; q.z /= fLength; q.w /= fLength; }
+	GGMATRIX matRotation;
+	GGMatrixRotationQuaternion( &matRotation, &q );
+	// the engine's matrix to angles, as an object's free rotation is turned back into its angles
+	extern void AnglesFromMatrix( GGMATRIX* pmatMatrix, GGVECTOR3* pVecAngles );
+	GGVECTOR3 vecAngles = GGVECTOR3( 0, 0, 0 );
+	AnglesFromMatrix( &matRotation, &vecAngles );
+	lua_pushnumber( L, vecAngles.x );
+	lua_pushnumber( L, vecAngles.y );
+	lua_pushnumber( L, vecAngles.z );
+	return 3;
+}
+
+// GetEntityLOD(e): lod, levels: the LOD the entity draws at now, 0 (full detail) to 3, and how many LOD levels its model
+// has past full detail (0 without a _lod.dbo, and then lod is always 0); the renderer picks it each frame by distance
+int GetEntityLOD ( lua_State *L )
+{
+	int iLOD = 0, iLevels = 0;
+	int n = LUA_GETTOP(L);
+	if ( n >= 1 )
+	{
+		int e = lua_tointeger(L, 1);
+		if ( LuaEntityIDValid(L, e, 1) )
+		{
+			int iObj = t.entityelement[e].obj;
+			if ( iObj > 0 && ObjectExist(iObj) == 1 ) WickedCall_GetObjectLOD(GetObjectData(iObj), &iLOD, &iLevels);
+		}
+	}
+	lua_pushinteger(L, iLOD);
+	lua_pushinteger(L, iLevels);
+	return 2;
+}
+
+// SetRagdollCreatesPerFrame(n): at most n deaths start (a ragdoll made, about a millisecond each, or a death animation)
+// in a frame, the nearest the player first, the rest a frame or two later, their forces kept; 0 no limit. 3 at each
+// level start
+int SetRagdollCreatesPerFrame ( lua_State *L )
+{
+	if ( LUA_GETTOP(L) < 1 ) return 0;
+	extern int g_iRagdollCreatesPerFrame;
+	g_iRagdollCreatesPerFrame = (int)lua_tointeger(L, 1);
+	return 0;
+}
+
+int GetRagdollCreatesPerFrame ( lua_State *L )
+{
+	extern int g_iRagdollCreatesPerFrame;
+	lua_pushinteger ( L, g_iRagdollCreatesPerFrame );
+	return 1;
+}
+
+// SetWind(speed [, dirX, dirY, dirZ [, randomness]]): omitted arguments keep their values; ranges as the editor's sliders.
+// Kept in t.gamevisuals like the cloud values, so a test game's wind never reaches the editor. This build's weather wind
+// has no vertical part (as Wicked_Update_Visuals sets the editor's), so dirY is kept for GetWind only
+extern void Wicked_Update_Wind(void* visual);
+extern bool g_bLuaSetWind;
+int SetWind ( lua_State* L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 1 ) return 0;
+	t.gamevisuals.wind_speed = max(0.0f, min(5.0f, (float)lua_tonumber(L, 1)));
+	if ( n >= 4 )
+	{
+		t.gamevisuals.wind_direction_x = max(-20.0f, min(20.0f, (float)lua_tonumber(L, 2)));
+		t.gamevisuals.wind_direction_y = max(-20.0f, min(20.0f, (float)lua_tonumber(L, 3)));
+		t.gamevisuals.wind_direction_z = max(-20.0f, min(20.0f, (float)lua_tonumber(L, 4)));
+	}
+	if ( n >= 5 ) t.gamevisuals.wind_randomness = max(0.0f, min(2.0f, (float)lua_tonumber(L, 5)));
+	Wicked_Update_Wind((void*)&t.gamevisuals);
+	g_bLuaSetWind = true;
+	return 0;
+}
+
+// GetTextureSource(kind, index [, part]): path, changed for the file a vegetation or terrain texture was last loaded from.
+// On this build the Wicked material loaders (terrain, grass, tree trunks and leaves) read the install's file as it is, so
+// changed is never 2 for them; the far tree billboards still load through GG_GetRealPath
+int GetTextureSource ( lua_State* L )
+{
+	int n = LUA_GETTOP(L);
+	if ( n < 2 ) return 0;
+	const char* pKind = lua_tostring(L, 1);
+	int iIndex = (int)lua_tointeger(L, 2);
+	const char* pPart = ( n >= 3 ) ? lua_tostring(L, 3) : NULL;
+	if ( !pKind ) return 0;
+	const char* pPath = NULL;
+	int iChanged = 0;
+	if ( stricmp(pKind, "grass") == 0 )
+	{
+		pPath = GGGrass::GGGrass_GetTextureSource(iIndex, &iChanged);
+	}
+	else if ( stricmp(pKind, "tree") == 0 )
+	{
+		int iPart = 0;
+		if ( pPart )
+		{
+			if ( stricmp(pPart, "billboard") == 0 ) iPart = 0;
+			else if ( stricmp(pPart, "billboardnormal") == 0 ) iPart = 1;
+			else if ( stricmp(pPart, "trunk") == 0 ) iPart = 2;
+			else if ( stricmp(pPart, "leaves") == 0 ) iPart = 3;
+			else return 0;
+		}
+		pPath = GGTrees::GGTrees_GetTextureSource(iIndex, iPart, &iChanged);
+	}
+	else if ( stricmp(pKind, "terrain") == 0 )
+	{
+		int iPart = 0;
+		if ( pPart )
+		{
+			if ( stricmp(pPart, "color") == 0 ) iPart = 0;
+			else if ( stricmp(pPart, "normal") == 0 ) iPart = 1;
+			else if ( stricmp(pPart, "surface") == 0 ) iPart = 2;
+			else return 0;
+		}
+		pPath = GGTerrain::GGTerrain_GetTextureSource(iIndex, iPart, &iChanged);
+	}
+	if ( !pPath ) return 0;
+	lua_pushstring(L, pPath);
+	lua_pushinteger(L, iChanged);
+	return 2;
 }
 
 int GetEntityLimbCount ( lua_State* L )
@@ -2777,6 +3098,23 @@ void addFunctions_hiredgun()
 	lua_register(lua2, "GetTAA", GetTAA);
 	lua_register(lua2, "SetUpscaler", SetUpscaler);
 	lua_register(lua2, "GetUpscaler", GetUpscaler);
+	lua_register(lua2, "SetEntityLimbRotation", SetEntityLimbRotation);
+	lua_register(lua2, "GetEntityLimbRotation", GetEntityLimbRotation);
+	lua_register(lua2, "SetEntityLimbOffset", SetEntityLimbOffset);
+	lua_register(lua2, "GetEntityLimbOffset", GetEntityLimbOffset);
+	lua_register(lua2, "SetEntityLimbPivot", SetEntityLimbPivot);
+	lua_register(lua2, "GetEntityLimbPivot", GetEntityLimbPivot);
+	lua_register(lua2, "GetIntersectCollisionLimb", GetIntersectCollisionLimb);
+	lua_register(lua2, "RayRegionBegin", RayRegionBegin);
+	lua_register(lua2, "RayRegion", RayRegion);
+	lua_register(lua2, "RayRegionEnd", RayRegionEnd);
+	lua_register(lua2, "AnglesToQuat", AnglesToQuat);
+	lua_register(lua2, "QuatToAngles", QuatToAngles);
+	lua_register(lua2, "GetEntityLOD", GetEntityLOD);
+	lua_register(lua2, "SetRagdollCreatesPerFrame", SetRagdollCreatesPerFrame);
+	lua_register(lua2, "GetRagdollCreatesPerFrame", GetRagdollCreatesPerFrame);
+	lua_register(lua2, "SetWind", SetWind);
+	lua_register(lua2, "GetTextureSource", GetTextureSource);
 }
 
 // the main Lua state's heap in KB (lua_loop_allentities' per-entity costs, M-LUA.cpp); this branch's state is lua2

@@ -1025,14 +1025,14 @@ void GGTrees_EnsureBillboardAtlases()
 		{
 			strcpy_s( path, "treebank/billboards/" );   // GG_GetRealPath already prepends Files/
 			strcat_s( path, g_GGTrees[ i ].billboardFilename );
-			if ( GGTrees_LoadTextureDDSIntoSliceCmd( path, &texTree, sl, upcmd ) ) g_ftAtlasSlices++;
+			if ( GGTrees_LoadTextureDDSIntoSliceCmd( path, &texTree, sl, upcmd ) ) { g_ftAtlasSlices++; GGTrees_RecordTextureSource( i, 0, path, true ); }
 			else if ( g_ftAtlasFailName[0] == 0 ) strcpy_s( g_ftAtlasFailName, path );
 		}
 		if ( g_GGTrees[ i ].billboardNormalFilename && g_GGTrees[ i ].billboardNormalFilename[ 0 ] )
 		{
 			strcpy_s( path, "treebank/billboards/" );
 			strcat_s( path, g_GGTrees[ i ].billboardNormalFilename );
-			GGTrees_LoadTextureDDSIntoSliceCmd( path, &texTreeNormal, sl, upcmd );
+			if ( GGTrees_LoadTextureDDSIntoSliceCmd( path, &texTreeNormal, sl, upcmd ) ) GGTrees_RecordTextureSource( i, 1, path, true );
 		}
 	}
 	g_ftAtlasesReady = true;   // GGMAX 2.97: only now is it safe for a draw to bind these
@@ -1150,6 +1150,23 @@ void GGTrees_LoadTextureDDSIntoSlice( const char* filename, Texture* tex, uint32
 	if ( tex == nullptr || !tex->IsValid() ) return;
 	CommandList cmd = wiGraphics::GetDevice()->BeginCommandList();
 	::GG_LoadDDSIntoTextureSlice( filename, tex, arraySlice, cmd );
+}
+
+// where each type's billboard, billboard normal, trunk and leaves textures were last loaded from (GetTextureSource)
+GGTerrain::GGTextureSource ggtrees_textureSource[ 4 ][ 256 ];
+
+void GGTrees_RecordTextureSource( int type, int kind, const char* path, bool bRedirected )
+{
+	if ( type < 0 || type >= 256 || kind < 0 || kind > 3 || !path ) return;
+	GGTerrain::GGTerrain_RecordTextureSource( &ggtrees_textureSource[ kind ][ type ], path, bRedirected );
+}
+
+const char* GGTrees_GetTextureSource( int type, int kind, int* pChanged )
+{
+	*pChanged = 0;
+	if ( type < 0 || type >= (int)numTreeTypes || type >= 256 || kind < 0 || kind > 3 ) return 0;
+	*pChanged = GGTerrain::GGTerrain_CheckTextureSource( &ggtrees_textureSource[ kind ][ type ] );
+	return ggtrees_textureSource[ kind ][ type ].loaded.c_str();
 }
 
 TreeChunk* GGTrees_GetChunk( float x, float z )

@@ -648,8 +648,10 @@ struct sFramePosition
 	GGVECTOR3						vecDirection;								// realtime update
 	bool							bVectorsCalculated;							// realtime update flag
 
+	// rotation and scale centre in frame space, 0,0,0 = frame origin (was vecReservedFP1, so the layout is unchanged)
+	GGVECTOR3						vecPivot;
+
 	// reserved members
-	GGVECTOR3						vecReservedFP1;								// reserved - maintain plugin compat.
 	GGVECTOR3						vecReservedFP2;								// reserved - maintain plugin compat.
 	GGVECTOR3						vecReservedFP3;								// reserved - maintain plugin compat.
 };

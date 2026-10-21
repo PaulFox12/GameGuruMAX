@@ -289,15 +289,7 @@ sObject* CObjectManager::FindObjectFromWickedObjectEntityID ( uint64_t iWickedEn
 				{
 					if (pFrame->wickedobjindex == iWickedEntityID)
 					{
-						extern bool bImGuiInTestGame;
-						if (bImGuiInTestGame)
-						{
-							//PE: Keep the list small, its not really Important as normally you would read it just after a intersect call.
-							//PE: But as we also get here from threads a small list is needed.
-							if (lastHitFrame.size() > 100)
-								lastHitFrame.clear();
-							lastHitFrame[iObjectID] = pFrame;
-						}
+						// lastHitFrame is written by WickedCall_SentRay4 on the main thread only: this also runs on pick threads
 						return pObject;
 					}
 				}

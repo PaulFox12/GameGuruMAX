@@ -268,6 +268,23 @@ uint32_t GGGrass_GetNumTypes()
 	return GGGRASS_NUM_TYPES;
 }
 
+// where each grass type's Wicked material loaded its texture from (GetTextureSource); made when a type is first drawn
+GGTerrain::GGTextureSource gggrass_textureSource[ GGGRASS_TOTAL_REAL_TYPES ];
+
+void GGGrass_RecordTextureSource( uint32_t typeIdx, const char* path )
+{
+	if ( typeIdx >= GGGRASS_TOTAL_REAL_TYPES || !path ) return;
+	GGTerrain::GGTerrain_RecordTextureSource( &gggrass_textureSource[ typeIdx ], path, false );
+}
+
+const char* GGGrass_GetTextureSource( int slice, int* pChanged )
+{
+	*pChanged = 0;
+	if ( slice < 0 || slice >= GGGRASS_TOTAL_REAL_TYPES ) return 0;
+	*pChanged = GGTerrain::GGTerrain_CheckTextureSource( &gggrass_textureSource[ slice ] );
+	return gggrass_textureSource[ slice ].loaded.c_str();
+}
+
 const GrassTypeInfo* GGGrass_GetTypeInfo( uint32_t typeIdx )
 {
 	if ( typeIdx >= GGGRASS_NUM_TYPES ) return nullptr;

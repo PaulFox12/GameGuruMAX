@@ -1476,6 +1476,9 @@ void mapeditorexecutable_loop_leavetestgame(void)
 	LuaPostEffects_Clear(&t.visuals);
 	extern void LuaRenderSettings_Clear(void);
 	LuaRenderSettings_Clear();
+	// a script's wind is gone with t.gamevisuals; stop applying it again
+	extern void LuaGameVisuals_Clear(void);
+	LuaGameVisuals_Clear();
 	iLastUpdateVeg = 0; //Veg: update any changes from F9
 	bUpdateVeg = true;
 

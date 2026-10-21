@@ -391,6 +391,26 @@ void GGTerrain_LoadDefaultTextureIntoSlot(int i, char* rootDir, wiGraphics::Comm
 
 void GGTerrain_DebugOutputFlattenedAreas(void);
 void GGTerrain_CheckMaterialUsed(wiGraphics::CommandList cmd);
+
+// where a texture was last uploaded from (GetTextureSource): the file asked for, made absolute, the file it resolved to
+// and that file's write time then. bRedirected: the loader resolves through GG_GetRealPath (a Documents copy ahead of the
+// install's); the Wicked material loaders (terrain, grass, tree trunks and leaves) read the path as it is
+struct GGTextureSource
+{
+	std::string requested;
+	std::string loaded;
+	uint64_t writeTime = 0;
+	bool bRedirected = true;
+};
+void GGTerrain_RecordTextureSource( GGTextureSource* pSource, const char* requested, bool bRedirected );
+// 0 the same file would load now, unchanged; 1 it was written since; 2 another file would load now (a Documents copy
+// added or removed); 3 it is gone
+int GGTerrain_CheckTextureSource( const GGTextureSource* pSource );
+// a terrain material slot's texture as the Wicked terrain loads it (kind 0 color, 1 normal, 2 surface)
+void GGTerrain_RecordSlotTextureSource( int slot, int kind, const char* path );
+// the file a terrain slot (0 to 31) was last uploaded from, kind 0 color, 1 normal, 2 surface: "" none, 0 a bad slot or
+// kind; *pChanged as GGTerrain_CheckTextureSource
+const char* GGTerrain_GetTextureSource( int slot, int kind, int* pChanged );
 } // namespace GGTerrain
 
 #endif // _H_GGTERRAIN

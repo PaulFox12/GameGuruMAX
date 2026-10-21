@@ -184,6 +184,8 @@ namespace GGGrass
 	};
 	uint32_t GGGrass_GetNumTypes();                            // 46
 	const GrassTypeInfo* GGGrass_GetTypeInfo( uint32_t typeIdx ); // nullptr if out of range
+	void GGGrass_RecordTextureSource( uint32_t typeIdx, const char* path ); // the file the Wicked grass material of a type loads
+	const char* GGGrass_GetTextureSource( int slice, int* pChanged ); // the file a grass type was last loaded from, "" none, 0 a bad type; *pChanged as GGTerrain_CheckTextureSource
 
 	// Wicked terrain tells us its chunk world-stride (chunk_width-1 * chunk_scale) so we can bucket
 	// painted cells directly into chunk keys. Must be called before any paint event for the keys to
