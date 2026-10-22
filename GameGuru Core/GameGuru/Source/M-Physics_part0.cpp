@@ -178,6 +178,7 @@ void physics_init ( void )
 	t.tgenerateterraindirtyregiononly=0;
 
 	// MAX also has virtual trees that need physics
+	timestampactivity(0, "physics: virtual tree cylinders");
 	physics_createvirtualtreecylinders();
 
 	//  Player Controller Object
@@ -195,6 +196,7 @@ void physics_init ( void )
 	t.playercontrol.lockatheightpress=0;
 
 	//  Setup entity physics
+	timestampactivity(0, "physics: prepare entities");
 	for ( t.e = 1 ; t.e<=  g.entityelementlist; t.e++ )
 	{
 		t.entid=t.entityelement[t.e].bankindex;
