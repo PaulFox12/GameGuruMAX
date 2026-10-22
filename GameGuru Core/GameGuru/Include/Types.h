@@ -3904,6 +3904,19 @@ struct visualstype
 	float fsetBloomStrength;
 	float fsetBloomRadius; // wider bloom halos, 0 none
 	float fsetBloomCap; // the brightest a pixel counts for in the bloom, 30 as the DX11 build
+	float fLensFlareSunHue; // how far the sun's flare takes its colour, 0 white to 1
+	float fLensFlareSunBrightness; // how far it follows the sun's intensity against the level's, 0 none to 1
+	// the screen-space lens flare from the image's bright spots (off by default), its strength, its own threshold, the gap
+	// between its ghosts, its halo's radius, the sky left out (the sun has its own flare), its cap, and the bloom's
+	// threshold and cap in place of its own
+	bool bScreenLensFlare;
+	float fScreenLensFlareIntensity;
+	float fScreenLensFlareThreshold;
+	float fScreenLensFlareSpacing;
+	float fScreenLensFlareHalo;
+	bool bScreenLensFlareNoSky;
+	float fScreenLensFlareCap;
+	bool bScreenLensFlareFollowBloom;
 	bool bSSREnabled;
 	bool bReflectionsEnabled;
 	bool bFXAAEnabled;
@@ -4190,6 +4203,16 @@ struct visualstype
 		 fsetBloomStrength = 1.0f;
 		 fsetBloomRadius = 0.0f;
 		 fsetBloomCap = 30.0f;
+		 fLensFlareSunHue = 1.0f;
+		 fLensFlareSunBrightness = 1.0f;
+		 bScreenLensFlare = false;
+		 fScreenLensFlareIntensity = 0.1f;
+		 fScreenLensFlareThreshold = 4.0f;
+		 fScreenLensFlareSpacing = 0.35f;
+		 fScreenLensFlareHalo = 0.45f;
+		 bScreenLensFlareNoSky = true;
+		 fScreenLensFlareCap = 200.0f;
+		 bScreenLensFlareFollowBloom = true;
 		 bSSREnabled = false;
 		 bReflectionsEnabled = true;
 		 bFXAAEnabled = false;

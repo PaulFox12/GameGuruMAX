@@ -1768,6 +1768,75 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			g.projectmodified = 1;
 		}
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enables lens flare from light cast from the sun");
+		// the sun's flare takes its colour and follows its intensity
+		if (t.visuals.bLensFlare)
+		{
+			if (ImGui::SliderFloat("##LensFlareSunHue", &t.visuals.fLensFlareSunHue, 0.0f, 1.0f, "Sun Colour %.2f", 1.0f))
+			{
+				t.gamevisuals.fLensFlareSunHue = t.visuals.fLensFlareSunHue;
+				wiRenderer::SetLensFlareLightColour(t.visuals.fLensFlareSunHue, t.visuals.fLensFlareSunBrightness);
+				g.projectmodified = 1;
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How far the lens flare takes the sun's colour (0 the flare images' own colour)");
+			if (ImGui::SliderFloat("##LensFlareSunBrightness", &t.visuals.fLensFlareSunBrightness, 0.0f, 1.0f, "Sun Intensity %.2f", 1.0f))
+			{
+				t.gamevisuals.fLensFlareSunBrightness = t.visuals.fLensFlareSunBrightness;
+				wiRenderer::SetLensFlareLightColour(t.visuals.fLensFlareSunHue, t.visuals.fLensFlareSunBrightness);
+				g.projectmodified = 1;
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How far the lens flare dims and brightens with the sun's intensity against the level's (0 constant)");
+		}
+		// the screen-space lens flare from the image's bright spots
+		if (ImGui::Checkbox("Screen Lens Flare##setScreenLensFlare", &t.visuals.bScreenLensFlare))
+		{
+			t.gamevisuals.bScreenLensFlare = t.visuals.bScreenLensFlare;
+			if (master_renderer) master_renderer->setScreenLensFlareEnabled(t.visuals.bScreenLensFlare);
+			g.projectmodified = 1;
+		}
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lens flare ghosts and a halo from any very bright spot on screen: missiles, explosions, fire");
+		if (t.visuals.bScreenLensFlare)
+		{
+			bool bChanged = false;
+			if (ImGui::SliderFloat("##ScreenLensFlareIntensity", &t.visuals.fScreenLensFlareIntensity, 0.0f, 10.0f, "Strength %.3f", 3.0f)) bChanged = true;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How strong the screen lens flare is");
+			if (ImGui::Checkbox("Follow Bloom##ScreenLensFlareFollowBloom", &t.visuals.bScreenLensFlareFollowBloom)) bChanged = true;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Use the bloom's threshold and cap, so what blooms also flares; off gives the flare its own");
+			if (!t.visuals.bScreenLensFlareFollowBloom)
+			{
+				if (ImGui::SliderFloat("##ScreenLensFlareThreshold", &t.visuals.fScreenLensFlareThreshold, 0.1f, 10000.0f, "Threshold %.2f", 4.0f)) bChanged = true;
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("How bright a spot must be to flare (its own, apart from the bloom's); keep it below the cap");
+				if (ImGui::SliderFloat("##ScreenLensFlareCap", &t.visuals.fScreenLensFlareCap, 1.0f, 10000.0f, "Cap %.0f", 4.0f)) bChanged = true;
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("The brightest a pixel counts for in the flare, before the threshold is taken off; raise it so the brightest spots (missiles) stand out from lamps");
+				if (t.visuals.fScreenLensFlareCap <= t.visuals.fScreenLensFlareThreshold) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Cap at or below the threshold: nothing flares");
+			}
+			if (ImGui::SliderFloat("##ScreenLensFlareSpacing", &t.visuals.fScreenLensFlareSpacing, 0.0f, 1.0f, "Ghost Spacing %.2f", 1.0f)) bChanged = true;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The gap between the flare's ghosts along the line through the centre of the screen");
+			if (ImGui::SliderFloat("##ScreenLensFlareHalo", &t.visuals.fScreenLensFlareHalo, 0.0f, 1.0f, "Halo Radius %.2f", 1.0f)) bChanged = true;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The radius of the flare's halo ring");
+			if (ImGui::Checkbox("Leave Out The Sky##ScreenLensFlareNoSky", &t.visuals.bScreenLensFlareNoSky)) bChanged = true;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The sky doesn't flare here, as the sun has its own flare above");
+			if (bChanged)
+			{
+				t.gamevisuals.fScreenLensFlareIntensity = t.visuals.fScreenLensFlareIntensity;
+				t.gamevisuals.fScreenLensFlareThreshold = t.visuals.fScreenLensFlareThreshold;
+				t.gamevisuals.fScreenLensFlareSpacing = t.visuals.fScreenLensFlareSpacing;
+				t.gamevisuals.fScreenLensFlareHalo = t.visuals.fScreenLensFlareHalo;
+				t.gamevisuals.bScreenLensFlareNoSky = t.visuals.bScreenLensFlareNoSky;
+				t.gamevisuals.fScreenLensFlareCap = t.visuals.fScreenLensFlareCap;
+				t.gamevisuals.bScreenLensFlareFollowBloom = t.visuals.bScreenLensFlareFollowBloom;
+				if (master_renderer)
+				{
+					master_renderer->setScreenLensFlareIntensity(t.visuals.fScreenLensFlareIntensity);
+					master_renderer->setScreenLensFlareThreshold(t.visuals.fScreenLensFlareThreshold);
+					master_renderer->setScreenLensFlareSpacing(t.visuals.fScreenLensFlareSpacing);
+					master_renderer->setScreenLensFlareHalo(t.visuals.fScreenLensFlareHalo);
+					master_renderer->setScreenLensFlareNoSky(t.visuals.bScreenLensFlareNoSky);
+					master_renderer->setScreenLensFlareCap(t.visuals.fScreenLensFlareCap);
+					master_renderer->setScreenLensFlareFollowBloom(t.visuals.bScreenLensFlareFollowBloom);
+				}
+				g.projectmodified = 1;
+			}
+		}
 		ImGui::PopItemWidth();
 
 		ImGui::PushItemWidth(-10);

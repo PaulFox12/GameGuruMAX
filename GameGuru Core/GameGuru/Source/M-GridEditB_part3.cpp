@@ -1497,6 +1497,7 @@ void Wicked_Update_LightColors(void* visual)
 		weather->zenith.z = visuals->ZenithBlue_f / 255.0f;
 	}
 	WickedCall_SetSunColors(visuals->SunRed_f / 255.0, visuals->SunGreen_f / 255.0, visuals->SunBlue_f / 255.0, visuals->SunIntensity_f, 1.0f, t.visuals.fSunShadowBias);
+	wiRenderer::SetLensFlareEnergyReference(visuals->SunIntensity_f); // the sun's flare brightness against the level's
 }
 
 void Wicked_Update_Cloud(void* visual)
@@ -1861,6 +1862,7 @@ void Wicked_Update_Visuals(void *voidvisual)
 	}
 
 	WickedCall_SetSunColors(visuals->SunRed_f / 255.0, visuals->SunGreen_f / 255.0, visuals->SunBlue_f / 255.0, visuals->SunIntensity_f, 1.0f, t.visuals.fSunShadowBias);
+	wiRenderer::SetLensFlareEnergyReference(visuals->SunIntensity_f); // the sun's flare brightness against the level's
 	WickedCall_SetSunDirection(visuals->SunAngleX, visuals->SunAngleY, visuals->SunAngleZ);
 
 	if (master_renderer) 
@@ -2006,6 +2008,15 @@ void Wicked_Update_Visuals(void *voidvisual)
 		master_renderer->setLightShaftsStrength(0.18f);
 
 		master_renderer->setLensFlareEnabled(visuals->bLensFlare);
+		wiRenderer::SetLensFlareLightColour(visuals->fLensFlareSunHue, visuals->fLensFlareSunBrightness);
+		master_renderer->setScreenLensFlareEnabled(visuals->bScreenLensFlare);
+		master_renderer->setScreenLensFlareIntensity(visuals->fScreenLensFlareIntensity);
+		master_renderer->setScreenLensFlareThreshold(visuals->fScreenLensFlareThreshold);
+		master_renderer->setScreenLensFlareSpacing(visuals->fScreenLensFlareSpacing);
+		master_renderer->setScreenLensFlareHalo(visuals->fScreenLensFlareHalo);
+		master_renderer->setScreenLensFlareNoSky(visuals->bScreenLensFlareNoSky);
+		master_renderer->setScreenLensFlareCap(visuals->fScreenLensFlareCap);
+		master_renderer->setScreenLensFlareFollowBloom(visuals->bScreenLensFlareFollowBloom);
 		
 		if (old_iMSAASampleCount != visuals->iMSAASampleCount) {
 			//PE: Will also resize buffers , so only when needed.

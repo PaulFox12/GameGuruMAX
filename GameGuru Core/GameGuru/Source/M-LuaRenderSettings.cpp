@@ -1,8 +1,8 @@
 //
 // the render settings and post effects a game script sets (SetReflections, SetAO, SetShadowResolution, SetBloom and the
 // rest), kept apart from the level's visuals and applied again after every visuals push, from the DX11 branch. On this
-// engine the sun lens flare colour, the screen lens flare, the sun cascade count and splits and the shadow job wait have
-// no counterpart: their values are kept and reported, nothing is applied
+// engine the sun cascade count and splits and the shadow job wait have no counterpart: their values are kept and
+// reported, nothing is applied
 //
 #include "stdafx.h"
 #include "gameguru.h"
@@ -75,6 +75,19 @@ void LuaPostEffects_Apply(void)
 	}
 	if (p->iLightShafts >= 0) master_renderer->setLightShaftsEnabled(p->iLightShafts != 0);
 	if (p->iLensFlare >= 0) master_renderer->setLensFlareEnabled(p->iLensFlare != 0);
+	if (p->fLensFlareSunHue >= 0 || p->fLensFlareSunBrightness >= 0)
+	{
+		wiRenderer::SetLensFlareLightColour(p->fLensFlareSunHue >= 0 ? p->fLensFlareSunHue : wiRenderer::GetLensFlareLightHue(),
+			p->fLensFlareSunBrightness >= 0 ? p->fLensFlareSunBrightness : wiRenderer::GetLensFlareLightBrightness());
+	}
+	if (p->iScreenLensFlare >= 0) master_renderer->setScreenLensFlareEnabled(p->iScreenLensFlare != 0);
+	if (p->fScreenLensFlareIntensity >= 0) master_renderer->setScreenLensFlareIntensity(p->fScreenLensFlareIntensity);
+	if (p->fScreenLensFlareThreshold >= 0) master_renderer->setScreenLensFlareThreshold(p->fScreenLensFlareThreshold);
+	if (p->fScreenLensFlareSpacing >= 0) master_renderer->setScreenLensFlareSpacing(p->fScreenLensFlareSpacing);
+	if (p->fScreenLensFlareHalo >= 0) master_renderer->setScreenLensFlareHalo(p->fScreenLensFlareHalo);
+	if (p->iScreenLensFlareNoSky >= 0) master_renderer->setScreenLensFlareNoSky(p->iScreenLensFlareNoSky != 0);
+	if (p->fScreenLensFlareCap >= 0) master_renderer->setScreenLensFlareCap(p->fScreenLensFlareCap);
+	if (p->iScreenLensFlareFollowBloom >= 0) master_renderer->setScreenLensFlareFollowBloom(p->iScreenLensFlareFollowBloom != 0);
 }
 
 // values below 0 keep the current setting; ranges as the editor's sliders
@@ -139,23 +152,20 @@ void LuaPostEffects_SetScreenLensFlare(int iEnabled, float fIntensity, float fTh
 
 void LuaPostEffects_GetScreenLensFlare(int* piEnabled, float* pfIntensity, float* pfThreshold, float* pfSpacing, float* pfHalo, int* piNoSky, float* pfCap, int* piFollowBloom)
 {
-	// this engine has no screen-space lens flare: the values a script set, else 0
-	const sLuaPostEffects* p = &g_LuaPostEffects;
-	*piEnabled = p->iScreenLensFlare > 0 ? 1 : 0;
-	*pfIntensity = p->fScreenLensFlareIntensity >= 0 ? p->fScreenLensFlareIntensity : 0;
-	*pfThreshold = p->fScreenLensFlareThreshold >= 0 ? p->fScreenLensFlareThreshold : 0;
-	*pfSpacing = p->fScreenLensFlareSpacing >= 0 ? p->fScreenLensFlareSpacing : 0;
-	*pfHalo = p->fScreenLensFlareHalo >= 0 ? p->fScreenLensFlareHalo : 0;
-	*piNoSky = p->iScreenLensFlareNoSky > 0 ? 1 : 0;
-	*pfCap = p->fScreenLensFlareCap >= 0 ? p->fScreenLensFlareCap : 0;
-	*piFollowBloom = p->iScreenLensFlareFollowBloom > 0 ? 1 : 0;
+	*piEnabled = (master_renderer && master_renderer->getScreenLensFlareEnabled()) ? 1 : 0;
+	*pfIntensity = master_renderer ? master_renderer->getScreenLensFlareIntensity() : 0;
+	*pfThreshold = master_renderer ? master_renderer->getScreenLensFlareThreshold() : 0;
+	*pfSpacing = master_renderer ? master_renderer->getScreenLensFlareSpacing() : 0;
+	*pfHalo = master_renderer ? master_renderer->getScreenLensFlareHalo() : 0;
+	*piNoSky = (master_renderer && master_renderer->getScreenLensFlareNoSky()) ? 1 : 0;
+	*pfCap = master_renderer ? master_renderer->getScreenLensFlareCap() : 0;
+	*piFollowBloom = (master_renderer && master_renderer->getScreenLensFlareFollowBloom()) ? 1 : 0;
 }
 
 void LuaPostEffects_GetLensFlareSun(float* pfSunHue, float* pfSunBrightness)
 {
-	// this engine's lens flare takes the light's own colour: the values a script set, else 0
-	*pfSunHue = g_LuaPostEffects.fLensFlareSunHue >= 0 ? g_LuaPostEffects.fLensFlareSunHue : 0;
-	*pfSunBrightness = g_LuaPostEffects.fLensFlareSunBrightness >= 0 ? g_LuaPostEffects.fLensFlareSunBrightness : 0;
+	*pfSunHue = wiRenderer::GetLensFlareLightHue();
+	*pfSunBrightness = wiRenderer::GetLensFlareLightBrightness();
 }
 void LuaPostEffects_SetLensFlare(int iEnabled, float fSunHue, float fSunBrightness)
 {
@@ -193,8 +203,17 @@ void LuaPostEffects_Clear(void* pVisualsToRestore)
 	}
 	if (old.iLightShafts >= 0) master_renderer->setLightShaftsEnabled(visuals->bLightShafts);
 	if (old.iLensFlare >= 0) master_renderer->setLensFlareEnabled(visuals->bLensFlare);
+	if (old.fLensFlareSunHue >= 0 || old.fLensFlareSunBrightness >= 0) wiRenderer::SetLensFlareLightColour(visuals->fLensFlareSunHue, visuals->fLensFlareSunBrightness);
 	if (old.iScreenLensFlare >= 0 || old.fScreenLensFlareIntensity >= 0 || old.fScreenLensFlareThreshold >= 0 || old.fScreenLensFlareSpacing >= 0 || old.fScreenLensFlareHalo >= 0 || old.iScreenLensFlareNoSky >= 0 || old.fScreenLensFlareCap >= 0 || old.iScreenLensFlareFollowBloom >= 0)
 	{
+		master_renderer->setScreenLensFlareEnabled(visuals->bScreenLensFlare);
+		master_renderer->setScreenLensFlareIntensity(visuals->fScreenLensFlareIntensity);
+		master_renderer->setScreenLensFlareThreshold(visuals->fScreenLensFlareThreshold);
+		master_renderer->setScreenLensFlareSpacing(visuals->fScreenLensFlareSpacing);
+		master_renderer->setScreenLensFlareHalo(visuals->fScreenLensFlareHalo);
+		master_renderer->setScreenLensFlareNoSky(visuals->bScreenLensFlareNoSky);
+		master_renderer->setScreenLensFlareCap(visuals->fScreenLensFlareCap);
+		master_renderer->setScreenLensFlareFollowBloom(visuals->bScreenLensFlareFollowBloom);
 	}
 }
 
