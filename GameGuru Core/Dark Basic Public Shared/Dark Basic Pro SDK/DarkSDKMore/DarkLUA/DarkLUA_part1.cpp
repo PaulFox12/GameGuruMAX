@@ -1143,7 +1143,7 @@
 				 {
 					 t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
 				 }
-				 // the frame's own scene update applies the removal: a full Scene::Update for each deleted object cost 15-23 ms (as the gun's deletes already skip it)
+				 // the frame's own scene update applies the removal: a full Scene::Update for each deleted object cost about 5 ms on Outdoors (as the gun's deletes already skip it)
 				 extern bool bBlockSceneUpdate;
 				 bBlockSceneUpdate = true;
 				 entity_deleteentityfrommap();
@@ -1205,7 +1205,7 @@
 			 {
 				 t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
 			 }
-			 // the frame's own scene update applies the removal: a full Scene::Update for each deleted object cost 15-23 ms (as the gun's deletes already skip it)
+			 // the frame's own scene update applies the removal: a full Scene::Update for each deleted object cost about 5 ms on Outdoors (as the gun's deletes already skip it)
 			 extern bool bBlockSceneUpdate;
 			 bBlockSceneUpdate = true;
 			 entity_deleteentityfrommap ();
