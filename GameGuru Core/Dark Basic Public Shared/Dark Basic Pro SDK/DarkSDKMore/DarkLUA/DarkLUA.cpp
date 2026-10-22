@@ -3195,7 +3195,11 @@ static int LUA_GETTOP(lua_State* L)
 				 {
 					 t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
 				 }
+				 // the frame's scene update applies the removal, as for the gun's deletes
+				 extern bool bBlockSceneUpdate;
+				 bBlockSceneUpdate = true;
 				 entity_deleteentityfrommap();
+				 bBlockSceneUpdate = false;
 				 t.entityelement[t.tentitytoselect].iWasSpawnedInGame = 0;
 				 if (t.entityelement[t.tentitytoselect].ragdollified == 1)
 				 {
@@ -3252,7 +3256,11 @@ static int LUA_GETTOP(lua_State* L)
 			 {
 				 t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
 			 }
+			 // the frame's scene update applies the removal, as for the gun's deletes
+			 extern bool bBlockSceneUpdate;
+			 bBlockSceneUpdate = true;
 			 entity_deleteentityfrommap ();
+			 bBlockSceneUpdate = false;
 			 t.entityelement[t.tentitytoselect].iWasSpawnedInGame = 0;
 			 if (t.entityelement[t.tentitytoselect].ragdollified == 1)
 			 {
