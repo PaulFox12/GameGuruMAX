@@ -463,6 +463,32 @@ void AutoHarness_CheckForCommand ( void )
 		_snprintf(result, sizeof(result), "OK: SET_PARTICLESCATTER %.3f", WickedCall_GetParticleScatter());
 		result[sizeof(result) - 1] = 0;
 	}
+	else if ( _stricmp ( cmd, "SET_BLOOM" ) == 0 )
+	{
+		// SET_BLOOM [enabled strength threshold radius cap]: the bloom set on the renderer directly, the level's visuals
+		// untouched (the next visuals push puts them back); a value below 0 keeps the current one, no arguments reads
+		// them (as the DX12 build's verb, whose sixth value, the bloom before the exposure, this build always does)
+		extern MasterRenderer* master_renderer;
+		if ( !master_renderer )
+		{
+			_snprintf(result, sizeof(result), "ERROR: no master_renderer");
+		}
+		else
+		{
+			float v[5] = { -1, -1, -1, -1, -1 };
+			sscanf_s(arg, "%f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4]);
+			if (v[0] >= 0) master_renderer->setBloomEnabled(v[0] != 0);
+			if (v[1] >= 0) master_renderer->setBloomStrength(v[1]);
+			if (v[2] >= 0) master_renderer->setBloomThreshold(v[2]);
+			if (v[3] >= 0) master_renderer->setBloomRadius(v[3]);
+			if (v[4] >= 0) master_renderer->setBloomCap(v[4]);
+			_snprintf(result, sizeof(result), "OK: SET_BLOOM enabled=%d strength=%.3f threshold=%.3f radius=%.3f cap=%.1f beforeexposure=1 exposure=%.4f eyeadaption=%d",
+				master_renderer->getBloomEnabled() ? 1 : 0, master_renderer->getBloomStrength(), master_renderer->getBloomThreshold(),
+				master_renderer->getBloomRadius(), master_renderer->getBloomCap(), master_renderer->getExposure(),
+				master_renderer->getEyeAdaptionEnabled() ? 1 : 0);
+		}
+		result[sizeof(result) - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "GET_PERF_DATA" ) == 0 ) Cmd_GetPerfData ( result, sizeof(result) );
 	else if ( _stricmp ( cmd, "SCREENSHOT" ) == 0 ) Cmd_Screenshot ( result, sizeof(result) );
 	else if ( _stricmp ( cmd, "DUMP_VRAM" ) == 0 ) Cmd_DumpVRAM ( arg, result, sizeof(result) );
