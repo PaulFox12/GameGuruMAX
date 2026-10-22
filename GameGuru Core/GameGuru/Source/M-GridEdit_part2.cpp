@@ -1782,6 +1782,10 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.AmbienceBlue_f = t.gamevisuals.AmbienceBlue_f;
 	t.visuals.fExposure = t.gamevisuals.fExposure;
 
+	// and the camera's field of view: SetPlayerFOV and the zoom setting write only t.visuals, Tab Tab's slider writes both
+	t.visuals.CameraFOV_f = t.gamevisuals.CameraFOV_f;
+	t.visuals.CameraFOVZoomed_f = t.gamevisuals.CameraFOVZoomed_f;
+
 	// and the sky: SetSkyTo writes only t.visuals, which the copy below would carry into the editor and its next save, so
 	// put the editor's back unless a sky was picked in Tab Tab after the script's
 	extern int g_iLuaSkyEditorIndex, g_iLuaSkySetIndex;
