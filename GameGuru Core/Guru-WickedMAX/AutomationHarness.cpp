@@ -280,6 +280,64 @@ static void Cmd_SetCamera ( const char* arg, char* result, int resultSize )
 	result[resultSize - 1] = 0;
 }
 
+// WPE_PREVIEW <.pe path relative to Files> [x y z]: what the editor's Preview checkbox does (LoadWPE, then the emitter
+// actions 1 burst, 4 restart and 5 visible, handed to RenderPreviewEmitter), at x y z or 250 units ahead of the free
+// flight camera, so a screenshot A/B can see it; as the DX12 build's verb. Answers with the sun's direction too
+uint32_t WickedCall_LoadWPE ( char* filename );
+void WickedCall_PerformEmitterAction ( int iAction, uint32_t emitter_root );
+bool WickedCall_ParticleEffectPosition ( uint32_t root, float fX, float fY, float fZ );
+static void Cmd_WPEPreview ( const char* arg, char* result, int resultSize )
+{
+	char pefile[MAX_PATH];
+	strncpy ( pefile, arg ? arg : "", sizeof(pefile) - 1 );
+	pefile[sizeof(pefile) - 1] = 0;
+	// the last three words, when they are numbers, are the position
+	float pos[3] = { 0, 0, 0 };
+	int got = 0;
+	for ( ; got < 3; got++ )
+	{
+		char* pSpace = strrchr ( pefile, ' ' );
+		if ( !pSpace ) break;
+		char* pEnd = NULL;
+		float v = (float)strtod ( pSpace + 1, &pEnd );
+		if ( pEnd == pSpace + 1 || *pEnd != 0 ) break;
+		pos[2 - got] = v;
+		*pSpace = 0;
+	}
+	if ( got != 3 )
+	{
+		float fAngX = GGToRadian ( t.editorfreeflight.c.angx_f ), fAngY = GGToRadian ( t.editorfreeflight.c.angy_f );
+		pos[0] = t.editorfreeflight.c.x_f + sinf ( fAngY ) * cosf ( fAngX ) * 250.0f;
+		pos[1] = t.editorfreeflight.c.y_f - sinf ( fAngX ) * 250.0f;
+		pos[2] = t.editorfreeflight.c.z_f + cosf ( fAngY ) * cosf ( fAngX ) * 250.0f;
+	}
+	uint32_t root = WickedCall_LoadWPE ( pefile );
+	if ( root == 0 )
+	{
+		_snprintf ( result, resultSize, "FAIL: LoadWPE returned 0 for '%s'", pefile );
+	}
+	else
+	{
+		WickedCall_PerformEmitterAction ( 1, root );
+		WickedCall_PerformEmitterAction ( 4, root );
+		WickedCall_PerformEmitterAction ( 5, root );
+		extern uint32_t PreviewWPERoot;
+		extern bool bPreviewWPE;
+		PreviewWPERoot = root;
+		bPreviewWPE = true;
+		WickedCall_ParticleEffectPosition ( root, pos[0], pos[1], pos[2] );
+		// and the sun's direction (towards it), so a check can look through the effect into the sun
+		XMFLOAT3 sun = XMFLOAT3 ( 0, 0, 0 );
+		wiScene::Scene& scene = wiScene::GetScene();
+		for ( size_t i = 0; i < scene.lights.GetCount(); i++ )
+		{
+			if ( scene.lights[i].GetType() == wiScene::LightComponent::DIRECTIONAL ) { sun = scene.lights[i].direction; break; }
+		}
+		_snprintf ( result, resultSize, "OK: root=%u handed to RenderPreviewEmitter, placed at (%.1f,%.1f,%.1f) sun (%.3f,%.3f,%.3f)", root, pos[0], pos[1], pos[2], sun.x, sun.y, sun.z );
+	}
+	result[resultSize - 1] = 0;
+}
+
 namespace wiGraphics { namespace DX11_Internal { void GG_DumpVRAMCensus ( const char* path ); } }
 static void Cmd_DumpVRAM ( const char* arg, char* result, int resultSize )
 {
@@ -386,6 +444,7 @@ void AutoHarness_CheckForCommand ( void )
 	else if ( _stricmp ( cmd, "CLICK" ) == 0 ) Cmd_Click ( arg, result, sizeof(result) );
 	else if ( _stricmp ( cmd, "GET_CAMERA" ) == 0 ) Cmd_GetCamera ( result, sizeof(result) );
 	else if ( _stricmp ( cmd, "SET_CAMERA" ) == 0 ) Cmd_SetCamera ( arg, result, sizeof(result) );
+	else if ( _stricmp ( cmd, "WPE_PREVIEW" ) == 0 ) Cmd_WPEPreview ( arg, result, sizeof(result) );
 	else if ( _stricmp ( cmd, "SET_PARTICLESCATTER" ) == 0 )
 	{
 		// SET_PARTICLESCATTER <strength>: the sun's forward scattering on lit particle layers (as SetParticleScatter), 0 off
