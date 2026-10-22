@@ -19725,6 +19725,39 @@ DARKLUA_API void LuaCallSilent()
 	return a;
  }
 
+ // the harness's RUN_LUA: a chunk run in the game's Lua state, its results as text joined by " | " (as the DX12 build's);
+ // it runs at the harness poll point at the top of GuruLoopLogic, never in the middle of a script
+ DARKLUA_API int RunLuaString ( LPSTR pCode, LPSTR pResultBuf, int iResultSize )
+ {
+	if ( pResultBuf && iResultSize > 0 ) pResultBuf[0] = 0;
+	if ( ppLuaStates == NULL || defaultState > maxLuaStates + 1 || ppLuaStates[defaultState] == NULL )
+	{
+		if ( pResultBuf ) _snprintf ( pResultBuf, iResultSize - 1, "ERROR: no lua state" );
+		return -1;
+	}
+	lua_State* L = ppLuaStates[defaultState]->state;
+	int top = lua_gettop ( L );
+	int status = luaL_loadstring ( L, pCode );
+	if ( status == 0 ) status = lua_pcall ( L, 0, LUA_MULTRET, 0 );
+	if ( status != 0 )
+	{
+		const char* err = lua_tostring ( L, -1 );
+		if ( pResultBuf ) _snprintf ( pResultBuf, iResultSize - 1, "LUA ERROR: %s", err ? err : "(no message)" );
+		lua_settop ( L, top );
+		return -1;
+	}
+	int nres = lua_gettop ( L ) - top;
+	int written = 0;
+	for ( int i = 1; i <= nres && pResultBuf; i++ )
+	{
+		const char* s = lua_tostring ( L, top + i );
+		written += _snprintf ( pResultBuf + written, iResultSize - 1 - written, "%s%s", ( i > 1 ) ? " | " : "", s ? s : luaL_typename ( L, top + i ) );
+		if ( written >= iResultSize - 2 ) break;
+	}
+	lua_settop ( L, top );
+	return 0;
+ }
+
  DARKLUA_API int LuaGetInt ( LPSTR pString , int id )
  {
 

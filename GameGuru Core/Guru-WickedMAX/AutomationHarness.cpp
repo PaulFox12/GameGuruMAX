@@ -445,6 +445,15 @@ void AutoHarness_CheckForCommand ( void )
 	else if ( _stricmp ( cmd, "GET_CAMERA" ) == 0 ) Cmd_GetCamera ( result, sizeof(result) );
 	else if ( _stricmp ( cmd, "SET_CAMERA" ) == 0 ) Cmd_SetCamera ( arg, result, sizeof(result) );
 	else if ( _stricmp ( cmd, "WPE_PREVIEW" ) == 0 ) Cmd_WPEPreview ( arg, result, sizeof(result) );
+	else if ( _stricmp ( cmd, "RUN_LUA" ) == 0 )
+	{
+		// RUN_LUA <chunk>: run in the game's Lua state, "return ..." to read values back (as the DX12 build's verb)
+		extern int RunLuaString ( char* pCode, char* pResultBuf, int iResultSize );
+		static char luaResult[8192];
+		int rc = RunLuaString ( arg, luaResult, sizeof(luaResult) );
+		_snprintf ( result, sizeof(result), "%s: %s", ( rc == 0 ) ? "OK" : "FAIL", luaResult[0] ? luaResult : "(no result)" );
+		result[sizeof(result) - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "SET_PARTICLESCATTER" ) == 0 )
 	{
 		// SET_PARTICLESCATTER <strength>: the sun's forward scattering on lit particle layers (as SetParticleScatter), 0 off
