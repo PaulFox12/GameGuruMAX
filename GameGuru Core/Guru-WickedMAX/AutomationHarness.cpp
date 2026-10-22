@@ -463,6 +463,46 @@ void AutoHarness_CheckForCommand ( void )
 		_snprintf(result, sizeof(result), "OK: SET_PARTICLESCATTER %.3f", WickedCall_GetParticleScatter());
 		result[sizeof(result) - 1] = 0;
 	}
+	else if ( _stricmp ( cmd, "SET_SCREENFLARE" ) == 0 || _stricmp ( cmd, "SET_SUNFLARE" ) == 0 )
+	{
+		// SET_SCREENFLARE [enabled intensity threshold spacing halo nosky cap followbloom] and SET_SUNFLARE [enabled hue
+		// brightness]: the screen-space lens flare and the sun's flare set on the renderer directly, the level's visuals
+		// untouched (the next visuals push puts them back); a value below 0 keeps the current one, no arguments reads them
+		// (as the DX12 build's verbs)
+		extern MasterRenderer* master_renderer;
+		if ( !master_renderer )
+		{
+			_snprintf(result, sizeof(result), "ERROR: no master_renderer");
+		}
+		else if ( _stricmp ( cmd, "SET_SCREENFLARE" ) == 0 )
+		{
+			float v[8] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+			sscanf_s(arg, "%f %f %f %f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7]);
+			if (v[0] >= 0) master_renderer->setScreenLensFlareEnabled(v[0] != 0);
+			if (v[1] >= 0) master_renderer->setScreenLensFlareIntensity(v[1]);
+			if (v[2] >= 0) master_renderer->setScreenLensFlareThreshold(v[2]);
+			if (v[3] >= 0) master_renderer->setScreenLensFlareSpacing(v[3]);
+			if (v[4] >= 0) master_renderer->setScreenLensFlareHalo(v[4]);
+			if (v[5] >= 0) master_renderer->setScreenLensFlareNoSky(v[5] != 0);
+			if (v[6] >= 0) master_renderer->setScreenLensFlareCap(v[6]);
+			if (v[7] >= 0) master_renderer->setScreenLensFlareFollowBloom(v[7] != 0);
+			_snprintf(result, sizeof(result), "OK: SET_SCREENFLARE enabled=%d intensity=%.3f threshold=%.3f spacing=%.3f halo=%.3f nosky=%d cap=%.1f followbloom=%d",
+				master_renderer->getScreenLensFlareEnabled() ? 1 : 0, master_renderer->getScreenLensFlareIntensity(), master_renderer->getScreenLensFlareThreshold(),
+				master_renderer->getScreenLensFlareSpacing(), master_renderer->getScreenLensFlareHalo(), master_renderer->getScreenLensFlareNoSky() ? 1 : 0,
+				master_renderer->getScreenLensFlareCap(), master_renderer->getScreenLensFlareFollowBloom() ? 1 : 0);
+		}
+		else
+		{
+			float v[3] = { -1, -1, -1 };
+			sscanf_s(arg, "%f %f %f", &v[0], &v[1], &v[2]);
+			if (v[0] >= 0) master_renderer->setLensFlareEnabled(v[0] != 0);
+			if (v[1] >= 0 || v[2] >= 0)
+				wiRenderer::SetLensFlareLightColour(v[1] >= 0 ? v[1] : wiRenderer::GetLensFlareLightHue(), v[2] >= 0 ? v[2] : wiRenderer::GetLensFlareLightBrightness());
+			_snprintf(result, sizeof(result), "OK: SET_SUNFLARE enabled=%d hue=%.3f brightness=%.3f",
+				master_renderer->getLensFlareEnabled() ? 1 : 0, wiRenderer::GetLensFlareLightHue(), wiRenderer::GetLensFlareLightBrightness());
+		}
+		result[sizeof(result) - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "SET_BLOOM" ) == 0 )
 	{
 		// SET_BLOOM [enabled strength threshold radius cap]: the bloom set on the renderer directly, the level's visuals
