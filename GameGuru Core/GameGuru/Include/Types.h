@@ -3902,6 +3902,8 @@ struct visualstype
 	float fsetBloomThreshold;
 	float ApparentSize;
 	float fsetBloomStrength;
+	float fsetBloomRadius; // wider bloom halos, 0 none
+	float fsetBloomCap; // the brightest a pixel counts for in the bloom, 30 as the DX11 build
 	bool bSSREnabled;
 	bool bReflectionsEnabled;
 	bool bFXAAEnabled;
@@ -4186,6 +4188,8 @@ struct visualstype
 		 fsetBloomThreshold = 2.0f;
 		 ApparentSize = 0.000008f;
 		 fsetBloomStrength = 1.0f;
+		 fsetBloomRadius = 0.0f;
+		 fsetBloomCap = 30.0f;
 		 bSSREnabled = false;
 		 bReflectionsEnabled = true;
 		 bFXAAEnabled = false;

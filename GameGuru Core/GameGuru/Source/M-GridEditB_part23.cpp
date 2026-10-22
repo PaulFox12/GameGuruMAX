@@ -1686,7 +1686,7 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Threshold is a measure of how bright an object or area must be before the bloom effect is applied");
 
-			if (ImGui::SliderFloat("##WickedsetBloomStrength", &t.visuals.fsetBloomStrength, 0.1f, 3.0f, "%.2f", 1.0f))
+			if (ImGui::SliderFloat("##WickedsetBloomStrength", &t.visuals.fsetBloomStrength, 0.1f, 10.0f, "%.2f", 2.0f))
 			{
 				t.gamevisuals.fsetBloomStrength = t.visuals.fsetBloomStrength;
 				if (master_renderer) {
@@ -1695,6 +1695,23 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 				g.projectmodified = 1;
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Strength is a measure of how strongly the bloom is applied to the scene");
+
+			// wider halos and the brightest a pixel counts for
+			if (ImGui::SliderFloat("##WickedsetBloomRadius", &t.visuals.fsetBloomRadius, 0.0f, 2.0f, "Radius %.2f", 1.0f))
+			{
+				t.gamevisuals.fsetBloomRadius = t.visuals.fsetBloomRadius;
+				if (master_renderer) master_renderer->setBloomRadius(t.visuals.fsetBloomRadius);
+				g.projectmodified = 1;
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Radius adds wider, softer halos around bright areas (0 none)");
+			if (ImGui::SliderFloat("##WickedsetBloomCap", &t.visuals.fsetBloomCap, 1.0f, 10000.0f, "Cap %.0f", 4.0f))
+			{
+				t.gamevisuals.fsetBloomCap = t.visuals.fsetBloomCap;
+				if (master_renderer) master_renderer->setBloomCap(t.visuals.fsetBloomCap);
+				g.projectmodified = 1;
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Cap is the brightest a pixel counts for in the bloom (30 by default): raise it so very bright lights such as missiles glow more and keep their colour");
+			if (t.visuals.fsetBloomCap <= t.visuals.fsetBloomThreshold) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Cap at or below the threshold: nothing blooms");
 
 			ImGui::PopItemWidth();
 		}

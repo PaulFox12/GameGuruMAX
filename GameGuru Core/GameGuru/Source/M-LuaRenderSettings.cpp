@@ -1,8 +1,8 @@
 //
 // the render settings and post effects a game script sets (SetReflections, SetAO, SetShadowResolution, SetBloom and the
 // rest), kept apart from the level's visuals and applied again after every visuals push, from the DX11 branch. On this
-// engine the bloom radius and cap, the sun lens flare colour, the screen lens flare, the sun cascade count and splits and
-// the shadow job wait have no counterpart: their values are kept and reported, nothing is applied
+// engine the sun lens flare colour, the screen lens flare, the sun cascade count and splits and the shadow job wait have
+// no counterpart: their values are kept and reported, nothing is applied
 //
 #include "stdafx.h"
 #include "gameguru.h"
@@ -61,6 +61,8 @@ void LuaPostEffects_Apply(void)
 	if (p->iBloom >= 0) master_renderer->setBloomEnabled(p->iBloom != 0);
 	if (p->fBloomStrength >= 0) master_renderer->setBloomStrength(p->fBloomStrength);
 	if (p->fBloomThreshold >= 0) master_renderer->setBloomThreshold(p->fBloomThreshold);
+	if (p->fBloomRadius >= 0) master_renderer->setBloomRadius(p->fBloomRadius);
+	if (p->fBloomCap >= 0) master_renderer->setBloomCap(p->fBloomCap);
 	if (p->iDOF >= 0) master_renderer->setDepthOfFieldEnabled(p->iDOF != 0);
 	if (p->fDOFStrength >= 0) master_renderer->setDepthOfFieldStrength(p->fDOFStrength);
 	if (p->fDOFFocalLength >= 0 || p->fDOFApertureSize >= 0)
@@ -88,8 +90,8 @@ void LuaPostEffects_SetBloom(int iEnabled, float fStrength, float fThreshold, fl
 
 void LuaPostEffects_GetBloom(int* piEnabled, float* pfStrength, float* pfThreshold, float* pfRadius, float* pfCap)
 {
-	*pfRadius = g_LuaPostEffects.fBloomRadius >= 0 ? g_LuaPostEffects.fBloomRadius : 0; // this engine's bloom has no radius or cap
-	*pfCap = g_LuaPostEffects.fBloomCap >= 0 ? g_LuaPostEffects.fBloomCap : 0;
+	*pfRadius = master_renderer ? master_renderer->getBloomRadius() : 0;
+	*pfCap = master_renderer ? master_renderer->getBloomCap() : 0;
 	*piEnabled = (master_renderer && master_renderer->getBloomEnabled()) ? 1 : 0;
 	*pfStrength = master_renderer ? master_renderer->getBloomStrength() : 0;
 	*pfThreshold = master_renderer ? master_renderer->getBloomThreshold() : 0;
@@ -176,6 +178,8 @@ void LuaPostEffects_Clear(void* pVisualsToRestore)
 		master_renderer->setBloomEnabled(visuals->bBloomEnabled);
 		master_renderer->setBloomStrength(visuals->fsetBloomStrength);
 		master_renderer->setBloomThreshold(visuals->fsetBloomThreshold);
+		master_renderer->setBloomRadius(visuals->fsetBloomRadius);
+		master_renderer->setBloomCap(visuals->fsetBloomCap);
 	}
 	if (old.iDOF >= 0 || old.fDOFStrength >= 0 || old.fDOFFocalLength >= 0 || old.fDOFApertureSize >= 0)
 	{

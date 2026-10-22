@@ -3632,6 +3632,32 @@ static bool AutoHarness_GrassDensityCommands(const char* cmd, const char* arg, c
 // the one field that is still NOT restored on the way back to the editor - see notes 3.86.
 static bool AutoHarness_PostFXCommands(const char* cmd, const char* arg, char* result, size_t resultSize)
 {
+	if (_stricmp(cmd, "SET_BLOOM") == 0)
+	{
+		// SET_BLOOM [enabled strength threshold radius cap beforeexposure]: the bloom set on the renderer directly, the
+		// level's visuals untouched (the next visuals push puts them back); a value below 0 keeps the current one, no
+		// arguments reads them. As the DX11 build's verb, which has no beforeexposure.
+		extern MasterRenderer* master_renderer;
+		if (!master_renderer)
+		{
+			_snprintf(result, resultSize, "ERROR: no master_renderer");
+			return true;
+		}
+		float v[6] = { -1, -1, -1, -1, -1, -1 };
+		sscanf_s(arg, "%f %f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]);
+		if (v[0] >= 0) master_renderer->setBloomEnabled(v[0] != 0);
+		if (v[1] >= 0) master_renderer->setBloomStrength(v[1]);
+		if (v[2] >= 0) master_renderer->setBloomThreshold(v[2]);
+		if (v[3] >= 0) master_renderer->setBloomRadius(v[3]);
+		if (v[4] >= 0) master_renderer->setBloomCap(v[4]);
+		if (v[5] >= 0) master_renderer->setBloomBeforeExposure(v[5] != 0);
+		_snprintf(result, resultSize, "OK: SET_BLOOM enabled=%d strength=%.3f threshold=%.3f radius=%.3f cap=%.1f beforeexposure=%d exposure=%.4f eyeadaption=%d",
+			master_renderer->getBloomEnabled() ? 1 : 0, master_renderer->getBloomStrength(), master_renderer->getBloomThreshold(),
+			master_renderer->getBloomRadius(), master_renderer->getBloomCap(), master_renderer->getBloomBeforeExposure() ? 1 : 0,
+			master_renderer->getExposure(), master_renderer->getEyeAdaptionEnabled() ? 1 : 0);
+		result[resultSize - 1] = 0;
+		return true;
+	}
 	if (_stricmp(cmd, "DUMP_POSTFX") != 0) return false;
 	extern preferences pref;   // defined in imgui_gg_dx11_part0.cpp; not declared in any header
 	_snprintf(result, resultSize,
