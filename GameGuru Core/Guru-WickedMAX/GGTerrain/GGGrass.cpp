@@ -274,7 +274,7 @@ GGTerrain::GGTextureSource gggrass_textureSource[ GGGRASS_TOTAL_REAL_TYPES ];
 void GGGrass_RecordTextureSource( uint32_t typeIdx, const char* path )
 {
 	if ( typeIdx >= GGGRASS_TOTAL_REAL_TYPES || !path ) return;
-	GGTerrain::GGTerrain_RecordTextureSource( &gggrass_textureSource[ typeIdx ], path, false );
+	GGTerrain::GGTerrain_RecordTextureSource( &gggrass_textureSource[ typeIdx ], path, true );
 }
 
 const char* GGGrass_GetTextureSource( int slice, int* pChanged )

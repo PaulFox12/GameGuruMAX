@@ -12464,7 +12464,7 @@ int GGTerrain::GGTerrain_CheckTextureSource( const GGTextureSource* pSource )
 void GGTerrain::GGTerrain_RecordSlotTextureSource( int slot, int kind, const char* path )
 {
 	if ( slot < 0 || slot >= 32 || kind < 0 || kind > 2 || !path ) return;
-	GGTerrain_RecordTextureSource( &ggterrain_textureSource[ kind ][ slot ], path, false );
+	GGTerrain_RecordTextureSource( &ggterrain_textureSource[ kind ][ slot ], path, true );
 }
 
 const char* GGTerrain::GGTerrain_GetTextureSource( int slot, int kind, int* pChanged )

@@ -341,8 +341,10 @@ static wi::ecs::Entity BuildTreeMaterial( const char* textureName, bool isBranch
 
 	char colorPath[ 512 ];
 	sprintf_s( colorPath, "%s/Files/treebank/textures/%s", g_treesExeDir.c_str(), textureName );
+	if ( recordType >= 0 ) GGTrees_RecordTextureSource( recordType, isBranches ? 3 : 2, colorPath, true );
+	// the writable folder's copy ahead of the install's, as the GameGuru terrain, grass and trees load them (GG_GetRealPath)
+	GG_GetRealPath( colorPath, 0 );
 	mat.textures[ wi::scene::MaterialComponent::BASECOLORMAP ].name = colorPath;
-	if ( recordType >= 0 ) GGTrees_RecordTextureSource( recordType, isBranches ? 3 : 2, colorPath, false );
 
 	if ( isBranches )
 	{
@@ -852,6 +854,8 @@ static wi::ecs::Entity BuildBillboardShadowMaterial( uint32_t type )
 	char colorPath[ MAX_PATH ];
 	sprintf_s( colorPath, "%s/Files/treebank/billboards/%s",
 		g_treesExeDir.c_str(), g_GGTrees[ type ].billboardFilename );
+	// the writable folder's copy ahead of the install's, as the GameGuru terrain, grass and trees load them (GG_GetRealPath)
+	GG_GetRealPath( colorPath, 0 );
 	mat.textures[ wi::scene::MaterialComponent::BASECOLORMAP ].name = colorPath;
 
 	// Wicked semantics: shader clips at (1 - alphaRef) — 0.85 keeps texels with

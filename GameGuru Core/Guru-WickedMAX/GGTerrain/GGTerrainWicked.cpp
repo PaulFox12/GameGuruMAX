@@ -1,4 +1,5 @@
 #include "GGTerrain.h"
+#include "CFileC.h"
 #include "GGTerrainWicked.h"
 #include "GGGrass.h"
 #include "GGTrees.h"
@@ -793,6 +794,13 @@ static void SetupTerrainMaterial(wi::scene::Scene& scene, wi::ecs::Entity entity
 		sprintf_s(normalPath, "%s/Files/terraintextures/mat%d/Normal.dds", wickedTerrainExeDir.c_str(), folderNum);
 		sprintf_s(surfacePath, "%s/Files/terraintextures/mat%d/Surface.dds", wickedTerrainExeDir.c_str(), folderNum);
 	}
+	GGTerrain::GGTerrain_RecordSlotTextureSource(ggMatIndex & 0xFF, 0, colorPath);
+	GGTerrain::GGTerrain_RecordSlotTextureSource(ggMatIndex & 0xFF, 1, normalPath);
+	GGTerrain::GGTerrain_RecordSlotTextureSource(ggMatIndex & 0xFF, 2, surfacePath);
+	// the writable folder's copy ahead of the install's, as the GameGuru terrain, grass and trees load them (GG_GetRealPath)
+	GG_GetRealPath(colorPath, 0);
+	GG_GetRealPath(normalPath, 0);
+	GG_GetRealPath(surfacePath, 0);
 
 	MaterialComponent* mat = scene.materials.GetComponent(entity);
 	if (!mat)
@@ -806,9 +814,6 @@ static void SetupTerrainMaterial(wi::scene::Scene& scene, wi::ecs::Entity entity
 	// convention (R=occlusion, G=roughness, B=metalness, A=reflectance). A=255 means reflectance
 	// multiplier is 1.0, so the base reflectance value set below is used directly.
 	mat->textures[MaterialComponent::SURFACEMAP].name = surfacePath;
-	GGTerrain::GGTerrain_RecordSlotTextureSource(ggMatIndex & 0xFF, 0, colorPath);
-	GGTerrain::GGTerrain_RecordSlotTextureSource(ggMatIndex & 0xFF, 1, normalPath);
-	GGTerrain::GGTerrain_RecordSlotTextureSource(ggMatIndex & 0xFF, 2, surfacePath);
 
 	// PBR defaults matching Wicked Editor terrain presets
 	mat->SetRoughness(1.0f);
@@ -1757,6 +1762,10 @@ static wi::scene::MaterialComponent* BuildGrassMaterial(uint32_t typeIdx)
 			haveNormal = true;
 		}
 	}
+	GGGrass::GGGrass_RecordTextureSource(typeIdx, colorPath);
+	// the writable folder's copy ahead of the install's, as the GameGuru terrain, grass and trees load them (GG_GetRealPath)
+	GG_GetRealPath(colorPath, 0);
+	if (haveNormal) GG_GetRealPath(normalPath, 0);
 
 	wi::scene::MaterialComponent& mat = g_grassMaterials[typeIdx];
 	mat = wi::scene::MaterialComponent();
@@ -1774,7 +1783,6 @@ static wi::scene::MaterialComponent* BuildGrassMaterial(uint32_t typeIdx)
 	mat.SetCastShadow(false);
 	mat.SetTextureStreamingDisabled(true);
 	mat.CreateRenderData();
-	GGGrass::GGGrass_RecordTextureSource(typeIdx, colorPath);
 
 	g_grassMaterialReady[typeIdx] = true;
 	return &mat;

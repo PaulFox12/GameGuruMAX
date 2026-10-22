@@ -394,7 +394,7 @@ void GGTerrain_CheckMaterialUsed(wiGraphics::CommandList cmd);
 
 // where a texture was last uploaded from (GetTextureSource): the file asked for, made absolute, the file it resolved to
 // and that file's write time then. bRedirected: the loader resolves through GG_GetRealPath (a Documents copy ahead of the
-// install's); the Wicked material loaders (terrain, grass, tree trunks and leaves) read the path as it is
+// install's), as every texture loader here does
 struct GGTextureSource
 {
 	std::string requested;

@@ -747,9 +747,8 @@ int SetWind ( lua_State* L )
 	return 0;
 }
 
-// GetTextureSource(kind, index [, part]): path, changed for the file a vegetation or terrain texture was last loaded from.
-// On this build the Wicked material loaders (terrain, grass, tree trunks and leaves) read the install's file as it is, so
-// changed is never 2 for them; the far tree billboards still load through GG_GetRealPath
+// GetTextureSource(kind, index [, part]): path, changed for the file a vegetation or terrain texture was last loaded from,
+// as the Wicked terrain, grass and tree materials and the far billboard atlases load it (a Documents copy first)
 int GetTextureSource ( lua_State* L )
 {
 	int n = LUA_GETTOP(L);
