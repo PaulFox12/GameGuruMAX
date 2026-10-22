@@ -59,6 +59,7 @@ void LuaPostEffects_Apply(void)
 	if (!master_renderer) return;
 	sLuaPostEffects* p = &g_LuaPostEffects;
 	if (p->iBloom >= 0) master_renderer->setBloomEnabled(p->iBloom != 0);
+	if (p->fBloomStrength >= 0) master_renderer->setBloomStrength(p->fBloomStrength);
 	if (p->fBloomThreshold >= 0) master_renderer->setBloomThreshold(p->fBloomThreshold);
 	if (p->iDOF >= 0) master_renderer->setDepthOfFieldEnabled(p->iDOF != 0);
 	if (p->fDOFStrength >= 0) master_renderer->setDepthOfFieldStrength(p->fDOFStrength);
@@ -90,7 +91,7 @@ void LuaPostEffects_GetBloom(int* piEnabled, float* pfStrength, float* pfThresho
 	*pfRadius = g_LuaPostEffects.fBloomRadius >= 0 ? g_LuaPostEffects.fBloomRadius : 0; // this engine's bloom has no radius or cap
 	*pfCap = g_LuaPostEffects.fBloomCap >= 0 ? g_LuaPostEffects.fBloomCap : 0;
 	*piEnabled = (master_renderer && master_renderer->getBloomEnabled()) ? 1 : 0;
-	*pfStrength = g_LuaPostEffects.fBloomStrength >= 0 ? g_LuaPostEffects.fBloomStrength : 1.0f; // this engine's bloom has no strength
+	*pfStrength = master_renderer ? master_renderer->getBloomStrength() : 0;
 	*pfThreshold = master_renderer ? master_renderer->getBloomThreshold() : 0;
 }
 
@@ -173,6 +174,7 @@ void LuaPostEffects_Clear(void* pVisualsToRestore)
 	if (old.iBloom >= 0 || old.fBloomStrength >= 0 || old.fBloomThreshold >= 0 || old.fBloomRadius >= 0 || old.fBloomCap >= 0)
 	{
 		master_renderer->setBloomEnabled(visuals->bBloomEnabled);
+		master_renderer->setBloomStrength(visuals->fsetBloomStrength);
 		master_renderer->setBloomThreshold(visuals->fsetBloomThreshold);
 	}
 	if (old.iDOF >= 0 || old.fDOFStrength >= 0 || old.fDOFFocalLength >= 0 || old.fDOFApertureSize >= 0)

@@ -1686,17 +1686,15 @@ bool PostProcess_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Threshold is a measure of how bright an object or area must be before the bloom effect is applied");
 
-			// UI AUDIT 2026-07-28: "Bloom Strength" HIDDEN — setBloomStrength was removed from
-			// RenderPath3D (new Wicked only exposes threshold + enable, both wired above), so
-			// the slider visibly did nothing. Field/save/load kept for level-file compatibility.
-			// NOTE: an engine delta restoring it (1.54) was attempted and PARKED (pushed value
-			// read wrong in the live path — PIX session needed); see WICKED_ENGINE_CHANGES.md.
-			//if (ImGui::SliderFloat("##WickedsetBloomStrength", &t.visuals.fsetBloomStrength, 0.1f, 3.0f, "%.2f", 1.0f))
-			//{
-			//	t.gamevisuals.fsetBloomStrength = t.visuals.fsetBloomStrength;
-			//	g.projectmodified = 1;
-			//}
-			//if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Strength is a measure of how strongly the bloom is applied to the scene");
+			if (ImGui::SliderFloat("##WickedsetBloomStrength", &t.visuals.fsetBloomStrength, 0.1f, 3.0f, "%.2f", 1.0f))
+			{
+				t.gamevisuals.fsetBloomStrength = t.visuals.fsetBloomStrength;
+				if (master_renderer) {
+					master_renderer->setBloomStrength(t.visuals.fsetBloomStrength);
+				}
+				g.projectmodified = 1;
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bloom Strength is a measure of how strongly the bloom is applied to the scene");
 
 			ImGui::PopItemWidth();
 		}
