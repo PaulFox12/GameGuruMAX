@@ -1143,7 +1143,11 @@
 				 {
 					 t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
 				 }
+				 // the frame's own scene update applies the removal: a full Scene::Update for each deleted object cost 15-23 ms (as the gun's deletes already skip it)
+				 extern bool bBlockSceneUpdate;
+				 bBlockSceneUpdate = true;
 				 entity_deleteentityfrommap();
+				 bBlockSceneUpdate = false;
 				 t.entityelement[t.tentitytoselect].iWasSpawnedInGame = 0;
 				 if (t.entityelement[t.tentitytoselect].ragdollified == 1)
 				 {
@@ -1201,7 +1205,11 @@
 			 {
 				 t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
 			 }
+			 // the frame's own scene update applies the removal: a full Scene::Update for each deleted object cost 15-23 ms (as the gun's deletes already skip it)
+			 extern bool bBlockSceneUpdate;
+			 bBlockSceneUpdate = true;
 			 entity_deleteentityfrommap ();
+			 bBlockSceneUpdate = false;
 			 t.entityelement[t.tentitytoselect].iWasSpawnedInGame = 0;
 			 if (t.entityelement[t.tentitytoselect].ragdollified == 1)
 			 {
