@@ -1009,12 +1009,16 @@
 	 return 0;
  }
 
+ // the last clone's time and steps (SpawnProbe_Stop), for SpawnNewEntity's log line (the DX11 branch's spawn probe, a0596f3b)
+ static char g_pSpawnProbeText[1024] = "";
+
  int SpawnNewEntityCore(int iEntityIndex)
  {
 	#ifdef OPTICK_ENABLE
 	OPTICK_EVENT();
 	#endif
 	int iNewE = -1;
+	SpawnProbe_Start();
 	t.bSpawnCalledFromLua = true;
 	int storee = t.e;
 	int storeentid = t.entid;
@@ -1077,6 +1081,7 @@
 	t.entid = storeentid;
 	t.gridentity = 0;
 	t.bSpawnCalledFromLua = false;
+	SpawnProbe_Stop(g_pSpawnProbeText, sizeof(g_pSpawnProbeText));
 	return iNewE;
  }
  
@@ -1093,8 +1098,10 @@
 	 {
 		 iNewE = SpawnNewEntityCore(iEntityIndex);
 		 vSpawnList.push_back(iNewE);
-		 char pMsg[256];
-		 sprintf(pMsg, "SpawnNewEntityCore : %d from %d", iNewE, iEntityIndex);
+		 // with the clone's model and the time of each step (a diagnostic)
+		 char pMsg[1536];
+		 int iBank = t.entityelement[iEntityIndex].bankindex;
+		 sprintf_s(pMsg, "SpawnNewEntityCore : %d from %d, %s in %s", iNewE, iEntityIndex, iBank > 0 ? t.entitybank_s[iBank].Get() : "?", g_pSpawnProbeText);
 		 timestampactivity(0, pMsg);
 	 }
 	 lua_pushinteger (L, iNewE);
