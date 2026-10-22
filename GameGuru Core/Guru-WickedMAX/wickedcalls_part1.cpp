@@ -128,10 +128,10 @@
 					{
 						//PE: Better hit rate.
 						sFoundFinalPathAndFilename = g_pWickedTexturePath + sBaseColor.Get();
-						if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+						if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 						{
 							sFoundFinalPathAndFilename = sFoundTexturePath + sBaseColor.Get();
-							if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+							if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 								sFoundFinalPathAndFilename = sBaseColor.Get();
 							else
 								bFound = true;
@@ -142,10 +142,10 @@
 					else
 					{
 						sFoundFinalPathAndFilename = sFoundTexturePath + sBaseColor.Get();
-						if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+						if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 						{
 							sFoundFinalPathAndFilename = g_pWickedTexturePath + sBaseColor.Get();
-							if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+							if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 								sFoundFinalPathAndFilename = sBaseColor.Get();
 							else
 								bFound = true;
@@ -153,7 +153,7 @@
 						else
 							bFound = true;
 					}
-					if (bFound || FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 1)
+					if (bFound || WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 1)
 					{
 						if (pObjectMaterial->textures[MaterialComponent::BASECOLORMAP].resource.IsValid()) //PE: Delete first if already active.
 						{
@@ -198,7 +198,7 @@
 							{
 								//PE: Best hit rate.
 								sFoundFinalPathAndFilename = g_pWickedTexturePath + WickedGetNormalName().Get();
-								if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+								if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 								{
 									sFoundFinalPathAndFilename = WickedGetNormalName().Get();
 								}
@@ -206,10 +206,10 @@
 							else
 							{
 								sFoundFinalPathAndFilename = sFoundTexturePath + WickedGetNormalName().Get();
-								if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+								if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 								{
 									sFoundFinalPathAndFilename = g_pWickedTexturePath + WickedGetNormalName().Get();
-									if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+									if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 										sFoundFinalPathAndFilename = WickedGetNormalName().Get();
 								}
 							}
@@ -257,7 +257,7 @@
 							{
 								//PE: Best hit rate.
 								sFoundFinalPathAndFilename = g_pWickedTexturePath + WickedGetSurfaceName().Get();
-								if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+								if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 								{
 									sFoundFinalPathAndFilename = WickedGetSurfaceName().Get();
 								}
@@ -265,10 +265,10 @@
 							else
 							{
 								sFoundFinalPathAndFilename = sFoundTexturePath + WickedGetSurfaceName().Get();
-								if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+								if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 								{
 									sFoundFinalPathAndFilename = g_pWickedTexturePath + WickedGetSurfaceName().Get();
-									if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+									if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 										sFoundFinalPathAndFilename = WickedGetSurfaceName().Get();
 								}
 							}
@@ -320,10 +320,10 @@
 							// Parallax Occlusion Mapping (if HEIGHT TEXTURE used)
 							bool bPOMShaderRequired = false;
 							sFoundFinalPathAndFilename = sFoundTexturePath + WickedGetDisplacementName().Get();
-							if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+							if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 							{
 								sFoundFinalPathAndFilename = g_pWickedTexturePath + WickedGetDisplacementName().Get();
-								if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+								if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 									sFoundFinalPathAndFilename = WickedGetDisplacementName().Get();
 							}
 							if (pObjectMaterial->textures[MaterialComponent::DISPLACEMENTMAP].resource.IsValid())
@@ -382,7 +382,7 @@
 							{
 								//PE: Best hit rate.
 								sFoundFinalPathAndFilename = g_pWickedTexturePath + WickedGetEmissiveName().Get();
-								if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+								if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 								{
 									//PE: Check not needed sFoundTexturePath empty.
 									sFoundFinalPathAndFilename = WickedGetEmissiveName().Get();
@@ -394,10 +394,10 @@
 								std::string ename = WickedGetEmissiveName().Get();
 								sFoundFinalPathAndFilename = sFoundTexturePath;
 								sFoundFinalPathAndFilename = sFoundFinalPathAndFilename + ename;
-								if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+								if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 								{
 									sFoundFinalPathAndFilename = g_pWickedTexturePath + WickedGetEmissiveName().Get();
-									if (FileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
+									if (WickedCall_TextureFileExistPrefDDS((LPSTR)sFoundFinalPathAndFilename.c_str()) == 0)
 										sFoundFinalPathAndFilename = WickedGetEmissiveName().Get();
 								}
 							}
@@ -854,7 +854,7 @@
 							wiJobSystem::Wait(ctx);
 						}
 						pObjectMaterial->textures[MaterialComponent::NORMALMAP].name = pMesh->pTextures[GG_MESH_TEXTURE_NORMAL].pName;
-						if (!FileExist((char*)pObjectMaterial->textures[MaterialComponent::NORMALMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::NORMALMAP].name = "";
+						if (!WickedCall_TextureFileExist((char*)pObjectMaterial->textures[MaterialComponent::NORMALMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::NORMALMAP].name = "";
 						else
 						{
 							pObjectMaterial->textures[MaterialComponent::NORMALMAP].resource = WickedCall_LoadImage(pObjectMaterial->textures[MaterialComponent::NORMALMAP].name);
@@ -874,7 +874,7 @@
 							wiJobSystem::Wait(ctx);
 						}
 						pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name = pMesh->pTextures[GG_MESH_TEXTURE_SURFACE].pName;
-						if (!FileExist((char*)pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name.c_str())) 
+						if (!WickedCall_TextureFileExist((char*)pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name.c_str())) 
 							pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name = "";
 						else
 						{
@@ -896,7 +896,7 @@
 							wiJobSystem::Wait(ctx);
 						}
 						pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = pMesh->pTextures[GG_MESH_TEXTURE_EMISSIVE].pName;
-						if (!FileExist((char*)pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = "";
+						if (!WickedCall_TextureFileExist((char*)pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = "";
 						else
 						{
 							pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].resource = WickedCall_LoadImage(pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name);
@@ -954,7 +954,7 @@
 									wiJobSystem::Wait(ctx);
 								}
 								pObjectMaterial->textures[MaterialComponent::NORMALMAP].name = sTextureFilenameBase + "_normal" + sFoundTextureType;
-								if (!FileExist((char*)pObjectMaterial->textures[MaterialComponent::NORMALMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::NORMALMAP].name = sTextureFilenameBase + "_normal" + sAltTextureType;
+								if (!WickedCall_TextureFileExist((char*)pObjectMaterial->textures[MaterialComponent::NORMALMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::NORMALMAP].name = sTextureFilenameBase + "_normal" + sAltTextureType;
 								pObjectMaterial->textures[MaterialComponent::NORMALMAP].resource = WickedCall_LoadImage(pObjectMaterial->textures[MaterialComponent::NORMALMAP].name);
 								if (!pObjectMaterial->textures[MaterialComponent::NORMALMAP].resource.IsValid())
 								{
@@ -979,7 +979,7 @@
 								//std::string surfaceTexFile = sTextureFilenameBase + "_surface" + ".dds";
 								//pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name = surfaceTexFile;
 								pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name = sTextureFilenameBase + "_surface" + sFoundTextureType;
-								if (!FileExist((char*)pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name = sTextureFilenameBase + "_surface" + sAltTextureType;
+								if (!WickedCall_TextureFileExist((char*)pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name = sTextureFilenameBase + "_surface" + sAltTextureType;
 								pObjectMaterial->textures[MaterialComponent::SURFACEMAP].resource = WickedCall_LoadImage(pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name);
 								std::string surfaceTexFile = "";
 								if (!pObjectMaterial->textures[MaterialComponent::SURFACEMAP].resource.IsValid())
@@ -989,7 +989,7 @@
 									surfaceTexFile = sTextureFilenameBase + "_surface" + ".dds";
 								}
 								LPSTR pSurfaceTexFile = (char*)surfaceTexFile.c_str();
-								if (pSurfaceTexFile && strlen(pSurfaceTexFile)>0 && !FileExist(pSurfaceTexFile))
+								if (pSurfaceTexFile && strlen(pSurfaceTexFile)>0 && !WickedCall_TextureFileExist(pSurfaceTexFile))
 								{
 									//PE: It should save to the docwrite folder in the correct location ?.
 									//PE: We have relative path here, so the newSurfaceFileTemp check dont work, without resolving it first.
@@ -1032,10 +1032,11 @@
 									std::string sTextureAO = sTextureFilenameBase + "_ao" + sFoundTextureType;
 									std::string sTextureGloss = sTextureFilenameBase + "_gloss" + sFoundTextureType;
 									std::string sTextureMetalness = sTextureFilenameBase + "_metalness" + sFoundTextureType;
-									if (!FileExist((char*)sTextureAO.c_str())) sTextureAO = sTextureFilenameBase + "_ao" + sAltTextureType;
-									if (!FileExist((char*)sTextureGloss.c_str())) sTextureGloss = sTextureFilenameBase + "_gloss" + sAltTextureType;
-									if (!FileExist((char*)sTextureMetalness.c_str())) sTextureMetalness = sTextureFilenameBase + "_metalness" + sAltTextureType;
+									if (!WickedCall_TextureFileExist((char*)sTextureAO.c_str())) sTextureAO = sTextureFilenameBase + "_ao" + sAltTextureType;
+									if (!WickedCall_TextureFileExist((char*)sTextureGloss.c_str())) sTextureGloss = sTextureFilenameBase + "_gloss" + sAltTextureType;
+									if (!WickedCall_TextureFileExist((char*)sTextureMetalness.c_str())) sTextureMetalness = sTextureFilenameBase + "_metalness" + sAltTextureType;
 									ImageCreateSurfaceTexture(pSurfaceTexFile, (char*)sTextureAO.c_str(), (char*)sTextureGloss.c_str(), (char*)sTextureMetalness.c_str());
+									WickedCall_ForgetTextureFiles();
 
 									// and assign this surface to DBO mesh along with channel info (used by importer and other code)
 									if (pMesh->dwTextureCount < GG_MESH_TEXTURE_SURFACE)
@@ -1077,7 +1078,7 @@
 									wiJobSystem::Wait(ctx);
 								}
 								pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_emissive" + sFoundTextureType;
-								if (!FileExist((char*)pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_emissive" + sAltTextureType;
+								if (!WickedCall_TextureFileExist((char*)pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_emissive" + sAltTextureType;
 								pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].resource = WickedCall_LoadImage(pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name);
 								if (pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].resource.IsValid())
 								{
@@ -1096,7 +1097,7 @@
 								else
 								{
 									pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_illum" + sFoundTextureType;
-									if (!FileExist((char*)pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_illum" + sAltTextureType;
+									if (!WickedCall_TextureFileExist((char*)pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_illum" + sAltTextureType;
 									pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].resource = WickedCall_LoadImage(pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name);
 									if (pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].resource.IsValid())
 									{
@@ -1115,7 +1116,7 @@
 									else
 									{
 										pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_illumination" + sFoundTextureType;
-										if (!FileExist((char*)pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_illumination" + sAltTextureType;
+										if (!WickedCall_TextureFileExist((char*)pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_illumination" + sAltTextureType;
 										pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].resource = WickedCall_LoadImage(pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name);
 										if (pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].resource.IsValid())
 										{
@@ -1135,7 +1136,7 @@
 										{
 											//Try old DNS I
 											pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_i" + sFoundTextureType;
-											if (!FileExist((char*)pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_i" + sAltTextureType;
+											if (!WickedCall_TextureFileExist((char*)pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_i" + sAltTextureType;
 											pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].resource = WickedCall_LoadImage(pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name);
 											if (pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].resource.IsValid())
 											{
@@ -1184,7 +1185,7 @@
 									wiJobSystem::Wait(ctx);
 								}
 								pObjectMaterial->textures[MaterialComponent::NORMALMAP].name = sTextureFilenameBase + "_n" + sFoundTextureType;
-								if (!FileExist((char*)pObjectMaterial->textures[MaterialComponent::NORMALMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::NORMALMAP].name = sTextureFilenameBase + "_n" + sAltTextureType;
+								if (!WickedCall_TextureFileExist((char*)pObjectMaterial->textures[MaterialComponent::NORMALMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::NORMALMAP].name = sTextureFilenameBase + "_n" + sAltTextureType;
 								pObjectMaterial->textures[MaterialComponent::NORMALMAP].resource = WickedCall_LoadImage(pObjectMaterial->textures[MaterialComponent::NORMALMAP].name);
 								if (!pObjectMaterial->textures[MaterialComponent::NORMALMAP].resource.IsValid())
 								{
@@ -1201,14 +1202,15 @@
 									wiJobSystem::Wait(ctx);
 								}
 								pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name = sTextureFilenameBase + "_surface" + ".dds";
-								if (!FileExist((char*)pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name.c_str()))
+								if (!WickedCall_TextureFileExist((char*)pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name.c_str()))
 								{
 									std::string sTextureGloss = sTextureFilenameBase + "_s" + sFoundTextureType;
 									std::string sTextureMetalness = sTextureFilenameBase + "_s" + sFoundTextureType;
-									if (!FileExist((char*)sTextureGloss.c_str())) sTextureGloss = sTextureFilenameBase + "_s" + sAltTextureType;
-									if (!FileExist((char*)sTextureMetalness.c_str())) sTextureMetalness = sTextureFilenameBase + "_s" + sAltTextureType;
+									if (!WickedCall_TextureFileExist((char*)sTextureGloss.c_str())) sTextureGloss = sTextureFilenameBase + "_s" + sAltTextureType;
+									if (!WickedCall_TextureFileExist((char*)sTextureMetalness.c_str())) sTextureMetalness = sTextureFilenameBase + "_s" + sAltTextureType;
 									LPSTR pSurfaceTexFile = (char*)pObjectMaterial->textures[MaterialComponent::SURFACEMAP].name.c_str();
 									ImageCreateSurfaceTexture(pSurfaceTexFile, NULL, (char*)sTextureGloss.c_str(), (char*)sTextureMetalness.c_str());
+									WickedCall_ForgetTextureFiles();
 
 									if (pMesh->dwTextureCount < GG_MESH_TEXTURE_SURFACE)
 									{
@@ -1242,7 +1244,7 @@
 
 								//Try old DNS I
 								pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_i" + sFoundTextureType;
-								if (!FileExist((char*)pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_i" + sAltTextureType;
+								if (!WickedCall_TextureFileExist((char*)pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name.c_str())) pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name = sTextureFilenameBase + "_i" + sAltTextureType;
 								pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].resource = WickedCall_LoadImage(pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].name);
 								if (pObjectMaterial->textures[MaterialComponent::EMISSIVEMAP].resource.IsValid())
 								{

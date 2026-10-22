@@ -2595,3 +2595,36 @@ bool WickedCall_SaveRGBA8Region(const unsigned char* rgba, int srcW, int srcH, i
 	return wi::helper::saveTextureToFile(croppedData, croppedDesc, std::string(outputPath));
 }
 
+// GG: TextureMesh asks the same file questions for every clone of a model, about 11 a mesh at ~0.035 ms each through
+// the writable-folder and workshop redirects (a Supply_Crate's 35 meshes: 385 checks, 14 ms a spawn, run 292). While a
+// game runs, when texture files don't come and go, each answer is kept: forgotten when a game starts or ends, and when
+// a surface map is made here
+static std::unordered_map<std::string, int> g_TextureFileExists[2];
+static int g_iTextureFileExistsMode = -1;
+
+void WickedCall_ForgetTextureFiles(void)
+{
+	g_TextureFileExists[0].clear();
+	g_TextureFileExists[1].clear();
+}
+
+static int WickedCall_TextureFileExistKept(LPSTR pFilename, int iPrefDDS)
+{
+	extern int tgamesetismapeditormode;
+	if (g_iTextureFileExistsMode != tgamesetismapeditormode)
+	{
+		WickedCall_ForgetTextureFiles();
+		g_iTextureFileExistsMode = tgamesetismapeditormode;
+	}
+	if (tgamesetismapeditormode != 0 || pFilename == NULL) return iPrefDDS ? FileExistPrefDDS(pFilename) : FileExist(pFilename);
+	std::unordered_map<std::string, int>& kept = g_TextureFileExists[iPrefDDS ? 1 : 0];
+	auto it = kept.find(pFilename);
+	if (it != kept.end()) return it->second;
+	int iExists = iPrefDDS ? FileExistPrefDDS(pFilename) : FileExist(pFilename);
+	kept[pFilename] = iExists;
+	return iExists;
+}
+
+static int WickedCall_TextureFileExist(LPSTR pFilename) { return WickedCall_TextureFileExistKept(pFilename, 0); }
+static int WickedCall_TextureFileExistPrefDDS(LPSTR pFilename) { return WickedCall_TextureFileExistKept(pFilename, 1); }
+
