@@ -1756,6 +1756,39 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.FogB_f = t.gamevisuals.FogB_f;
 	t.visuals.FogA_f = t.gamevisuals.FogA_f;
 
+	// and sun, ambience and exposure: SetSunIntensity, SetSunLightingColor, SetSunDirection, SetExposure and the
+	// ambience commands write only t.visuals, while the editor and Tab Tab controls write both, so a day/night script's
+	// last values are dropped here and the user's own changes stay
+	t.visuals.SunIntensity_f = t.gamevisuals.SunIntensity_f;
+	t.visuals.SunRed_f = t.gamevisuals.SunRed_f;
+	t.visuals.SunGreen_f = t.gamevisuals.SunGreen_f;
+	t.visuals.SunBlue_f = t.gamevisuals.SunBlue_f;
+	t.visuals.SunAngleX = t.gamevisuals.SunAngleX;
+	t.visuals.SunAngleY = t.gamevisuals.SunAngleY;
+	t.visuals.SunAngleZ = t.gamevisuals.SunAngleZ;
+	t.visuals.AmbienceIntensity_f = t.gamevisuals.AmbienceIntensity_f;
+	t.visuals.AmbienceRed_f = t.gamevisuals.AmbienceRed_f;
+	t.visuals.AmbienceGreen_f = t.gamevisuals.AmbienceGreen_f;
+	t.visuals.AmbienceBlue_f = t.gamevisuals.AmbienceBlue_f;
+	t.visuals.fExposure = t.gamevisuals.fExposure;
+
+	// and the sky: SetSkyTo writes only t.visuals, which the copy below would carry into the editor and its next save, so
+	// put the editor's back unless a sky was picked in Tab Tab after the script's
+	extern int g_iLuaSkyEditorIndex, g_iLuaSkySetIndex;
+	extern cstr g_sLuaSkyEditorName;
+	bool bRestoredEditorSky = false;
+	if ( g_iLuaSkyEditorIndex != -1 )
+	{
+		if ( t.visuals.skyindex == g_iLuaSkySetIndex )
+		{
+			t.visuals.skyindex = g_iLuaSkyEditorIndex;
+			t.visuals.sky_s = g_sLuaSkyEditorName;
+			bRestoredEditorSky = true;
+		}
+		g_iLuaSkyEditorIndex = -1;
+		g_iLuaSkySetIndex = -1;
+	}
+
 	// remember game states for next time
 	visuals_save ( );
 
@@ -1994,6 +2027,14 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.fSnowSpeed = t.gamevisuals.fSnowSpeed;
 	t.visuals.fSnowOpacity = t.gamevisuals.fSnowOpacity;
 	t.visuals.fSnowOffset = t.gamevisuals.fSnowOffset;
+
+	// the editor's sky came back from a SetSkyTo: load its images, keeping the editor's sun and other visuals
+	if ( bRestoredEditorSky )
+	{
+		g.skyindex = t.visuals.skyindex;
+		t.terrainskyspecinitmode = 0;
+		sky_skyspec_init ( false );
+	}
 
 	// and refresh assets based on restore
 	t.visuals.refreshshaders=1;
