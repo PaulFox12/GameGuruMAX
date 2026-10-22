@@ -3271,6 +3271,7 @@ static int LUA_GETTOP(lua_State* L)
 		 }
 		 if (iEntityIndex > g.entityelementlist) g.entityelementlist = iEntityIndex;
 	 }
+	 return 0;
  }
 
  // the last clone's time and steps (SpawnProbe_Stop), for SpawnNewEntity's log line
