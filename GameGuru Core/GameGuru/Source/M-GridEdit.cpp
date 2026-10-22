@@ -15967,6 +15967,10 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.AmbienceBlue_f = t.gamevisuals.AmbienceBlue_f;
 	t.visuals.fExposure = t.gamevisuals.fExposure;
 
+	// and the camera's field of view: SetPlayerFOV and the zoom setting write only t.visuals, Tab Tab's slider writes both
+	t.visuals.CameraFOV_f = t.gamevisuals.CameraFOV_f;
+	t.visuals.CameraFOVZoomed_f = t.gamevisuals.CameraFOVZoomed_f;
+
 	// and the test game's quality: Low and Medium scale shadows, LOD, apparent size and culling into t.visuals only
 	quality_restorelevelvisuals ( );
 
