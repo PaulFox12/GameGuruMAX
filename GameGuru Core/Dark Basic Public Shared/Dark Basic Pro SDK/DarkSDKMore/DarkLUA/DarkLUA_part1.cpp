@@ -1006,6 +1006,7 @@
 		 }
 		 if (iEntityIndex > g.entityelementlist) g.entityelementlist = iEntityIndex;
 	 }
+	 return 0;
  }
 
  int SpawnNewEntityCore(int iEntityIndex)
