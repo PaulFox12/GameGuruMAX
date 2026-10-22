@@ -2336,6 +2336,14 @@ void WickedCall_RemoveObject( sObject* pObject )
 	if (rootEntity > 0)
 	{
 		WickedCall_SetObjectVisible(pObject, false);
+
+		// what this object owns is gathered here and removed in one go below
+		struct RemoveList
+		{
+			std::vector<wiECS::Entity> list;
+			std::unordered_set<wiECS::Entity> set;
+			void Add(wiECS::Entity entity) { if (entity != wiECS::INVALID_ENTITY && set.insert(entity).second) list.push_back(entity); }
+		} ggRemove;
 		wiJobSystem::context ctx;
 		wiJobSystem::Wait(ctx);
 
@@ -2355,10 +2363,10 @@ void WickedCall_RemoveObject( sObject* pObject )
 					{
 						for (int i = 0; i < animationcomponent->samplers.size(); i++)
 						{
-							wiScene::GetScene().Entity_Remove(animationcomponent->samplers[i].data);
+							ggRemove.Add(animationcomponent->samplers[i].data);
 						}
 					}
-					wiScene::GetScene().Entity_Remove(pAnimSet->wickedanimentityindex);
+					ggRemove.Add(pAnimSet->wickedanimentityindex);
 					pAnimSet->wickedanimentityindex = 0;
 				}
 			}
@@ -2373,19 +2381,19 @@ void WickedCall_RemoveObject( sObject* pObject )
 				if (pMesh->wickedmeshindex > 0)
 				{
 					if(!pMesh->bInstanced)
-						wiScene::GetScene().Entity_Remove(pMesh->wickedmeshindex);
+						ggRemove.Add(pMesh->wickedmeshindex);
 					pMesh->wickedmeshindex = 0;
 				}
 				if (pMesh->wickedmaterialindex > 0)
 				{				
 					if (!pMesh->bInstanced)
-						wiScene::GetScene().Entity_Remove(pMesh->wickedmaterialindex);
+						ggRemove.Add(pMesh->wickedmaterialindex);
 					pMesh->wickedmaterialindex = 0;
 				}
 				if (pMesh->wickedarmatureindex > 0)
 				{
 					if (!pMesh->bInstanced)
-						wiScene::GetScene().Entity_Remove(pMesh->wickedarmatureindex);
+						ggRemove.Add(pMesh->wickedarmatureindex);
 					pMesh->wickedarmatureindex = 0;
 				}
 			}
@@ -2397,12 +2405,33 @@ void WickedCall_RemoveObject( sObject* pObject )
 			sFrame* pFrame = pObject->ppFrameList[iF];
 			if (pFrame)
 			{
-				wiScene::GetScene().Entity_Remove(pFrame->wickedobjindex);
+				ggRemove.Add(pFrame->wickedobjindex);
 				pFrame->wickedobjindex = 0;
 			}
 		}
 		// look at editor on how objects are thoroughly deleted
-		wiScene::GetScene().Entity_Remove(rootEntity);
+		ggRemove.Add(rootEntity);
+
+		// Entity_Remove's recursive walk scans the whole hierarchy for each entity it removes (16,000 entries on a big level:
+		// 11 ms for an object of 36 frames and 35 meshes, and every object deleted at a level start paid it), so the children
+		// of all of them are found here in a pass or two over the hierarchy and each entity is removed on its own
+		{
+			wiScene::Scene& scene = wiScene::GetScene();
+			bool bFound = true;
+			while (bFound)
+			{
+				bFound = false;
+				for (size_t i = 0; i < scene.hierarchy.GetCount(); i++)
+				{
+					if (ggRemove.set.count(scene.hierarchy[i].parentID) > 0 && ggRemove.set.count(scene.hierarchy.GetEntity(i)) == 0)
+					{
+						ggRemove.Add(scene.hierarchy.GetEntity(i));
+						bFound = true;
+					}
+				}
+			}
+			for (wiECS::Entity entity : ggRemove.list) scene.Entity_Remove(entity, false);
+		}
 		pObject->wickedrootentityindex = 0;
 
 		// ensure wickedloaderstateptr deleted first
