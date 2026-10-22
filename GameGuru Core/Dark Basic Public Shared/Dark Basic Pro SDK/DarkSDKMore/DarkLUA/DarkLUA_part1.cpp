@@ -1108,7 +1108,9 @@
 	 for (int i = 0; i < vSpawnList.size(); i++)
 	 {
 		 int iEntityIndex = vSpawnList[i];
-		 if (iEntityIndex > t.storedentityelementlist && iEntityIndex < t.entityelement.size())
+		 // GG: or a clone spawned into a free element inside the level's list (entity_addentitytomap reuses the first free one,
+		 // which the index test missed, so the delete did nothing)
+		 if (iEntityIndex > 0 && iEntityIndex < t.entityelement.size() && (iEntityIndex > t.storedentityelementlist || t.entityelement[iEntityIndex].iWasSpawnedInGame > 0))
 		 {
 			 // was created at run-time, can delete
 			 t.tentitytoselect = iEntityIndex;
@@ -1135,10 +1137,16 @@
 					 HideObject(t.entityelement[t.tentitytoselect].attachmentobj);
 					 t.entityelement[t.tentitytoselect].attachmentobj = 0;
 				 }
+				 // GG: its ragdoll goes with it, before the object: left behind, its 13 or so bodies fell for ever, awake
+				 extern int BPhys_RagdollExist(int ragdollID);
+				 if (BPhys_RagdollExist(t.entityelement[t.tentitytoselect].obj) == 1)
+				 {
+					 t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
+				 }
 				 entity_deleteentityfrommap();
+				 t.entityelement[t.tentitytoselect].iWasSpawnedInGame = 0;
 				 if (t.entityelement[t.tentitytoselect].ragdollified == 1)
 				 {
-					 //t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
 					 t.entityelement[t.tentitytoselect].ragdollified = 0;
 				 }
 			 }
@@ -1158,7 +1166,9 @@
 	 int iEntityIndex = lua_tonumber(L, 1);
 	 if (iEntityIndex > 0)
 	 {
-		 if (iEntityIndex > t.storedentityelementlist)
+		 // GG: or a clone spawned into a free element inside the level's list (entity_addentitytomap reuses the first free one,
+		 // which the index test missed, so the delete did nothing and the clone lived on)
+		 if (iEntityIndex > t.storedentityelementlist || (iEntityIndex < t.entityelement.size() && t.entityelement[iEntityIndex].iWasSpawnedInGame > 0))
 		 {
 			 // was created at run-time, can delete
 			 int storee = t.e;
@@ -1185,10 +1195,16 @@
 				 HideObject (t.entityelement[t.tentitytoselect].attachmentobj);
 				 t.entityelement[t.tentitytoselect].attachmentobj = 0;
 			 }
+			 // GG: its ragdoll goes with it, before the object: left behind, its 13 or so bodies fell for ever, awake
+			 extern int BPhys_RagdollExist(int ragdollID);
+			 if (BPhys_RagdollExist(t.entityelement[t.tentitytoselect].obj) == 1)
+			 {
+				 t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
+			 }
 			 entity_deleteentityfrommap ();
+			 t.entityelement[t.tentitytoselect].iWasSpawnedInGame = 0;
 			 if (t.entityelement[t.tentitytoselect].ragdollified == 1)
 			 {
-				 //t.tphyobj = t.entityelement[t.tentitytoselect].obj; ragdoll_destroy ();
 				 t.entityelement[t.tentitytoselect].ragdollified = 0;
 			 }
 
