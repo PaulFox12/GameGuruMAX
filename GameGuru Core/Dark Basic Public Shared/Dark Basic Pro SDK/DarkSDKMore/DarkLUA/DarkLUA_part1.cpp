@@ -1248,8 +1248,7 @@
  {
 	lua2 = L;
 	int n = LUA_GETTOP(L);
-	if ( iCoreMode == 0 && n < 1 ) return 0;
-	if ( iCoreMode == 1 && n < 2 ) return 0;
+	if ( n < 1 ) return 0;
 	int iEntityIndex = lua_tonumber(L, 1);
 	int iObjectNumber = t.entityelement[iEntityIndex].obj;
 	if ( iObjectNumber > 0 )
@@ -1259,8 +1258,9 @@
 		{
 			if ( iCoreMode == 1 )
 			{
-				// force a freeze mode onto physics object
-				int iFreezeMode = lua_tonumber(L, 2);
+				// force a freeze mode onto physics object (FreezeEntity(e) alone did nothing: it now means mode 0)
+				int iFreezeMode = 0;
+				if ( n >= 2 ) iFreezeMode = lua_tonumber(L, 2);
 				ODESetBodyResponse ( iObjectNumber, 1 + iFreezeMode );
 			}
 			else
