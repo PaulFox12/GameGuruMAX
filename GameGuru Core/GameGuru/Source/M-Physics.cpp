@@ -195,10 +195,74 @@ void physics_init ( void )
 	t.playercontrol.lockatheightpress=0;
 
 	//  Setup entity physics
+	// each entity's preparation timed, for the log: the totals by collision mode, the slowest models (their total and count)
+	// and the slowest single entities (a diagnostic, to compare the builds per entity)
+	LARGE_INTEGER llPhysFreq, llPhysA, llPhysB;
+	QueryPerformanceFrequency(&llPhysFreq);
+	double dPhysModeMs[256] = { 0 };
+	int iPhysModeCount[256] = { 0 };
+	std::vector<double> dPhysBankMs(g.entidmaster + 2, 0.0);
+	std::vector<int> iPhysBankCount(g.entidmaster + 2, 0);
+	const int iPhysSlowMax = 12;
+	double dPhysSlowMs[iPhysSlowMax] = { 0 };
+	int iPhysSlowE[iPhysSlowMax] = { 0 };
+	double dPhysTotalMs = 0;
 	for ( t.e = 1 ; t.e<=  g.entityelementlist; t.e++ )
 	{
 		t.entid=t.entityelement[t.e].bankindex;
+		const int iPhysBank = t.entid;
+		QueryPerformanceCounter(&llPhysA);
 		physics_prepareentityforphysics ( );
+		QueryPerformanceCounter(&llPhysB);
+		const double dMs = (double)(llPhysB.QuadPart - llPhysA.QuadPart) * 1000.0 / (double)llPhysFreq.QuadPart;
+		dPhysTotalMs += dMs;
+		int iMode = iPhysBank > 0 ? t.entityprofile[iPhysBank].collisionmode : -1;
+		if (iMode < 0 || iMode > 254) iMode = 255;
+		dPhysModeMs[iMode] += dMs;
+		iPhysModeCount[iMode]++;
+		if (iPhysBank > 0 && iPhysBank < (int)dPhysBankMs.size()) { dPhysBankMs[iPhysBank] += dMs; iPhysBankCount[iPhysBank]++; }
+		int iLeast = 0;
+		for (int i = 1; i < iPhysSlowMax; i++) if (dPhysSlowMs[i] < dPhysSlowMs[iLeast]) iLeast = i;
+		if (dMs > dPhysSlowMs[iLeast]) { dPhysSlowMs[iLeast] = dMs; iPhysSlowE[iLeast] = t.e; }
+	}
+	{
+		char pMsg[4096];
+		int n = _snprintf(pMsg, sizeof(pMsg) - 1, "physics: prepared %d entities in %.1f ms; by collision mode (mode: count, ms):", g.entityelementlist, dPhysTotalMs);
+		for (int m = 0; m < 256 && n > 0 && n < (int)sizeof(pMsg) - 64; m++)
+			if (iPhysModeCount[m] > 0) n += _snprintf(pMsg + n, sizeof(pMsg) - 1 - n, " %d: %d, %.1f;", m == 255 ? -1 : m, iPhysModeCount[m], dPhysModeMs[m]);
+		pMsg[sizeof(pMsg) - 1] = 0;
+		timestampactivity(0, pMsg);
+		// the slowest models by their total
+		n = _snprintf(pMsg, sizeof(pMsg) - 1, "physics: prepare, the slowest models (total ms, count):");
+		std::vector<int> iBanks;
+		for (int b = 1; b < (int)dPhysBankMs.size(); b++) if (iPhysBankCount[b] > 0) iBanks.push_back(b);
+		for (int k = 0; k < 15 && k < (int)iBanks.size(); k++)
+		{
+			int iBest = k;
+			for (int j = k + 1; j < (int)iBanks.size(); j++) if (dPhysBankMs[iBanks[j]] > dPhysBankMs[iBanks[iBest]]) iBest = j;
+			int iSwap = iBanks[k]; iBanks[k] = iBanks[iBest]; iBanks[iBest] = iSwap;
+			const int b = iBanks[k];
+			if (n > 0 && n < (int)sizeof(pMsg) - 300)
+				n += _snprintf(pMsg + n, sizeof(pMsg) - 1 - n, " %s (mode %d) %.1f, %d;", t.entitybank_s[b].Get(), t.entityprofile[b].collisionmode, dPhysBankMs[b], iPhysBankCount[b]);
+		}
+		pMsg[sizeof(pMsg) - 1] = 0;
+		timestampactivity(0, pMsg);
+		// the slowest single entities
+		n = _snprintf(pMsg, sizeof(pMsg) - 1, "physics: prepare, the slowest entities (ms):");
+		for (int k = 0; k < iPhysSlowMax; k++)
+		{
+			int iBest = k;
+			for (int j = k + 1; j < iPhysSlowMax; j++) if (dPhysSlowMs[j] > dPhysSlowMs[iBest]) iBest = j;
+			double dSwap = dPhysSlowMs[k]; dPhysSlowMs[k] = dPhysSlowMs[iBest]; dPhysSlowMs[iBest] = dSwap;
+			int iSwapE = iPhysSlowE[k]; iPhysSlowE[k] = iPhysSlowE[iBest]; iPhysSlowE[iBest] = iSwapE;
+			const int e = iPhysSlowE[k];
+			if (e <= 0) continue;
+			const int b = t.entityelement[e].bankindex;
+			if (n > 0 && n < (int)sizeof(pMsg) - 300)
+				n += _snprintf(pMsg + n, sizeof(pMsg) - 1 - n, " %d %s %.1f;", e, b > 0 ? t.entitybank_s[b].Get() : "?", dPhysSlowMs[k]);
+		}
+		pMsg[sizeof(pMsg) - 1] = 0;
+		timestampactivity(0, pMsg);
 	}
 
 	//  Introduce all characters and entities to the physics universe
