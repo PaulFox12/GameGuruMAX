@@ -209,6 +209,8 @@ void physics_init ( void )
 	double dPhysSlowMs[iPhysSlowMax] = { 0 };
 	int iPhysSlowE[iPhysSlowMax] = { 0 };
 	double dPhysTotalMs = 0;
+	// the entities that share an OBJ collision mesh load it once
+	ODEKeepOBJCollisionMesh(1);
 	for ( t.e = 1 ; t.e<=  g.entityelementlist; t.e++ )
 	{
 		t.entid=t.entityelement[t.e].bankindex;
@@ -227,6 +229,7 @@ void physics_init ( void )
 		for (int i = 1; i < iPhysSlowMax; i++) if (dPhysSlowMs[i] < dPhysSlowMs[iLeast]) iLeast = i;
 		if (dMs > dPhysSlowMs[iLeast]) { dPhysSlowMs[iLeast] = dMs; iPhysSlowE[iLeast] = t.e; }
 	}
+	ODEKeepOBJCollisionMesh(0);
 	{
 		char pMsg[4096];
 		int n = _snprintf(pMsg, sizeof(pMsg) - 1, "physics: prepared %d entities in %.1f ms; by collision mode (mode: count, ms):", g.entityelementlist, dPhysTotalMs);
