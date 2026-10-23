@@ -3632,6 +3632,20 @@ static bool AutoHarness_GrassDensityCommands(const char* cmd, const char* arg, c
 // the one field that is still NOT restored on the way back to the editor - see notes 3.86.
 static bool AutoHarness_PostFXCommands(const char* cmd, const char* arg, char* result, size_t resultSize)
 {
+	if (_stricmp(cmd, "SET_SUN") == 0)
+	{
+		// SET_SUN r g b intensity: the sun light's colour (0-255, as the visuals) and intensity set directly, the level's
+		// visuals untouched (the next visuals push puts them back); for the sun flare's colour on a coloured sun. As the
+		// DX11 build's verb.
+		extern void WickedCall_SetSunColors(float fRed, float fGreen, float fBlue, float fEnergy, float fFov, float fShadowBias);
+		float r = 255, g = 255, b = 255, e = t.visuals.SunIntensity_f;
+		int got = sscanf_s(arg, "%f %f %f %f", &r, &g, &b, &e);
+		if (got >= 3) WickedCall_SetSunColors(r / 255.0f, g / 255.0f, b / 255.0f, e, 1.0f, t.visuals.fSunShadowBias);
+		_snprintf(result, resultSize, "OK: SET_SUN rgb=(%.0f,%.0f,%.0f) intensity=%.3f (level %.0f,%.0f,%.0f at %.3f)", r, g, b, e,
+			t.visuals.SunRed_f, t.visuals.SunGreen_f, t.visuals.SunBlue_f, t.visuals.SunIntensity_f);
+		result[resultSize - 1] = 0;
+		return true;
+	}
 	if (_stricmp(cmd, "SET_SCREENFLARE") == 0 || _stricmp(cmd, "SET_SUNFLARE") == 0)
 	{
 		// SET_SCREENFLARE [enabled intensity threshold spacing halo nosky cap followbloom] and SET_SUNFLARE [enabled hue
