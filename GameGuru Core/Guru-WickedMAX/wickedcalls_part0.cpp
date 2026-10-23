@@ -9,6 +9,7 @@
 #include <vector>
 #include <unordered_map>
 #include <atomic>
+#include <mutex>
 
 #include "..\Dark Basic Pro SDK\Shared\Objects\CObjectManagerWicked.h"
 #include "M-Entity.h"
@@ -581,6 +582,33 @@ bool bUseInstancing = false;
 int iUseMasterObjectID = 0;
 int iCurrentObjectID = 0;
 bool bNextObjectMustBeClone = false;
+// GG: the tangents MeshComponent::CreateRenderData makes for a mesh that has none (MikkTSpace: 25-37 ms for a character,
+// whose DBO tangent slot is zeros), kept by the mesh's content (positions, normals, first UVs, indices), so the clones of
+// a model take them instead of making them again. The second mesh with the same content makes them again and must
+// match bit for bit before any later one takes them; one that does not match is logged and never taken
+struct sWickedMadeTangents { std::vector<XMFLOAT4> tangents; int iState; }; // 0 made once, 1 matched, -1 differed
+static std::unordered_map<uint64_t, sWickedMadeTangents> g_WickedMadeTangents;
+static std::mutex g_WickedMadeTangentsLock;
+static size_t g_WickedMadeTangentsBytes = 0; // all kept at most 64 MB, then they start again
+
+static uint64_t WickedCall_MeshTangentKey(const wiScene::MeshComponent& mesh)
+{
+	uint64_t h = 0xcbf29ce484222325ULL;
+	auto mix = [&h](const void* pData, size_t bytes)
+	{
+		const uint32_t* p = (const uint32_t*)pData;
+		for (size_t i = 0; i < bytes / 4; i++) { h ^= p[i]; h *= 0x100000001b3ULL; }
+		h ^= (uint64_t)bytes; h *= 0x100000001b3ULL;
+	};
+	mix(mesh.vertex_positions.data(), mesh.vertex_positions.size() * sizeof(XMFLOAT3));
+	mix(mesh.vertex_normals.data(), mesh.vertex_normals.size() * sizeof(XMFLOAT3));
+	mix(mesh.vertex_uvset_0.data(), mesh.vertex_uvset_0.size() * sizeof(XMFLOAT2));
+	mix(mesh.indices.data(), mesh.indices.size() * sizeof(uint32_t));
+	for (const auto& subset : mesh.subsets) { mix(&subset.indexOffset, sizeof(uint32_t)); mix(&subset.indexCount, sizeof(uint32_t)); }
+	h ^= h >> 33; h *= 0xff51afd7ed558ccdULL; h ^= h >> 33;
+	return h;
+}
+
 void WickedCall_LoadNode(sFrame* pFrame, Entity parent, Entity root, WickedLoaderState& state)
 {
 	// only if have a frame
@@ -987,16 +1015,60 @@ void WickedCall_LoadNode(sFrame* pFrame, Entity parent, Entity root, WickedLoade
 			// a probed spawn's slices: the vertices copied above, then the render data, apart for a mesh with no tangents
 			// (the render data makes them)
 			SpawnProbe_Sub("load node: vertices");
+
+			// a mesh with no tangents takes the ones made for the same content before, once they have matched
+			uint64_t uTangentKey = 0;
+			if (mesh.vertex_tangents.empty() && !mesh.vertex_uvset_0.empty() && !mesh.vertex_normals.empty())
+			{
+				uTangentKey = WickedCall_MeshTangentKey(mesh);
+				std::lock_guard<std::mutex> lock(g_WickedMadeTangentsLock);
+				auto it = g_WickedMadeTangents.find(uTangentKey);
+				if (it != g_WickedMadeTangents.end() && it->second.iState == 1 && it->second.tangents.size() == mesh.vertex_positions.size())
+				{
+					mesh.vertex_tangents = it->second.tangents;
+					uTangentKey = 0;
+				}
+			}
 			const bool bProbeNoTangents = mesh.vertex_tangents.empty();
-			extern std::atomic<unsigned long long> gg_meshrd_us[7];
+			extern std::atomic<unsigned long long> gg_meshrd_us[9];
 			extern void SpawnProbe_AddCall(const char* pName, double dMs);
-			unsigned long long ullProbeRd[7];
-			for (int iRd = 0; iRd < 7; iRd++) ullProbeRd[iRd] = gg_meshrd_us[iRd].load();
+			unsigned long long ullProbeRd[9];
+			for (int iRd = 0; iRd < 9; iRd++) ullProbeRd[iRd] = gg_meshrd_us[iRd].load();
 
 			// now create the internals for this mesh
 			mesh.CreateRenderData();
-			static const char* pProbeRdNames[7] = { "render data: tangents", "render data: provoking index", "render data: bounds and sizes", "render data: suballocate", "render data: buffer and copy", "render data: descriptors", "render data: vertex fill" };
-			for (int iRd = 0; iRd < 7; iRd++) SpawnProbe_AddCall(pProbeRdNames[iRd], (gg_meshrd_us[iRd].load() - ullProbeRd[iRd]) / 1000.0);
+			static const char* pProbeRdNames[9] = { "render data: tangents", "render data: provoking index", "render data: bounds and sizes", "render data: suballocate", "render data: buffer and copy", "render data: descriptors", "render data: vertex fill", "render data: bounds", "render data: position test" };
+			for (int iRd = 0; iRd < 9; iRd++) SpawnProbe_AddCall(pProbeRdNames[iRd], (gg_meshrd_us[iRd].load() - ullProbeRd[iRd]) / 1000.0);
+
+			// the tangents it made: kept the first time, compared the second
+			if (uTangentKey && mesh.vertex_tangents.size() == mesh.vertex_positions.size())
+			{
+				std::lock_guard<std::mutex> lock(g_WickedMadeTangentsLock);
+				auto it = g_WickedMadeTangents.find(uTangentKey);
+				if (it == g_WickedMadeTangents.end())
+				{
+					const size_t bytes = mesh.vertex_tangents.size() * sizeof(XMFLOAT4);
+					if (g_WickedMadeTangentsBytes + bytes > (64ull << 20)) { g_WickedMadeTangents.clear(); g_WickedMadeTangentsBytes = 0; }
+					g_WickedMadeTangents[uTangentKey] = { mesh.vertex_tangents, 0 };
+					g_WickedMadeTangentsBytes += bytes;
+				}
+				else if (it->second.iState == 0)
+				{
+					const bool bSame = it->second.tangents.size() == mesh.vertex_tangents.size()
+						&& memcmp(it->second.tangents.data(), mesh.vertex_tangents.data(), mesh.vertex_tangents.size() * sizeof(XMFLOAT4)) == 0;
+					it->second.iState = bSame ? 1 : -1;
+					if (!bSame)
+					{
+						g_WickedMadeTangentsBytes -= it->second.tangents.size() * sizeof(XMFLOAT4);
+						it->second.tangents = std::vector<XMFLOAT4>();
+					}
+					extern void timestampactivity(int i, char* desc_s);
+					char pTanLog[512];
+					sprintf_s(pTanLog, sizeof(pTanLog), "made tangents (%s, %d vertices): %s", pFrame->szName, (int)mesh.vertex_tangents.size(),
+						bSame ? "made again the same, later meshes with this content take them" : "made again DIFFERENT, never taken");
+					timestampactivity(0, pTanLog);
+				}
+			}
 			SpawnProbe_Sub(bProbeNoTangents ? "load node: render data, tangents made" : "load node: render data");
 		}
 		//#### PE: mesh setup end ####
