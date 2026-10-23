@@ -567,6 +567,8 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 	// all static objects in level
 	if (bIgnoreStaticStuff == false)
 	{
+		// the OBJ collision mesh in the temp object, so the entities that share one load it once
+		char pNavMeshOBJLoaded[MAX_PATH] = "";
 		for (int e = 1; e <= g.entityelementlist; e++)
 		{
 			if (t.entityelement[e].staticflag == 1)
@@ -609,6 +611,7 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 						int newobj = g.tempobjectoffset + 1;
 						if (ObjectExist(newobj)) DeleteObject(newobj);
 						MakeObjectCylinder(newobj, 1);
+						pNavMeshOBJLoaded[0] = 0;
 
 						t.tSizeY_f = ObjectSizeY(iObj, 1);
 
@@ -673,8 +676,12 @@ void game_createnavmeshfromlevel ( bool bForceGeneration )
 							if (FileExist(pOBJCollisionMesh) == 1)
 							{
 								// can optimize this by keeping the low poly OBJ, perhaps add to DBO as a LOD??
-								if (ObjectExist(g.temp2objectoffset) == 1) DeleteObject(g.temp2objectoffset);
-								LoadObject (pOBJCollisionMesh, g.temp2objectoffset);
+								if (stricmp(pOBJCollisionMesh, pNavMeshOBJLoaded) != 0 || ObjectExist(g.temp2objectoffset) == 0)
+								{
+									if (ObjectExist(g.temp2objectoffset) == 1) DeleteObject(g.temp2objectoffset);
+									LoadObject (pOBJCollisionMesh, g.temp2objectoffset);
+									strcpy(pNavMeshOBJLoaded, pOBJCollisionMesh);
+								}
 								iObjToUseForNavMesh = g.temp2objectoffset;
 								RotateObject(iObjToUseForNavMesh, ObjectAngleX(iObj), ObjectAngleY(iObj), ObjectAngleZ(iObj));
 								ScaleObject(iObjToUseForNavMesh, ObjectScaleX(iObj), ObjectScaleY(iObj), ObjectScaleZ(iObj));
