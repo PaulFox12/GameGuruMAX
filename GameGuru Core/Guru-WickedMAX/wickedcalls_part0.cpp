@@ -983,8 +983,14 @@ void WickedCall_LoadNode(sFrame* pFrame, Entity parent, Entity root, WickedLoade
 				bUseFrameMatrix = false;
 			}
 
+			// a probed spawn's slices: the vertices copied above, then the render data, apart for a mesh with no tangents
+			// (the render data makes them)
+			SpawnProbe_Sub("load node: vertices");
+			const bool bProbeNoTangents = mesh.vertex_tangents.empty();
+
 			// now create the internals for this mesh
 			mesh.CreateRenderData();
+			SpawnProbe_Sub(bProbeNoTangents ? "load node: render data, tangents made" : "load node: render data");
 		}
 		//#### PE: mesh setup end ####
 	}
