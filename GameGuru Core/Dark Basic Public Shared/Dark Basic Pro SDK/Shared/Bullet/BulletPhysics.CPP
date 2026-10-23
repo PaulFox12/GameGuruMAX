@@ -2062,6 +2062,23 @@ void SetOBJLoadingFilename (LPSTR pFilename)
 	strcpy (g_ProvidedMeshFilenameForOBJLoading, pFilename);
 }
 
+// keep an OBJ collision mesh loaded while the next mesh uses the same file
+static bool g_bKeepOBJCollisionMesh = false;
+static sObject* g_pKeptOBJCollisionObject = NULL;
+static char g_pKeptOBJCollisionMesh[MAX_PATH] = "";
+static char g_pCheckedOBJCollisionFPE[MAX_PATH] = "";
+static char g_pCheckedOBJCollisionMesh[MAX_PATH] = "";
+
+void KeepOBJCollisionMesh (bool bKeep)
+{
+	if (g_pKeptOBJCollisionObject && ObjectExist(69501) == 1 && GetObjectData(69501) == g_pKeptOBJCollisionObject) DeleteObject(69501);
+	g_pKeptOBJCollisionObject = NULL;
+	g_pKeptOBJCollisionMesh[0] = 0;
+	g_pCheckedOBJCollisionFPE[0] = 0;
+	g_pCheckedOBJCollisionMesh[0] = 0;
+	g_bKeepOBJCollisionMesh = bKeep;
+}
+
 void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrainMesh, int iCollisionScaling, int iHullReduction, float fWeight, float fFriction, float fRestitution )
 {
 	// get reference object
@@ -2129,18 +2146,43 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 		strcpy(pNoFPE, g_ProvidedMeshFilenameForOBJLoading);
 		pNoFPE[strlen(pNoFPE) - 4] = 0;
 		char pOBJCollisionMesh[MAX_PATH];
-		sprintf(pOBJCollisionMesh, "%s.obj", pNoFPE);
-		GG_GetRealPath(pOBJCollisionMesh, 0);
-		if (FileExist(pOBJCollisionMesh) == 0)
+		if (g_bKeepOBJCollisionMesh && stricmp(pNoFPE, g_pCheckedOBJCollisionFPE) == 0)
 		{
-			sprintf(pOBJCollisionMesh, "%s_COL.obj", pNoFPE);
-			GG_GetRealPath(pOBJCollisionMesh, 0);
+			strcpy(pOBJCollisionMesh, g_pCheckedOBJCollisionMesh);
 		}
-		if (FileExist(pOBJCollisionMesh) == 1)
+		else
+		{
+			sprintf(pOBJCollisionMesh, "%s.obj", pNoFPE);
+			GG_GetRealPath(pOBJCollisionMesh, 0);
+			if (FileExist(pOBJCollisionMesh) == 0)
+			{
+				sprintf(pOBJCollisionMesh, "%s_COL.obj", pNoFPE);
+				GG_GetRealPath(pOBJCollisionMesh, 0);
+				if (FileExist(pOBJCollisionMesh) == 0) pOBJCollisionMesh[0] = 0;
+			}
+			if (g_bKeepOBJCollisionMesh)
+			{
+				strcpy(g_pCheckedOBJCollisionFPE, pNoFPE);
+				strcpy(g_pCheckedOBJCollisionMesh, pOBJCollisionMesh);
+			}
+		}
+		if (pOBJCollisionMesh[0])
 		{
 			iObjectUsedToExtractPhysicsMesh = 69501;// g.temp2objectoffset;
-			if (ObjectExist(iObjectUsedToExtractPhysicsMesh) == 1) DeleteObject(iObjectUsedToExtractPhysicsMesh);
-			LoadObject (pOBJCollisionMesh, iObjectUsedToExtractPhysicsMesh);
+			bool bKept = g_pKeptOBJCollisionObject && stricmp(pOBJCollisionMesh, g_pKeptOBJCollisionMesh) == 0
+				&& ObjectExist(iObjectUsedToExtractPhysicsMesh) == 1 && GetObjectData(iObjectUsedToExtractPhysicsMesh) == g_pKeptOBJCollisionObject;
+			if (!bKept)
+			{
+				if (ObjectExist(iObjectUsedToExtractPhysicsMesh) == 1) DeleteObject(iObjectUsedToExtractPhysicsMesh);
+				LoadObject (pOBJCollisionMesh, iObjectUsedToExtractPhysicsMesh);
+				g_pKeptOBJCollisionObject = NULL;
+				if (g_bKeepOBJCollisionMesh && ObjectExist(iObjectUsedToExtractPhysicsMesh) == 1)
+				{
+					HideObject(iObjectUsedToExtractPhysicsMesh);
+					g_pKeptOBJCollisionObject = GetObjectData(iObjectUsedToExtractPhysicsMesh);
+					strcpy(g_pKeptOBJCollisionMesh, pOBJCollisionMesh);
+				}
+			}
 			RotateObject(iObjectUsedToExtractPhysicsMesh, ObjectAngleX(iObjectNumber), ObjectAngleY(iObjectNumber), ObjectAngleZ(iObjectNumber));
 			ScaleObject(iObjectUsedToExtractPhysicsMesh, ObjectScaleX(iObjectNumber), ObjectScaleY(iObjectNumber), ObjectScaleZ(iObjectNumber));
 			pObjectUsedToExtractPhysicsMesh = GetObjectData(iObjectUsedToExtractPhysicsMesh);
@@ -2446,10 +2488,10 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 	btMesh.m_numTriangles = totalTriangles;
 	btMesh.m_triangleIndexBase = (const unsigned char*)gIndices;
 
-	// free any temp object (used to load OBJ collision data in)
+	// free any temp object (used to load OBJ collision data in), unless kept for the next mesh
 	if (bObjectUsesOBJCollisionMesh==true)
 	{
-		if (ObjectExist(iObjectUsedToExtractPhysicsMesh) == 1) DeleteObject(iObjectUsedToExtractPhysicsMesh);
+		if (g_pKeptOBJCollisionObject == NULL && ObjectExist(iObjectUsedToExtractPhysicsMesh) == 1) DeleteObject(iObjectUsedToExtractPhysicsMesh);
 		bObjectUsesOBJCollisionMesh = false;
 		iObjectUsedToExtractPhysicsMesh = 0;
 	}
@@ -3486,6 +3528,10 @@ void ODESetMeshFilename (LPSTR pName)
 void ODESetOBJLoadingFilename (LPSTR pName)
 {
 	SetOBJLoadingFilename (pName);
+}
+void ODEKeepOBJCollisionMesh ( int iKeep )
+{
+	KeepOBJCollisionMesh ( iKeep != 0 );
 }
 void ODECreateStaticTerrainMesh ( int iObjectNumber )
 {

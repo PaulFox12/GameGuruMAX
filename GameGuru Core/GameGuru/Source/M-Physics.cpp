@@ -194,11 +194,14 @@ void physics_init ( void )
 	t.playercontrol.lockatheightpress=0;
 
 	//  Setup entity physics
+	// entities sharing an OBJ collision mesh load it once
+	ODEKeepOBJCollisionMesh(1);
 	for ( t.e = 1 ; t.e<=  g.entityelementlist; t.e++ )
 	{
 		t.entid=t.entityelement[t.e].bankindex;
 		physics_prepareentityforphysics ( );
 	}
+	ODEKeepOBJCollisionMesh(0);
 
 	//  Introduce all characters and entities to the physics universe
 	timestampactivity(0,"Introduce all characters");
