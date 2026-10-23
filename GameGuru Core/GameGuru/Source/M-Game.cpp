@@ -317,6 +317,8 @@ static uint64_t game_navmeshmix(const void* pData, size_t bytes)
 static uint64_t game_addnavmeshstatics(int iBuildAllLevelObj, int iBuildAllLevelMesh, int& iLimbIndex, float editableSize, bool bUsingNavMeshLimitCustomArea, GGVECTOR3 vecCustomPlayAreaMin, GGVECTOR3 vecCustomPlayAreaMax, bool bAddLimbs = true)
 {
 	uint64_t uHash = 0;
+	// the OBJ collision mesh in the temp object, so the entities that share one load it once
+	char pNavMeshOBJLoaded[MAX_PATH] = "";
 	for (int e = 1; e <= g.entityelementlist; e++)
 	{
 		// a static entity, or a dynamic one whose .fpe asks for it (navmeshbake = 1: a building that can collapse, its walls in
@@ -368,6 +370,7 @@ static uint64_t game_addnavmeshstatics(int iBuildAllLevelObj, int iBuildAllLevel
 					int newobj = g.tempobjectoffset + 1;
 					if (ObjectExist(newobj)) DeleteObject(newobj);
 					MakeObjectCylinder(newobj, 1);
+					pNavMeshOBJLoaded[0] = 0;
 
 					t.tSizeY_f = ObjectSizeY(iObj, 1);
 
@@ -432,8 +435,12 @@ static uint64_t game_addnavmeshstatics(int iBuildAllLevelObj, int iBuildAllLevel
 						if (FileExist(pOBJCollisionMesh) == 1)
 						{
 							// can optimize this by keeping the low poly OBJ, perhaps add to DBO as a LOD??
-							if (ObjectExist(g.temp2objectoffset) == 1) DeleteObject(g.temp2objectoffset);
-							LoadObject (pOBJCollisionMesh, g.temp2objectoffset);
+							if (stricmp(pOBJCollisionMesh, pNavMeshOBJLoaded) != 0 || ObjectExist(g.temp2objectoffset) == 0)
+							{
+								if (ObjectExist(g.temp2objectoffset) == 1) DeleteObject(g.temp2objectoffset);
+								LoadObject (pOBJCollisionMesh, g.temp2objectoffset);
+								strcpy(pNavMeshOBJLoaded, pOBJCollisionMesh);
+							}
 							iObjToUseForNavMesh = g.temp2objectoffset;
 							RotateObject(iObjToUseForNavMesh, ObjectAngleX(iObj), ObjectAngleY(iObj), ObjectAngleZ(iObj));
 							ScaleObject(iObjToUseForNavMesh, ObjectScaleX(iObj), ObjectScaleY(iObj), ObjectScaleZ(iObj));
@@ -615,6 +622,9 @@ static void game_createwholemapnavmesh(bool bStandalone)
 	if (ObjectExist(iBuildAllLevelObj) == 1) DeleteObject(iBuildAllLevelObj);
 	MakeObjectPlane(iBuildAllLevelObj, 1, 1);
 	HideObject(iBuildAllLevelObj);
+	LARGE_INTEGER llGatherFreq, llGatherA, llGatherB;
+	QueryPerformanceFrequency(&llGatherFreq);
+	QueryPerformanceCounter(&llGatherA);
 	game_addnavmeshstatics(iBuildAllLevelObj, iBuildAllLevelMesh, iLimbIndex, editableSize, bUsingNavMeshLimitCustomArea, vecCustomPlayAreaMin, vecCustomPlayAreaMax);
 	float* pStaticVerts = 0;
 	uint32_t numStaticVerts = 0;
@@ -625,7 +635,11 @@ static void game_createwholemapnavmesh(bool bStandalone)
 		GetObjectNavMeshVertices(iBuildAllLevelObj, pStaticVerts);
 	}
 	DeleteObject(iBuildAllLevelObj);
-	sprintf_s(pNavLog, 1024, "Navmesh (whole map): %u static triangles", numStaticVerts / 3);
+	QueryPerformanceCounter(&llGatherB);
+	// the gather's time and a checksum of its vertices (the same statics give the same one)
+	const uint64_t uStaticVertsHash = pStaticVerts ? game_navmeshmix(pStaticVerts, numStaticVerts * 3 * sizeof(float)) : 0;
+	sprintf_s(pNavLog, 1024, "Navmesh (whole map): %u static triangles, gathered in %.0f ms, checksum %016llx", numStaticVerts / 3,
+		(double)(llGatherB.QuadPart - llGatherA.QuadPart) * 1000.0 / (double)llGatherFreq.QuadPart, (unsigned long long)uStaticVertsHash);
 	timestampactivity(0, pNavLog);
 
 	g_RecastDetour.bakeWholeMap(&bake, pStaticVerts, numStaticVerts, objectsHash, bStandalone ? pCacheNav : pLevelNavWrite, pReport, 2048);
