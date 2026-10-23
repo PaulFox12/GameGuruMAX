@@ -34,6 +34,7 @@ DARKSDK void		ODECreateStaticCylinder				    ( int iObjectNumber, float fXPos, f
 DARKSDK void	    ODECreateTreeCylinder                   ( int iObjectNumber );
 DARKSDK void		ODESetMeshFilename						( LPSTR pName );
 DARKSDK void		ODESetOBJLoadingFilename				( LPSTR pName );
+DARKSDK void		ODEKeepOBJCollisionMesh					( int iKeep );
 DARKSDK void		ODECreateStaticTerrainMesh				( int iObjectNumber );
 DARKSDK void		ODECreateStaticTriangleMesh			    ( int iObjectNumber );
 DARKSDK void		ODECreateStaticTriangleMesh			    ( int iObjectNumber, int iLimbNumber );
