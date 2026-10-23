@@ -1958,7 +1958,7 @@ static double g_dSpawnProbeMs[SPAWNSTEP_COUNT];
 
 // the named slices (SpawnProbe_Sub), each given to the step whose mark follows it, and the counted calls
 #define SPAWNPROBE_SLICES 32
-#define SPAWNPROBE_CALLS 8
+#define SPAWNPROBE_CALLS 16
 struct sSpawnProbeNamed { const char* pName; int iStep; int iCount; double dMs; };
 static sSpawnProbeNamed g_SpawnProbeSlice[SPAWNPROBE_SLICES];
 static int g_iSpawnProbeSlices = 0;
@@ -2050,6 +2050,25 @@ void SpawnProbe_CallEnd ( const char* pName, long long llStart )
 		g_iSpawnProbeCalls++;
 	}
 	g_SpawnProbeCall[i].dMs += SpawnProbe_MsSince(llStart, NULL);
+	g_SpawnProbeCall[i].iCount++;
+}
+
+// a counted call whose time was measured elsewhere (CreateRenderData's sections)
+void SpawnProbe_AddCall ( const char* pName, double dMs )
+{
+	if (!SpawnProbe_Here() || !pName) return;
+	int i = 0;
+	while (i < g_iSpawnProbeCalls && strcmp(g_SpawnProbeCall[i].pName, pName) != 0) i++;
+	if (i == g_iSpawnProbeCalls)
+	{
+		if (i == SPAWNPROBE_CALLS) return;
+		g_SpawnProbeCall[i].pName = pName;
+		g_SpawnProbeCall[i].iStep = -1;
+		g_SpawnProbeCall[i].iCount = 0;
+		g_SpawnProbeCall[i].dMs = 0;
+		g_iSpawnProbeCalls++;
+	}
+	g_SpawnProbeCall[i].dMs += dMs;
 	g_SpawnProbeCall[i].iCount++;
 }
 

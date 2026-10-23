@@ -8,6 +8,7 @@
 #include "GGAnimBridge.h"
 #include <vector>
 #include <unordered_map>
+#include <atomic>
 
 #include "..\Dark Basic Pro SDK\Shared\Objects\CObjectManagerWicked.h"
 #include "M-Entity.h"
@@ -987,9 +988,15 @@ void WickedCall_LoadNode(sFrame* pFrame, Entity parent, Entity root, WickedLoade
 			// (the render data makes them)
 			SpawnProbe_Sub("load node: vertices");
 			const bool bProbeNoTangents = mesh.vertex_tangents.empty();
+			extern std::atomic<unsigned long long> gg_meshrd_us[7];
+			extern void SpawnProbe_AddCall(const char* pName, double dMs);
+			unsigned long long ullProbeRd[7];
+			for (int iRd = 0; iRd < 7; iRd++) ullProbeRd[iRd] = gg_meshrd_us[iRd].load();
 
 			// now create the internals for this mesh
 			mesh.CreateRenderData();
+			static const char* pProbeRdNames[7] = { "render data: tangents", "render data: provoking index", "render data: bounds and sizes", "render data: suballocate", "render data: buffer and copy", "render data: descriptors", "render data: vertex fill" };
+			for (int iRd = 0; iRd < 7; iRd++) SpawnProbe_AddCall(pProbeRdNames[iRd], (gg_meshrd_us[iRd].load() - ullProbeRd[iRd]) / 1000.0);
 			SpawnProbe_Sub(bProbeNoTangents ? "load node: render data, tangents made" : "load node: render data");
 		}
 		//#### PE: mesh setup end ####
