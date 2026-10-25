@@ -4533,6 +4533,49 @@ static sSpawnProbeNamed g_SpawnProbeCall[SPAWNPROBE_CALLS];
 static int g_iSpawnProbeCalls = 0;
 static int g_iSpawnProbeCallDepth = 0;
 
+// how much of a probed spawn the thread spent running (its cycles against the clock's), and how often it was on a
+// slower core than the fastest (a hybrid CPU's efficiency cores), sampled at each mark and slice
+static ULONG64 g_ullSpawnProbeCycles = 0;
+static unsigned __int64 g_ullSpawnProbeTsc = 0;
+static int g_iSpawnProbeCoreSamples = 0;
+static int g_iSpawnProbeSlowCoreSamples = 0;
+static BYTE g_SpawnProbeCoreClass[64];
+static BYTE g_SpawnProbeFastClass = 0;
+static bool g_bSpawnProbeClassesRead = false;
+
+static void SpawnProbe_ReadCoreClasses ( void )
+{
+	g_bSpawnProbeClassesRead = true;
+	memset(g_SpawnProbeCoreClass, 0, sizeof(g_SpawnProbeCoreClass));
+	ULONG ulLen = 0;
+	GetSystemCpuSetInformation(NULL, 0, &ulLen, GetCurrentProcess(), 0);
+	if (ulLen == 0) return;
+	BYTE* pBuf = new BYTE[ulLen];
+	if (GetSystemCpuSetInformation((PSYSTEM_CPU_SET_INFORMATION)pBuf, ulLen, &ulLen, GetCurrentProcess(), 0))
+	{
+		for (ULONG ulOff = 0; ulOff < ulLen; )
+		{
+			PSYSTEM_CPU_SET_INFORMATION pSet = (PSYSTEM_CPU_SET_INFORMATION)(pBuf + ulOff);
+			if (pSet->Size == 0) break;
+			if (pSet->Type == CpuSetInformation && pSet->CpuSet.Group == 0 && pSet->CpuSet.LogicalProcessorIndex < 64)
+			{
+				g_SpawnProbeCoreClass[pSet->CpuSet.LogicalProcessorIndex] = pSet->CpuSet.EfficiencyClass;
+				if (pSet->CpuSet.EfficiencyClass > g_SpawnProbeFastClass) g_SpawnProbeFastClass = pSet->CpuSet.EfficiencyClass;
+			}
+			ulOff += pSet->Size;
+		}
+	}
+	delete[] pBuf;
+}
+
+static void SpawnProbe_SampleCore ( void )
+{
+	PROCESSOR_NUMBER pn;
+	GetCurrentProcessorNumberEx(&pn);
+	g_iSpawnProbeCoreSamples++;
+	if (pn.Group == 0 && pn.Number < 64 && g_SpawnProbeCoreClass[pn.Number] < g_SpawnProbeFastClass) g_iSpawnProbeSlowCoreSamples++;
+}
+
 static bool SpawnProbe_Here ( void )
 {
 	return g_bSpawnProbeActive && GetCurrentThreadId() == g_dwSpawnProbeThread;
@@ -4556,6 +4599,11 @@ void SpawnProbe_Start ( void )
 	g_iSpawnProbeCalls = 0;
 	g_iSpawnProbeCallDepth = 0;
 	g_dwSpawnProbeThread = GetCurrentThreadId();
+	if (!g_bSpawnProbeClassesRead) SpawnProbe_ReadCoreClasses();
+	g_iSpawnProbeCoreSamples = 0;
+	g_iSpawnProbeSlowCoreSamples = 0;
+	QueryThreadCycleTime(GetCurrentThread(), &g_ullSpawnProbeCycles);
+	g_ullSpawnProbeTsc = __rdtsc();
 	g_bSpawnProbeActive = true;
 }
 
@@ -4563,6 +4611,7 @@ void SpawnProbe_Mark ( int iStep )
 {
 	if (!SpawnProbe_Here() || iStep < 0 || iStep >= SPAWNSTEP_COUNT) return;
 	g_dSpawnProbeMs[iStep] += SpawnProbe_MsSince(g_SpawnProbeLast.QuadPart, &g_SpawnProbeLast);
+	SpawnProbe_SampleCore();
 	// the slices since the last mark are part of this step
 	for (int i = 0; i < g_iSpawnProbeSlices; i++)
 	{
@@ -4588,6 +4637,7 @@ void SpawnProbe_Sub ( const char* pName )
 	}
 	g_SpawnProbeSlice[i].dMs += SpawnProbe_MsSince(g_SpawnProbeLast.QuadPart, &g_SpawnProbeLast);
 	g_SpawnProbeSlice[i].iCount++;
+	SpawnProbe_SampleCore();
 }
 
 // a counted call inside another (an image load's own file checks) counts as part of the outer one
@@ -4627,6 +4677,10 @@ void SpawnProbe_Stop ( char* pText, int iSize )
 	static const char* pNames[SPAWNSTEP_COUNT] = { "profile", "add core", "before the clone", "clone", "animations and shadows",
 		"prepare (materials)", "depth and LOD", "position", "lights", "emitter", "flatten", "add rest", "sounds", "physics" };
 	g_bSpawnProbeActive = false;
+	ULONG64 ullCycles = 0;
+	QueryThreadCycleTime(GetCurrentThread(), &ullCycles);
+	const unsigned __int64 ullTsc = __rdtsc() - g_ullSpawnProbeTsc;
+	const double dRunning = ullTsc > 0 ? 100.0 * (double)(ullCycles - g_ullSpawnProbeCycles) / (double)ullTsc : 0;
 	int iLen = sprintf_s(pText, iSize, "%.1f ms:", SpawnProbe_MsSince(g_SpawnProbeStart.QuadPart, NULL));
 	for (int i = 0; i < SPAWNSTEP_COUNT && iLen > 0 && iLen < iSize - 40; i++)
 	{
@@ -4651,6 +4705,8 @@ void SpawnProbe_Stop ( char* pText, int iSize )
 		iLen += sprintf_s(pText + iLen, iSize - iLen, "%s%s %d in %.1f ms", pSep, g_SpawnProbeCall[c].pName, g_SpawnProbeCall[c].iCount, g_SpawnProbeCall[c].dMs);
 		pSep = ", ";
 	}
+	if (iLen > 0 && iLen < iSize - 64)
+		sprintf_s(pText + iLen, iSize - iLen, "; thread running %.0f%%, slow cores %d of %d", dRunning, g_iSpawnProbeSlowCoreSamples, g_iSpawnProbeCoreSamples);
 }
 
 void entity_createobj ( void )
