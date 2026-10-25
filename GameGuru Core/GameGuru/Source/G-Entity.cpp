@@ -4542,6 +4542,25 @@ static int g_iSpawnProbeSlowCoreSamples = 0;
 static BYTE g_SpawnProbeCoreClass[64];
 static BYTE g_SpawnProbeFastClass = 0;
 static bool g_bSpawnProbeClassesRead = false;
+static double g_dSpawnProbeGHz = 0;
+volatile unsigned long long g_ullSpawnProbeSink = 0;
+
+// the core's clock as the thread finds it: a chain of dependent multiply-adds (4 cycles each: a 3-cycle multiply, a
+// 1-cycle add; the shift runs beside the multiply and keeps the optimizer from folding steps together) timed by the
+// performance counter, about 50 microseconds at 4 GHz
+static double SpawnProbe_CoreGHz ( void )
+{
+	const int iSteps = 50000;
+	unsigned long long x = g_ullSpawnProbeSink | 1;
+	LARGE_INTEGER t0, t1, freq;
+	QueryPerformanceCounter(&t0);
+	for (int i = 0; i < iSteps; i++) x = x * 6364136223846793005ull + (x >> 31);
+	QueryPerformanceCounter(&t1);
+	QueryPerformanceFrequency(&freq);
+	g_ullSpawnProbeSink = x;
+	const double dNs = (double)(t1.QuadPart - t0.QuadPart) * 1.0e9 / (double)freq.QuadPart;
+	return dNs > 0 ? 4.0 * iSteps / dNs : 0;
+}
 
 static void SpawnProbe_ReadCoreClasses ( void )
 {
@@ -4592,6 +4611,7 @@ static double SpawnProbe_MsSince ( LONGLONG llFrom, LARGE_INTEGER* pNow )
 
 void SpawnProbe_Start ( void )
 {
+	g_dSpawnProbeGHz = SpawnProbe_CoreGHz();
 	QueryPerformanceCounter(&g_SpawnProbeStart);
 	g_SpawnProbeLast = g_SpawnProbeStart;
 	for (int i = 0; i < SPAWNSTEP_COUNT; i++) g_dSpawnProbeMs[i] = 0;
@@ -4706,7 +4726,7 @@ void SpawnProbe_Stop ( char* pText, int iSize )
 		pSep = ", ";
 	}
 	if (iLen > 0 && iLen < iSize - 64)
-		sprintf_s(pText + iLen, iSize - iLen, "; thread running %.0f%%, slow cores %d of %d", dRunning, g_iSpawnProbeSlowCoreSamples, g_iSpawnProbeCoreSamples);
+		sprintf_s(pText + iLen, iSize - iLen, "; thread running %.0f%%, slow cores %d of %d, clock %.2f GHz", dRunning, g_iSpawnProbeSlowCoreSamples, g_iSpawnProbeCoreSamples, g_dSpawnProbeGHz);
 }
 
 void entity_createobj ( void )
