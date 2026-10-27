@@ -3093,6 +3093,9 @@ static int LUA_GETTOP(lua_State* L)
 
 	t.e = t.tupdatee;
 	t.entityelement[t.e].eleprof = t.entityelement[iEntityIndex].eleprof;
+	// the template keeps its flat area (auto flatten, Clear Grass and Trees): with its id copied, deleting the clone
+	// removed the template's area
+	t.entityelement[t.e].eleprof.iFlattenID = -1;
 	t.entityelement[t.e].scalex = t.entityelement[iEntityIndex].scalex;
 	t.entityelement[t.e].scaley = t.entityelement[iEntityIndex].scaley;
 	t.entityelement[t.e].scalez = t.entityelement[iEntityIndex].scalez;
