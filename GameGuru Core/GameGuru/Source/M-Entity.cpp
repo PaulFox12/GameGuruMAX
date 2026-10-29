@@ -9280,9 +9280,8 @@ static bool entity_updatevegetationarea(int e, int obj)
 	float fOffsetZ = GetObjectCollisionCenterZ(iObj) * (ObjectScaleZ(iObj) / 100.0f);
 	float x = t.entityelement[e].x + (fOffsetX * cos(angRad)) + (fOffsetZ * sin(angRad));
 	float z = t.entityelement[e].z + (fOffsetZ * cos(angRad)) - (fOffsetX * sin(angRad));
-	// with the pad's margin, so it clears as far round the object as an auto flatten pad does
-	float sx = ObjectSizeX(iObj, 1) * 1.05f + g_fFlattenMargin;
-	float sz = ObjectSizeZ(iObj, 1) * 1.05f + g_fFlattenMargin;
+	float sx = ObjectSizeX(iObj, 1) * 1.05f;
+	float sz = ObjectSizeZ(iObj, 1) * 1.05f;
 
 	if (iFlattenID == -1)
 		t.entityelement[e].eleprof.iFlattenID = GGTerrain_AddVegetationArea(x, z, sx, sz, angDeg);
