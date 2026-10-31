@@ -2572,6 +2572,8 @@ void game_pauseworld ( void )
 	game_main_snapshotsound ( );
 	physics_pausephysics ( );
 	entity_pauseanimations ( );
+	extern void LuaLensRain_Pause(bool bPause);
+	LuaLensRain_Pause ( true );
 	extern void gun_SetObjectSpeed(int, float);
 	if ( t.currentgunobj > 0 ) { if ( ObjectExist(t.currentgunobj)==1 ) { gun_SetObjectSpeed (  t.currentgunobj,0) ; } }
 	if ( t.playercontrol.jetobjtouse>0 )
@@ -2585,6 +2587,8 @@ void game_resumeworld ( void )
 	if ( g_iGameWorldPauses == 0 ) return;
 	--g_iGameWorldPauses;
 	if ( g_iGameWorldPauses > 0 ) return;
+	extern void LuaLensRain_Pause(bool bPause);
+	LuaLensRain_Pause ( false );
 	extern void gun_SetObjectSpeed(int, float);
 	if ( t.currentgunobj>0 ) { if ( ObjectExist(t.currentgunobj) == 1 ) { gun_SetObjectSpeed (  t.currentgunobj,t.currentgunanimspeed_f); } }
 	physics_resumephysics ( );

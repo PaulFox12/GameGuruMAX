@@ -14767,6 +14767,8 @@ extern void LuaPostEffects_SetLensFlare(int iEnabled, float fSunHue, float fSunB
 extern void LuaPostEffects_GetLensFlareSun(float* pfSunHue, float* pfSunBrightness);
 extern void LuaPostEffects_SetScreenLensFlare(int iEnabled, float fIntensity, float fThreshold, float fSpacing, float fHalo, int iNoSky, float fCap, int iFollowBloom);
 extern void LuaPostEffects_GetScreenLensFlare(int* piEnabled, float* pfIntensity, float* pfThreshold, float* pfSpacing, float* pfHalo, int* piNoSky, float* pfCap, int* piFollowBloom);
+extern void LuaLensRain_Set(const float* pValues, int iCount);
+extern void LuaLensRain_Get(float* pValues);
 extern bool GetLightShaftState(void);
 extern bool GetLensFlareState(void);
 
@@ -14879,6 +14881,29 @@ int GetLensFlare(lua_State* L)
 	lua_pushnumber(L, fSunHue);
 	lua_pushnumber(L, fSunBrightness);
 	return 3;
+}
+
+// SetLensRain(amount [, size [, flowx [, flowy [, slide [, refraction [, fog]]]]]]) - rain on the lens, drawn after the
+// tone map and under the HUD; the drops bend the scene behind them, and their clock holds while the game is paused.
+// amount 0-1.5 (0 draws nothing, as at each level start), size a drop's diameter 0.005-0.1 of the screen's height, flowx
+// and flowy the way drops run in screen heights a second (+y down) -2 to 2, slide the share that run 0-1, refraction 0-1,
+// fog the blur between drops 0-1. The values left out are kept
+int SetLensRain(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	float fValues[7];
+	for (int i = 0; i < 7 && i < n; i++) fValues[i] = (float)lua_tonumber(L, i + 1);
+	LuaLensRain_Set(fValues, n < 7 ? n : 7);
+	return 0;
+}
+// GetLensRain() - amount, size, flowx, flowy, slide, refraction, fog
+int GetLensRain(lua_State* L)
+{
+	float fValues[7];
+	LuaLensRain_Get(fValues);
+	for (int i = 0; i < 7; i++) lua_pushnumber(L, fValues[i]);
+	return 7;
 }
 
 // performance levers for the running game (M-GridEditB.cpp LuaRenderSettings_*): kept through visuals pushes and
@@ -18809,6 +18834,8 @@ void addFunctions()
 	lua_register(lua, "SetScreenLensFlare", SetScreenLensFlare);
 	lua_register(lua, "GetScreenLensFlare", GetScreenLensFlare);
 	lua_register(lua, "GetLensFlare", GetLensFlare);
+	lua_register(lua, "SetLensRain", SetLensRain);
+	lua_register(lua, "GetLensRain", GetLensRain);
 	lua_register(lua, "SetOcclusionCulling", SetOcclusionCulling);
 	lua_register(lua, "SetLODMultiplier", SetLODMultiplier);
 	lua_register(lua, "SetShadowsLowestLOD", SetShadowsLowestLOD);

@@ -7717,12 +7717,56 @@ void LuaPostEffects_SetLensFlare(int iEnabled, float fSunHue, float fSunBrightne
 	LuaPostEffects_Apply();
 }
 
+// GG: rain on the lens (SetLensRain): amount 0-1.5 (0 draws nothing), a drop's size 0.005-0.1 of the screen's height, the
+// flow across and down -2 to 2 screen heights a second, the share of drops that run 0-1, the refraction 0-1 and the fog
+// between drops 0-1. The first iCount values are set, the rest kept. It is no level setting: none at each level start
+// and after a test game
+static const float g_fLensRainDefaults[7] = { 0.0f, 0.03f, 0.0f, 0.1f, 0.3f, 0.5f, 0.0f };
+
+void LuaLensRain_Get(float* pValues)
+{
+	if (!master_renderer)
+	{
+		for (int i = 0; i < 7; i++) pValues[i] = g_fLensRainDefaults[i];
+		return;
+	}
+	pValues[0] = master_renderer->getLensRainAmount();
+	pValues[1] = master_renderer->getLensRainSize();
+	pValues[2] = master_renderer->getLensRainFlow().x;
+	pValues[3] = master_renderer->getLensRainFlow().y;
+	pValues[4] = master_renderer->getLensRainSlide();
+	pValues[5] = master_renderer->getLensRainRefraction();
+	pValues[6] = master_renderer->getLensRainFog();
+}
+
+void LuaLensRain_Set(const float* pValues, int iCount)
+{
+	if (!master_renderer) return;
+	float v[7];
+	LuaLensRain_Get(v);
+	for (int i = 0; i < iCount && i < 7; i++) v[i] = pValues[i];
+	master_renderer->setLensRainAmount(LuaPostEffects_Clamp(v[0], 0.0f, 1.5f));
+	master_renderer->setLensRainSize(LuaPostEffects_Clamp(v[1], 0.005f, 0.1f));
+	master_renderer->setLensRainFlow(XMFLOAT2(LuaPostEffects_Clamp(v[2], -2.0f, 2.0f), LuaPostEffects_Clamp(v[3], -2.0f, 2.0f)));
+	master_renderer->setLensRainSlide(LuaPostEffects_Clamp(v[4], 0.0f, 1.0f));
+	master_renderer->setLensRainRefraction(LuaPostEffects_Clamp(v[5], 0.0f, 1.0f));
+	master_renderer->setLensRainFog(LuaPostEffects_Clamp(v[6], 0.0f, 1.0f));
+}
+
+// the drops' clock holds while the world is paused (game_pauseworld)
+void LuaLensRain_Pause(bool bPause)
+{
+	if (master_renderer) master_renderer->setLensRainPaused(bPause);
+}
+
 // forget the Lua values; with pVisualsToRestore (the editor's own visuals, at the end of a test game) put back the
 // effects that Lua changed
 void LuaPostEffects_Clear(void* pVisualsToRestore)
 {
 	sLuaPostEffects old = g_LuaPostEffects;
 	g_LuaPostEffects = sLuaPostEffects();
+	LuaLensRain_Set(g_fLensRainDefaults, 7);
+	LuaLensRain_Pause(false);
 	// the sun's shadows follow the sun again (SetSunShadowDirection)
 	WickedCall_SetSunShadowDirection(false, 0, 0, 0);
 	visualstype* visuals = (visualstype*)pVisualsToRestore;
