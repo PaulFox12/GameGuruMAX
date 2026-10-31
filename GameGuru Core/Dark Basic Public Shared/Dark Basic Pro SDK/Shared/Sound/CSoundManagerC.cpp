@@ -6,11 +6,33 @@
 
 CSDKSoundManager::CSDKSoundManager ( )
 {
-	
+	memset ( m_pIndexPages, 0, sizeof ( m_pIndexPages ) );
 }
 
 CSDKSoundManager::~CSDKSoundManager ( )
 {
+	for ( int i = 0; i < SOUNDINDEX_MAX >> SOUNDINDEX_PAGEBITS; i++ )
+	{
+		delete [ ] m_pIndexPages [ i ];
+		m_pIndexPages [ i ] = NULL;
+	}
+}
+
+void CSDKSoundManager::SetIndex ( int iID, sSoundData* pData )
+{
+	if ( iID <= 0 || iID >= SOUNDINDEX_MAX )
+		return;
+
+	sSoundData**& pPage = m_pIndexPages [ iID >> SOUNDINDEX_PAGEBITS ];
+	if ( !pPage )
+	{
+		if ( !pData )
+			return;
+
+		pPage = new sSoundData* [ SOUNDINDEX_PAGESIZE ];
+		memset ( pPage, 0, sizeof ( sSoundData* ) * SOUNDINDEX_PAGESIZE );
+	}
+	pPage [ iID & ( SOUNDINDEX_PAGESIZE - 1 ) ] = pData;
 }
 
 bool CSDKSoundManager::Add ( sSoundData* pData, int iID )
@@ -20,7 +42,7 @@ bool CSDKSoundManager::Add ( sSoundData* pData, int iID )
 	// delete it                         //
 	///////////////////////////////////////
 	sSoundData* ptr = NULL;
-	ptr = ( sSoundData* ) m_List.Get ( iID );
+	ptr = this->GetData ( iID );
 			
 	if ( ptr != NULL )
 		m_List.Delete ( iID );
@@ -37,6 +59,7 @@ bool CSDKSoundManager::Add ( sSoundData* pData, int iID )
 	memcpy ( test, pData, sizeof ( sSoundData ) );
 
 	m_List.Add ( iID, ( VOID* ) test, 0, 1 );
+	SetIndex ( iID, test );
 	///////////////////////////////////////
 
 
@@ -56,12 +79,18 @@ bool CSDKSoundManager::Delete ( int iID )
 	}
 
 	m_List.Delete ( iID );
+	SetIndex ( iID, NULL );
 
 	return true;
 }
 
 sSoundData* CSDKSoundManager::GetData ( int iID )
 {		
+	if ( iID > 0 && iID < SOUNDINDEX_MAX )
+	{
+		sSoundData** pPage = m_pIndexPages [ iID >> SOUNDINDEX_PAGEBITS ];
+		return pPage ? pPage [ iID & ( SOUNDINDEX_PAGESIZE - 1 ) ] : NULL;
+	}
 	return ( sSoundData* ) m_List.Get ( iID );
 }
 
@@ -81,6 +110,13 @@ void CSDKSoundManager::ShutDown ( void )
 		delete ptr;
 
 		check = check->next;
+	}
+
+	// the index pointed at the data just deleted
+	for ( int i = 0; i < SOUNDINDEX_MAX >> SOUNDINDEX_PAGEBITS; i++ )
+	{
+		if ( m_pIndexPages [ i ] )
+			memset ( m_pIndexPages [ i ], 0, sizeof ( sSoundData* ) * SOUNDINDEX_PAGESIZE );
 	}
 }
 
