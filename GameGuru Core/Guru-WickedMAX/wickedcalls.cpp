@@ -6919,12 +6919,59 @@ static void WickedCall_ApplyProjectedDecalOpacity(sProjectedDecal& decal)
 // nx, ny, nz the surface normal it projects along (0, 1, 0 onto the ground), fSpinDegrees its turn about that normal,
 // fDepth how far along the normal it reaches in all (it fades out towards both ends), fLife seconds before it fades out
 // and goes (below 0 for never). Returns its id, 0 if the texture did not load
-// a new decal entity with its texture, room made for it under the limit (the oldest go first); INVALID_ENTITY if the
-// texture did not load
+// the normal map beside a decal's texture, "" if it has none: its name with _normal or _N (or _nrm) added, or in place of a
+// _color, _D, _diffuse or _albedo ending, as a .dds or a .png, where the texture loads from (the writable folder first)
+static std::string WickedCall_FindDecalNormalMap(LPSTR pImage)
+{
+	std::string image = pImage ? pImage : "";
+	const size_t dot = image.find_last_of('.');
+	const size_t slash = image.find_last_of("\\/");
+	if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) return "";
+	std::vector<std::string> stems;
+	stems.push_back(image.substr(0, dot));
+	std::string lower = stems[0];
+	for (char& c : lower) c = (char)tolower((unsigned char)c);
+	const char* pEndings[] = { "_color", "_diffuse", "_albedo", "_d" };
+	for (const char* pEnding : pEndings)
+	{
+		const size_t len = strlen(pEnding);
+		if (lower.length() > len && lower.compare(lower.length() - len, len, pEnding) == 0)
+		{
+			stems.push_back(stems[0].substr(0, stems[0].length() - len));
+			break;
+		}
+	}
+	const char* pSuffixes[] = { "_normal", "_N", "_nrm" };
+	const char* pExtensions[] = { ".dds", ".png" };
+	for (const std::string& stem : stems)
+	{
+		for (const char* pSuffix : pSuffixes)
+		{
+			for (const char* pExtension : pExtensions)
+			{
+				const std::string candidate = stem + pSuffix + pExtension;
+				char pReal[MAX_PATH];
+				strncpy(pReal, candidate.c_str(), MAX_PATH - 1);
+				pReal[MAX_PATH - 1] = 0;
+				GG_GetRealPath(pReal, 0);
+				const DWORD attrib = GetFileAttributesA(pReal);
+				if (attrib != INVALID_FILE_ATTRIBUTES && (attrib & FILE_ATTRIBUTE_DIRECTORY) == 0) return candidate;
+			}
+		}
+	}
+	return "";
+}
+
+// a new decal entity with its texture, and the normal map beside it when there is one (WickedCall_FindDecalNormalMap; the
+// renderer packs it beside the texture in the decal atlas when it is the texture's size, and GGDecalHF.hlsli lays it on the
+// surface), room made for it under the limit (the oldest go first); INVALID_ENTITY if the texture did not load
 static wiECS::Entity WickedCall_CreateProjectedDecalEntity(LPSTR pImage)
 {
 	std::shared_ptr<wiResource> image = WickedCall_LoadImage(pImage);
 	if (!image || !image->texture.IsValid()) return wiECS::INVALID_ENTITY;
+	const std::string normalMap = WickedCall_FindDecalNormalMap(pImage);
+	std::shared_ptr<wiResource> normal;
+	if (!normalMap.empty()) normal = WickedCall_LoadImage((LPSTR)normalMap.c_str());
 
 	while ((int)g_ProjectedDecals.size() >= g_iProjectedDecalLimit && !g_ProjectedDecals.empty()) WickedCall_RemoveProjectedDecalAt(0);
 
@@ -6935,6 +6982,11 @@ static wiECS::Entity WickedCall_CreateProjectedDecalEntity(LPSTR pImage)
 	{
 		material->textures[wiScene::MaterialComponent::BASECOLORMAP].name = pImage;
 		material->textures[wiScene::MaterialComponent::BASECOLORMAP].resource = image;
+		if (normal && normal->texture.IsValid())
+		{
+			material->textures[wiScene::MaterialComponent::NORMALMAP].name = normalMap;
+			material->textures[wiScene::MaterialComponent::NORMALMAP].resource = normal;
+		}
 		material->baseColor = XMFLOAT4(1, 1, 1, 1);
 		material->SetDirty();
 	}
