@@ -14,6 +14,8 @@
 #include "..\GameGuru\Imgui\imgui_gg_dx11.h"
 #include <stdio.h>
 #include <string.h>
+
+namespace GGTerrain { int GGTerrain_GetHeight( float x, float z, float* outHeight, int accurateButSlow, int includeFlatAreas ); }
 #include <time.h>
 #include <windows.h>
 #include <string>
@@ -539,6 +541,93 @@ void AutoHarness_CheckForCommand ( void )
 				master_renderer->getBloomEnabled() ? 1 : 0, master_renderer->getBloomStrength(), master_renderer->getBloomThreshold(),
 				master_renderer->getBloomRadius(), master_renderer->getBloomCap(), master_renderer->getExposure(),
 				master_renderer->getEyeAdaptionEnabled() ? 1 : 0);
+		}
+		result[sizeof(result) - 1] = 0;
+	}
+	else if ( _stricmp ( cmd, "TEST_DECAL" ) == 0 )
+	{
+		// TEST_DECAL kind x z size [image]: a projected decal (kind 0, size wide, onto the ground) or a blast decal (kind 1,
+		// radius size, its centre a quarter of it above the ground, the world's axes, no setup rays) on the ground at x, z,
+		// through the engine calls AddProjectedDecal and AddBlastDecal use, so the editor's camera can look at one;
+		// TEST_DECAL clear removes them all (as the DX12 build's verb)
+		extern void WickedCall_RemoveProjectedDecal ( int iID );
+		extern int WickedCall_AddProjectedDecal ( LPSTR pImage, float fX, float fY, float fZ, float fSize, float fNX, float fNY, float fNZ, float fSpinDegrees, float fDepth, float fLife );
+		extern int WickedCall_AddBlastDecal ( LPSTR pImage, float fX, float fY, float fZ, float fRadius, const float* pAxes, uint32_t iOcclusion, int iHitDirection, float fHitClip, float fLife, float fGroundX, float fGroundY, float fGroundZ );
+		if ( arg && _strnicmp ( arg, "clear", 5 ) == 0 )
+		{
+			WickedCall_RemoveProjectedDecal ( -1 );
+			_snprintf ( result, sizeof(result), "OK: TEST_DECAL cleared" );
+		}
+		else
+		{
+			int kind = 0; float x = 0, z = 0, size = 200; char image[MAX_PATH] = "entitybank\\User\\Mercs2\\decals\\explosion_decal_1.dds";
+			int got = sscanf ( arg ? arg : "", "%d %f %f %f %259s", &kind, &x, &z, &size, image );
+			if ( got < 4 )
+			{
+				_snprintf ( result, sizeof(result), "FAIL: TEST_DECAL kind x z size [image] | clear" );
+			}
+			else
+			{
+				float y = 0;
+				GGTerrain::GGTerrain_GetHeight ( x, z, &y, 1, 1 );
+				int id = 0;
+				if ( kind == 0 )
+				{
+					id = WickedCall_AddProjectedDecal ( image, x, y, z, size, 0, 1, 0, 0, 0, -1 );
+				}
+				else
+				{
+					const float axes[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+					id = WickedCall_AddBlastDecal ( image, x, y + size * 0.25f, z, size, axes, ~0u, -1, 0, -1, x, y, z );
+				}
+				_snprintf ( result, sizeof(result), "OK: TEST_DECAL id=%d kind=%d at (%.0f,%.0f,%.0f) size %.0f", id, kind, x, y, z, size );
+			}
+		}
+		result[sizeof(result) - 1] = 0;
+	}
+	else if ( _stricmp ( cmd, "TEST_DECALEXPLODE" ) == 0 )
+	{
+		// TEST_DECALEXPLODE <decal name>[|distance[|standon]]: a decal's effect made as a projectile's custom explosion makes it
+		// (weapon_projectileresult_make: decal_find, decalelement_create at range 10000, then decalelement_standon when the
+		// projectile's file has wpeexplosionnormal), distance ahead of the camera (400), stood on an upward normal with
+		// standon 1; reports the decal's state (as the DX12 build's verb)
+		extern void decal_find ( void );
+		extern void decalelement_create ( void );
+		extern void decalelement_standon ( int d, float fNX, float fNY, float fNZ );
+		char buf[512];
+		strncpy ( buf, arg ? arg : "", sizeof(buf) - 1 ); buf[sizeof(buf) - 1] = 0;
+		char* context = NULL;
+		char* pName = strtok_s ( buf, "|", &context );
+		char* pDist = strtok_s ( NULL, "|", &context );
+		char* pStand = strtok_s ( NULL, "|", &context );
+		const float fDist = pDist ? (float)atof ( pDist ) : 400.0f;
+		const int iStand = pStand ? atoi ( pStand ) : 0;
+		t.decal_s = pName ? pName : "";
+		decal_find ( );
+		const int id = t.decalid;
+		if ( id <= 0 || id > g.decalmax )
+		{
+			_snprintf ( result, sizeof(result), "ERROR: TEST_DECALEXPLODE: no decal '%s' (%d decals)", pName ? pName : "", (int)g.decalmax );
+		}
+		else
+		{
+			const wiScene::CameraComponent& cam = wiScene::GetCamera ( );
+			const int iOldRange = g.decalrange;
+			g.decalrange = 10000;
+			g.decalx = cam.Eye.x + cam.At.x * fDist;
+			g.decaly = cam.Eye.y + cam.At.y * fDist;
+			g.decalz = cam.Eye.z + cam.At.z * fDist;
+			t.decalorient = 0;
+			t.decalid = id;
+			t.currentdecald = 0;
+			decalelement_create ( );
+			g.decalrange = iOldRange;
+			const int iElement = t.currentdecald;
+			if ( iStand && iElement > 0 ) decalelement_standon ( iElement, 0, 1, 0 );
+			_snprintf ( result, sizeof(result),
+				"OK: TEST_DECALEXPLODE '%s' id=%d active=%d bWPE=%d emitterid=%d element=%d at (%.0f,%.0f,%.0f) standon=%d",
+				t.decal[id].name_s.Get ( ), id, t.decal[id].active, t.decal[id].newparticle.bWPE ? 1 : 0,
+				(int)t.decal[id].newparticle.emitterid, iElement, g.decalx, g.decaly, g.decalz, iStand );
 		}
 		result[sizeof(result) - 1] = 0;
 	}
