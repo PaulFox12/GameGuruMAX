@@ -6686,6 +6686,22 @@ void mapeditorexecutable_loop(void)
 								}
 							}
 
+							// GG: an entity a road's or river's layer placed (Roads and Rivers) is the spline's own, placed again
+							// with it wherever it was moved: Detach makes it an ordinary entity, kept where it is
+							{
+								char pSplineName[64];
+								if (g.entityrubberbandlist.size() == 0 && iEntityIndex > 0 && spline_entityowner(iEntityIndex, pSplineName, 64))
+								{
+									char pDetachLabel[128];
+									sprintf_s(pDetachLabel, 128, "Detach from %s##splinedetach", pSplineName);
+									if (ImGui::StyleButton(pDetachLabel, ImVec2(w - 10, 0)))
+									{
+										spline_detachentity(iEntityIndex);
+									}
+									if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Placed by this spline's layer: it puts it back where it goes whenever it places again. Detach makes it an ordinary entity, kept where it is, and leaves its place along the spline empty (Fill Detached Places on the layer fills it again)");
+								}
+							}
+
 							if (iEntityIndex != iLastPickedEntID)
 							{
 								iLastPickedEntID = iEntityIndex;

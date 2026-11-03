@@ -25,6 +25,8 @@ void spline_updatewater ( bool bForce = false );
 void spline_updatemarkings ( void );
 void spline_updatepavements ( void );
 void spline_editorupdate ( void );
+bool spline_entityowner ( int e, char* pName, int nameSize );
+void spline_detachentity ( int e );
 float spline_waterheightat ( float x, float z, int* pIsRiver );
 float spline_riverturbulenceat ( float x, float z );
 void spline_waterflowat ( float x, float z, float* pFlowX, float* pFlowZ );

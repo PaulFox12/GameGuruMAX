@@ -11,6 +11,13 @@
 // - click the terrain to add a node at the end (or the start, with the first node selected), and drag it while held;
 //   while drawing (New Spline, or a node just added), a click on another spline's node or curve adds the next node there
 //   joined to it, and on the spline's own other end closes it; Esc stops drawing
+// - a dragged node (one being drawn too) snaps onto the line due north, south, east or west of a node beside it (along
+//   its spline, or along a spline joined to it there) when within a few degrees of it (green lines show it), for roads
+//   on a grid; dropped onto another spline's curve (a T junction) it goes where that line crosses the curve; Ctrl held
+//   places it where the mouse is
+// - Split at Node makes two splines joined there (Open at Node on a closed one); Merge and Connect join two into one
+// - a layer's entities are the spline's own wherever they are moved (locked in the editor while Lock Placed Entities is
+//   on): placed again with it, until detached (Detach Entities on the layer, Detach from <spline> on one selected)
 // - drag a node, or a Bezier handle (Alt-drag breaks a handle pair apart)
 // - a dragged node snaps to a node of another spline, or onto its curve (a node is inserted there), and joins it on
 //   release; an end dropped on the spline's other end closes it; Alt-drag a joined node pulls it out of the junction
@@ -53,6 +60,7 @@
 #include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
+#include <map>
 #include <float.h>
 
 extern bool bImGuiGotFocus;
@@ -78,10 +86,10 @@ extern int sTerrainSelectionID[32];
 #define SPLINE_KIND_RIVER 2
 
 #define SPLINE_NODE_BROKEN 1 // the node's Bezier handles move apart
-#define SPLINE_NODE_HOLDHEIGHT 2 // a road is built up or cut down to the node's height (its y) there, not at a junction
+#define SPLINE_NODE_HOLDHEIGHT 2 // a road is built up or cut down to the node's height (its y) there; at a junction, every road meeting there
 
 #define SPLINE_FILE_MAGIC 0x50534747 // 'GGSP'
-#define SPLINE_FILE_VERSION 24 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth; 18: road markings; 19: At Junctions; 20: Solid on Crests; 21: bank planting; 22: pavements; 23: Kerb Offset, each segment's pavements; 24: nothing new in the file: a level saved before it bakes its paved roads again once it is loaded (the ground out to the kerb)
+#define SPLINE_FILE_VERSION 25 // 2: road settings and the bake; 3: river settings; 4: the river's water; 5: Raise Low Banks; 6: See Depth; 7: rapids; 8: Bank Foam; 9: placement layers; 10: layer names, keep apart, freeze, Calm River End; 11: Follow Slope; 12: a layer's name is its entity's unless set; 13: Jitter Across; 14: the preset; 15: each segment's curve; 16: Lay Flat; 17: Wade Depth; 18: road markings; 19: At Junctions; 20: Solid on Crests; 21: bank planting; 22: pavements; 23: Kerb Offset, each segment's pavements; 24: nothing new in the file: a level saved before it bakes its paved roads again once it is loaded (the ground out to the kerb); 25: each placed entity's slot, the slots left empty (detached)
 
 #define SPLINE_MAP_SIZE 4096 // the terrain's sculpt, paint and grass maps over the editable area
 #define SPLINE_UNITS_PER_M 39.37f
@@ -164,11 +172,20 @@ struct sSplineLayer
 	int layFlat = 0; // the model turned onto its back first, a wall decal laid on the ground: 1 its face (-Z) up, 2 its back up
 };
 
-// an entity a layer placed, where it was put (found again by its tag and place)
+// an entity a layer placed, where it was put, and its slot along the layer (the count along it times two, plus 1 for the
+// second side of two), -1 not known (placed before version 25)
 struct sSplinePlaced
 {
 	int layer = 0;
 	float x = 0, y = 0, z = 0;
+	int slot = -1;
+};
+
+// a slot of a layer left empty: the entity placed there was detached (made an ordinary entity, kept where it is)
+struct sSplineSkip
+{
+	int layer = 0;
+	int slot = 0;
 };
 
 // a road's settings, in units (the panel shows metres)
@@ -304,10 +321,12 @@ struct sSpline
 	std::vector<sSplineBakeTree> plantedTrees; // the trees its bake planted (a river's banks), hidden again when it is taken out
 	std::vector<sSplineBakeSample> bakedLine; // the centre line as baked (spline_bakeline), the kerb pass's surface and the brushes' Keep Off Roads and Rivers
 	float bakedHalfCore = 0, bakedTreeMargin = 0; // the core's half width and Clear Trees as baked
+	int bakedPass = 0; // the bake pass (spline_bakegroup) it was last baked in: a road at a junction baked this pass meets it
 	int bakedBounds[4] = { 0, 0, -1, -1 }; // the texels its bake records cover (x, z, to x, z), for the records they were found over
 	size_t bakedBoundsFor = (size_t)-1;
 	std::vector<sSplineLayer> layers;
 	std::vector<sSplinePlaced> placed;
+	std::vector<sSplineSkip> skipped; // slots whose entity was detached: none placed there again
 	uint64_t placedSignature = 0; // the layers and the bake they were placed for
 	char preset[64] = ""; // the preset it was set from (Roads and Rivers' Preset), and its settings then: edited if they differ
 	uint64_t presetSignature = 0;
@@ -335,6 +354,10 @@ static int iDragSpline = -1, iDragNode = -1, iDragHandle = 0;
 // where the dragged node would snap: a node of another spline, or a point on its curve (iSnapNode -1)
 static int iSnapSpline = -1, iSnapNode = -1, iSnapSeg = -1;
 static float fSnapT = 0, fSnapX = 0, fSnapY = 0, fSnapZ = 0;
+// a dragged node lined up due north, south, east or west of nodes beside it: how many (0 to 2), and where those nodes are
+static int iAxisGuides = 0;
+static float fAxisGuideX[2] = { 0, 0 }, fAxisGuideZ[2] = { 0, 0 };
+static int iAxisGuideAxis[2] = { 0, 0 }; // 1 an east-west line (z fixed), 0 a north-south one (x fixed)
 // Connect to another spline's end: the next click on an end node joins the two with a new segment
 static bool bConnectMode = false;
 // Apply: this spline is baked now, whether or not it changed
@@ -545,6 +568,25 @@ static void spline_movenode( int si, int ni, float x, float y, float z )
 	}
 }
 
+// a junction's held height: the y of a node there holding its height (Hold Height on a junction holds every road meeting
+// there, and is set on all its nodes); false when none does
+static bool spline_junctionheld( int junction, float* pY )
+{
+	if ( !junction ) return false;
+	for ( const sSpline& s : g_Splines )
+		for ( const sSplineNode& node : s.nodes )
+			if ( node.junction == junction && (node.flags & SPLINE_NODE_HOLDHEIGHT) ) { *pY = node.y; return true; }
+	return false;
+}
+
+// the height a node keeps when it is moved: its own held height, or its junction's; false when it follows the ground
+static bool spline_nodeheld( const sSplineNode& node, float* pY )
+{
+	if ( node.junction ) return spline_junctionheld( node.junction, pY );
+	if ( node.flags & SPLINE_NODE_HOLDHEIGHT ) { *pY = node.y; return true; }
+	return false;
+}
+
 // a junction left with only one node is no junction
 static void spline_cleanjunctions( void )
 {
@@ -632,11 +674,13 @@ static void spline_deletenode( int si, int ni )
 
 static void spline_unbake( int si );
 static void spline_rebuildwatermap( void );
-static void spline_unplace( sSpline& s );
+static void spline_unplace( sSpline& s, int onlyLayer = -1 );
+static void spline_detachall( sSpline& s );
 
 static void spline_deletespline( int si )
 {
 	spline_unplace( g_Splines[ si ] );
+	spline_detachall( g_Splines[ si ] ); // a frozen layer's entities stay, as ordinary ones
 	spline_unbake( si );
 	if ( g_Splines[ si ].waterEntity ) WickedCall_DeleteWaterSurface( g_Splines[ si ].waterEntity );
 	g_Splines[ si ].waterTexels.clear();
@@ -707,6 +751,7 @@ static void spline_merge( int si, int ni, int sj, int nj, bool bShared )
 	if ( si == sj ) return;
 	spline_unplace( g_Splines[ si ] );
 	spline_unplace( g_Splines[ sj ] );
+	spline_detachall( g_Splines[ sj ] ); // the spline merged away: a frozen layer's entities stay, as ordinary ones
 	spline_unbake( si );
 	spline_unbake( sj );
 	sSpline& a = g_Splines[ si ];
@@ -1310,8 +1355,62 @@ static void spline_bakedbounds( sSpline& s )
 	s.bakedBoundsFor = s.baked.size();
 }
 
-// a road: the ground averaged, pinned to the ground at open ends and junctions (so it meets an earlier road's surface),
-// held to the maximum grade; flat across the carriageway with an optional crown
+// the ground averaged over a disc round a point, each texel in it once: a pin that one bump or the ground's noise can't
+// move, and on an even slope the height at the point itself (so a road's end still meets sloping ground)
+static float spline_groundfootprint( float x, float z, float radius )
+{
+	const float E = GGTerrain::GGTerrain_GetEditableSize();
+	const float texel = E * 2.0f / SPLINE_MAP_SIZE;
+	const int steps = texel > 0 ? std::max( 1, std::min( 64, (int)(radius / texel) ) ) : 1;
+	double sum = 0;
+	int count = 0;
+	for ( int j = -steps; j <= steps; j++ )
+	{
+		for ( int i = -steps; i <= steps; i++ )
+		{
+			if ( i * i + j * j > steps * steps ) continue;
+			const float px = x + i * texel, pz = z + j * texel;
+			float h = 0;
+			if ( !GGTerrain::GGTerrain_GetHeight( px, pz, &h, 1, 1 ) || h != h ) h = spline_groundy( px, pz );
+			sum += h;
+			count++;
+		}
+	}
+	return count ? (float)(sum / count) : spline_groundy( x, z );
+}
+
+// a road's surface as baked at a point on its centre line (the nearest point of its line), false off it
+static bool spline_bakedheightat( const sSpline& o, float x, float z, float* pH )
+{
+	if ( o.bakedLine.size() < 2 ) return false;
+	float best = FLT_MAX, h = 0;
+	for ( size_t i = 1; i < o.bakedLine.size(); i++ )
+	{
+		const sSplineBakeSample& a = o.bakedLine[ i - 1 ];
+		const sSplineBakeSample& b = o.bakedLine[ i ];
+		const float dx = b.x - a.x, dz = b.z - a.z, len2 = dx * dx + dz * dz;
+		float t = len2 > 0 ? ((x - a.x) * dx + (z - a.z) * dz) / len2 : 0.0f;
+		t = std::min( 1.0f, std::max( 0.0f, t ) );
+		const float px = a.x + dx * t, pz = a.z + dz * t;
+		const float d = (px - x) * (px - x) + (pz - z) * (pz - z);
+		if ( d < best ) { best = d; h = a.h + (b.h - a.h) * t; }
+	}
+	if ( best > 100.0f * 100.0f ) return false;
+	*pH = h;
+	return true;
+}
+
+// TEMPORARY (2026-11-03): one engine log line per pin (road, sample, raw ground, smoothed, value used, why), while the
+// junction pins are checked against the asset session's repro; 0 to silence, then remove
+#define SPLINE_PIN_TRACE 1
+static int g_iSplineBakePass = 0;
+
+// a road: the ground averaged, pinned at its open ends and junctions, held to the maximum grade; flat across the
+// carriageway with an optional crown. A pin is never one raw sample of the ground (an earlier road's bump, the ground's
+// noise there, carried along the road by the pin and baked in, sampled again by the next bake: roads rising at junctions
+// on flat ground, a little more each bake). In order: a junction's held height (Hold Height on any of its nodes), a node's
+// held height, at a junction a road baked before it this pass (its surface there, so it meets it exactly), else the
+// ground averaged round the point
 static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protectedTexels, float* pBounds )
 {
 	const sSplineRoad& r = sp.road;
@@ -1322,25 +1421,59 @@ static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protecte
 	if ( !spline_centreline( sp, E * 2.0f / SPLINE_MAP_SIZE * 0.25f, c, nodeSample ) ) return;
 	const int n = (int)c.size();
 	spline_smoothprofile( c, r.smoothing );
-	std::vector<std::pair<int, float>> pins;
+	// each pin's value and its rank (a higher one wins at the same sample)
+	enum { PIN_GROUND = 1, PIN_ROAD = 2, PIN_HELD = 3, PIN_HELDJUNCTION = 4 };
+	std::map<int, std::pair<int, float>> pinAt;
+	auto pin = [&pinAt]( int k, int rank, float value )
+	{
+		auto it = pinAt.find( k );
+		if ( it == pinAt.end() || rank > it->second.first ) pinAt[ k ] = std::make_pair( rank, value );
+	};
+	const float footprint = std::max( r.width * 0.5f, E * 2.0f / SPLINE_MAP_SIZE * 2.0f );
 	if ( !(sp.closed && sp.nodes.size() > 2) )
 	{
-		pins.push_back( { 0, c[0].ground } );
-		pins.push_back( { n - 1, c[ n - 1 ].ground } );
+		pin( 0, PIN_GROUND, spline_groundfootprint( c[0].x, c[0].z, footprint ) );
+		pin( n - 1, PIN_GROUND, spline_groundfootprint( c[ n - 1 ].x, c[ n - 1 ].z, footprint ) );
 	}
-	for ( size_t ni = 0; ni < sp.nodes.size(); ni++ )
-	{
-		if ( sp.nodes[ ni ].junction && nodeSample[ ni ] >= 0 ) pins.push_back( { nodeSample[ ni ], c[ nodeSample[ ni ] ].ground } );
-	}
-	// a node holding its height (Hold Height, not at a junction) is pinned to it, an end held there rather than at the
-	// ground: the road is built up or cut down to it, and the bake sculpts the terrain to meet the road
 	for ( size_t ni = 0; ni < sp.nodes.size(); ni++ )
 	{
 		const sSplineNode& node = sp.nodes[ ni ];
-		if ( !(node.flags & SPLINE_NODE_HOLDHEIGHT) || node.junction || nodeSample[ ni ] < 0 ) continue;
-		bool bHeld = false;
-		for ( auto& pin : pins ) if ( pin.first == nodeSample[ ni ] ) { pin.second = node.y; bHeld = true; }
-		if ( !bHeld ) pins.push_back( { nodeSample[ ni ], node.y } );
+		const int k = nodeSample[ ni ];
+		if ( k < 0 ) continue;
+		float held = 0;
+		if ( node.junction )
+		{
+			if ( spline_junctionheld( node.junction, &held ) ) { pin( k, PIN_HELDJUNCTION, held ); continue; }
+			// another road at this junction baked this pass: its surface there
+			bool bMet = false;
+			for ( const sSpline& o : g_Splines )
+			{
+				if ( &o == &sp || o.kind != SPLINE_KIND_ROAD || o.bakedPass != g_iSplineBakePass ) continue;
+				bool bJoined = false;
+				for ( const sSplineNode& on : o.nodes ) if ( on.junction == node.junction ) { bJoined = true; break; }
+				float h = 0;
+				if ( bJoined && spline_bakedheightat( o, c[ k ].x, c[ k ].z, &h ) ) { pin( k, PIN_ROAD, h ); bMet = true; break; }
+			}
+			if ( !bMet ) pin( k, PIN_GROUND, spline_groundfootprint( c[ k ].x, c[ k ].z, footprint ) );
+		}
+		else if ( node.flags & SPLINE_NODE_HOLDHEIGHT )
+		{
+			// the road is built up or cut down to it, an end held there rather than at the ground, and the bake sculpts
+			// the terrain to meet the road
+			pin( k, PIN_HELD, node.y );
+		}
+	}
+	std::vector<std::pair<int, float>> pins;
+	for ( const auto& it : pinAt )
+	{
+		pins.push_back( std::make_pair( it.first, it.second.second ) );
+		#if SPLINE_PIN_TRACE
+		char trace[ 400 ];
+		static const char* why[] = { "", "ground averaged", "road baked there", "held node", "held junction" };
+		_snprintf_s( trace, sizeof(trace), _TRUNCATE, "spline pin: road %d '%s' sample %d of %d at (%.1f, %.1f): raw ground %.2f, smoothed %.2f, used %.2f (%s)",
+			sp.id, sp.name, it.first, n, c[ it.first ].x, c[ it.first ].z, c[ it.first ].ground, c[ it.first ].h, it.second.second, why[ it.second.first ] );
+		timestampactivity( 0, trace );
+		#endif
 	}
 	std::vector<char> pinned;
 	spline_pinprofile( c, pins, pinned );
@@ -1511,6 +1644,8 @@ static void spline_bakegroup( const std::vector<char>& in )
 		}
 	}
 
+	// a road meets the surface of one baked before it this pass at a junction (spline_bakeroad), never one baked before
+	g_iSplineBakePass++;
 	for ( size_t si = 0; si < g_Splines.size(); si++ )
 	{
 		if ( !in[ si ] ) continue;
@@ -1519,6 +1654,7 @@ static void spline_bakegroup( const std::vector<char>& in )
 		else if ( s.kind == SPLINE_KIND_RIVER ) spline_bakeriver( (int)si, protectedTexels, bounds );
 		s.bakedSignature = spline_signature( s );
 		s.bakeCount++;
+		s.bakedPass = g_iSplineBakePass;
 	}
 	spline_bakekerbs( in, protectedTexels, bounds );
 	spline_refresh( bounds );
@@ -2303,41 +2439,139 @@ static const char* spline_entitydesc( const char* pEntity )
 	return (descs[ pEntity ] = desc).c_str();
 }
 
-// takes away the entities the spline's layers placed, those still where they were put (one moved by hand stays)
-static void spline_unplace( sSpline& s )
+// The entities a spline's layers place are its own (its tag in eleprof.iObjectReserved1-3) wherever they stand: placed again
+// it takes every one away, moved by hand or not, so it never leaves one behind (it found them by where they were put, and
+// one that didn't stand there any more stayed: duplicates under a road set from another preset and back). One leaves it only
+// when detached: a frozen layer removed (its entities), Detach Entities on a layer, Detach from Road on one entity.
+// Locked in the editor while Lock Placed Entities is on (the editor's own lock, not saved, so set again after a load)
+static bool g_bSplineLockPlaced = true;
+static bool g_bSplineLoadedOK = false; // the level's map.spl was read: entities tagged for a spline it hasn't are its no longer
+extern std::vector<sRubberBandType> vEntityLockedList;
+
+static bool spline_owns( const sSpline& s, int e )
 {
-	if ( s.placed.empty() ) return;
+	return t.entityelement[ e ].maintype != 0 && t.entityelement[ e ].bankindex > 0
+		&& t.entityelement[ e ].eleprof.iObjectReserved1 == SPLINE_ENTITY_TAG && t.entityelement[ e ].eleprof.iObjectReserved2 == s.id;
+}
+
+// the record of where the spline put one of its entities: the one where it stands (sculpting moves it only up and down), of
+// the layer of its own entity where two layers put one there; null for one moved since
+static const sSplinePlaced* spline_placedrecord( const sSpline& s, int e )
+{
+	const int bank = t.entityelement[ e ].bankindex;
+	const char* pFile = bank > 0 && bank < (int)t.entitybank_s.size() ? t.entitybank_s[ bank ].Get() : "";
+	const sSplinePlaced* pFound = nullptr;
+	for ( const sSplinePlaced& placed : s.placed )
+	{
+		if ( fabsf( placed.x - t.entityelement[ e ].x ) >= 2.0f || fabsf( placed.z - t.entityelement[ e ].z ) >= 2.0f ) continue;
+		if ( placed.layer >= 0 && placed.layer < (int)s.layers.size() && _stricmp( s.layers[ placed.layer ].entity, pFile ) == 0 ) return &placed;
+		if ( !pFound ) pFound = &placed;
+	}
+	return pFound;
+}
+
+// the layer one of its entities belongs to: its record's, else the one in its tag
+static int spline_entitylayer( const sSpline& s, int e )
+{
+	const sSplinePlaced* pRecord = spline_placedrecord( s, e );
+	return pRecord ? pRecord->layer : t.entityelement[ e ].eleprof.iObjectReserved3;
+}
+
+// the editor's lock on an entity (its move, turn and scale read only), as the editor's Lock and Unlock set it
+static void spline_lockentity( int e, bool bLock )
+{
+	t.entityelement[ e ].editorlock = bLock ? 1 : 0;
+	for ( int i = 0; i < (int)vEntityLockedList.size(); i++ )
+	{
+		if ( vEntityLockedList[ i ].e == e ) { vEntityLockedList.erase( vEntityLockedList.begin() + i ); break; }
+	}
+	if ( bLock )
+	{
+		sRubberBandType item;
+		item.e = e;
+		vEntityLockedList.push_back( item );
+	}
+	#ifndef ALLOWSELECTINGLOCKEDOBJECTS
+	if ( t.entityelement[ e ].obj > 0 )
+	{
+		sObject* pObject = g_ObjectList[ t.entityelement[ e ].obj ];
+		if ( pObject ) WickedCall_SetObjectRenderLayer( pObject, bLock ? GGRENDERLAYERS_CURSOROBJECT : GGRENDERLAYERS_NORMAL );
+	}
+	#endif
+}
+
+// an entity made an ordinary one where it stands: no spline's, unlocked
+static void spline_detachentitytag( int e )
+{
+	t.entityelement[ e ].eleprof.iObjectReserved1 = 0;
+	t.entityelement[ e ].eleprof.iObjectReserved2 = 0;
+	t.entityelement[ e ].eleprof.iObjectReserved3 = 0;
+	spline_lockentity( e, false );
+	g.projectmodified = 1;
+}
+
+// the spline's entities as its layers are renumbered (remap: the new index of each layer, -1 for one gone: its entities are
+// detached); its records and detached slots with them
+static void spline_retag( sSpline& s, const std::vector<int>& remap )
+{
+	for ( int e = 1; e <= g.entityelementlist; e++ )
+	{
+		if ( !spline_owns( s, e ) ) continue;
+		const int layer = spline_entitylayer( s, e );
+		const int to = (layer >= 0 && layer < (int)remap.size()) ? remap[ layer ] : -1;
+		if ( to < 0 ) spline_detachentitytag( e );
+		else t.entityelement[ e ].eleprof.iObjectReserved3 = to;
+	}
+	std::vector<sSplinePlaced> placed;
+	for ( sSplinePlaced record : s.placed )
+	{
+		if ( record.layer < 0 || record.layer >= (int)remap.size() || remap[ record.layer ] < 0 ) continue;
+		record.layer = remap[ record.layer ];
+		placed.push_back( record );
+	}
+	s.placed.swap( placed );
+	std::vector<sSplineSkip> skipped;
+	for ( sSplineSkip skip : s.skipped )
+	{
+		if ( skip.layer < 0 || skip.layer >= (int)remap.size() || remap[ skip.layer ] < 0 ) continue;
+		skip.layer = remap[ skip.layer ];
+		skipped.push_back( skip );
+	}
+	s.skipped.swap( skipped );
+}
+
+// every entity the spline still has (a frozen layer's, when it is deleted or merged away) made ordinary
+static void spline_detachall( sSpline& s )
+{
+	spline_retag( s, std::vector<int>() );
+}
+
+// takes away the entities the spline placed, wherever they stand now (moved by hand too), but a frozen layer's; with
+// onlyLayer those of that layer only
+static void spline_unplace( sSpline& s, int onlyLayer )
+{
 	extern bool DeleteEntityFromLists( int e );
 	// entities carrying lights rebuild the light list once, after all are gone
 	lighting_holdrefresh( true );
 	for ( int e = 1; e <= g.entityelementlist; e++ )
 	{
-		if ( t.entityelement[ e ].maintype == 0 || t.entityelement[ e ].bankindex <= 0 ) continue;
-		if ( t.entityelement[ e ].eleprof.iObjectReserved1 != SPLINE_ENTITY_TAG || t.entityelement[ e ].eleprof.iObjectReserved2 != s.id ) continue;
-		// found by where it was put across the ground (sculpting moves it up and down with the ground), by the layer of its
-		// own entity where two layers put one there
-		const int bank = t.entityelement[ e ].bankindex;
-		const char* pFile = bank < (int)t.entitybank_s.size() ? t.entitybank_s[ bank ].Get() : "";
-		const sSplinePlaced* pFound = nullptr;
-		for ( const sSplinePlaced& placed : s.placed )
-		{
-			if ( fabsf( placed.x - t.entityelement[ e ].x ) >= 2.0f || fabsf( placed.z - t.entityelement[ e ].z ) >= 2.0f ) continue;
-			if ( placed.layer >= 0 && placed.layer < (int)s.layers.size() && _stricmp( s.layers[ placed.layer ].entity, pFile ) == 0 ) { pFound = &placed; break; }
-			if ( !pFound ) pFound = &placed;
-		}
-		if ( !pFound ) continue;
-		if ( pFound->layer >= 0 && pFound->layer < (int)s.layers.size() && s.layers[ pFound->layer ].frozen ) continue;
+		if ( !spline_owns( s, e ) ) continue;
+		const int layer = spline_entitylayer( s, e );
+		if ( onlyLayer >= 0 && layer != onlyLayer ) continue;
+		if ( layer >= 0 && layer < (int)s.layers.size() && s.layers[ layer ].frozen ) continue;
+		spline_lockentity( e, false );
 		t.tentitytoselect = e;
 		DeleteEntityFromLists( e );
 		entity_deleteentityfrommap();
 		t.tentitytoselect = 0;
 	}
 	lighting_holdrefresh( false );
-	// a frozen layer's entities stay, and stay known
+	// a frozen layer's entities stay, and stay known (and another layer's, with onlyLayer)
 	std::vector<sSplinePlaced> kept;
 	for ( const sSplinePlaced& placed : s.placed )
 	{
-		if ( placed.layer >= 0 && placed.layer < (int)s.layers.size() && s.layers[ placed.layer ].frozen ) kept.push_back( placed );
+		const bool bFrozen = placed.layer >= 0 && placed.layer < (int)s.layers.size() && s.layers[ placed.layer ].frozen;
+		if ( bFrozen || (onlyLayer >= 0 && placed.layer != onlyLayer) ) kept.push_back( placed );
 	}
 	s.placed.swap( kept );
 	g.projectmodified = 1;
@@ -4401,6 +4635,11 @@ static void spline_place( int si )
 			}
 			for ( int iSide = 0; iSide < sideCount; iSide++ )
 			{
+				// a slot whose entity was detached stays empty
+				const int slot = count * 2 + iSide;
+				bool bSkipped = false;
+				for ( const sSplineSkip& skip : s.skipped ) if ( skip.layer == li && skip.slot == slot ) { bSkipped = true; break; }
+				if ( bSkipped ) continue;
 				const int side = sides[ iSide ];
 				const uint32_t salt = (uint32_t)(side + 1);
 				float d = along + (spline_random( s.id, li, count, salt * 3 + 0 ) * 2.0f - 1.0f) * layer.jitter;
@@ -4488,7 +4727,9 @@ static void spline_place( int si )
 				placed.x = t.entityelement[ e ].x;
 				placed.y = t.entityelement[ e ].y;
 				placed.z = t.entityelement[ e ].z;
+				placed.slot = slot;
 				s.placed.push_back( placed );
+				if ( g_bSplineLockPlaced ) spline_lockentity( e, true );
 			}
 		}
 	}
@@ -4497,10 +4738,74 @@ static void spline_place( int si )
 
 // places the layers of the splines whose layers or bake changed, once nothing is being dragged or edited, a river's once
 // its water is built (its rapids)
+// every spline's entities locked or unlocked (Lock Placed Entities; the editor doesn't save its locks, so again after a load),
+// and an entity tagged for a spline the level no longer has made ordinary (left by one deleted or merged away before
+// 2026-11-03, and none a new spline given its id may take)
+static void spline_sweepowned( void )
+{
+	std::unordered_set<int> ids;
+	for ( const sSpline& s : g_Splines ) ids.insert( s.id );
+	for ( int e = 1; e <= g.entityelementlist; e++ )
+	{
+		if ( t.entityelement[ e ].maintype == 0 || t.entityelement[ e ].bankindex <= 0 ) continue;
+		if ( t.entityelement[ e ].eleprof.iObjectReserved1 != SPLINE_ENTITY_TAG ) continue;
+		if ( ids.find( t.entityelement[ e ].eleprof.iObjectReserved2 ) == ids.end() )
+		{
+			if ( g_bSplineLoadedOK ) spline_detachentitytag( e );
+			continue;
+		}
+		if ( (t.entityelement[ e ].editorlock != 0) != g_bSplineLockPlaced ) spline_lockentity( e, g_bSplineLockPlaced );
+	}
+}
+
+// the spline (road or river) one of whose layers placed this entity and owns it, its name in pName; false for any other
+bool spline_entityowner( int e, char* pName, int nameSize )
+{
+	if ( e <= 0 || e > g.entityelementlist || t.entityelement[ e ].eleprof.iObjectReserved1 != SPLINE_ENTITY_TAG ) return false;
+	for ( const sSpline& s : g_Splines )
+	{
+		if ( !spline_owns( s, e ) ) continue;
+		if ( pName && nameSize > 0 ) strcpy_s( pName, nameSize, s.name );
+		return true;
+	}
+	return false;
+}
+
+// one of a spline's entities made an ordinary one where it stands: the spline no longer moves or removes it, and places
+// none in its place again (Fill Detached Places on its layer does)
+void spline_detachentity( int e )
+{
+	if ( e <= 0 || e > g.entityelementlist ) return;
+	for ( sSpline& s : g_Splines )
+	{
+		if ( !spline_owns( s, e ) ) continue;
+		const sSplinePlaced* pRecord = spline_placedrecord( s, e );
+		if ( pRecord )
+		{
+			if ( pRecord->slot >= 0 )
+			{
+				sSplineSkip skip;
+				skip.layer = pRecord->layer;
+				skip.slot = pRecord->slot;
+				s.skipped.push_back( skip );
+			}
+			s.placed.erase( s.placed.begin() + (pRecord - s.placed.data()) );
+		}
+		spline_detachentitytag( e );
+		return;
+	}
+}
+
 static void spline_placechanged( void )
 {
 	if ( iDragNode >= 0 || ImGui::IsAnyItemActive() ) return;
 	if ( ImGui::GetFrameCount() - g_iSplineLoadFrame < SPLINE_LOAD_SETTLE_FRAMES ) return;
+	static int s_iSweptLoadFrame = -1000000;
+	if ( s_iSweptLoadFrame != g_iSplineLoadFrame )
+	{
+		s_iSweptLoadFrame = g_iSplineLoadFrame;
+		spline_sweepowned();
+	}
 	// in list order, so a spline placing again is seen by the later ones near it in the same pass; entities carrying lights
 	// (lamps) rebuild the light list once, after the pass
 	bool bHeld = false;
@@ -4724,6 +5029,22 @@ static void spline_draw( void )
 			dl->AddCircle( p, 11.0f, IM_COL32( 80, 230, 255, 255 ), 20, 2.5f );
 	}
 
+	// a dragged node lined up north, south, east or west of nodes beside it (Ctrl held: not): a line from each
+	if ( iDragNode >= 0 && iAxisGuides > 0 && iDragSpline < (int)g_Splines.size() && iDragNode < (int)g_Splines[ iDragSpline ].nodes.size() )
+	{
+		const sSplineNode& b = g_Splines[ iDragSpline ].nodes[ iDragNode ];
+		const float by = spline_groundy( b.x, b.z ) + SPLINE_DRAW_LIFT;
+		ImVec2 pa, pb;
+		for ( int k = 0; k < iAxisGuides && k < 2; k++ )
+		{
+			const float ax = fAxisGuideX[ k ], az = fAxisGuideZ[ k ];
+			if ( spline_projectline( ax, spline_groundy( ax, az ) + SPLINE_DRAW_LIFT, az, b.x, by, b.z, &pa, &pb ) )
+				dl->AddLine( pa, pb, IM_COL32( 120, 255, 120, 255 ), 2.0f );
+		}
+		if ( spline_project( b.x, by, b.z, &pb ) )
+			dl->AddCircle( pb, 11.0f, IM_COL32( 120, 255, 120, 255 ), 20, 2.5f );
+	}
+
 	dl->AddCallback( (ImDrawCallback)11, NULL ); // disable force render
 	dl->PopClipRect();
 }
@@ -4809,6 +5130,142 @@ static void spline_dragstart( const ImVec2& mouse )
 	fDragOffsetZ = targetZ - z;
 }
 
+// a dragged node (one being drawn too) snaps onto the line due north, south, east or west of a node beside it when it is
+// within a few degrees of it, so roads can be laid on a grid: its neighbours along its spline, and along every spline
+// joined to it there. East-west and north-south snap apart (a corner lines up with one neighbour each way), each to the
+// nearest such line. Ctrl held leaves it where the mouse is. Returns how many lines it snapped to (the guides drawn)
+#define SPLINE_AXIS_SNAP_DEGREES 4.0f
+// the point snapped onto the lines through these nodes (their x and z): the guides, and each one's axis
+static int spline_axissnapto( const std::vector<std::pair<float, float>>& beside, float* pX, float* pZ )
+{
+	iAxisGuides = 0;
+	if ( ImGui::GetIO().KeyCtrl ) return 0;
+	const float tolerance = sinf( SPLINE_AXIS_SNAP_DEGREES * 3.14159265f / 180.0f );
+	float bestX = 1e30f, bestZ = 1e30f, snapX = *pX, snapZ = *pZ;
+	int fromX = -1, fromZ = -1;
+	for ( int k = 0; k < (int)beside.size(); k++ )
+	{
+		const float dx = *pX - beside[ k ].first, dz = *pZ - beside[ k ].second;
+		const float len = sqrtf( dx * dx + dz * dz );
+		if ( len < 1.0f ) continue;
+		if ( fabsf( dz ) < len * tolerance ) { if ( fabsf( dz ) < bestZ ) { bestZ = fabsf( dz ); snapZ = beside[ k ].second; fromZ = k; } }
+		else if ( fabsf( dx ) < len * tolerance ) { if ( fabsf( dx ) < bestX ) { bestX = fabsf( dx ); snapX = beside[ k ].first; fromX = k; } }
+	}
+	if ( fromZ >= 0 ) { *pZ = snapZ; fAxisGuideX[ iAxisGuides ] = beside[ fromZ ].first; fAxisGuideZ[ iAxisGuides ] = beside[ fromZ ].second; iAxisGuideAxis[ iAxisGuides ] = 1; iAxisGuides++; }
+	if ( fromX >= 0 ) { *pX = snapX; fAxisGuideX[ iAxisGuides ] = beside[ fromX ].first; fAxisGuideZ[ iAxisGuides ] = beside[ fromX ].second; iAxisGuideAxis[ iAxisGuides ] = 0; iAxisGuides++; }
+	return iAxisGuides;
+}
+
+static int spline_axissnap( int si, int ni, float* pX, float* pZ )
+{
+	iAxisGuides = 0;
+	if ( ImGui::GetIO().KeyCtrl ) return 0;
+	std::vector<std::pair<float, float>> beside;
+	auto addNeighbours = [&beside]( const sSpline& s, int k )
+	{
+		const int n = (int)s.nodes.size();
+		for ( int d = -1; d <= 1; d += 2 )
+		{
+			int j = k + d;
+			if ( j < 0 || j >= n )
+			{
+				if ( !s.closed || n < 3 ) continue;
+				j = (j + n) % n;
+			}
+			beside.push_back( std::make_pair( s.nodes[ j ].x, s.nodes[ j ].z ) );
+		}
+	};
+	const sSpline& s = g_Splines[ si ];
+	addNeighbours( s, ni );
+	const int junction = s.nodes[ ni ].junction;
+	if ( junction )
+	{
+		for ( const sSpline& o : g_Splines )
+			for ( int k = 0; k < (int)o.nodes.size(); k++ )
+				if ( o.nodes[ k ].junction == junction && !(&o == &s && k == ni) ) addNeighbours( o, k );
+	}
+	return spline_axissnapto( beside, pX, pZ );
+}
+
+// where spline sj's curve crosses a guide's line (x or z fixed), the crossing nearest (nearX, nearZ) and within reach of it:
+// a node dropped onto another spline's curve (a T junction) keeps its line north, south, east or west of its neighbour
+static bool spline_curvecrossing( int sj, int guide, float nearX, float nearZ, float reach, int* pSeg, float* pT, float* pX, float* pZ )
+{
+	if ( sj < 0 || sj >= (int)g_Splines.size() || guide < 0 || guide >= iAxisGuides ) return false;
+	const sSpline& o = g_Splines[ sj ];
+	const bool bAlongZ = iAxisGuideAxis[ guide ] == 1; // an east-west line: z fixed
+	const float v = bAlongZ ? fAxisGuideZ[ guide ] : fAxisGuideX[ guide ];
+	auto offset = [&]( int seg, float t ) { float x, z; spline_point( o, seg, t, &x, &z ); return (bAlongZ ? z : x) - v; };
+	float best = reach * reach;
+	bool bFound = false;
+	const int steps = 48;
+	for ( int seg = 0; seg < spline_segments( o ); seg++ )
+	{
+		float t0 = 0.0f, f0 = offset( seg, 0.0f );
+		for ( int k = 1; k <= steps; k++ )
+		{
+			const float t1 = (float)k / steps, f1 = offset( seg, t1 );
+			if ( (f0 <= 0.0f && f1 >= 0.0f) || (f0 >= 0.0f && f1 <= 0.0f) )
+			{
+				float a = t0, b = t1, fa = f0;
+				for ( int i = 0; i < 24; i++ )
+				{
+					const float m = (a + b) * 0.5f, fm = offset( seg, m );
+					if ( (fa <= 0.0f) == (fm <= 0.0f) ) { a = m; fa = fm; } else b = m;
+				}
+				const float t = (a + b) * 0.5f;
+				float x, z;
+				spline_point( o, seg, t, &x, &z );
+				if ( bAlongZ ) z = v; else x = v;
+				const float d = (x - nearX) * (x - nearX) + (z - nearZ) * (z - nearZ);
+				if ( d < best ) { best = d; bFound = true; *pSeg = seg; *pT = t; *pX = x; *pZ = z; }
+			}
+			t0 = t1; f0 = f1;
+		}
+	}
+	return bFound;
+}
+
+// a point snapped onto a spline's curve moved to where the curve crosses a guide's line (the one crossing nearest it), the
+// other guide dropped; false (no guides kept) when no line crosses the curve nearby
+#define SPLINE_AXIS_CURVE_REACH 600.0f
+static bool spline_axisoncurve( int sj, int* pSeg, float* pT, float* pX, float* pZ )
+{
+	int bestGuide = -1, bestSeg = -1;
+	float bestT = 0, bestX = 0, bestZ = 0, bestD = 1e30f;
+	for ( int g = 0; g < iAxisGuides; g++ )
+	{
+		int seg;
+		float t, x, z;
+		if ( !spline_curvecrossing( sj, g, *pX, *pZ, SPLINE_AXIS_CURVE_REACH, &seg, &t, &x, &z ) ) continue;
+		const float d = (x - *pX) * (x - *pX) + (z - *pZ) * (z - *pZ);
+		if ( d < bestD ) { bestD = d; bestGuide = g; bestSeg = seg; bestT = t; bestX = x; bestZ = z; }
+	}
+	if ( bestGuide < 0 ) { iAxisGuides = 0; return false; }
+	if ( bestGuide != 0 )
+	{
+		fAxisGuideX[ 0 ] = fAxisGuideX[ bestGuide ];
+		fAxisGuideZ[ 0 ] = fAxisGuideZ[ bestGuide ];
+		iAxisGuideAxis[ 0 ] = iAxisGuideAxis[ bestGuide ];
+	}
+	iAxisGuides = 1;
+	*pSeg = bestSeg; *pT = bestT; *pX = bestX; *pZ = bestZ;
+	return true;
+}
+
+// a Bezier node being drawn keeps its handles a third of the way to its neighbour (as spline_addend gives them) wherever it
+// is dragged to, so a segment drawn straight (snapped north, south, east or west) is straight
+static void spline_aimnew( int si, int ni )
+{
+	sSpline& s = g_Splines[ si ];
+	if ( s.curve != SPLINE_CURVE_BEZIER || s.nodes.size() < 2 || (ni != 0 && ni != (int)s.nodes.size() - 1) ) return;
+	sSplineNode& node = s.nodes[ ni ];
+	const sSplineNode& next = s.nodes[ ni == 0 ? 1 : ni - 1 ];
+	const float dx = (next.x - node.x) / 3.0f, dz = (next.z - node.z) / 3.0f;
+	if ( ni == 0 ) { node.outX = dx; node.outZ = dz; node.inX = -dx; node.inZ = -dz; }
+	else { node.inX = dx; node.inZ = dz; node.outX = -dx; node.outZ = -dz; }
+}
+
 static void spline_mouse( void )
 {
 	ImGuiIO& io = ImGui::GetIO();
@@ -4845,14 +5302,37 @@ static void spline_mouse( void )
 				if ( iDragHandle == 0 )
 				{
 					spline_findsnap( mouse );
-					if ( iSnapSpline >= 0 ) { x = fSnapX; y = fSnapY; z = fSnapZ; }
+					iAxisGuides = 0;
+					if ( iSnapSpline >= 0 )
+					{
+						// onto another spline's curve (a T junction): where the curve crosses the line north, south, east or
+						// west of a node beside it, when the mouse is near that line
+						if ( iSnapNode < 0 )
+						{
+							float ax = x, az = z;
+							if ( spline_axissnap( iDragSpline, iDragNode, &ax, &az ) )
+							{
+								float cx = fSnapX, cz = fSnapZ, ct = fSnapT;
+								int cseg = iSnapSeg;
+								if ( spline_axisoncurve( iSnapSpline, &cseg, &ct, &cx, &cz ) )
+								{
+									iSnapSeg = cseg; fSnapT = ct; fSnapX = cx; fSnapZ = cz;
+									fSnapY = spline_groundy( cx, cz );
+								}
+							}
+						}
+						x = fSnapX; y = fSnapY; z = fSnapZ;
+					}
 					else
 					{
-						// a node holding its height keeps it as it moves, unless it was just added
-						const sSplineNode& moving = s.nodes[ iDragNode ];
-						if ( (moving.flags & SPLINE_NODE_HOLDHEIGHT) && !moving.junction && !bDragPlacing ) y = moving.y;
+						// it lines up north, south, east or west of a node beside it when near that line (Ctrl: not)
+						if ( spline_axissnap( iDragSpline, iDragNode, &x, &z ) ) y = spline_groundy( x, z );
+						// a node holding its height (or at a junction holding one) keeps it as it moves, unless it was just added
+						float heldY = 0;
+						if ( !bDragPlacing && spline_nodeheld( s.nodes[ iDragNode ], &heldY ) ) y = heldY;
 					}
 					spline_movenode( iDragSpline, iDragNode, x, y, z );
+					if ( bDragPlacing ) spline_aimnew( iDragSpline, iDragNode );
 				}
 				else
 				{
@@ -4891,7 +5371,12 @@ static void spline_mouse( void )
 				else
 				{
 					int sj = iSnapSpline, nj = iSnapNode;
-					if ( nj < 0 ) nj = spline_insertnode( sj, iSnapSeg, fSnapT );
+					if ( nj < 0 )
+					{
+						nj = spline_insertnode( sj, iSnapSeg, fSnapT );
+						// on a guide's line exactly (the curve's point found to a fraction of a unit)
+						if ( iAxisGuides > 0 ) spline_movenode( sj, nj, fSnapX, fSnapY, fSnapZ );
+					}
 					spline_join( iDragSpline, iDragNode, sj, nj );
 				}
 				spline_modified();
@@ -4899,6 +5384,7 @@ static void spline_mouse( void )
 			iDragSpline = iDragNode = -1;
 			iDragHandle = 0;
 			iSnapSpline = iSnapNode = -1;
+			iAxisGuides = 0;
 		}
 		return;
 	}
@@ -4951,7 +5437,24 @@ static void spline_mouse( void )
 			}
 			else if ( spline_pickcurve( mouse, SPLINE_PICK_CURVE, -1, sel, &si, &seg, &t ) )
 			{
+				// on the line north, south, east or west of the node drawn from, where the curve crosses it (a T junction on
+				// a grid), when the mouse is near that line (Ctrl: not)
+				bool bOnLine = false;
+				float lx = 0, lz = 0, mx, my, mz;
+				if ( !s.nodes.empty() && g_iSplineNodeSelected >= 0 && g_iSplineNodeSelected < (int)s.nodes.size() && spline_terrainpick( &mx, &my, &mz ) )
+				{
+					const std::vector<std::pair<float, float>> from( 1, std::make_pair( s.nodes[ g_iSplineNodeSelected ].x, s.nodes[ g_iSplineNodeSelected ].z ) );
+					if ( spline_axissnapto( from, &mx, &mz ) )
+					{
+						spline_point( g_Splines[ si ], seg, t, &lx, &lz );
+						int cseg = seg;
+						float ct = t;
+						if ( spline_axisoncurve( si, &cseg, &ct, &lx, &lz ) ) { seg = cseg; t = ct; bOnLine = true; }
+					}
+					iAxisGuides = 0;
+				}
 				const int nj = spline_insertnode( si, seg, t );
+				if ( bOnLine ) spline_movenode( si, nj, lx, spline_groundy( lx, lz ), lz );
 				const sSplineNode target = g_Splines[ si ].nodes[ nj ];
 				const int at = spline_addend( sel, target.x, target.y, target.z );
 				spline_join( sel, at, si, nj );
@@ -5039,6 +5542,11 @@ static void spline_mouse( void )
 	iDragHandle = 0;
 	spline_dragstart( mouse );
 	bDragPlacing = true;
+	// lined up north, south, east or west at once, for a click let go without a drag (after the drag's start, so the node
+	// still follows the mouse itself when it is dragged)
+	float sx = x, sz = z;
+	if ( spline_axissnap( g_iSplineSelected, at, &sx, &sz ) ) spline_movenode( g_iSplineSelected, at, sx, spline_groundy( sx, sz ), sz );
+	spline_aimnew( g_iSplineSelected, at );
 	spline_modified();
 }
 
@@ -5386,19 +5894,25 @@ static void spline_rowtexture( const char* pLabel, const char* pId, int* pSlot, 
 static void spline_rowlayers( sSpline& s, float w )
 {
 	const bool bOpen = ImGui::TreeNodeEx( "Layers##splinelayers", ImGuiTreeNodeFlags_DefaultOpen );
-	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Entities placed along it at a spacing: streetlights, rocks, posts, anything. Placed again when it changes; one you move by hand stays" );
+	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Entities placed along it at a spacing: streetlights, rocks, posts, anything. They are the spline's own: placed again when it changes, wherever they were moved to, until detached (Detach Entities here, or Detach from Road on one selected)" );
 	if ( !bOpen ) return;
 	spline_rowcolumns();
+	ImGui::SetCursorPosX( fRowLabelX );
+	if ( ImGui::Checkbox( "Lock Placed Entities##splinelockplaced", &g_bSplineLockPlaced ) ) spline_sweepowned();
+	if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Every spline's placed entities locked in the editor (their move, turn and scale read only), so the entity tools can't move them by accident. Off: they can be moved, but a spline placing again puts its own back where they go" );
 	int remove = -1;
+	bool bRemoveDetaches = false;
 	for ( int li = 0; li < (int)s.layers.size(); li++ )
 	{
 		sSplineLayer& layer = s.layers[ li ];
-		int placedHere = 0;
+		int placedHere = 0, skippedHere = 0;
 		for ( const sSplinePlaced& placed : s.placed ) if ( placed.layer == li ) placedHere++;
+		for ( const sSplineSkip& skip : s.skipped ) if ( skip.layer == li ) skippedHere++;
 		const char* pName = strrchr( layer.entity, '\\' );
 		pName = pName ? pName + 1 : (layer.entity[0] ? layer.entity : "no entity");
 		char label[ 400 ];
-		sprintf_s( label, 400, "%d: %s (%d placed)###splinelayer%d", li + 1, pName, placedHere, li );
+		if ( skippedHere ) sprintf_s( label, 400, "%d: %s (%d placed, %d detached)###splinelayer%d", li + 1, pName, placedHere, skippedHere, li );
+		else sprintf_s( label, 400, "%d: %s (%d placed)###splinelayer%d", li + 1, pName, placedHere, li );
 		ImGui::SetCursorPosX( fRowLabelX );
 		if ( !ImGui::TreeNodeEx( label, 0 ) ) continue;
 		ImGui::PushID( li );
@@ -5495,31 +6009,35 @@ static void spline_rowlayers( sSpline& s, float w )
 			ImGui::SliderFloat( "##layerrapids", &layer.minTurbulence, 0.0f, 1.0f, "%.2f" );
 			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Only where the water is at least this turbulent (0 anywhere): rocks in the rapids" );
 		}
+		if ( skippedHere )
+		{
+			ImGui::SetCursorPosX( fRowFieldX );
+			if ( ImGui::StyleButton( "Fill Detached Places##layerfill", ImVec2( fRowRight - fRowFieldX, 0 ) ) )
+			{
+				std::vector<sSplineSkip> others;
+				for ( const sSplineSkip& skip : s.skipped ) if ( skip.layer != li ) others.push_back( skip );
+				s.skipped.swap( others );
+				s.placedSignature = 0; // placed again, with one in each place again
+				spline_modified();
+			}
+			if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Place this layer's entity again where one was detached (the detached ones stay as they are)" );
+		}
+		ImGui::SetCursorPosX( fRowFieldX );
+		if ( ImGui::StyleButton( "Detach Entities##layerdetach", ImVec2( fRowRight - fRowFieldX, 0 ) ) ) { remove = li; bRemoveDetaches = true; }
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Leave this layer's entities in the level as ordinary ones, where they are (the spline no longer moves or removes them), and remove the layer" );
 		ImGui::SetCursorPosX( fRowFieldX );
 		if ( ImGui::StyleButton( "Remove Layer##layerremove", ImVec2( fRowRight - fRowFieldX, 0 ) ) ) remove = li;
+		if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Remove the layer and the entities it placed (a frozen layer's stay, as ordinary entities)" );
 		ImGui::PopID();
 		ImGui::TreePop();
 	}
 	if ( remove >= 0 )
 	{
-		// its entities go with it (a frozen layer's stay as ordinary entities)
-		std::vector<sSplinePlaced> others;
-		for ( const sSplinePlaced& placed : s.placed ) if ( placed.layer != remove ) others.push_back( placed );
-		if ( !s.layers[ remove ].frozen )
-		{
-			std::vector<sSplinePlaced> mine;
-			for ( const sSplinePlaced& placed : s.placed ) if ( placed.layer == remove ) mine.push_back( placed );
-			std::vector<sSplinePlaced> all = s.placed;
-			s.placed = mine;
-			spline_unplace( s );
-			s.placed = all;
-		}
-		s.placed.clear();
-		for ( sSplinePlaced placed : others )
-		{
-			if ( placed.layer > remove ) placed.layer--;
-			s.placed.push_back( placed );
-		}
+		// its entities go with it, but a frozen layer's (and Detach Entities') stay as ordinary entities
+		if ( !s.layers[ remove ].frozen && !bRemoveDetaches ) spline_unplace( s, remove );
+		std::vector<int> remap( s.layers.size() );
+		for ( int li = 0; li < (int)s.layers.size(); li++ ) remap[ li ] = li < remove ? li : (li == remove ? -1 : li - 1);
+		spline_retag( s, remap );
 		s.layers.erase( s.layers.begin() + remove );
 		spline_modified();
 	}
@@ -6414,7 +6932,7 @@ static void spline_applypreset( sSpline& s, const sSplinePreset& p )
 		moved[ li ] = (int)layers.size();
 		layers.push_back( s.layers[ li ] );
 	}
-	for ( sSplinePlaced& placed : s.placed ) if ( placed.layer >= 0 && placed.layer < (int)moved.size() ) placed.layer = moved[ placed.layer ];
+	spline_retag( s, moved ); // the frozen layers' entities, records and empty slots follow them
 	std::vector<std::string> files;
 	bool bScanned = false;
 	for ( size_t li = 0; li < p.layers.size(); li++ )
@@ -7068,6 +7586,49 @@ static void spline_rowbake( sSpline& s, int* pAutoApply, const char* pWhat, floa
 	else ImGui::Text( "Baked: %d texels, %d trees hidden%s", (int)s.baked.size(), (int)s.bakedTrees.size(), spline_signature( s ) != s.bakedSignature ? " (changed)" : "" );
 }
 
+// splits a spline in two at a node (spline_merge the other way): the nodes up to it stay, it and those after it go to a new
+// spline with the same settings and layers (a frozen layer's entities stay with this one), the two joined at it as two roads
+// meeting there (Alt-drag pulls them apart); both bake and place again. A closed spline opens at the node instead. Returns
+// the new spline's index (this one's for a closed one opened), -1 at an end
+static int spline_split( int si, int ni )
+{
+	sSpline& s = g_Splines[ si ];
+	if ( ni < 0 || ni >= (int)s.nodes.size() || s.nodes.size() < 3 ) return -1;
+	if ( s.closed )
+	{
+		std::rotate( s.nodes.begin(), s.nodes.begin() + ni, s.nodes.end() );
+		s.nodes.push_back( s.nodes[ 0 ] );
+		s.closed = 0;
+		spline_modified();
+		return si;
+	}
+	if ( spline_isend( s, ni ) ) return -1;
+	spline_unplace( s );
+	spline_unbake( si );
+	sSplineDef def;
+	spline_getdef( s, def );
+	const bool bAsPreset = s.preset[0] && spline_presetsignature( s ) == s.presetSignature;
+	def.id = g_iSplineNextID++;
+	char name[ 64 ];
+	sprintf_s( name, 64, "%.56s (2)", s.name );
+	memcpy( def.name, name, sizeof(def.name) );
+	def.nodes.assign( s.nodes.begin() + ni, s.nodes.end() );
+	def.layers.clear();
+	for ( const sSplineLayer& layer : s.layers ) if ( !layer.frozen ) def.layers.push_back( layer );
+	s.nodes.resize( ni + 1 );
+	s.skipped.clear(); // the detached slots counted along the whole spline
+	s.placedSignature = 0;
+	sSpline b;
+	spline_setdef( b, def );
+	if ( bAsPreset ) b.presetSignature = spline_presetsignature( b ); // still as its preset set it, without the frozen layers
+	g_Splines.push_back( b );
+	const int bi = (int)g_Splines.size() - 1;
+	spline_join( si, ni, bi, 0 );
+	spline_cleanjunctions();
+	spline_modified();
+	return bi;
+}
+
 void spline_imgui_panel( float w )
 {
 	// edit mode ends when another terrain tool is chosen, or when the panel was not shown
@@ -7093,7 +7654,7 @@ void spline_imgui_panel( float w )
 		{
 			bConnectMode = false;
 		}
-		if ( !g_Splines.empty() && ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Click the terrain to add nodes and drag them. Shift+click the curve inserts a node, Ctrl+click deletes one.\nA dragged node snaps to another spline's node or curve and joins it (a T junction or a crossing); Alt+drag pulls it out again.\nAn end dropped on the spline's other end closes it. Alt+drag a Bezier handle to break the pair." );
+		if ( !g_Splines.empty() && ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "Click the terrain to add nodes and drag them. Shift+click the curve inserts a node, Ctrl+click deletes one.\nA dragged node snaps due north, south, east or west of a node beside it when close (green lines); hold Ctrl to place it freely.\nA dragged node snaps to another spline's node or curve and joins it (a T junction or a crossing); Alt+drag pulls it out again.\nAn end dropped on the spline's other end closes it. Alt+drag a Bezier handle to break the pair." );
 
 		if ( g_bSplineEditMode && bDrawing ) ImGui::TextWrapped( "%s", "Drawing: click the terrain to add nodes, or another spline's node or curve to join it. Esc to stop." );
 		if ( ImGui::StyleButton( "New Spline##splinenew", ImVec2( w * 0.45f, 0 ) ) )
@@ -7189,46 +7750,47 @@ void spline_imgui_panel( float w )
 				if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The selected node's Z position, in world units" );
 				if ( bMoved )
 				{
-					const bool bHeld = (node.flags & SPLINE_NODE_HOLDHEIGHT) && !node.junction;
-					spline_movenode( g_iSplineSelected, g_iSplineNodeSelected, x, bHeld ? node.y : spline_groundy( x, z ), z );
+					float heldY = 0;
+					const bool bHeld = spline_nodeheld( node, &heldY );
+					spline_movenode( g_iSplineSelected, g_iSplineNodeSelected, x, bHeld ? heldY : spline_groundy( x, z ), z );
 					spline_modified();
 				}
 				if ( s.kind == SPLINE_KIND_ROAD )
 				{
 					// its height held: the road built up or cut down to it and the terrain sculpted to meet it, rather than the
-					// road following the ground there; not at a junction, where the road meets the other road's surface
-					if ( node.junction )
+					// road following the ground there; at a junction every road meeting there holds it (set on all its nodes)
+					float heldY = node.y;
+					bool bHold = node.junction ? spline_junctionheld( node.junction, &heldY ) : (node.flags & SPLINE_NODE_HOLDHEIGHT) != 0;
+					auto setHold = [&node]( bool bOn, float y )
 					{
-						spline_row( "Hold Height" );
-						ImGui::TextDisabled( "%s", "No, a junction" );
-						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "At a junction the road meets the other road's surface, so it can't hold a height of its own" );
-					}
-					else
-					{
-						bool bHold = (node.flags & SPLINE_NODE_HOLDHEIGHT) != 0;
-						ImGui::SetCursorPosX( fRowLabelX );
-						if ( ImGui::Checkbox( "Hold Height##splinenodehold", &bHold ) )
+						for ( sSpline& other : g_Splines )
 						{
-							if ( bHold )
+							for ( sSplineNode& n : other.nodes )
 							{
-								node.flags |= SPLINE_NODE_HOLDHEIGHT;
-								node.y = spline_groundy( node.x, node.z );
+								if ( &n != &node && (node.junction == 0 || n.junction != node.junction) ) continue;
+								if ( bOn ) n.flags |= SPLINE_NODE_HOLDHEIGHT;
+								else n.flags &= ~SPLINE_NODE_HOLDHEIGHT;
+								n.y = y;
 							}
-							else node.flags &= ~SPLINE_NODE_HOLDHEIGHT;
+						}
+					};
+					ImGui::SetCursorPosX( fRowLabelX );
+					if ( ImGui::Checkbox( "Hold Height##splinenodehold", &bHold ) )
+					{
+						setHold( bHold, bHold ? spline_groundy( node.x, node.z ) : node.y );
+						spline_modified();
+					}
+					if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", node.junction ? "Every road meeting at this junction goes through it at this Height, built up or cut down to it, and\nthe terrain is sculpted to meet them, rather than the roads following the ground here. It starts at\nthe ground's height (an earlier road's surface there). The Max Grade still holds between held nodes and the ends." : "The road goes through this node at its Height, built up or cut down to it, and the terrain is\nsculpted to meet it, rather than the road following the ground here. It starts at the ground's height.\nThe Max Grade still holds between held nodes and the ends, so a road given too little length to\nclimb to a height gets steeper next to the end or held node it can't move." );
+					if ( bHold )
+					{
+						float y = heldY;
+						spline_row( "Height" );
+						if ( ImGui::InputFloat( "##splinenodey", &y, 0.0f, 0.0f, "%.1f" ) )
+						{
+							setHold( true, y );
 							spline_modified();
 						}
-						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The road goes through this node at its Height, built up or cut down to it, and the terrain is\nsculpted to meet it, rather than the road following the ground here. It starts at the ground's height.\nThe Max Grade still holds between held nodes and the ends, so a road given too little length to\nclimb to a height gets steeper next to the end or held node it can't move." );
-						if ( bHold )
-						{
-							float y = node.y;
-							spline_row( "Height" );
-							if ( ImGui::InputFloat( "##splinenodey", &y, 0.0f, 0.0f, "%.1f" ) )
-							{
-								node.y = y;
-								spline_modified();
-							}
-							if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", "The height the road holds at this node, in world units (as Lua and the logs give positions)" );
-						}
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", node.junction ? "The height every road holds at this junction, in world units (as Lua and the logs give positions)" : "The height the road holds at this node, in world units (as Lua and the logs give positions)" );
 					}
 				}
 				if ( s.kind == SPLINE_KIND_ROAD ? !s.road.autoApply : (s.kind == SPLINE_KIND_RIVER && !s.river.autoApply) )
@@ -7300,6 +7862,20 @@ void spline_imgui_panel( float w )
 					if ( ImGui::StyleButton( "Delete Node##splinedeletenode", ImVec2( w * 0.45f, 0 ) ) )
 					{
 						spline_deletenode( g_iSplineSelected, g_iSplineNodeSelected );
+					}
+					else if ( g_iSplineSelected < (int)g_Splines.size() && g_iSplineNodeSelected < (int)g_Splines[ g_iSplineSelected ].nodes.size()
+						&& g_Splines[ g_iSplineSelected ].nodes.size() >= 3
+						&& (g_Splines[ g_iSplineSelected ].closed || !spline_isend( g_Splines[ g_iSplineSelected ], g_iSplineNodeSelected )) )
+					{
+						if ( ImGui::StyleButton( g_Splines[ g_iSplineSelected ].closed ? "Open at Node##splinesplit" : "Split at Node##splinesplit", ImVec2( w * 0.45f, 0 ) ) )
+						{
+							const bool bClosed = g_Splines[ g_iSplineSelected ].closed != 0;
+							const int made = spline_split( g_iSplineSelected, g_iSplineNodeSelected );
+							if ( made >= 0 && !bClosed ) g_iSplineNodeSelected = (int)g_Splines[ g_iSplineSelected ].nodes.size() - 1;
+							else if ( made >= 0 ) g_iSplineNodeSelected = 0;
+							g_iSplineSegSelected = -1;
+						}
+						if ( ImGui::IsItemHovered() ) ImGui::SetTooltip( "%s", g_Splines[ g_iSplineSelected ].closed ? "Open the loop at this node: its two ends both here" : "Split the spline in two here: the part after this node becomes a new spline with the same settings and layers, joined to this one at the node (Alt-drag pulls them apart)" );
 					}
 				}
 			}
@@ -7979,6 +8555,19 @@ void spline_savedata( void )
 		// version 23: Kerb Offset, each segment's pavements
 		put( &r.paveInset, sizeof(r.paveInset) );
 		for ( const sSplineNode& node : s.nodes ) put( &node.segPave, sizeof(node.segPave) );
+		// version 25: each placed entity's slot, and the slots left empty (their entity detached)
+		for ( const sSplinePlaced& placed : s.placed )
+		{
+			const int32_t slot = placed.slot;
+			put( &slot, sizeof(slot) );
+		}
+		const uint32_t skipCount = (uint32_t)s.skipped.size();
+		put( &skipCount, sizeof(skipCount) );
+		for ( const sSplineSkip& skip : s.skipped )
+		{
+			const int32_t sk[2] = { skip.layer, skip.slot };
+			put( sk, sizeof(sk) );
+		}
 		const uint32_t bytes = (uint32_t)record.size();
 		fwrite( &bytes, sizeof(bytes), 1, fp );
 		if ( bytes ) fwrite( record.data(), bytes, 1, fp );
@@ -8199,6 +8788,28 @@ static bool spline_readfile( const char* pPath, std::vector<sSpline>& out, uint3
 						{
 							for ( sSplineNode& node : s.nodes ) if ( !get( &node.segPave, sizeof(node.segPave) ) ) break;
 						}
+						if ( version >= 25 )
+						{
+							for ( sSplinePlaced& placed : s.placed )
+							{
+								int32_t slot = -1;
+								if ( !get( &slot, sizeof(slot) ) ) break;
+								placed.slot = slot;
+							}
+							uint32_t skipCount = 0;
+							if ( get( &skipCount, sizeof(skipCount) ) && skipCount < 1000000 )
+							{
+								for ( uint32_t k = 0; k < skipCount; k++ )
+								{
+									int32_t sk[2];
+									if ( !get( sk, sizeof(sk) ) ) break;
+									sSplineSkip skip;
+									skip.layer = sk[0];
+									skip.slot = sk[1];
+									s.skipped.push_back( skip );
+								}
+							}
+						}
 						if ( version < 23 && s.preset[0] && s.presetSignature == spline_presetsignature( s, version < 17 ? offsetof( sSplineRiver, wadeDepth ) : version < 21 ? offsetof( sSplineRiver, plantGrass ) : sizeof(sSplineRiver), version < 16 ? offsetof( sSplineLayer, layFlat ) : sizeof(sSplineLayer), version < 18 ? offsetof( sSplineRoad, markCentre ) : version < 19 ? offsetof( sSplineRoad, markJunctions ) : version < 20 ? offsetof( sSplineRoad, markCrestSight ) : version < 22 ? offsetof( sSplineRoad, paveSides ) : offsetof( sSplineRoad, paveInset ) ) )
 						{
 							// still as its preset set it, by the settings that file had: so too by today's (Lay Flat, Wade
@@ -8244,9 +8855,15 @@ void spline_loaddata( void )
 	strcpy_s( pPath, MAX_PATH, (g.mysystem.levelBankTestMap_s + "map.spl").Get() );
 	GG_GetRealPath( pPath, 0 );
 	uint32_t version = 0;
+	g_bSplineLoadedOK = false;
 	if ( !spline_readfile( pPath, g_Splines, &version ) ) return;
-	for ( const sSpline& s : g_Splines )
+	g_bSplineLoadedOK = true;
+	for ( sSpline& s : g_Splines )
 	{
+		// a level saved before version 25 knows its placed entities' places but not their slots (Detach from Road leaves a
+		// slot empty): each spline places them again once the load settles, as they were, and takes away any of its own left
+		// standing elsewhere (spline_unplace once found them only where they were put)
+		if ( version < 25 && !s.placed.empty() ) s.placedSignature = 0;
 		if ( s.id >= g_iSplineNextID ) g_iSplineNextID = s.id + 1;
 		for ( const sSplineNode& node : s.nodes ) if ( node.junction >= g_iSplineNextJunction ) g_iSplineNextJunction = node.junction + 1;
 		// a level saved before version 24 was baked without the ground out to the kerb (spline_bakekerbs): its paved roads
