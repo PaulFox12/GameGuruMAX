@@ -2319,6 +2319,18 @@ void imgui_terrain_loop_v3(void)
 
 				ImGui::Indent(10);
 
+				// GG: Clear Grass and Trees: painting a texture takes the grass and trees away under the brush too (asphalt,
+				// a yard), off by default; Paint mode only, never Restore
+				{
+					static bool bPaintClearsVegetation = false;
+					if (current_mode == TOOL_PAINTTEXTURE)
+					{
+						ImGui::Checkbox("Clear Grass and Trees##paintclearsveg", &bPaintClearsVegetation);
+						if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Painting a texture also takes away the grass and trees under the brush (asphalt, a bare yard). Each takes its own undo step");
+					}
+					ggterrain_paint_clears_vegetation = (bPaintClearsVegetation && current_mode == TOOL_PAINTTEXTURE && iTerrainPaintMode == 1) ? 1 : 0;
+				}
+
 				//Brush Size.
 				ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX(), ImGui::GetCursorPosY() + 3));
 				ImGui::PushItemWidth(-10);

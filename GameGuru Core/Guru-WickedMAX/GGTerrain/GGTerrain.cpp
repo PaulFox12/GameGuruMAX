@@ -745,6 +745,7 @@ struct TerrainVertex
 #define GGTERRAIN_CHUNK_FUTURE_VISIBLE   0x08
 
 GGTerrainExtraParams ggterrain_extra_params; // Carefully modify this one anywhere, used in back and fourth communication
+int ggterrain_paint_clears_vegetation = 0; // GG: Paint mode takes the grass and trees away under the brush too
 GGTerrainParams ggterrain_global_params; // Modify this one anywhere
 GGTerrainRenderParams ggterrain_global_render_params; // Modify this one anywhere
 GGTerrainRenderParams2 ggterrain_global_render_params2; // Modify this one anywhere

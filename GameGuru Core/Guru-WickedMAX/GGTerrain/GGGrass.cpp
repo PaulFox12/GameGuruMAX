@@ -1791,6 +1791,12 @@ void GGGrass_Update_Painting( RAY ray )
 
 					if ( ggterrain_extra_params.edit_mode != GGTERRAIN_EDIT_GRASS )
 					{
+						// GG: painting with Clear Grass and Trees ticked takes the grass away under the brush
+						if ( ggterrain_paint_clears_vegetation )
+						{
+							pGrassMap[ index ] &= 0x80; // keep flattened state
+							continue;
+						}
 						uint8_t grassID = pGrassMap[ index ] & 0x7F;
 						uint8_t flattened = pGrassMap[ index ] & 0x80;
 
@@ -1956,7 +1962,7 @@ void GGGrass_Update( wiScene::CameraComponent* camera, CommandList cmd, bool bRe
 	if ( gggrass_global_params.max_height_underwater < gggrass_global_params.min_height_underwater ) gggrass_global_params.max_height_underwater = gggrass_global_params.min_height_underwater;
 
 	if ( (ggterrain_extra_params.edit_mode == GGTERRAIN_EDIT_GRASS 
-		 || (ggterrain_extra_params.edit_mode == GGTERRAIN_EDIT_PAINT && gggrass_global_params.paint_material == 0))
+		 || (ggterrain_extra_params.edit_mode == GGTERRAIN_EDIT_PAINT && (gggrass_global_params.paint_material == 0 || ggterrain_paint_clears_vegetation)))
 		 && !bImGuiGotFocus )
 	{
 		wiInput::MouseState mouseState = wiInput::GetMouseState();

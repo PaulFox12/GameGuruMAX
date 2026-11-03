@@ -3333,6 +3333,26 @@ void GGTrees_Update(float camX, float camY, float camZ, CommandList cmd, bool bR
 		}
 	}
 
+	// GG: painting the terrain with Clear Grass and Trees ticked takes the trees away under the brush: the Trees tool's
+	// Spray Remove for the frame, its undo step made when the button is let go
+	if (ggterrain_extra_params.edit_mode == GGTERRAIN_EDIT_PAINT && ggterrain_paint_clears_vegetation && !bImGuiGotFocus)
+	{
+		wiInput::MouseState mouseState = wiInput::GetMouseState();
+		ggtrees_internal_params.mouseLeftState = mouseState.left_button_press;
+		ggtrees_internal_params.mouseLeftPressed = (mouseState.left_button_press && !ggtrees_internal_params.prevMouseLeft) ? 1 : 0;
+		ggtrees_internal_params.mouseLeftReleased = (!mouseState.left_button_press && ggtrees_internal_params.prevMouseLeft) ? 1 : 0;
+		ggtrees_internal_params.prevMouseLeft = mouseState.left_button_press ? 1 : 0;
+		ggtrees_internal_params.mouseY = (int)mouseState.position.y;
+		if (bRenderTargetFocus)
+		{
+			const int paintMode = ggtrees_global_params.paint_mode;
+			ggtrees_global_params.paint_mode = GGTREES_PAINT_SPRAY_REMOVE;
+			RAY pickRay = wiRenderer::GetPickRay((long)mouseState.position.x, (long)mouseState.position.y, master.masterrenderer);
+			GGTrees_Update_Painting(pickRay);
+			ggtrees_global_params.paint_mode = paintMode;
+		}
+	}
+
 	if (ggterrain_extra_params.iUpdateTrees > 0)
 	{
 		ggterrain_extra_params.iUpdateTrees--;

@@ -277,6 +277,9 @@ struct GGTerrainFlatArea
 // safe to modify these params anywhere
 // other instances of GGTerrainParams may be in use by threads
 extern GGTerrainExtraParams ggterrain_extra_params; 
+// GG: painting the terrain (Paint mode) takes the grass and trees away under the brush too (the paint tool's Clear Grass
+// and Trees, off by default): asphalt or a yard painted bare
+extern int ggterrain_paint_clears_vegetation;
 extern GGTerrainParams ggterrain_global_params; 
 extern GGTerrainRenderParams ggterrain_global_render_params;
 extern GGTerrainRenderParams2 ggterrain_global_render_params2;
