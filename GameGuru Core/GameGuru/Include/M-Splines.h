@@ -32,3 +32,4 @@ float spline_riverturbulenceat ( float x, float z );
 void spline_waterflowat ( float x, float z, float* pFlowX, float* pFlowZ );
 float spline_riverwaterlevel ( float x, float z );
 uint64_t spline_riverwaterinputs ( float minX, float minZ, float maxX, float maxZ );
+bool spline_harness ( const char* pCmd, const char* pArg, char* pResult, int resultSize );

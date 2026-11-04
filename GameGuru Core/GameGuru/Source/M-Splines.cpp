@@ -347,6 +347,7 @@ int g_iSplinePieces = 2; // Subdivide splits a segment into this many
 int g_iSplineNextID = 1;
 int g_iSplineNextJunction = 1;
 bool g_bSplineEditMode = false;
+static int g_iSplineHarnessOpen = 0; // the automation harness's SPLINE_EDIT: 1 open the section with Edit Splines on, 2 close it
 int g_iSplinePanelFrame = -10;
 
 // the drag in progress: a node, or a node's handle (1 in, 2 out)
@@ -7643,7 +7644,10 @@ void spline_imgui_panel( float w )
 	// the section open stops the terrain's brush (its settings are edited over the 3D view), and choosing a terrain tool
 	// closes it, so that tool's brush works again
 	if ( bForceKey2 ) ImGui::SetNextItemOpen( false, ImGuiCond_Always );
+	else if ( g_iSplineHarnessOpen ) ImGui::SetNextItemOpen( g_iSplineHarnessOpen == 1, ImGuiCond_Always );
 	const bool bSectionOpen = ImGui::StyleCollapsingHeader( "Roads and Rivers", 0 );
+	if ( g_iSplineHarnessOpen == 1 && bSectionOpen && !g_Splines.empty() ) g_bSplineEditMode = true;
+	g_iSplineHarnessOpen = 0;
 	if ( !bSectionOpen ) g_bSplineEditMode = false;
 	if ( bSectionOpen )
 	{
@@ -8893,4 +8897,148 @@ void spline_addstandalonefiles( void )
 		// one picked outside a Files folder (the panel warns) has no place in the game's
 		for ( char* pFile : pFiles ) if ( pFile[0] && !strchr( pFile, ':' ) ) addtocollection( pFile );
 	}
+}
+
+//
+// The automation harness (AutomationHarness.cpp)
+//
+
+static uint64_t spline_hashmap( const void* p, size_t bytes )
+{
+	return p ? spline_hashmix( 0xcbf29ce484222325ULL, p, bytes ) : 0;
+}
+
+// the splines and a hash of each map they bake into, and of the trees standing, so two builds' bakes can be compared
+static void spline_harnessinfo( char* pOut, int outSize )
+{
+	int roads = 0, rivers = 0, lines = 0, nodes = 0, baked = 0, bakedTrees = 0, planted = 0, placed = 0, water = 0;
+	for ( const sSpline& s : g_Splines )
+	{
+		if ( s.kind == SPLINE_KIND_ROAD ) roads++;
+		else if ( s.kind == SPLINE_KIND_RIVER ) rivers++;
+		else lines++;
+		nodes += (int)s.nodes.size();
+		baked += (int)s.baked.size();
+		bakedTrees += (int)s.bakedTrees.size();
+		planted += (int)s.plantedTrees.size();
+		placed += (int)s.placed.size();
+		if ( s.waterEntity ) water++;
+	}
+	const size_t n = (size_t)SPLINE_MAP_SIZE * SPLINE_MAP_SIZE;
+	const uint64_t hHeight = spline_hashmap( GGTerrain::GGTerrain_GetHeightEditMap(), n * sizeof(float) );
+	const uint64_t hType = spline_hashmap( GGTerrain::GGTerrain_GetHeightEditTypeMap(), n );
+	const uint64_t hMaterial = spline_hashmap( GGTerrain::GGTerrain_GetMaterialMap(), n );
+	const uint64_t hGrass = spline_hashmap( GGGrass::GGGrass_GetGrassMap(), n );
+	const float E = GGTerrain::GGTerrain_GetEditableSize();
+	std::vector<GGTrees::GGTreeSlot> trees;
+	GGTrees::GGTrees_GetTreesInRect( -E, -E, E, E, trees );
+	std::sort( trees.begin(), trees.end(), []( const GGTrees::GGTreeSlot& a, const GGTrees::GGTreeSlot& b ) { return a.id < b.id; } );
+	uint64_t hTrees = 0xcbf29ce484222325ULL;
+	for ( const GGTrees::GGTreeSlot& tree : trees )
+	{
+		hTrees = spline_hashmix( hTrees, &tree.id, sizeof(tree.id) );
+		hTrees = spline_hashmix( hTrees, &tree.x, sizeof(tree.x) );
+		hTrees = spline_hashmix( hTrees, &tree.z, sizeof(tree.z) );
+		hTrees = spline_hashmix( hTrees, &tree.data, sizeof(tree.data) );
+	}
+	sprintf_s( pOut, outSize, "splines=%d roads=%d rivers=%d lines=%d nodes=%d baked=%d bakedtrees=%d planted=%d placed=%d water=%d edit=%d ready=%d height=%016llx type=%016llx material=%016llx grass=%016llx trees=%d/%016llx",
+		(int)g_Splines.size(), roads, rivers, lines, nodes, baked, bakedTrees, planted, placed, water, g_bSplineEditMode ? 1 : 0, GGTerrain::GGTerrain_IsReady() ? 1 : 0,
+		(unsigned long long)hHeight, (unsigned long long)hType, (unsigned long long)hMaterial, (unsigned long long)hGrass, (int)trees.size(), (unsigned long long)hTrees );
+}
+
+static bool spline_harnesswrite( const char* pPath, const void* p, size_t bytes )
+{
+	if ( !p ) return false;
+	FILE* f = NULL;
+	if ( fopen_s( &f, pPath, "wb" ) != 0 || !f ) return false;
+	const bool bOK = fwrite( p, 1, bytes, f ) == bytes;
+	fclose( f );
+	return bOK;
+}
+
+// SPLINE_INFO: the splines and the maps' hashes; SPLINE_LIST: each spline, a line each; SPLINE_EDIT 1|0: the Terrain Tools shown with Roads and Rivers open and
+// Edit Splines on (the splines drawn over the 3D view), or the section closed; SPLINE_UNBAKE: every spline's bake taken
+// out of the maps (last first, as a bake does before it bakes again); SPLINE_REBAKE: every road and river baked again, as
+// Apply on all of them; SPLINE_DUMPMAPS <path>: the four maps written raw to <path>.height (floats), .type, .material and
+// .grass. Each answers SPLINE_INFO's values after it. Returns false for any other verb
+bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resultSize )
+{
+	char info[ 512 ];
+	if ( _stricmp( pCmd, "SPLINE_INFO" ) == 0 )
+	{
+		spline_harnessinfo( info, sizeof(info) );
+		sprintf_s( pResult, resultSize, "OK: %s", info );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_LIST" ) == 0 )
+	{
+		// a line each: index, kind (0 a line, 1 a road, 2 a river), nodes, baked texels, placed entities, the middle node's
+		// position on the ground, and the name
+		int len = sprintf_s( pResult, resultSize, "OK: %d splines", (int)g_Splines.size() );
+		for ( int si = 0; si < (int)g_Splines.size() && len > 0 && len < resultSize - 200; si++ )
+		{
+			const sSpline& s = g_Splines[ si ];
+			float x = 0, z = 0;
+			if ( !s.nodes.empty() ) { x = s.nodes[ s.nodes.size() / 2 ].x; z = s.nodes[ s.nodes.size() / 2 ].z; }
+			const int n = sprintf_s( pResult + len, resultSize - len, "\n%d kind=%d nodes=%d baked=%d placed=%d mid=%.0f,%.0f,%.0f name=%.40s",
+				si, s.kind, (int)s.nodes.size(), (int)s.baked.size(), (int)s.placed.size(), x, spline_groundy( x, z ), z, s.name );
+			if ( n <= 0 ) break;
+			len += n;
+		}
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_EDIT" ) == 0 )
+	{
+		const bool bOn = !pArg || !pArg[0] || atoi( pArg ) != 0;
+		if ( bOn )
+		{
+			extern bool bTerrain_Tools_Window;
+			t.grideditselect = 0;
+			bTerrain_Tools_Window = true;
+		}
+		g_iSplineHarnessOpen = bOn ? 1 : 2;
+		sprintf_s( pResult, resultSize, "OK: SPLINE_EDIT %d (the panel takes it on its next frame)", bOn ? 1 : 0 );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_UNBAKE" ) == 0 || _stricmp( pCmd, "SPLINE_REBAKE" ) == 0 )
+	{
+		if ( !GGTerrain::GGTerrain_IsReady() )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: %s: the terrain is not ready", pCmd );
+			return true;
+		}
+		std::vector<char> in( g_Splines.size(), 1 );
+		if ( _stricmp( pCmd, "SPLINE_UNBAKE" ) == 0 )
+		{
+			float bounds[4] = { FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX };
+			for ( int si = (int)g_Splines.size() - 1; si >= 0; si-- ) spline_restore( g_Splines[ si ], bounds );
+			spline_refresh( bounds );
+		}
+		else
+		{
+			spline_bakegroup( in );
+		}
+		spline_harnessinfo( info, sizeof(info) );
+		sprintf_s( pResult, resultSize, "OK: %s %s", pCmd, info );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_DUMPMAPS" ) == 0 )
+	{
+		if ( !pArg || !pArg[0] )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: SPLINE_DUMPMAPS <path>" );
+			return true;
+		}
+		const size_t n = (size_t)SPLINE_MAP_SIZE * SPLINE_MAP_SIZE;
+		char path[ MAX_PATH ];
+		int written = 0;
+		sprintf_s( path, MAX_PATH, "%s.height", pArg ); written += spline_harnesswrite( path, GGTerrain::GGTerrain_GetHeightEditMap(), n * sizeof(float) ) ? 1 : 0;
+		sprintf_s( path, MAX_PATH, "%s.type", pArg ); written += spline_harnesswrite( path, GGTerrain::GGTerrain_GetHeightEditTypeMap(), n ) ? 1 : 0;
+		sprintf_s( path, MAX_PATH, "%s.material", pArg ); written += spline_harnesswrite( path, GGTerrain::GGTerrain_GetMaterialMap(), n ) ? 1 : 0;
+		sprintf_s( path, MAX_PATH, "%s.grass", pArg ); written += spline_harnesswrite( path, GGGrass::GGGrass_GetGrassMap(), n ) ? 1 : 0;
+		spline_harnessinfo( info, sizeof(info) );
+		sprintf_s( pResult, resultSize, "%s: SPLINE_DUMPMAPS %d of 4 written %s", written == 4 ? "OK" : "FAIL", written, info );
+		return true;
+	}
+	return false;
 }
