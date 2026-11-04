@@ -2584,6 +2584,7 @@ struct sSplineAvoid
 	std::vector<sSplinePoint> line;
 	float halfWidth = 0;
 	float bounds[4];
+	int si = -1; // the road, for its kerbs (spline_nearcorner)
 };
 
 // whether a point is on one of these carriageways: within half its width of its line, which ends square at its first and
@@ -2608,6 +2609,43 @@ static bool spline_oncarriageway( const std::vector<sSplineAvoid>& roads, float 
 			tt = std::min( 1.0f, std::max( 0.0f, tt ) );
 			const float px = a.x + dx * tt - x, pz = a.z + dz * tt - z;
 			if ( px * px + pz * pz < road.halfWidth * road.halfWidth ) return true;
+		}
+	}
+	return false;
+}
+
+// whether a point is where a kerbed corner turns away from one of these carriageways: within its half width and the
+// corner's radius of its line (ends square, as spline_oncarriageway). The radius is the larger of ownRadius (the road
+// whose line is tested, where it has a kerb on that side) and the other road's Corner Radius where it has a kerb on the
+// point's side, as the pavements' outline rounds the corner (spline_paveround); 0 where neither has a kerb there
+static bool spline_nearcorner( const std::vector<sSplineAvoid>& roads, float x, float z, float ownRadius, float endTrim )
+{
+	for ( const sSplineAvoid& road : roads )
+	{
+		if ( road.si < 0 ) continue;
+		const sSpline& o = g_Splines[ road.si ];
+		const float otherRadius = std::max( 0.0f, o.road.paveRadius );
+		const float reach = std::max( ownRadius, otherRadius );
+		if ( reach <= 0 ) continue;
+		if ( x < road.bounds[0] - reach || x > road.bounds[2] + reach || z < road.bounds[1] - reach || z > road.bounds[3] + reach ) continue;
+		const size_t last = road.line.size() - 1;
+		for ( size_t k = 1; k < road.line.size(); k++ )
+		{
+			const sSplinePoint& a = road.line[ k - 1 ];
+			const sSplinePoint& b = road.line[ k ];
+			const float dx = b.x - a.x, dz = b.z - a.z;
+			const float len2 = dx * dx + dz * dz;
+			float tt = len2 > 0 ? ((x - a.x) * dx + (z - a.z) * dz) / len2 : 0;
+			const float trim = len2 > 0 ? endTrim / sqrtf( len2 ) : 0;
+			if ( (k == 1 && tt < trim) || (k == last && tt > 1 - trim) ) continue;
+			tt = std::min( 1.0f, std::max( 0.0f, tt ) );
+			const float px = a.x + dx * tt - x, pz = a.z + dz * tt - z;
+			// the other road's kerb on the point's side of it (its left is to the left looking along it)
+			const int side = ((x - a.x) * -dz + (z - a.z) * dx) > 0 ? SPLINE_PAVE_LEFT : SPLINE_PAVE_RIGHT;
+			const float r = std::max( ownRadius, (spline_segpave( o, a.seg ) & side) ? otherRadius : 0.0f );
+			if ( r <= 0 ) continue;
+			const float d = road.halfWidth + r;
+			if ( px * px + pz * pz < d * d ) return true;
 		}
 	}
 	return false;
@@ -2648,7 +2686,8 @@ static uint64_t spline_markingshape( const sSpline& s )
 // bends tighter than its Solid on Bends, with dashes three times longer than their gaps before and after (warning lines);
 // a segment's own markings take over the road's. Where another road's carriageway crosses or joins it, its At
 // Junctions: run on, stop, or the centre and edge lines cross as guide dashes; the other road taken as ending half a metre
-// short of its ends, so a road joined at a T breaks the edge line across its mouth and leaves the centre line
+// short of its ends, so a road joined at a T breaks the edge line across its mouth and leaves the centre line. An edge
+// line at a kerbed corner ends where the kerb starts to turn (the Corner Radius from the other carriageway)
 static void spline_markings( int si, sSplineMarkings& marks )
 {
 	std::vector<GGTerrain::GGTerrainMarking>& out = marks.pieces;
@@ -2774,6 +2813,7 @@ static void spline_markings( int si, sSplineMarkings& marks )
 			if ( !spline_overlap( bounds, road.bounds ) ) continue;
 			spline_sample( o, 100.0f, road.line );
 			road.halfWidth = o.road.width * 0.5f;
+			road.si = sj;
 			avoid.push_back( road );
 		}
 	}
@@ -2794,6 +2834,7 @@ static void spline_markings( int si, sSplineMarkings& marks )
 			if ( !spline_overlap( bounds, road.bounds ) ) continue;
 			spline_sample( o, 100.0f, road.line );
 			road.halfWidth = o.road.width * 0.5f;
+			road.si = sj;
 			others.push_back( road );
 		}
 	}
@@ -3003,11 +3044,18 @@ static void spline_markings( int si, sSplineMarkings& marks )
 			{
 				// a point's place: 2 on an earlier road (no line), 1 on another road with At Junctions set, 0 neither. A
 				// piece whose ends differ crosses a road's edge: cut into eighths, each by its own middle, so the line
-				// changes within about 20 cm of the edge rather than up to half a piece past it
+				// changes within about 20 cm of the edge rather than up to half a piece past it. An edge line ends where a
+				// kerbed corner starts to turn (within its Corner Radius of the other carriageway), not out in the
+				// junction's mouth past the kerb
+				const bool bEdge = slot >= slots - 2;
+				const int edgeSide = slot == slots - 2 ? SPLINE_PAVE_LEFT : SPLINE_PAVE_RIGHT;
+				const float ownRadius = bEdge && (spline_segpave( s, seg[ i ] ) & edgeSide) ? std::max( 0.0f, r.paveRadius ) : 0.0f;
 				auto place = [&]( float x, float z )
 				{
 					if ( onEarlierRoad( x, z ) ) return 2;
 					if ( !others.empty() && spline_oncarriageway( others, x, z, 20.0f ) ) return 1;
+					if ( bEdge && spline_nearcorner( avoid, x, z, ownRadius, 0.0f ) ) return 2;
+					if ( bEdge && !others.empty() && spline_nearcorner( others, x, z, ownRadius, 20.0f ) ) return 1;
 					return 0;
 				};
 				const int parts = place( ax + (bx - ax) * k0, az + (bz - az) * k0 ) == place( ax + (bx - ax) * k1, az + (bz - az) * k1 ) ? 1 : 8;
@@ -3061,7 +3109,15 @@ void spline_updatemarkings( void )
 	{
 		const sSpline& s = g_Splines[ si ];
 		if ( s.kind != SPLINE_KIND_ROAD ) continue;
-		const uint64_t shape = spline_markingshape( s );
+		uint64_t shape = spline_markingshape( s );
+		// its kerbs: an edge line ends where a kerbed corner turns (spline_nearcorner)
+		const int kerbSides = spline_pavesides( s );
+		shape = spline_hashmix( shape, &kerbSides, sizeof(kerbSides) );
+		if ( kerbSides )
+		{
+			shape = spline_hashmix( shape, &s.road.paveRadius, sizeof(s.road.paveRadius) );
+			for ( const sSplineNode& node : s.nodes ) shape = spline_hashmix( shape, &node.segPave, sizeof(node.segPave) );
+		}
 		uint64_t h = spline_hashmix( earlier, &shape, sizeof(shape) );
 		h = spline_hashmix( h, &s.road.markCentre, SPLINE_MARK_BYTES );
 		for ( const sSplineNode& node : s.nodes ) h = spline_hashmix( h, &node.segMark, sizeof(node.segMark) );
