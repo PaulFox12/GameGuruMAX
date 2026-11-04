@@ -663,6 +663,30 @@ void AutoHarness_CheckForCommand ( void )
 			_snprintf ( result, sizeof(result), "OK: %s client=(%d,%d)", cmd, mx, my );
 		}
 	}
+	else if ( _stricmp ( cmd, "SAVE_LEVEL" ) == 0 )
+	{
+		// SAVE_LEVEL: the editor's File > Save (gridedit_save_map) of the level open, as the DX12 build's verb; tests save
+		// copies only
+		extern void gridedit_save_map ( void );
+		if ( strcmp ( AutoHarness_GetAppState ( ), "editor" ) != 0 ) _snprintf ( result, sizeof(result), "ERROR: SAVE_LEVEL only works in the editor (state: %s)", AutoHarness_GetAppState ( ) );
+		else
+		{
+			gridedit_save_map ( );
+			_snprintf ( result, sizeof(result), "OK: SAVE_LEVEL completed without crashing" );
+		}
+	}
+	else if ( _stricmp ( cmd, "PRESS_ESCAPE" ) == 0 )
+	{
+		// PRESS_ESCAPE: leave a test game as its Escape key does (the game's loops ended), as the DX12 build's verb
+		if ( strcmp ( AutoHarness_GetAppState ( ), "game" ) == 0 )
+		{
+			t.game.gameloop = 0;
+			t.game.levelloop = 0;
+			t.game.masterloop = 0;
+			_snprintf ( result, sizeof(result), "OK: Triggered escape from test game" );
+		}
+		else _snprintf ( result, sizeof(result), "ERROR: PRESS_ESCAPE only works in game state (current state: %s)", AutoHarness_GetAppState ( ) );
+	}
 	else if ( _stricmp ( cmd, "UNDO_TOP" ) == 0 )
 	{
 		// UNDO_TOP: the editor's undo and redo lists, each's depth and its top step's kind (0 objects, 1 terrain, 2 splines),
