@@ -639,7 +639,7 @@ void AutoHarness_CheckForCommand ( void )
 		Cmd_Quit ( result, sizeof(result) );
 		return;
 	}
-	else if ( spline_harness ( cmd, arg, result, (int)sizeof(result) ) ) { } // SPLINE_INFO, SPLINE_EDIT, SPLINE_UNBAKE, SPLINE_REBAKE, SPLINE_DUMPMAPS (M-Splines.cpp)
+	else if ( spline_harness ( cmd, arg, result, (int)sizeof(result) ) ) { } // SPLINE_INFO, SPLINE_LIST, SPLINE_EDIT, SPLINE_UNBAKE, SPLINE_REBAKE, SPLINE_DUMPMAPS, SPLINE_GROUND, SPLINE_ADDRIVER (M-Splines.cpp)
 	else _snprintf ( result, sizeof(result), "ERROR: Unknown command '%s'", cmd );
 	result[sizeof(result) - 1] = 0;
 	AutoHarness_WriteResult ( result );

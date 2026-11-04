@@ -8960,7 +8960,9 @@ static bool spline_harnesswrite( const char* pPath, const void* p, size_t bytes 
 // Edit Splines on (the splines drawn over the 3D view), or the section closed; SPLINE_UNBAKE: every spline's bake taken
 // out of the maps (last first, as a bake does before it bakes again); SPLINE_REBAKE: every road and river baked again, as
 // Apply on all of them; SPLINE_DUMPMAPS <path>: the four maps written raw to <path>.height (floats), .type, .material and
-// .grass. Each answers SPLINE_INFO's values after it. Returns false for any other verb
+// .grass. Each answers SPLINE_INFO's values after it. SPLINE_GROUND x z [x z ...]: the ground's height at each point;
+// SPLINE_ADDRIVER x z x z [x z ...]: a river through the points, baked on the next frame (a test). Returns false for
+// any other verb
 bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resultSize )
 {
 	char info[ 512 ];
@@ -8968,6 +8970,54 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 	{
 		spline_harnessinfo( info, sizeof(info) );
 		sprintf_s( pResult, resultSize, "OK: %s", info );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_GROUND" ) == 0 || _stricmp( pCmd, "SPLINE_ADDRIVER" ) == 0 )
+	{
+		// SPLINE_GROUND x z [x z ...]: the ground's height at each point; SPLINE_ADDRIVER x z x z [x z ...]: a river through
+		// the points (nodes on the ground, smooth, the default river settings), baked on the next editor frame, for a test
+		std::vector<float> v;
+		const char* p = pArg ? pArg : "";
+		while ( *p && v.size() < 64 )
+		{
+			char* pEnd = nullptr;
+			const float f = strtof( p, &pEnd );
+			if ( pEnd == p ) break;
+			v.push_back( f );
+			p = pEnd;
+		}
+		const bool bRiver = _stricmp( pCmd, "SPLINE_ADDRIVER" ) == 0;
+		if ( v.size() < (bRiver ? 4u : 2u) || (v.size() & 1) )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: %s x z %s[x z ...]", pCmd, bRiver ? "x z " : "" );
+			return true;
+		}
+		int len = 0;
+		int si = -1;
+		if ( bRiver )
+		{
+			si = spline_new();
+			sSpline& s = g_Splines[ si ];
+			s.kind = SPLINE_KIND_RIVER;
+			for ( size_t k = 0; k + 1 < v.size(); k += 2 )
+			{
+				sSplineNode node;
+				node.x = v[ k ];
+				node.z = v[ k + 1 ];
+				node.y = spline_groundy( node.x, node.z );
+				s.nodes.push_back( node );
+			}
+			g_SplineForceBake.insert( s.id );
+			spline_modified();
+			len = sprintf_s( pResult, resultSize, "OK: SPLINE_ADDRIVER spline %d (%s), %d nodes, ground", si, s.name, (int)s.nodes.size() );
+		}
+		else len = sprintf_s( pResult, resultSize, "OK: SPLINE_GROUND" );
+		for ( size_t k = 0; k + 1 < v.size() && len > 0 && len < resultSize - 40; k += 2 )
+		{
+			const int n = sprintf_s( pResult + len, resultSize - len, " %.0f", spline_groundy( v[ k ], v[ k + 1 ] ) );
+			if ( n <= 0 ) break;
+			len += n;
+		}
 		return true;
 	}
 	if ( _stricmp( pCmd, "SPLINE_LIST" ) == 0 )
