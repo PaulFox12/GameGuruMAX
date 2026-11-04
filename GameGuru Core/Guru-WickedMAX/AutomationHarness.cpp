@@ -639,6 +639,61 @@ void AutoHarness_CheckForCommand ( void )
 		Cmd_Quit ( result, sizeof(result) );
 		return;
 	}
+	else if ( _stricmp ( cmd, "MOUSE_AT" ) == 0 || _stricmp ( cmd, "MOUSE_DOWN" ) == 0 || _stricmp ( cmd, "MOUSE_UP" ) == 0 )
+	{
+		// MOUSE_AT x y (client pixels, a SCREENSHOT's), MOUSE_DOWN, MOUSE_UP: the OS cursor moved and the left button pressed or let
+		// go, as the DX12 build's verbs (hold the button across a frame: MOUSE_AT, MOUSE_DOWN, a pause, MOUSE_UP)
+		int mx = -1, my = -1;
+		const int got = arg[0] ? sscanf_s ( arg, "%d %d", &mx, &my ) : 0;
+		const bool bAt = _stricmp ( cmd, "MOUSE_AT" ) == 0;
+		if ( !g_pGlob || !g_pGlob->hWnd ) _snprintf ( result, sizeof(result), "ERROR: no window handle" );
+		else if ( bAt && got != 2 ) _snprintf ( result, sizeof(result), "ERROR: MOUSE_AT <x> <y>" );
+		else
+		{
+			if ( GetForegroundWindow ( ) != g_pGlob->hWnd ) SetForegroundWindow ( g_pGlob->hWnd );
+			POINT pt = { mx, my };
+			if ( got == 2 ) { ClientToScreen ( g_pGlob->hWnd, &pt ); SetCursorPos ( pt.x, pt.y ); }
+			if ( !bAt )
+			{
+				INPUT in = {};
+				in.type = INPUT_MOUSE;
+				in.mi.dwFlags = _stricmp ( cmd, "MOUSE_DOWN" ) == 0 ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+				SendInput ( 1, &in, sizeof(INPUT) );
+			}
+			_snprintf ( result, sizeof(result), "OK: %s client=(%d,%d)", cmd, mx, my );
+		}
+	}
+	else if ( _stricmp ( cmd, "UNDO_TOP" ) == 0 )
+	{
+		// UNDO_TOP: the editor's undo and redo lists, each's depth and its top step's kind (0 objects, 1 terrain, 2 splines),
+		// and the selection, as the DX12 build's verb
+		extern std::stack<sUndoMasterStackItem> g_UndoSysMasterStack[2];
+		const std::stack<sUndoMasterStackItem>& u = g_UndoSysMasterStack[eUndoSys_UndoList];
+		const std::stack<sUndoMasterStackItem>& r = g_UndoSysMasterStack[eUndoSys_RedoList];
+		const int resultSize = (int)sizeof(result);
+		_snprintf ( result, sizeof(result), "OK: UNDO_TOP undo depth %d top type %d count %d | redo depth %d top type %d",
+			(int)u.size ( ), u.empty ( ) ? -1 : (int)u.top ( ).type, u.empty ( ) ? 0 : u.top ( ).count,
+			(int)r.size ( ), r.empty ( ) ? -1 : (int)r.top ( ).type );
+		int sl = (int)strlen(result);
+		sl += _snprintf(result + sl, resultSize - sl, " | selected %d:", (int)g.entityrubberbandlist.size());
+		for (size_t i = 0; i < g.entityrubberbandlist.size() && i < 6 && sl > 0 && sl < (int)resultSize - 80; i++)
+		{
+			const int e = g.entityrubberbandlist[i].e;
+			sl += _snprintf(result + sl, resultSize - sl, " %d %s;", e, (e > 0 && e < (int)t.entityelement.size()) ? t.entityelement[e].eleprof.name_s.Get() : "?");
+		}
+	}
+	else if ( _stricmp ( cmd, "UNDO" ) == 0 || _stricmp ( cmd, "REDO" ) == 0 )
+	{
+		// UNDO / REDO: the editor's own Ctrl+Z / Ctrl+Y (editor_undo, editor_redo), in the level editor only, as the DX12 build's verbs
+		extern void editor_undo ( void );
+		extern void editor_redo ( void );
+		if ( strcmp ( AutoHarness_GetAppState(), "editor" ) != 0 ) _snprintf ( result, sizeof(result), "ERROR: %s only works in the level editor", cmd );
+		else
+		{
+			if ( _stricmp ( cmd, "UNDO" ) == 0 ) editor_undo ( ); else editor_redo ( );
+			_snprintf ( result, sizeof(result), "OK: %s performed", cmd );
+		}
+	}
 	else if ( spline_harness ( cmd, arg, result, (int)sizeof(result) ) ) { } // SPLINE_INFO, SPLINE_LIST, SPLINE_EDIT, SPLINE_UNBAKE, SPLINE_REBAKE, SPLINE_DUMPMAPS, SPLINE_GROUND, SPLINE_ADDRIVER (M-Splines.cpp)
 	else _snprintf ( result, sizeof(result), "ERROR: Unknown command '%s'", cmd );
 	result[sizeof(result) - 1] = 0;

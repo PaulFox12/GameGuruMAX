@@ -7370,6 +7370,8 @@ static int spline_selectedid( void )
 	return g_iSplineSelected >= 0 && g_iSplineSelected < (int)g_Splines.size() ? g_Splines[ g_iSplineSelected ].id : 0;
 }
 
+static int g_iSplineUndoPushes = 0, g_iSplineUndoPerforms = 0; // the harness's SPLINE_INFO reports them
+
 static void spline_undosetbase( void )
 {
 	g_SplineUndoBase.resize( g_Splines.size() );
@@ -7433,6 +7435,7 @@ static void spline_undocommit( void )
 	pEvent->selected = g_iSplineUndoBaseSelected;
 	undosys_clearredostack();
 	undosys_addevent( eUndoSys_Spline, eUndoSys_Spline_Change, pEvent );
+	g_iSplineUndoPushes++;
 	spline_undosetbase();
 }
 
@@ -7441,6 +7444,7 @@ static void spline_undocommit( void )
 // one's bake is made to stand as it did. The layers place again, and a river's water is built again, by themselves
 void spline_performundoredo( void* pEventData )
 {
+	g_iSplineUndoPerforms++;
 	sSplineUndoEvent* pEvent = (sSplineUndoEvent*)pEventData;
 	if ( !pEvent ) return;
 	if ( pEvent->generation != g_iSplineUndoGeneration )
@@ -8941,9 +8945,9 @@ static void spline_harnessinfo( char* pOut, int outSize )
 		hTrees = spline_hashmix( hTrees, &tree.z, sizeof(tree.z) );
 		hTrees = spline_hashmix( hTrees, &tree.data, sizeof(tree.data) );
 	}
-	sprintf_s( pOut, outSize, "splines=%d roads=%d rivers=%d lines=%d nodes=%d baked=%d bakedtrees=%d planted=%d placed=%d water=%d edit=%d ready=%d height=%016llx type=%016llx material=%016llx grass=%016llx trees=%d/%016llx",
+	sprintf_s( pOut, outSize, "splines=%d roads=%d rivers=%d lines=%d nodes=%d baked=%d bakedtrees=%d planted=%d placed=%d water=%d edit=%d ready=%d height=%016llx type=%016llx material=%016llx grass=%016llx trees=%d/%016llx undopushed=%d undoperformed=%d undobase=%d",
 		(int)g_Splines.size(), roads, rivers, lines, nodes, baked, bakedTrees, planted, placed, water, g_bSplineEditMode ? 1 : 0, GGTerrain::GGTerrain_IsReady() ? 1 : 0,
-		(unsigned long long)hHeight, (unsigned long long)hType, (unsigned long long)hMaterial, (unsigned long long)hGrass, (int)trees.size(), (unsigned long long)hTrees );
+		(unsigned long long)hHeight, (unsigned long long)hType, (unsigned long long)hMaterial, (unsigned long long)hGrass, (int)trees.size(), (unsigned long long)hTrees, g_iSplineUndoPushes, g_iSplineUndoPerforms, g_bSplineUndoBaseSet ? 1 : 0 );
 }
 
 static bool spline_harnesswrite( const char* pPath, const void* p, size_t bytes )
@@ -8961,7 +8965,8 @@ static bool spline_harnesswrite( const char* pPath, const void* p, size_t bytes 
 // out of the maps (last first, as a bake does before it bakes again); SPLINE_REBAKE: every road and river baked again, as
 // Apply on all of them; SPLINE_DUMPMAPS <path>: the four maps written raw to <path>.height (floats), .type, .material and
 // .grass. Each answers SPLINE_INFO's values after it. SPLINE_GROUND x z [x z ...]: the ground's height at each point;
-// SPLINE_ADDRIVER x z x z [x z ...]: a river through the points, baked on the next frame (a test). Returns false for
+// SPLINE_ADDRIVER x z x z [x z ...]: a river through the points, baked on the next frame (a test); SPLINE_TESTGROUND,
+// SPLINE_ADDROAD, SPLINE_MOVENODE and SPLINE_DELETE for the junction tests (each described where it is handled). Returns false for
 // any other verb
 bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resultSize )
 {
@@ -8972,9 +8977,158 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		sprintf_s( pResult, resultSize, "OK: %s", info );
 		return true;
 	}
-	if ( _stricmp( pCmd, "SPLINE_GROUND" ) == 0 || _stricmp( pCmd, "SPLINE_ADDRIVER" ) == 0 )
+	if ( _stricmp( pCmd, "SPLINE_SCREEN" ) == 0 )
 	{
-		// SPLINE_GROUND x z [x z ...]: the ground's height at each point; SPLINE_ADDRIVER x z x z [x z ...]: a river through
+		// SPLINE_SCREEN x y z: where a world point is on screen in the editor (ImGui's coordinates, as the spline overlay
+		// draws it); y "g" for the ground there. For tests that click and drag in the 3D view
+		float x = 0, z = 0, y = 0;
+		char ys[ 32 ] = "";
+		if ( !pArg || sscanf_s( pArg, "%f %31s %f", &x, ys, (unsigned)sizeof(ys), &z ) != 3 )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: SPLINE_SCREEN x y|g z" );
+			return true;
+		}
+		y = ( ys[0] == 'g' || ys[0] == 'G' ) ? spline_groundy( x, z ) + (float)atof( ys + 1 ) : (float)atof( ys );
+		ImVec2 p;
+		if ( !spline_project( x, y, z, &p ) ) sprintf_s( pResult, resultSize, "FAIL: SPLINE_SCREEN behind the camera" );
+		else sprintf_s( pResult, resultSize, "OK: SPLINE_SCREEN %.0f %.0f (y %.0f)", p.x, p.y, y );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_TESTGROUND" ) == 0 )
+	{
+		// SPLINE_TESTGROUND flat x z radius y: the sculpt map within the radius set to replace at height y (a flat plain);
+		// SPLINE_TESTGROUND patch x z radius dy: the ground within the radius raised by dy, replace or add as it is there.
+		// For the junction tests; the terrain round it regenerates
+		char mode[ 16 ] = "";
+		float x = 0, z = 0, r = 0, v = 0;
+		if ( !pArg || sscanf_s( pArg, "%15s %f %f %f %f", mode, (unsigned)sizeof(mode), &x, &z, &r, &v ) != 5 || r <= 0 )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: SPLINE_TESTGROUND flat|patch x z radius y|dy" );
+			return true;
+		}
+		float* pH = GGTerrain::GGTerrain_GetHeightEditMap();
+		uint8_t* pT = GGTerrain::GGTerrain_GetHeightEditTypeMap();
+		const float E = GGTerrain::GGTerrain_GetEditableSize();
+		if ( !pH || !pT || E <= 0 )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: SPLINE_TESTGROUND: no sculpt map" );
+			return true;
+		}
+		const bool bFlat = _stricmp( mode, "flat" ) == 0;
+		auto toTexel = [E]( float w ) { return (w / E * 0.5f + 0.5f) * SPLINE_MAP_SIZE; };
+		const int x0 = std::max( 0, (int)floorf( toTexel( x - r ) ) ), x1 = std::min( SPLINE_MAP_SIZE - 1, (int)ceilf( toTexel( x + r ) ) );
+		const int z0 = std::max( 0, (int)floorf( toTexel( z - r ) ) ), z1 = std::min( SPLINE_MAP_SIZE - 1, (int)ceilf( toTexel( z + r ) ) );
+		int count = 0;
+		for ( int iz = z0; iz <= z1; iz++ )
+		{
+			for ( int ix = x0; ix <= x1; ix++ )
+			{
+				const float wx = ((float)ix / SPLINE_MAP_SIZE * 2.0f - 1.0f) * E;
+				const float wz = ((float)iz / SPLINE_MAP_SIZE * 2.0f - 1.0f) * E;
+				if ( (wx - x) * (wx - x) + (wz - z) * (wz - z) > r * r ) continue;
+				const uint32_t hIndex = (SPLINE_MAP_SIZE - 1 - iz) * SPLINE_MAP_SIZE + ix;
+				if ( bFlat )
+				{
+					pH[ hIndex ] = GGTerrain::GGTerrain_HeightToEdit( v );
+					pT[ hIndex ] = 1;
+				}
+				else if ( pT[ hIndex ] == 1 )
+				{
+					pH[ hIndex ] += GGTerrain::GGTerrain_HeightToEdit( spline_groundy( wx, wz ) + v ) - GGTerrain::GGTerrain_HeightToEdit( spline_groundy( wx, wz ) );
+				}
+				else
+				{
+					const float y = spline_groundy( wx, wz );
+					pH[ hIndex ] += GGTerrain::GGTerrain_HeightToEdit( y + v ) - GGTerrain::GGTerrain_HeightToEdit( y );
+				}
+				count++;
+			}
+		}
+		GGTerrain::GGTerrain_InvalidateRegion( x - r - 200, z - r - 200, x + r + 200, z + r + 200, GGTERRAIN_INVALIDATE_ALL );
+		sprintf_s( pResult, resultSize, "OK: SPLINE_TESTGROUND %s: %d texels", bFlat ? "flat" : "patch", count );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_ADDROAD" ) == 0 )
+	{
+		// SPLINE_ADDROAD x z x z [x z ...]: a road through the points (nodes on the ground, smooth, the default road
+		// settings), a node within 2 units of another spline's node joined to it as a junction; baked on the next editor
+		// frame. For the junction tests
+		std::vector<float> v;
+		const char* p = pArg ? pArg : "";
+		while ( *p && v.size() < 64 )
+		{
+			char* pEnd = nullptr;
+			const float f = strtof( p, &pEnd );
+			if ( pEnd == p ) break;
+			v.push_back( f );
+			p = pEnd;
+		}
+		if ( v.size() < 4 || (v.size() & 1) )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: SPLINE_ADDROAD x z x z [x z ...]" );
+			return true;
+		}
+		const int si = spline_new();
+		int joins = 0;
+		for ( size_t k = 0; k + 1 < v.size(); k += 2 )
+		{
+			sSplineNode node;
+			node.x = v[ k ];
+			node.z = v[ k + 1 ];
+			node.y = spline_groundy( node.x, node.z );
+			for ( int sj = 0; sj < si && !node.junction; sj++ )
+			{
+				for ( sSplineNode& other : g_Splines[ sj ].nodes )
+				{
+					if ( fabsf( other.x - node.x ) > 2.0f || fabsf( other.z - node.z ) > 2.0f ) continue;
+					if ( !other.junction ) other.junction = g_iSplineNextJunction++;
+					node.junction = other.junction;
+					node.x = other.x; node.y = other.y; node.z = other.z;
+					g_SplineForceBake.insert( g_Splines[ sj ].id );
+					joins++;
+					break;
+				}
+			}
+			g_Splines[ si ].nodes.push_back( node );
+		}
+		g_Splines[ si ].kind = SPLINE_KIND_ROAD;
+		g_SplineForceBake.insert( g_Splines[ si ].id );
+		spline_modified();
+		sprintf_s( pResult, resultSize, "OK: SPLINE_ADDROAD spline %d (%s), %d nodes, %d joined", si, g_Splines[ si ].name, (int)g_Splines[ si ].nodes.size(), joins );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_MOVENODE" ) == 0 || _stricmp( pCmd, "SPLINE_DELETE" ) == 0 )
+	{
+		// SPLINE_MOVENODE si ni x z: the node moved there (on the ground, with any junction it is part of) and baked again on
+		// the next editor frame, as a drag does; SPLINE_DELETE si: the spline deleted, its bake taken out. For the tests
+		int si = -1, ni = -1;
+		float x = 0, z = 0;
+		const bool bMove = _stricmp( pCmd, "SPLINE_MOVENODE" ) == 0;
+		const int got = pArg ? sscanf_s( pArg, "%d %d %f %f", &si, &ni, &x, &z ) : 0;
+		if ( si < 0 || si >= (int)g_Splines.size() || (bMove && (got != 4 || ni < 0 || ni >= (int)g_Splines[ si ].nodes.size())) )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: %s", bMove ? "SPLINE_MOVENODE si ni x z" : "SPLINE_DELETE si" );
+			return true;
+		}
+		if ( bMove )
+		{
+			spline_movenode( si, ni, x, spline_groundy( x, z ), z );
+			g_SplineForceBake.insert( g_Splines[ si ].id );
+			spline_modified();
+			sprintf_s( pResult, resultSize, "OK: SPLINE_MOVENODE spline %d node %d to (%.0f, %.0f)", si, ni, x, z );
+		}
+		else
+		{
+			spline_deletespline( si );
+			sprintf_s( pResult, resultSize, "OK: SPLINE_DELETE spline %d", si );
+		}
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_GROUND" ) == 0 || _stricmp( pCmd, "SPLINE_GROUNDX" ) == 0 || _stricmp( pCmd, "SPLINE_ADDRIVER" ) == 0 )
+	{
+		// SPLINE_GROUND x z [x z ...]: the ground's height at each point as the tool reads it (spline_groundy: the terrain's
+		// LOD chunks, coarse far from the camera); SPLINE_GROUNDX the same from the height data itself (the accurate read);
+		// SPLINE_ADDRIVER x z x z [x z ...]: a river through
 		// the points (nodes on the ground, smooth, the default river settings), baked on the next editor frame, for a test
 		std::vector<float> v;
 		const char* p = pArg ? pArg : "";
@@ -9011,10 +9165,14 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 			spline_modified();
 			len = sprintf_s( pResult, resultSize, "OK: SPLINE_ADDRIVER spline %d (%s), %d nodes, ground", si, s.name, (int)s.nodes.size() );
 		}
-		else len = sprintf_s( pResult, resultSize, "OK: SPLINE_GROUND" );
+		else len = sprintf_s( pResult, resultSize, "OK: %s", _stricmp( pCmd, "SPLINE_GROUNDX" ) == 0 ? "SPLINE_GROUNDX" : "SPLINE_GROUND" );
+		const bool bExact = _stricmp( pCmd, "SPLINE_GROUNDX" ) == 0;
 		for ( size_t k = 0; k + 1 < v.size() && len > 0 && len < resultSize - 40; k += 2 )
 		{
-			const int n = sprintf_s( pResult + len, resultSize - len, " %.0f", spline_groundy( v[ k ], v[ k + 1 ] ) );
+			float y = 0;
+			if ( bExact ) GGTerrain::GGTerrain_GetHeight( v[ k ], v[ k + 1 ], &y, 1 );
+			else y = spline_groundy( v[ k ], v[ k + 1 ] );
+			const int n = sprintf_s( pResult + len, resultSize - len, " %.3f", y );
 			if ( n <= 0 ) break;
 			len += n;
 		}
