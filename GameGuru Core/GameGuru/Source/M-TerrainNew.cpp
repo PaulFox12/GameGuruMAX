@@ -1598,6 +1598,7 @@ void imgui_terrain_loop_v3(void)
 			{
 				//PE: We need to delay raise/lower object until terrain is done working on it.
 				static std::vector<int> adjustedObjects;
+				extern int g_iCalculatingChangeBounds; // M-UndoSys-Terrain.cpp: set while a terrain stroke holds its undo snapshot
 				
 				if (ggterrain_extra_params.sculpt_mode == GGTERRAIN_SCULPT_RAMP && !ImGui::IsMouseDown(0) && (vLastRampTerrainPickPosition.z != 0 || vLastRampTerrainPickPosition.w != 0) )
 				{
@@ -1645,7 +1646,10 @@ void imgui_terrain_loop_v3(void)
 					vLastRampTerrainPickPosition.w = 0;
 					
 				}
-				else if (ImGui::IsMouseDown(0) && ggterrain_extra_params.sculpt_mode != GGTERRAIN_SCULPT_RAMP)
+				// GG: only while a sculpt stroke is changing the ground (the terrain's undo snapshot is armed by the stroke itself):
+				// a button held over a panel, or with the brush stopped (Roads and Rivers open), marked the objects round the last
+				// pick point and recorded them as moved, an object step on the undo list for every click
+				else if (ImGui::IsMouseDown(0) && ggterrain_extra_params.sculpt_mode != GGTERRAIN_SCULPT_RAMP && ggterrain_extra_params.edit_mode == GGTERRAIN_EDIT_SCULPT && g_iCalculatingChangeBounds != 0)
 				{
 					float fRadius = ggterrain_global_render_params2.brushSize;
 					for (t.e = 1; t.e <= g.entityelementlist; t.e++)
