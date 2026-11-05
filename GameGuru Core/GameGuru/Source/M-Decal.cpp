@@ -40,7 +40,7 @@ void decal_hide ( void )
 }
 
 // Decal frame via material UV scale and offset
-void decal_setelementuvframe ( int iObj, int iFrameIndex, int iAcross, int iDown )
+void decal_setelementuvframe ( int iObj, int iFrameIndex, int iAcross, int iDown, bool bMirror = false )
 {
 	if ( iAcross < 1 ) iAcross = 1;
 	if ( iDown < 1 ) iDown = 1;
@@ -52,6 +52,11 @@ void decal_setelementuvframe ( int iObj, int iFrameIndex, int iAcross, int iDown
 	{
 		fU = (iFrameIndex % iAcross) * fUSize;
 		fV = (iFrameIndex / iAcross) * fVSize;
+	}
+	if ( bMirror )
+	{
+		fU += fUSize;
+		fUSize = -fUSize;
 	}
 	sObject* pObject = GetObjectData ( iObj );
 	if ( pObject ) WickedCall_SetObjectTextureUV ( pObject, fUSize, fVSize, fU, fV );
@@ -1057,7 +1062,7 @@ void decalelement_control ( void )
 						// only update UV frame when it changes
 						if (t.tframe != t.decalelement[t.f].uvframe)
 						{
-							decal_setelementuvframe (t.tobj, t.tframe, t.decal[t.decalid].across, t.decal[t.decalid].down);
+							decal_setelementuvframe (t.tobj, t.tframe, t.decal[t.decalid].across, t.decal[t.decalid].down, t.decalelement[t.f].orient == 7 && t.decalelement[t.f].particlemirror == 1);
 							t.decalelement[t.f].uvframe = t.tframe;
 						}
 				}
