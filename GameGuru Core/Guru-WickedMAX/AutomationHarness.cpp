@@ -544,6 +544,16 @@ void AutoHarness_CheckForCommand ( void )
 		}
 		result[sizeof(result) - 1] = 0;
 	}
+	else if ( _stricmp ( cmd, "TEXSCROLL_STEP" ) == 0 )
+	{
+		// TEXSCROLL_STEP <seconds>: the textures scripts scroll (SetEntityTextureScroll, SetEntityLimbTextureScroll) moved on
+		// by that many seconds now, as a game frame moves them; a paused game (a frozen test view) moves none of them
+		float fSeconds = ( arg && *arg ) ? (float)atof(arg) : 0.0f;
+		extern void WickedCall_UpdateLuaTextureScroll(float fSeconds);
+		WickedCall_UpdateLuaTextureScroll(fSeconds);
+		_snprintf(result, sizeof(result), "OK: TEXSCROLL_STEP %.3f", fSeconds);
+		result[sizeof(result) - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "TEST_DECAL" ) == 0 )
 	{
 		// TEST_DECAL kind x z size [image]: a projected decal (kind 0, size wide, onto the ground) or a blast decal (kind 1,

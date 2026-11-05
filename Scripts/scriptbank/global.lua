@@ -2638,6 +2638,8 @@ SetEntityLimbOffset : SetEntityLimbOffset ( e, limb, x, y, z ) -- moves one limb
 GetEntityLimbOffset : x, y, z = GetEntityLimbOffset ( e, limb )
 SetEntityLimbPivot : SetEntityLimbPivot ( e, limb, x, y, z ) -- the point in the limb's own space that its rotation turns about (default 0,0,0, the limb's origin)
 GetEntityLimbPivot : x, y, z = GetEntityLimbPivot ( e, limb )
+SetEntityLimbTextureScroll : scrolls = SetEntityLimbTextureScroll ( e, limb, du, dv ) -- the limb's textures scroll du, dv texture widths a second, this entity only (tank treads); 0, 0 stops them; true when the limb has a mesh
+GetEntityLimbTextureScroll : du, dv, u, v = GetEntityLimbTextureScroll ( e, limb ) -- the limb's scroll speed and how far it has scrolled (0 to 1)
 GetEntityLimbBounds : minx, miny, minz, maxx, maxy, maxz = GetEntityLimbBounds ( e, limb [, children] ) -- the box of the limb's mesh in its own space; children 1 also takes in its child limbs' meshes. Nothing for a limb without a mesh
 GetEntityLimbParent : limb = GetEntityLimbParent ( e, limb ) -- the limb this one hangs from, -1 at the top
 GetEntityLimbBoneCount : n = GetEntityLimbBoneCount ( e, limb ) -- how many bones the limb's mesh is skinned to, 0 if it is not skinned

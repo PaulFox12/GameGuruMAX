@@ -7521,6 +7521,85 @@ void WickedCall_UpdateLuaTextureScroll(float fSeconds)
 		material->texMulAdd.w = fmodf(material->texMulAdd.w + change.fScrollV * fSeconds, 1.0f);
 		material->SetDirty();
 	}
+	extern void WickedCall_UpdateLuaLimbTextureScroll(float fSeconds);
+	WickedCall_UpdateLuaLimbTextureScroll(fSeconds);
+}
+
+// what SetEntityLimbTextureScroll scrolls, by object number and limb: the limb's Wicked object, whose own texture offset
+// (gg_texOffset, added to its material's in the shader) moves, so the model's shared material and its other placements
+// are left alone
+struct sLuaLimbScroll
+{
+	uint64_t wickedObject = 0;
+	float fOffsetU = 0, fOffsetV = 0;
+	float fScrollU = 0, fScrollV = 0; // texture widths a second
+};
+std::unordered_map<uint64_t, sLuaLimbScroll> g_LuaLimbScrolls;
+
+static sLuaLimbScroll* WickedCall_FindLuaLimbScroll(sObject* pObject, int iLimb, bool bCreate)
+{
+	if (!pObject || !pObject->ppFrameList || iLimb < 0 || iLimb >= pObject->iFrameCount) return NULL;
+	sFrame* pFrame = pObject->ppFrameList[iLimb];
+	if (!pFrame || pFrame->wickedobjindex == 0 || !wiScene::GetScene().objects.GetComponent(pFrame->wickedobjindex)) return NULL;
+	uint64_t key = ((uint64_t)pObject->dwObjectNumber << 32) | (uint32_t)iLimb;
+	auto it = g_LuaLimbScrolls.find(key);
+	if (it != g_LuaLimbScrolls.end() && it->second.wickedObject == pFrame->wickedobjindex) return &it->second;
+	if (!bCreate) return NULL;
+	sLuaLimbScroll scroll;
+	scroll.wickedObject = pFrame->wickedobjindex;
+	g_LuaLimbScrolls[key] = scroll;
+	return &g_LuaLimbScrolls[key];
+}
+
+// scrolls the textures of one limb of the object by fU, fV texture widths a second (0, 0 stops them where they are), moved
+// each frame by WickedCall_UpdateLuaLimbTextureScroll; false when the limb draws no mesh of its own
+bool WickedCall_SetObjectLimbTextureScroll(sObject* pObject, int iLimb, float fU, float fV)
+{
+	sLuaLimbScroll* pScroll = WickedCall_FindLuaLimbScroll(pObject, iLimb, true);
+	if (!pScroll) return false;
+	pScroll->fScrollU = fU;
+	pScroll->fScrollV = fV;
+	return true;
+}
+
+// the limb's scroll speed and how far it has scrolled: pScroll[4] = du, dv, u, v
+void WickedCall_GetObjectLimbTextureScroll(sObject* pObject, int iLimb, float* pScroll)
+{
+	sLuaLimbScroll* pFound = WickedCall_FindLuaLimbScroll(pObject, iLimb, false);
+	if (!pFound) return;
+	pScroll[0] = pFound->fScrollU;
+	pScroll[1] = pFound->fScrollV;
+	pScroll[2] = pFound->fOffsetU;
+	pScroll[3] = pFound->fOffsetV;
+}
+
+// once a frame in a game: each scrolling limb's offset moves on by its speed times the frame's seconds; a limb whose object
+// was deleted or rebuilt since is forgotten
+void WickedCall_UpdateLuaLimbTextureScroll(float fSeconds)
+{
+	extern sObject** g_ObjectList;
+	for (auto it = g_LuaLimbScrolls.begin(); it != g_LuaLimbScrolls.end(); )
+	{
+		sLuaLimbScroll& scroll = it->second;
+		int iObj = (int)(it->first >> 32);
+		int iLimb = (int)(it->first & 0xFFFFFFFF);
+		sObject* pObject = ObjectExist(iObj) == 1 ? g_ObjectList[iObj] : NULL;
+		sFrame* pFrame = (pObject && pObject->ppFrameList && iLimb < pObject->iFrameCount) ? pObject->ppFrameList[iLimb] : NULL;
+		wiScene::ObjectComponent* object = NULL;
+		if (pFrame && pFrame->wickedobjindex == scroll.wickedObject) object = wiScene::GetScene().objects.GetComponent(scroll.wickedObject);
+		if (!object)
+		{
+			it = g_LuaLimbScrolls.erase(it);
+			continue;
+		}
+		if (scroll.fScrollU != 0 || scroll.fScrollV != 0)
+		{
+			scroll.fOffsetU = fmodf(scroll.fOffsetU + scroll.fScrollU * fSeconds, 1.0f);
+			scroll.fOffsetV = fmodf(scroll.fOffsetV + scroll.fScrollV * fSeconds, 1.0f);
+			object->gg_texOffset = XMFLOAT2(scroll.fOffsetU, scroll.fOffsetV);
+		}
+		++it;
+	}
 }
 
 // puts back what SetEntityShaderParam and SetEntityTextureScroll changed, at each level start and when a test game ends.
@@ -7546,6 +7625,13 @@ void WickedCall_RestoreLuaMaterialChanges(bool bObjectsKept)
 		material->SetDirty();
 	}
 	g_LuaMaterialChanges.clear();
+	for (auto& it : g_LuaLimbScrolls)
+	{
+		if (!bObjectsKept) break;
+		wiScene::ObjectComponent* object = wiScene::GetScene().objects.GetComponent(it.second.wickedObject);
+		if (object) object->gg_texOffset = XMFLOAT2(0, 0);
+	}
+	g_LuaLimbScrolls.clear();
 }
 
 void WickedCall_SetObjectHighlightColor(sObject* pObject, bool bHighlight, int highlightColorType)

@@ -210,6 +210,8 @@ void WickedCall_GetObjectLOD(sObject* pObject, int* pLOD, int* pLevels);
 void WickedCall_SetObjectShaderParam(sObject* pObject, int iParam, float fValue);
 void WickedCall_SetObjectTextureScroll(sObject* pObject, float fU, float fV);
 void WickedCall_UpdateLuaTextureScroll(float fSeconds);
+bool WickedCall_SetObjectLimbTextureScroll(sObject* pObject, int iLimb, float fU, float fV);
+void WickedCall_GetObjectLimbTextureScroll(sObject* pObject, int iLimb, float* pScroll);
 void WickedCall_RestoreLuaMaterialChanges(bool bObjectsKept);
 void WickedCall_GetMouseDeltas(float* pfX, float* pfY);
 uint32_t WickedCall_GetTextureWidth(void* ptex);

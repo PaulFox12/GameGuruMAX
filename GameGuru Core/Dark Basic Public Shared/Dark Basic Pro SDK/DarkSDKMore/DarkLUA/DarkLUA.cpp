@@ -2711,6 +2711,33 @@ static int LUA_GETTOP(lua_State* L)
 	 lua_pushnumber(L, vecPivot.z);
 	 return 3;
  }
+ // SetEntityLimbTextureScroll(e, limb, du, dv): the textures of one limb's mesh scroll by du, dv texture widths a second, on
+ // this entity only, the same at any frame rate and on top of any SetEntityTextureScroll (a tank's treads, each side at its
+ // own speed); 0, 0 stops them where they are. True when the limb draws a mesh of its own. They go back to where they
+ // started at the next level or when a test game ends
+ int SetEntityLimbTextureScroll ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 4 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 bool bScrolls = pObject && WickedCall_SetObjectLimbTextureScroll ( pObject, iLimb, lua_tonumber(L, 3), lua_tonumber(L, 4) );
+	 lua_pushboolean(L, bScrolls ? 1 : 0);
+	 return 1;
+ }
+ // GetEntityLimbTextureScroll(e, limb): du, dv, u, v: the limb's scroll speed in texture widths a second and how far it has
+ // scrolled, 0 to 1 (all 0 for a limb never scrolled)
+ int GetEntityLimbTextureScroll ( lua_State* L )
+ {
+	 lua = L;
+	 if ( LUA_GETTOP(L) < 2 ) return 0;
+	 int iLimb = lua_tointeger(L, 2);
+	 sObject* pObject = LuaEntityLimbObject ( L, lua_tointeger(L, 1), iLimb );
+	 float fScroll[4] = { 0, 0, 0, 0 };
+	 if ( pObject ) WickedCall_GetObjectLimbTextureScroll ( pObject, iLimb, fScroll );
+	 for ( int i = 0; i < 4; i++ ) lua_pushnumber(L, fScroll[i]);
+	 return 4;
+ }
  // grows a box, in the space of the limb asked about, by a limb's mesh box and with bChildren by those of the limbs under it
  // (their rest pose: each child's matOriginal carries it into its parent's space)
  static void LuaAddLimbBounds ( sFrame* pFrame, GGMATRIX& matToLimb, bool bChildren, GGVECTOR3& vecMin, GGVECTOR3& vecMax, bool& bAny )
@@ -17638,6 +17665,8 @@ void addFunctions()
 	lua_register(lua, "GetEntityLimbOffset", GetEntityLimbOffset);
 	lua_register(lua, "SetEntityLimbPivot", SetEntityLimbPivot);
 	lua_register(lua, "GetEntityLimbPivot", GetEntityLimbPivot);
+	lua_register(lua, "SetEntityLimbTextureScroll", SetEntityLimbTextureScroll);
+	lua_register(lua, "GetEntityLimbTextureScroll", GetEntityLimbTextureScroll);
 	lua_register(lua, "GetEntityLimbBounds", GetEntityLimbBounds);
 	lua_register(lua, "GetEntityLimbParent", GetEntityLimbParent);
 	lua_register(lua, "GetEntityLimbBoneCount", GetEntityLimbBoneCount);
