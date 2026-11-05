@@ -14,6 +14,7 @@
 #include "GGTerrain/GGGrass.h"
 #include "tracers/TracerManager.h"
 #include "ripples/RippleManager.h"
+#include "distantlights/DistantLightManager.h"
 #include "AutomationHarness.h"
 using namespace Tracers;
 
@@ -186,6 +187,7 @@ bool GuruLoopLogic ( void )
 				
 				Tracers::Initialize();
 				Ripples::Initialize(); // GG: the batched rain ripples
+				DistantLights::Initialize(); // GG: the distant lights (#220)
 
 				g_iInitializationSequence = 3;
 				break;

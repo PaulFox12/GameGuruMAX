@@ -4901,6 +4901,7 @@ void CheckMinimumDockSpaceSize(float minsize)
 #define TABPAGEWEATHER 1
 
 #include "..\..\Guru-WickedMAX\master.h"
+#include "..\..\Guru-WickedMAX\distantlights\DistantLightManager.h"
 #include <direct.h>
 
 extern wiECS::Entity g_weatherEntityID;
@@ -8551,6 +8552,10 @@ void LuaGameVisuals_Clear(void)
 	g_bLuaSetWaterFog = false;
 	g_bLuaSetLUT = false;
 	g_bLuaSetWaterSpeed = false;
+	// the distant lights a script listed, and their amount and look
+	DistantLights::Clear();
+	DistantLights::SetAmount(1.0f);
+	DistantLights::SetLook(1.5f, 3.0f, 6000.0f, 12000.0f, 60.0f);
 	if (g_bLuaRenderTiming && !bProfilerEnable) wiProfiler::SetEnabled(false);
 	g_bLuaRenderTiming = false;
 	wiProfiler::SetGPUEnabled(true);

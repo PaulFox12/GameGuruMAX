@@ -8984,6 +8984,82 @@ int GetRippleBatching(lua_State *L)
 	lua_pushinteger(L, iDropped);
 	return 4;
 }
+// the distant lights (#220, Guru-WickedMAX's DistantLightManager)
+namespace DistantLights
+{
+	bool Add(float fX, float fY, float fZ, float fR, float fG, float fB, float fSize, float fBrightness, int iTag);
+	void Clear(int iTag);
+	void SetAmount(float fAmount);
+	float GetAmount();
+	void SetTag(int iTag, bool bOn);
+	void SetLook(float fMinPixels, float fMaxPixels, float fFadeFrom, float fFadeTo, float fPull);
+	void GetLook(float* pMinPixels, float* pMaxPixels, float* pFadeFrom, float* pFadeTo, float* pPull);
+	void GetStats(int* piCount, int* piDrawn, int* piCapacity);
+}
+// AddDistantLight(x, y, z, r, g, b [, size [, brightness [, tag]]]): a light drawn far off as a dot a pixel or two across
+// (a lamp, a lit window), so a town reads as lived in at night; r g b 0 to 255, size in world units (40 unless given),
+// brightness 1 unless given, tag 0 to 255 (0 unless given) for SetDistantLightTag. True unless the list is full (65,536).
+// Near ones fade out (the real lights and lamp heads show there). Cleared at the next level or when a test game ends
+int AddDistantLight(lua_State *L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 6) return 0;
+	bool bAdded = DistantLights::Add(lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3),
+		lua_tonumber(L, 4) / 255.0f, lua_tonumber(L, 5) / 255.0f, lua_tonumber(L, 6) / 255.0f,
+		n >= 7 ? lua_tonumber(L, 7) : 40.0f, n >= 8 ? lua_tonumber(L, 8) : 1.0f, n >= 9 ? (int)lua_tointeger(L, 9) : 0);
+	lua_pushboolean(L, bAdded ? 1 : 0);
+	return 1;
+}
+// ClearDistantLights([tag]): every distant light, or the tag's
+int ClearDistantLights(lua_State *L)
+{
+	DistantLights::Clear(LUA_GETTOP(L) >= 1 ? (int)lua_tointeger(L, 1) : -1);
+	return 0;
+}
+// SetDistantLightsAmount(amount): every distant light's brightness times this, 0 none drawn (daytime), 1 unless set
+int SetDistantLightsAmount(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	DistantLights::SetAmount(lua_tonumber(L, 1));
+	return 0;
+}
+// SetDistantLightTag(tag, on): the tag's distant lights drawn (1, as at first) or not (0): a power cut
+int SetDistantLightTag(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 2) return 0;
+	DistantLights::SetTag((int)lua_tointeger(L, 1), lua_tointeger(L, 2) != 0);
+	return 0;
+}
+// SetDistantLightsLook(minPixels, maxPixels, fadeFrom, fadeTo [, pull]): the smallest and largest dot in pixels (1.5, 3),
+// the distance they fade in from and are full by (6000, 12000 units: about 150 to 300 m), and how far each is drawn toward
+// the camera so its own lamp's mesh doesn't hide it (60). Back to those at the next level or when a test game ends
+int SetDistantLightsLook(lua_State *L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 4) return 0;
+	float fMin, fMax, fFrom, fTo, fPull;
+	DistantLights::GetLook(&fMin, &fMax, &fFrom, &fTo, &fPull);
+	DistantLights::SetLook(lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4), n >= 5 ? lua_tonumber(L, 5) : fPull);
+	return 0;
+}
+// GetDistantLights(): count, drawn (their tag on), the most there can be, amount, minPixels, maxPixels, fadeFrom, fadeTo, pull
+int GetDistantLights(lua_State *L)
+{
+	int iCount = 0, iDrawn = 0, iCapacity = 0;
+	DistantLights::GetStats(&iCount, &iDrawn, &iCapacity);
+	float fMin, fMax, fFrom, fTo, fPull;
+	DistantLights::GetLook(&fMin, &fMax, &fFrom, &fTo, &fPull);
+	lua_pushinteger(L, iCount);
+	lua_pushinteger(L, iDrawn);
+	lua_pushinteger(L, iCapacity);
+	lua_pushnumber(L, DistantLights::GetAmount());
+	lua_pushnumber(L, fMin);
+	lua_pushnumber(L, fMax);
+	lua_pushnumber(L, fFrom);
+	lua_pushnumber(L, fTo);
+	lua_pushnumber(L, fPull);
+	return 9;
+}
 // SetDecalRange(units): decals (water splashes and ripples, impacts, blood) further than this from the camera are not
 // made; 800 (about 20 m) unless set, back to that at the next level. GetDecalRange() reads it
 int SetDecalRange(lua_State *L)
@@ -18048,6 +18124,12 @@ void addFunctions()
 	lua_register(lua, "TriggerWaterRippleSize", TriggerWaterRippleSize);
 	lua_register(lua, "SetRippleBatching", SetRippleBatching);
 	lua_register(lua, "GetRippleBatching", GetRippleBatching);
+	lua_register(lua, "AddDistantLight", AddDistantLight);
+	lua_register(lua, "ClearDistantLights", ClearDistantLights);
+	lua_register(lua, "SetDistantLightsAmount", SetDistantLightsAmount);
+	lua_register(lua, "SetDistantLightTag", SetDistantLightTag);
+	lua_register(lua, "SetDistantLightsLook", SetDistantLightsLook);
+	lua_register(lua, "GetDistantLights", GetDistantLights);
 	lua_register(lua, "SetDecalRange", SetDecalRange);
 	lua_register(lua, "GetDecalRange", GetDecalRange);
 	lua_register(lua, "SetDecalLimit", SetDecalLimit);
