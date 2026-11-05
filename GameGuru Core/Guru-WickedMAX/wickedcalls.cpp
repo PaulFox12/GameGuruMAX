@@ -3234,6 +3234,18 @@ void WickedCall_TextureMesh(sMesh* pMesh)
 						pObjectMaterial->SetDirty();
 					}
 				}
+
+				// an entity's mesh with no surface map (nor a roughness or metalness texture) draws as if it had a neutral one,
+				// rough and not metal, scaled by its roughness strength (the .fpe's or the placement's, 1 unless set) as a
+				// surface map is above; it stayed at roughness 0, glossy, whatever the strength
+				extern int g_iWickedEntityId;
+				bool bNamesRoughOrMetal = (pMesh->dwTextureCount > GG_MESH_TEXTURE_ROUGHNESS && strlen(pMesh->pTextures[GG_MESH_TEXTURE_ROUGHNESS].pName) != 0)
+					|| (pMesh->dwTextureCount > GG_MESH_TEXTURE_METALNESS && strlen(pMesh->pTextures[GG_MESH_TEXTURE_METALNESS].pName) != 0);
+				if (g_iWickedEntityId >= 0 && !bNamesRoughOrMetal && !pObjectMaterial->textures[MaterialComponent::SURFACEMAP].resource)
+				{
+					pObjectMaterial->SetRoughness(WickedGetRoughnessStrength());
+					pObjectMaterial->SetMetalness(0.0f);
+				}
 			}
 		}
 	}
