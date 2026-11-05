@@ -49,6 +49,8 @@ VertexOut main( VertexIn IN )
 	OUT.position = mul( g_xCamera_VP, pos );
 	// GG: a billboard wholly nearer than the start of its fade is discarded at every pixel, so drop it here
 	float reach = GetTreeScale( IN.data ) * length( float2( 0.5 * tree_type[ treeType ].scaleX, tree_type[ treeType ].scaleY ) );
+	// (the whole corner to one point, not only its depth behind the far plane as the camera passes do: this pass has depth
+	// clipping off, so a depth out of range would be clamped and drawn)
 	if ( distance( IN.offset, tree_playerPos ) + reach < tree_lodDistShadow ) OUT.position = float4( 0, 0, -1, 1 );
 	// GG: per-tree variety: a mirrored card reads its image right to left
 	uint data = TreeVarietyData( IN.data, IN.offset );

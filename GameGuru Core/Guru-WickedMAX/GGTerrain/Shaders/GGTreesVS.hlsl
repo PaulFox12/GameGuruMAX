@@ -56,7 +56,8 @@ VertexOut main( VertexIn IN )
 	OUT.position = mul( g_xCamera_VP, pos );
 	// GG: a billboard wholly nearer than the start of its fade is discarded at every pixel, so drop it here
 	float reach = GetTreeScale( IN.data ) * length( float2( 0.5 * tree_type[ treeType ].scaleX, tree_type[ treeType ].scaleY ) );
-	if ( !any( g_xCamera_ClipPlane ) && distance( IN.offset, g_xCamera_CamPos ) + reach < tree_lodDist ) OUT.position = float4( 0, 0, -1, 1 );
+	// (behind the far plane by its depth alone: a corner kept where it is can't stretch a part-culled card across the screen)
+	if ( !any( g_xCamera_ClipPlane ) && distance( IN.offset, g_xCamera_CamPos ) + reach < tree_lodDist ) OUT.position.z = -OUT.position.w;
 
 	OUT.dir.x = diff.x;
 	OUT.dir.y = diff.y;
