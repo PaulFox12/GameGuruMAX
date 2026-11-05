@@ -975,26 +975,57 @@ static void spline_smoothprofile( std::vector<sRoadSample>& c, float length )
 	}
 }
 
-// the profile held at the pins (sample, height) and shifted linearly between them
-static void spline_pinprofile( std::vector<sRoadSample>& c, std::vector<std::pair<int, float>>& pins, std::vector<char>& pinned )
+// 1 a road's pins correct its profile only near them (spline_pinprofile's fallLength); 0 the linear correction between pins
+// as before 2026-11-05, for the harness's A/B (SPLINE_PROFILEMODE)
+static int g_iSplineProfileMode = 1;
+
+// the profile held at the pins (sample, height). With fallLength 0 (rivers) each pin's correction is shifted linearly to the
+// next pin's. Else (roads) a pin's correction fades out over fallLength from it (a smooth step), or over the stretch to the
+// next pin where that is shorter, so a pin moves the road only near it and the averaged ground holds between: carried
+// linearly over a long stretch, a pin's correction (negative where the average lifts the road near a climb) sank the road
+// below a flat plain on the way to it (spline 1225, 11 cm). A held pin (pHeld by sample, Hold Height) keeps the linear ramp
+// to its neighbours and its correction carried past the last pin, as before
+static void spline_pinprofile( std::vector<sRoadSample>& c, std::vector<std::pair<int, float>>& pins, std::vector<char>& pinned,
+	float fallLength = 0.0f, const std::vector<char>* pHeld = nullptr )
 {
 	const int n = (int)c.size();
 	pinned.assign( n, 0 );
 	std::sort( pins.begin(), pins.end() );
 	pins.erase( std::unique( pins.begin(), pins.end(), []( const std::pair<int, float>& a, const std::pair<int, float>& b ) { return a.first == b.first; } ), pins.end() );
 	if ( pins.empty() ) return;
+	if ( g_iSplineProfileMode == 0 ) fallLength = 0.0f;
 	std::vector<float> corr( n, 0.0f );
+	// a pin's share of its correction at a distance from it along the stretch: held, linear over the stretch; else a smooth
+	// step over fallLength or the stretch where shorter. A stretch of FLT_MAX is past the first or last pin
+	auto share = [&]( int k, float d, float stretch )
+	{
+		const bool bHeld = pHeld && k < (int)pHeld->size() && (*pHeld)[ k ];
+		const float len = bHeld ? stretch : std::min( fallLength, stretch );
+		if ( len <= 0.0f ) return d <= 0.0f ? 1.0f : 0.0f;
+		const float x = std::min( 1.0f, std::max( 0.0f, d / len ) );
+		return bHeld ? 1.0f - x : 1.0f - x * x * (3.0f - 2.0f * x);
+	};
 	size_t pi = 0;
 	for ( int i = 0; i < n; i++ )
 	{
 		while ( pi + 1 < pins.size() && pins[ pi + 1 ].first <= i ) pi++;
 		const int ia = pins[ pi ].first;
 		const float ca = pins[ pi ].second - c[ ia ].h;
-		if ( i <= ia || pi + 1 >= pins.size() ) { corr[i] = ca; continue; }
+		if ( fallLength <= 0.0f )
+		{
+			if ( i <= ia || pi + 1 >= pins.size() ) { corr[i] = ca; continue; }
+			const int ib = pins[ pi + 1 ].first;
+			const float cb = pins[ pi + 1 ].second - c[ ib ].h;
+			const float span = c[ ib ].s - c[ ia ].s;
+			corr[i] = span > 0 ? ca + (cb - ca) * (c[i].s - c[ ia ].s) / span : ca;
+			continue;
+		}
+		if ( i < ia ) { corr[i] = ca * share( ia, c[ ia ].s - c[i].s, FLT_MAX ); continue; }
+		if ( pi + 1 >= pins.size() ) { corr[i] = ca * share( ia, c[i].s - c[ ia ].s, FLT_MAX ); continue; }
 		const int ib = pins[ pi + 1 ].first;
 		const float cb = pins[ pi + 1 ].second - c[ ib ].h;
 		const float span = c[ ib ].s - c[ ia ].s;
-		corr[i] = span > 0 ? ca + (cb - ca) * (c[i].s - c[ ia ].s) / span : ca;
+		corr[i] = ca * share( ia, c[i].s - c[ ia ].s, span ) + cb * share( ib, c[ ib ].s - c[i].s, span );
 	}
 	for ( int i = 0; i < n; i++ ) c[i].h += corr[i];
 	for ( const auto& pin : pins ) { c[ pin.first ].h = pin.second; pinned[ pin.first ] = 1; }
@@ -1476,8 +1507,11 @@ static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protecte
 		timestampactivity( 0, trace );
 		#endif
 	}
+	// a held pin keeps the linear ramp to its neighbours; the others correct the road only near them
+	std::vector<char> held( n, 0 );
+	for ( const auto& it : pinAt ) if ( it.second.first == PIN_HELD || it.second.first == PIN_HELDJUNCTION ) held[ it.first ] = 1;
 	std::vector<char> pinned;
-	spline_pinprofile( c, pins, pinned );
+	spline_pinprofile( c, pins, pinned, std::max( 0.0f, r.smoothing ), &held );
 
 	// no steeper than the maximum grade, both ways, pins kept
 	const float grade = std::max( 0.001f, r.maxGrade / 100.0f );
@@ -9032,8 +9066,8 @@ static bool spline_harnesswrite( const char* pPath, const void* p, size_t bytes 
 // .grass. Each answers SPLINE_INFO's values after it. SPLINE_GROUND x z [x z ...]: the ground's height at each point;
 // SPLINE_ADDRIVER x z x z [x z ...]: a river through the points, baked on the next frame (a test); SPLINE_TESTGROUND,
 // SPLINE_ADDROAD, SPLINE_MOVENODE and SPLINE_DELETE for the junction tests, SPLINE_COPYTEST, SPLINE_PLACE and
-// SPLINE_ENTITY for a copied road entity (each described where it is handled). Returns false for
-// any other verb
+// SPLINE_ENTITY for a copied road entity, SPLINE_PROFILEMODE and SPLINE_DUMPBAKED for a profile A/B (each described where
+// it is handled). Returns false for any other verb
 bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resultSize )
 {
 	char info[ 512 ];
@@ -9308,6 +9342,40 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		sprintf_s( pResult, resultSize, "OK: SPLINE_PLACE %d placed %d", si, (int)g_Splines[ si ].placed.size() );
 		return true;
 	}
+	if ( _stricmp( pCmd, "SPLINE_PROFILEMODE" ) == 0 )
+	{
+		// SPLINE_PROFILEMODE [0|1]: how a road's pins correct its profile for the bakes from now (1 near each pin, the default;
+		// 0 linearly between pins, as before 2026-11-05), for an A/B; no argument answers
+		if ( pArg && *pArg ) g_iSplineProfileMode = atoi( pArg ) ? 1 : 0;
+		sprintf_s( pResult, resultSize, "OK: SPLINE_PROFILEMODE %d", g_iSplineProfileMode );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_DUMPBAKED" ) == 0 )
+	{
+		// SPLINE_DUMPBAKED <path>: every spline's baked texels written to <path> as records of int32 spline index, uint16 x,
+		// uint16 z (the height map's column and row), so a height map's change can be told road by road
+		FILE* f = nullptr;
+		if ( !pArg || !*pArg || fopen_s( &f, pArg, "wb" ) != 0 || !f )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: SPLINE_DUMPBAKED <path>" );
+			return true;
+		}
+		size_t records = 0;
+		for ( int si = 0; si < (int)g_Splines.size(); si++ )
+		{
+			for ( const sSplineBakeTexel& b : g_Splines[ si ].baked )
+			{
+				const int32_t s = si;
+				fwrite( &s, sizeof(s), 1, f );
+				fwrite( &b.x, sizeof(b.x), 1, f );
+				fwrite( &b.z, sizeof(b.z), 1, f );
+				records++;
+			}
+		}
+		fclose( f );
+		sprintf_s( pResult, resultSize, "OK: SPLINE_DUMPBAKED %d records", (int)records );
+		return true;
+	}
 	if ( _stricmp( pCmd, "SPLINE_ENTITY" ) == 0 )
 	{
 		// SPLINE_ENTITY e: whether entity e stands (its maintype), where, its bank entity and its tag
@@ -9327,7 +9395,7 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 	{
 		// a line each: index, kind (0 a line, 1 a road, 2 a river), nodes, baked texels, placed entities, the middle node's
 		// position on the ground, and the name
-		int len = sprintf_s( pResult, resultSize, "OK: %d splines", (int)g_Splines.size() );
+		int len = sprintf_s( pResult, resultSize, "OK: %d splines E=%.0f", (int)g_Splines.size(), GGTerrain::GGTerrain_GetEditableSize() );
 		for ( int si = 0; si < (int)g_Splines.size() && len > 0 && len < resultSize - 200; si++ )
 		{
 			const sSpline& s = g_Splines[ si ];
