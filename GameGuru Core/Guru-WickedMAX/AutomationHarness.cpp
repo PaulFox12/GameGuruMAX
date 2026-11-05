@@ -544,6 +544,16 @@ void AutoHarness_CheckForCommand ( void )
 		}
 		result[sizeof(result) - 1] = 0;
 	}
+	else if ( _stricmp ( cmd, "SET_SHADOWMINTEXELS" ) == 0 )
+	{
+		// SET_SHADOWMINTEXELS [n]: sun shadow casters smaller than n of a cascade's shadow map texels left out of it (2, the
+		// default; 0 keeps every caster, as stock); answers with the object-cascade pairs left out last frame
+		extern float gg_shadow_min_texels;
+		extern unsigned int gg_shadow_texel_skipped;
+		if ( arg && *arg ) gg_shadow_min_texels = (float)atof(arg);
+		_snprintf(result, sizeof(result), "OK: SET_SHADOWMINTEXELS %.2f - left out last frame %u", gg_shadow_min_texels, gg_shadow_texel_skipped);
+		result[sizeof(result) - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "TEXSCROLL_STEP" ) == 0 )
 	{
 		// TEXSCROLL_STEP <seconds>: the textures scripts scroll (SetEntityTextureScroll, SetEntityLimbTextureScroll) moved on
