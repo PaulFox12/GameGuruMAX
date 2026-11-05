@@ -9022,7 +9022,8 @@ static bool spline_harnesswrite( const char* pPath, const void* p, size_t bytes 
 // Apply on all of them; SPLINE_DUMPMAPS <path>: the four maps written raw to <path>.height (floats), .type, .material and
 // .grass. Each answers SPLINE_INFO's values after it. SPLINE_GROUND x z [x z ...]: the ground's height at each point;
 // SPLINE_ADDRIVER x z x z [x z ...]: a river through the points, baked on the next frame (a test); SPLINE_TESTGROUND,
-// SPLINE_ADDROAD, SPLINE_MOVENODE and SPLINE_DELETE for the junction tests (each described where it is handled). Returns false for
+// SPLINE_ADDROAD, SPLINE_MOVENODE and SPLINE_DELETE for the junction tests, SPLINE_COPYTEST, SPLINE_PLACE and
+// SPLINE_ENTITY for a copied road entity (each described where it is handled). Returns false for
 // any other verb
 bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resultSize )
 {
@@ -9232,6 +9233,85 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 			if ( n <= 0 ) break;
 			len += n;
 		}
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_COPYTEST" ) == 0 )
+	{
+		// SPLINE_COPYTEST: the first entity a road's layer placed, copied as the editor's paste copies one (its eleprof, the
+		// relationship data cleared, added as a clone 100 units along X); answers both indices and each one's tag. A rebuild
+		// (SPLINE_REBAKE) then shows with SPLINE_ENTITY whether the road takes the copy away with its own
+		int src = 0, owner = -1;
+		for ( int e = 1; e <= g.entityelementlist && src == 0; e++ )
+		{
+			if ( t.entityelement[ e ].maintype == 0 || t.entityelement[ e ].eleprof.iObjectReserved1 != SPLINE_ENTITY_TAG ) continue;
+			for ( int si = 0; si < (int)g_Splines.size(); si++ ) if ( spline_owns( g_Splines[ si ], e ) ) { src = e; owner = si; break; }
+		}
+		if ( src == 0 )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: SPLINE_COPYTEST no entity a road placed" );
+			return true;
+		}
+		const int storeGridEntity = t.gridentity;
+		const entityeleproftype storeGridEleprof = t.grideleprof;
+		t.gridentity = t.entityelement[ src ].bankindex;
+		t.entid = t.gridentity;
+		entity_fillgrideleproffromprofile();
+		t.gridentitystaticmode = t.entityelement[ src ].staticflag;
+		t.gridentityposx_f = t.entityelement[ src ].x + 100.0f; t.gridentityposy_f = t.entityelement[ src ].y; t.gridentityposz_f = t.entityelement[ src ].z;
+		t.gridentityrotatex_f = t.entityelement[ src ].rx; t.gridentityrotatey_f = t.entityelement[ src ].ry; t.gridentityrotatez_f = t.entityelement[ src ].rz;
+		t.gridentityrotatequatmode = 0;
+		t.gridentityrotatequatx_f = 0; t.gridentityrotatequaty_f = 0; t.gridentityrotatequatz_f = 0; t.gridentityrotatequatw_f = 1;
+		t.gridentityscalex_f = 100; t.gridentityscaley_f = 100; t.gridentityscalez_f = 100;
+		t.gridentityoverwritemode = 0;
+		t.gridentitypreferelementindex = 0;
+		t.gridentityhasparent = 0;
+		t.gridentityeditorfixed = 0;
+		t.grideleprof = t.entityelement[ src ].eleprof;
+		entity_cleargrideleprofrelationshipdata();
+		t.grideleprof.newparticle.emitterid = -1;
+		extern bool bNextObjectMustBeClone;
+		extern bool bUpdateObjectList;
+		bNextObjectMustBeClone = true;
+		t.e = 0;
+		entity_addentitytomap();
+		bNextObjectMustBeClone = false;
+		bUpdateObjectList = true;
+		const int copy = t.e;
+		t.gridentity = storeGridEntity;
+		t.grideleprof = storeGridEleprof;
+		const entityeleproftype& ps = t.entityelement[ src ].eleprof;
+		const entityeleproftype& pc = t.entityelement[ copy ].eleprof;
+		sprintf_s( pResult, resultSize, "OK: SPLINE_COPYTEST source %d (spline %d) tag %08X %d %d; copy %d tag %08X %d %d", src, owner,
+			(unsigned)ps.iObjectReserved1, ps.iObjectReserved2, ps.iObjectReserved3, copy, (unsigned)pc.iObjectReserved1, pc.iObjectReserved2, pc.iObjectReserved3 );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_PLACE" ) == 0 )
+	{
+		// SPLINE_PLACE si: spline si's layers placed again now, as a change to them does (its own entities taken away first)
+		const int si = pArg ? atoi( pArg ) : -1;
+		if ( si < 0 || si >= (int)g_Splines.size() )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: SPLINE_PLACE si (0 to %d)", (int)g_Splines.size() - 1 );
+			return true;
+		}
+		spline_place( si );
+		g_Splines[ si ].placedSignature = spline_layersignature( si );
+		sprintf_s( pResult, resultSize, "OK: SPLINE_PLACE %d placed %d", si, (int)g_Splines[ si ].placed.size() );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_ENTITY" ) == 0 )
+	{
+		// SPLINE_ENTITY e: whether entity e stands (its maintype), where, its bank entity and its tag
+		const int e = pArg ? atoi( pArg ) : 0;
+		if ( e <= 0 || e > g.entityelementlist )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: SPLINE_ENTITY e (1 to %d)", g.entityelementlist );
+			return true;
+		}
+		const entityeleproftype& p = t.entityelement[ e ].eleprof;
+		sprintf_s( pResult, resultSize, "OK: SPLINE_ENTITY %d maintype %d bank %d at %.0f %.0f %.0f tag %08X %d %d", e, t.entityelement[ e ].maintype,
+			t.entityelement[ e ].bankindex, t.entityelement[ e ].x, t.entityelement[ e ].y, t.entityelement[ e ].z,
+			(unsigned)p.iObjectReserved1, p.iObjectReserved2, p.iObjectReserved3 );
 		return true;
 	}
 	if ( _stricmp( pCmd, "SPLINE_LIST" ) == 0 )
