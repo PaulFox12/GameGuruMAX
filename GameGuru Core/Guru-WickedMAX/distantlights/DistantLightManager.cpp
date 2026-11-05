@@ -7,6 +7,8 @@
 
 using namespace wiGraphics;
 
+extern bool g_bNoTerrainRender;
+
 // GG: distant lights (#220); see DistantLightManager.h
 namespace DistantLights
 {
@@ -33,6 +35,7 @@ namespace DistantLights
 		XMFLOAT4 screen;
 		XMFLOAT4 fade;
 		XMFLOAT4 fog;
+		XMFLOAT4 water;
 	};
 
 	bool bInitialised = false;
@@ -216,8 +219,18 @@ namespace DistantLights
 		cb.camPos = XMFLOAT4(camera.Eye.x, camera.Eye.y, camera.Eye.z, projection._22);
 		cb.screen = XMFLOAT4(camera.width, camera.height, fMinPixels, fMaxPixels);
 		cb.fade = XMFLOAT4(fFadeFrom, fFadeTo, fAmount, fPull);
+		// the scene's fog as wiRenderer gives it to objectHF.hlsli ApplyFog, of which a light takes the level's fog opacity's
+		// share as a surface does without the realistic sky; with it a surface is fogged whole, but a light still shows
+		// through the haze, so the opacity's share there too
 		const wiScene::WeatherComponent& weather = wiScene::GetScene().weather;
-		cb.fog = XMFLOAT4(weather.fogStart, weather.fogEnd, 0, 0);
+		float fFogStart = g_bNoTerrainRender ? 900000.0f : weather.fogStart;
+		float fFogEnd = g_bNoTerrainRender ? 1000000.0f : weather.fogEnd;
+		float fFogShare = std::min(1.0f, std::max(0.0f, weather.fogColorAndOpacity.w));
+		cb.fog = XMFLOAT4(fFogStart, fFogEnd > fFogStart ? 4.0f / (fFogEnd - fFogStart) : 0.0f, fFogShare, 0);
+		const auto& ocean = weather.oceanParameters;
+		float fWaterRate = ocean.fogMaxDist > ocean.fogMinDist ? 4.0f / (ocean.fogMaxDist - ocean.fogMinDist) : 0.0f;
+		float fWaterMost = std::min(1.0f, std::max(0.0f, 1.0f - ocean.fogMinAmount));
+		cb.water = XMFLOAT4(weather.IsOceanEnabled() ? ocean.waterHeight : -1.0e30f, ocean.fogMinDist, fWaterRate, fWaterMost);
 		device->UpdateBuffer(&constantBuffer, &cb, cmd);
 
 		device->BindPipelineState(&pso, cmd);
