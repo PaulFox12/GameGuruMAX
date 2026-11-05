@@ -978,10 +978,15 @@ void physics_setupobject ( void )
 	// default is no special handling of OBJ collision meshes
 	ODESetOBJLoadingFilename("");
 
+	// GG: the .fpe's collision limbs (collisionlimbs), whose collision follows them, for the body made below
+	extern const char* entity_getcollisionlimbs ( int iEntID );
+	const char* pCollisionLimbs = entity_getcollisionlimbs ( t.entid );
+	ODESetCollisionLimbs ( (LPSTR)pCollisionLimbs );
+
 	// create physics for this object. Takes tphyobj and entid and e
-	if ( t.tphyobj>0 ) 
+	if ( t.tphyobj>0 )
 	{
-		if ( ObjectExist(t.tphyobj) == 1 ) 
+		if ( ObjectExist(t.tphyobj) == 1 )
 		{
 			// hull decomp take time - offer ability to save and reload
 			if (t.tshape == 10)
@@ -990,7 +995,8 @@ void physics_setupobject ( void )
 				strcpy(pNoFPE, t.entitybank_s[t.entid].Get());
 				pNoFPE[strlen(pNoFPE) - 4] = 0;
 				char pObjectFilename[MAX_PATH];
-				sprintf(pObjectFilename, "%s\\Files\\entitybank\\%s.bullet", g.fpscrootdir_s.Get(), pNoFPE);
+				// GG: with collision limbs the hulls are of the rest of the model, kept apart from those of the whole
+				sprintf(pObjectFilename, "%s\\Files\\entitybank\\%s%s.bullet", g.fpscrootdir_s.Get(), pNoFPE, pCollisionLimbs[0] ? "_limbs" : "");
 				ODESetMeshFilename(pObjectFilename);
 				GG_GetRealPath(pObjectFilename, 0);
 				if (FileExist(pObjectFilename) == 0)
@@ -1172,6 +1178,9 @@ void physics_setupobject ( void )
 	if ( t.tphyobj > 0 && ODEFind ( t.tphyobj ) == 1 && !ODEGetBodyIsDynamic ( t.tphyobj ) ) g_bPhysicsDebugStaticsChanged = true;
 	ODESetMeshFilename("");
 	ODESetOBJLoadingFilename("");
+	ODESetCollisionLimbs("");
+	// the collision limbs' hulls where the limbs are now (a body made again after a script turned them)
+	if ( pCollisionLimbs[0] && t.tphyobj > 0 ) ODEUpdateCollisionLimbs ( t.tphyobj );
 }
 
 int physics_findfreegamerealtimeobj ( void )

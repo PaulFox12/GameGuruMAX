@@ -1808,6 +1808,21 @@ int constexpr conststrlen( const char* str )
 	if ( strncmp(str, cmpVal, len) != 0 ) matched = false; \
 }
 
+// .fpe collisionlimbs: limbs whose collision follows them when a script turns or moves them (a tank's turret), names comma
+// separated; the physics leaves their meshes out of the body's shape and gives each a hull of its own (ODESetCollisionLimbs).
+// Kept beside the profile, by bank entity
+static std::unordered_map<int, std::string> g_EntityCollisionLimbs;
+void entity_setcollisionlimbs ( int iEntID, const char* pNames )
+{
+	if ( pNames && pNames[0] ) g_EntityCollisionLimbs[ iEntID ] = pNames;
+	else g_EntityCollisionLimbs.erase ( iEntID );
+}
+const char* entity_getcollisionlimbs ( int iEntID )
+{
+	auto it = g_EntityCollisionLimbs.find ( iEntID );
+	return it == g_EntityCollisionLimbs.end() ? "" : it->second.c_str();
+}
+
 void entity_loaddata ( void )
 {
 	//  Protectf BIN file if no FPE backup (standalone run)
@@ -1870,6 +1885,7 @@ void entity_loaddata ( void )
 		t.entityprofile[t.entid].phyfriction=0;
 		t.entityprofile[t.entid].hoverfactor=0;
 		t.entityprofile[t.entid].phyalways=0;
+		entity_setcollisionlimbs ( t.entid, "" );
 		t.entityprofile[t.entid].spine=-1;
 		t.entityprofile[t.entid].spine2=-1;
 		t.entityprofile[t.entid].decaloffsetangle=0;
@@ -2327,6 +2343,8 @@ void entity_loaddata ( void )
 					//  2000-3000 ; only one limb has collision Polygons Shape (2000=limb zero,2001=limb one,etc)					
 					cmpStrConst( t_field_s, "collisionmode" );
 					if (  matched  )  t.entityprofile[t.entid].collisionmode = t.value1;
+					cmpStrConst( t_field_s, "collisionlimbs" );
+					if (  matched  )  entity_setcollisionlimbs ( t.entid, t.value_s.Get() );
 					cmpStrConst( t_field_s, "collisionscaling" );
 					if (matched)
 					{

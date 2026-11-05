@@ -964,6 +964,10 @@ void ODEEnd ( void )
 
 	//next line is optional: it will be cleared by the destructor when the array goes out of scope
 	g_collisionShapes.clear();
+
+	// GG: the collision limbs' records, their shapes gone with the rest
+	extern void ODEClearCollisionLimbs ( void );
+	ODEClearCollisionLimbs();
 }
 
 // ensures the wave always has a fixed center per level start
@@ -2422,6 +2426,86 @@ static void PhysicsOptimiseCompoundHulls(btCollisionShape* pShape)
 	}
 }
 
+// GG: limbs whose collision follows them when a script turns or moves them (a tank's turret; .fpe collisionlimbs): the next
+// body made from an object's meshes leaves the named limbs' meshes, and those of the limbs under them, out of its shape, and
+// gives each such mesh a convex hull of its own beside it in a compound; ODEUpdateCollisionLimbs re-poses the hulls from the
+// limbs' matrices. Names are comma separated, matched without case
+static std::vector<std::string> g_CollisionLimbNames;
+struct sCollisionLimbHull
+{
+	int iFrame = 0;			// the mesh's frame in the object's frame list
+	int iChild = 0;			// its hull in the compound
+	GGMATRIX matMade;		// the frame's matrix into the shape's space when the hull was made
+};
+struct sCollisionLimbs
+{
+	btCompoundShape* pCompound = NULL;
+	btVector3 vScale = btVector3(1, 1, 1);
+	GGMATRIX matModelOffset;
+	GGMATRIX matRootRotOnly;
+	float fScale = 1.0f;
+	std::vector<sCollisionLimbHull> hulls;
+};
+static std::unordered_map<int, sCollisionLimbs> g_CollisionLimbs;
+
+void ODEClearCollisionLimbs ( void )
+{
+	g_CollisionLimbs.clear();
+	g_CollisionLimbNames.clear();
+}
+
+void ODESetCollisionLimbs ( LPSTR pNames )
+{
+	g_CollisionLimbNames.clear();
+	if ( !pNames ) return;
+	std::string sName;
+	for ( const char* p = pNames; ; p++ )
+	{
+		if ( *p == ',' || *p == 0 )
+		{
+			while ( !sName.empty() && sName.back() == ' ' ) sName.pop_back();
+			if ( !sName.empty() ) g_CollisionLimbNames.push_back ( sName );
+			sName.clear();
+			if ( *p == 0 ) break;
+		}
+		else if ( *p != ' ' || !sName.empty() ) sName += *p;
+	}
+}
+
+// whether the frame is one of the named limbs or under one
+static bool CollisionLimbFrame ( sFrame* pFrame )
+{
+	for ( sFrame* pUp = pFrame; pUp; pUp = pUp->pParent )
+	{
+		for ( const std::string& sName : g_CollisionLimbNames )
+		{
+			if ( _stricmp ( pUp->szName, sName.c_str() ) == 0 ) return true;
+		}
+	}
+	return false;
+}
+
+// a frame's matrix into the shape's space, as CreateMesh carries a mesh's vertices there, from the frames' user and original
+// matrices (a turned limb's pose), not the combined matrix the last draw left
+static GGMATRIX CollisionLimbMatrix ( sObject* pObject, int iFrame, const GGMATRIX& matModelOffset, const GGMATRIX& matRootRotOnly, float fScale )
+{
+	GGMATRIX matFinal;
+	GGMatrixIdentity ( &matFinal );
+	for ( sFrame* pUp = pObject->ppFrameList[ iFrame ]; pUp; pUp = pUp->pParent )
+	{
+		GGMATRIX matLocal = pUp->matUserMatrix * pUp->matOriginal;
+		GGMatrixMultiply ( &matFinal, &matFinal, &matLocal );
+	}
+	GGMATRIX matIdentity;
+	GGMatrixIdentity ( &matIdentity );
+	if ( matFinal != matIdentity ) GGMatrixMultiply ( &matFinal, &matFinal, &matModelOffset );
+	GGMatrixMultiply ( &matFinal, &matFinal, &matRootRotOnly );
+	GGMATRIX matScale;
+	GGMatrixScaling ( &matScale, fScale, fScale, fScale );
+	GGMatrixMultiply ( &matFinal, &matFinal, &matScale );
+	return matFinal;
+}
+
 void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrainMesh, int iCollisionScaling, int iHullReduction, float fWeight, float fFriction, float fRestitution )
 {
 	// get reference object
@@ -2593,6 +2677,30 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 		}
 	}
 
+	// GG: the collision limbs' meshes (ODESetCollisionLimbs) left out of the shape for now (hulls of their own below), unless
+	// the shape comes from an OBJ, a collision mesh or LOD frame, or nothing would be left
+	std::vector<int> collisionLimbFrames;
+	std::vector<DWORD> collisionLimbArbValues;
+	if ( !g_CollisionLimbNames.empty() && iTerrainMesh != 1 && !bObjectUsesOBJCollisionMesh && !bGotLowestLOD && iChooseLowLOD == -1
+		&& pObject->iFrameCount == pRealObject->iFrameCount )
+	{
+		bool bOthers = false;
+		for ( int iFrame = 0; iFrame < pRealObject->iFrameCount; iFrame++ )
+		{
+			sFrame* pFrame = pRealObject->ppFrameList[ iFrame ];
+			if ( !pFrame || !pFrame->pMesh || pFrame->pMesh->Collision.dwArbitaryValue == 99999 || pFrame->pMesh->dwVertexCount < 4 ) continue;
+			if ( CollisionLimbFrame ( pFrame ) ) collisionLimbFrames.push_back ( iFrame );
+			else bOthers = true;
+		}
+		if ( !bOthers ) collisionLimbFrames.clear();
+		for ( int iFrame : collisionLimbFrames )
+		{
+			collisionLimbArbValues.push_back ( pRealObject->ppFrameList[ iFrame ]->pMesh->Collision.dwArbitaryValue );
+			pRealObject->ppFrameList[ iFrame ]->pMesh->Collision.dwArbitaryValue = 99999;
+		}
+	}
+	g_CollisionLimbNames.clear();
+
 	// do I need to create new data, or can I use mesh data directly in mesh builder? (save memory)
 	int totalVerts = 0, totalIndices = 0;
 	for (int iFrame = 0; iFrame < pObjectUsedToExtractPhysicsMesh->iFrameCount; iFrame++)
@@ -2759,6 +2867,9 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 		}
 	}
 	
+	// GG: the collision limbs' meshes back as they were
+	for ( size_t i = 0; i < collisionLimbFrames.size(); i++ ) pRealObject->ppFrameList[ collisionLimbFrames[ i ] ]->pMesh->Collision.dwArbitaryValue = collisionLimbArbValues[ i ];
+
 	totalIndices = dwIndices.size();
 
 	if (bDWORDSizeIndices == true)
@@ -3090,6 +3201,76 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 	// clear usage now hull constructed (if any)
 	ch_vertexBuffer.clear();
 
+	// GG: each collision limb mesh a convex hull of its own (its corners only, as collision mode 9 makes one), in a compound
+	// with the shape made above; made where the limb is now, so each hull starts at the compound's origin
+	btCompoundShape* limbCompoundShape = NULL;
+	sCollisionLimbs collisionLimbs;
+	if ( !collisionLimbFrames.empty() )
+	{
+		const float fLimbScale = fScalingFactor / gSc;
+		for ( int iFrame : collisionLimbFrames )
+		{
+			sMesh* pMesh = pRealObject->ppFrameList[ iFrame ]->pMesh;
+			GGMATRIX matMade = CollisionLimbMatrix ( pObject, iFrame, matModelOffset, matRootRotOnly, fLimbScale );
+			btAlignedObjectArray<btVector3> points;
+			float* pVertData = (float*)pMesh->pVertexData;
+			DWORD dwSkip = pMesh->dwFVFSize / sizeof(float);
+			for ( int v = 0; v < (int)pMesh->dwVertexCount; v++ )
+			{
+				GGVECTOR3 vec = GGVECTOR3 ( *(pVertData + 0), *(pVertData + 1), *(pVertData + 2) );
+				GGVec3TransformCoord ( &vec, &vec, &matMade );
+				points.push_back ( btVector3 ( vec.x, vec.y, vec.z ) );
+				pVertData += dwSkip;
+			}
+			btConvexHullShape* pAllPoints = new btConvexHullShape ( &(points[0].getX()), points.size() );
+			pAllPoints->setMargin ( 0.0f );
+			btShapeHull* pHull = new btShapeHull ( pAllPoints );
+			pHull->buildHull ( pAllPoints->getMargin() );
+			btConvexHullShape* pLimbHull = NULL;
+			if ( pHull->numVertices() >= 4 ) pLimbHull = new btConvexHullShape ( &(pHull->getVertexPointer()[0].getX()), pHull->numVertices() );
+			SAFE_DELETE ( pHull );
+			SAFE_DELETE ( pAllPoints );
+			if ( !pLimbHull ) continue;
+			if ( !limbCompoundShape )
+			{
+				limbCompoundShape = new btCompoundShape();
+				btTransform identity;
+				identity.setIdentity();
+				switch ( iShapeUsed )
+				{
+					case 0: limbCompoundShape->addChildShape ( identity, trimeshShape ); break;
+					case 1: limbCompoundShape->addChildShape ( identity, simplifiedConvexShape ); break;
+					case 2:
+						// the decomposition's hulls themselves, not their compound inside this one: a hit names its hull by its
+						// place in the compound the body has (the character controller's material lookup)
+						for ( int c = 0; c < compoundShape->getNumChildShapes(); c++ )
+						{
+							limbCompoundShape->addChildShape ( compoundShape->getChildTransform ( c ), compoundShape->getChildShape ( c ) );
+						}
+						break;
+				}
+				g_collisionShapes.push_back ( limbCompoundShape );
+			}
+			btTransform identity;
+			identity.setIdentity();
+			sCollisionLimbHull hull;
+			hull.iFrame = iFrame;
+			hull.iChild = limbCompoundShape->getNumChildShapes();
+			hull.matMade = matMade;
+			limbCompoundShape->addChildShape ( identity, pLimbHull );
+			g_collisionShapes.push_back ( pLimbHull );
+			collisionLimbs.hulls.push_back ( hull );
+		}
+		if ( limbCompoundShape )
+		{
+			iShapeUsed = 3;
+			collisionLimbs.pCompound = limbCompoundShape;
+			collisionLimbs.matModelOffset = matModelOffset;
+			collisionLimbs.matRootRotOnly = matRootRotOnly;
+			collisionLimbs.fScale = fLimbScale;
+		}
+	}
+
 	// mass/volume calculation
 	if ( isDynamic==0 ) fVolume = 0;
 	btScalar mass(fVolume/gMs);
@@ -3101,6 +3282,7 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 			case 0: trimeshShape->calculateLocalInertia(mass, localInertia); break;
 			case 1: simplifiedConvexShape->calculateLocalInertia(mass, localInertia); break;
 			case 2: compoundShape->calculateLocalInertia(mass, localInertia); break;
+			case 3: limbCompoundShape->calculateLocalInertia(mass, localInertia); break;
 		}
 	}
 
@@ -3137,7 +3319,17 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 			btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, compoundShape, localInertia);
 			body = new btRigidBody(rbInfo);
 			break;
-		}	
+		}
+		case 3:
+		{
+			// GG: the shape and the collision limbs' hulls, scaled together
+			limbCompoundShape->setLocalScaling(vLocalShapeScale);
+			btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, limbCompoundShape, localInertia);
+			body = new btRigidBody(rbInfo);
+			collisionLimbs.vScale = vLocalShapeScale;
+			g_CollisionLimbs[ iObjectNumber ] = collisionLimbs;
+			break;
+		}
 	}
 
 	// pass material index as usrptr
@@ -4097,10 +4289,50 @@ void ODEDestroyObject ( int iObjectNumber )
 	}
 	DestroyThisObject ( pPhyObject );
 	ODERemoveObject ( iObjectNumber );
+	g_CollisionLimbs.erase ( iObjectNumber );
 	for ( int i = (int)g_ProjectileContacts.size() - 1; i >= 0; i-- )
 	{
 		if ( g_ProjectileContacts[i].iObject == iObjectNumber ) g_ProjectileContacts.erase ( g_ProjectileContacts.begin() + i );
 	}
+	physicslock.unlock();
+}
+
+// GG: the object's collision limbs' hulls (ODESetCollisionLimbs) moved to where its limbs are now, after a script turned or
+// moved one; nothing for an object without them
+void ODEUpdateCollisionLimbs ( int iObjectNumber )
+{
+	auto it = g_CollisionLimbs.find ( iObjectNumber );
+	if ( it == g_CollisionLimbs.end() ) return;
+	physicslock.lock();
+	sObjectList* pPhyObject = ODEFindID ( iObjectNumber );
+	sObject* pObject = ObjectExist ( iObjectNumber ) == 1 ? GetObjectData ( iObjectNumber ) : NULL;
+	sCollisionLimbs& limbs = it->second;
+	if ( !pPhyObject || !pPhyObject->body || pPhyObject->body->getCollisionShape() != limbs.pCompound || !pObject )
+	{
+		// the body was made again without them, or is gone
+		g_CollisionLimbs.erase ( it );
+		physicslock.unlock();
+		return;
+	}
+	for ( size_t h = 0; h < limbs.hulls.size(); h++ )
+	{
+		const sCollisionLimbHull& hull = limbs.hulls[ h ];
+		if ( hull.iFrame >= pObject->iFrameCount ) continue;
+		GGMATRIX matNow = CollisionLimbMatrix ( pObject, hull.iFrame, limbs.matModelOffset, limbs.matRootRotOnly, limbs.fScale );
+		GGMATRIX matInverse;
+		float fDet = 0.0f;
+		GGMatrixInverse ( &matInverse, &fDet, &hull.matMade );
+		GGMATRIX matMove = matInverse * matNow;
+		// row vectors (v * M) to Bullet's columns; the turn without any scale, the move at the shape's scaling
+		btVector3 axisX ( matMove._11, matMove._12, matMove._13 ), axisY ( matMove._21, matMove._22, matMove._23 ), axisZ ( matMove._31, matMove._32, matMove._33 );
+		if ( axisX.length2() < 1e-12f || axisY.length2() < 1e-12f || axisZ.length2() < 1e-12f ) continue;
+		axisX.normalize(); axisY.normalize(); axisZ.normalize();
+		btMatrix3x3 basis ( axisX.x(), axisY.x(), axisZ.x(), axisX.y(), axisY.y(), axisZ.y(), axisX.z(), axisY.z(), axisZ.z() );
+		btTransform transform ( basis, btVector3 ( matMove._41, matMove._42, matMove._43 ) * limbs.vScale );
+		limbs.pCompound->updateChildTransform ( hull.iChild, transform, h + 1 == limbs.hulls.size() );
+	}
+	if ( g_dynamicsWorld ) g_dynamicsWorld->updateSingleAabb ( pPhyObject->body );
+	pPhyObject->body->activate();
 	physicslock.unlock();
 }
 

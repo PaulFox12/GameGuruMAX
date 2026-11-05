@@ -120,6 +120,10 @@ DARKSDK int			BPhys_RagDollHasHoldReference(int ragdollID);
 // Destruction commands
 DARKSDK void		ODEDestroyObject						( int iObjectNumber );
 
+// GG: limbs whose collision follows them (the next body made from an object's meshes), and re-posing them
+DARKSDK void		ODESetCollisionLimbs					( LPSTR pNames );
+DARKSDK void		ODEUpdateCollisionLimbs					( int iObjectNumber );
+
 // Force command
 DARKSDK void		ODESetLinearVelocity					( int iObjectNumber, float fX, float fY, float fZ );
 DARKSDK void		ODESetLinearVelocityXZWithGravity		( int iObjectNumber, float fX, float fZ, float fGravityForce );

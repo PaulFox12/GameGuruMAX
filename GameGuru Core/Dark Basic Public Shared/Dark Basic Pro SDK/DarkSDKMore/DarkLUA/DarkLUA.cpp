@@ -2599,6 +2599,9 @@ static int LUA_GETTOP(lua_State* L)
 	 return 1;
  }
 
+ // the .fpe's collision limbs follow a turned or moved limb (BulletPhysics)
+ extern void ODEUpdateCollisionLimbs ( int iObjectNumber );
+
  // limbs of an entity's object, numbered as GetLimbName and SetLimbIndex number them; the renderer follows each change
  static sObject* LuaEntityLimbObject ( lua_State* L, int e, int iLimb )
  {
@@ -2643,6 +2646,7 @@ static int LUA_GETTOP(lua_State* L)
 	 if ( !pObject ) return 0;
 	 RotateLimb ( t.entityelement[e].obj, iLimb, lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5) );
 	 WickedCall_UpdateLimbFromFrame ( pObject, iLimb );
+	 ODEUpdateCollisionLimbs ( t.entityelement[e].obj );
 	 return 0;
  }
  int GetEntityLimbRotation ( lua_State* L )
@@ -2668,6 +2672,7 @@ static int LUA_GETTOP(lua_State* L)
 	 if ( !pObject ) return 0;
 	 OffsetLimb ( t.entityelement[e].obj, iLimb, lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5) );
 	 WickedCall_UpdateLimbFromFrame ( pObject, iLimb );
+	 ODEUpdateCollisionLimbs ( t.entityelement[e].obj );
 	 return 0;
  }
  int GetEntityLimbOffset ( lua_State* L )
@@ -2697,6 +2702,7 @@ static int LUA_GETTOP(lua_State* L)
 	 pFrame->vecPivot = GGVECTOR3 ( lua_tonumber(L, 3), lua_tonumber(L, 4), lua_tonumber(L, 5) );
 	 RotateLimb ( t.entityelement[e].obj, iLimb, pFrame->vecRotation.x, pFrame->vecRotation.y, pFrame->vecRotation.z );
 	 WickedCall_UpdateLimbFromFrame ( pObject, iLimb );
+	 ODEUpdateCollisionLimbs ( t.entityelement[e].obj );
 	 return 0;
  }
  int GetEntityLimbPivot ( lua_State* L )

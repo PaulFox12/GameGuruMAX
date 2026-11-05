@@ -529,7 +529,8 @@ void btKinematicCharacterController::stepDown ( btCollisionWorld* collisionWorld
 				btCompoundShape* pCompound = (btCompoundShape*)callback.m_hitCollisionObject->getCollisionShape();
 				if ( pCompound )
 				{
-					if ( pCompound->getShapeType() == COMPOUND_SHAPE_PROXYTYPE)
+					// GG: only a child the hit names (a triangle mesh child gives a triangle's index, none gives -1)
+					if ( pCompound->getShapeType() == COMPOUND_SHAPE_PROXYTYPE && callback.m_iChildID >= 0 && callback.m_iChildID < pCompound->getNumChildShapes() )
 					{
 						btCollisionShape* pColShape = pCompound->getChildShape(callback.m_iChildID);
 						if (pColShape)
