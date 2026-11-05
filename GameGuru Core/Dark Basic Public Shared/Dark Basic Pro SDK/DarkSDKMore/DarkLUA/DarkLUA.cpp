@@ -9691,8 +9691,18 @@ int SetWaterDistortionWaves(lua_State *L)
 }
 int SetRippleWaterSpeed(lua_State *L)
 {
+#ifdef WICKEDENGINE
+	// the sea's wave speed now, kept in the game's visuals (as SetWaterColor) so it neither waits for the next full push
+	// nor is saved into the level when a test game ends
+	extern bool g_bLuaSetWaterSpeed;
+	extern void Wicked_Update_WaterSpeed(float fSpeed);
+	t.gamevisuals.WaterSpeed1 = lua_tonumber(L, 1);
+	Wicked_Update_WaterSpeed(t.gamevisuals.WaterSpeed1);
+	g_bLuaSetWaterSpeed = true;
+#else
 	t.visuals.WaterSpeed1 = lua_tonumber(L, 1);
 	SetEffectConstantF(t.terrain.effectstartindex + 1, "WaterSpeed1", t.visuals.WaterSpeed1);
+#endif
 	return 0;
 }
 //getter
@@ -9817,7 +9827,12 @@ int GetWaterDistortionWaves(lua_State *L)
 int GetRippleWaterSpeed(lua_State *L)
 {
 	lua = L;
+#ifdef WICKEDENGINE
+	extern bool g_bLuaSetWaterSpeed;
+	lua_pushnumber(L, g_bLuaSetWaterSpeed ? t.gamevisuals.WaterSpeed1 : t.visuals.WaterSpeed1);
+#else
 	lua_pushnumber(L, t.visuals.WaterSpeed1);
+#endif
 	return 1;
 }
 #ifdef WICKEDENGINE

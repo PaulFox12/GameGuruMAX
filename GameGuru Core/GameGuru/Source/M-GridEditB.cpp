@@ -8491,8 +8491,8 @@ void LuaRenderSettings_Clear(void)
 	WickedCall_SetParticleScatter(0.0f); // the particles' forward scattering (SetParticleScatter) back to off
 }
 
-// clouds, tree wind, the tree backlight, wind, water colour, water fog and the LUT set from Lua are kept in
-// t.gamevisuals, which the end of a test game overwrites, so they never reach the editor. A full visuals push applies
+// clouds, tree wind, the tree backlight, wind, water colour, water fog, the sea's wave speed and the LUT set from Lua are
+// kept in t.gamevisuals, which the end of a test game overwrites, so they never reach the editor. A full visuals push applies
 // t.visuals, so the ones a script has set are applied again after it, until the level ends
 bool g_bLuaSetClouds = false;
 bool g_bLuaSetTreeWind = false;
@@ -8501,6 +8501,14 @@ bool g_bLuaSetWind = false;
 bool g_bLuaSetWaterColor = false;
 bool g_bLuaSetWaterFog = false;
 bool g_bLuaSetLUT = false;
+bool g_bLuaSetWaterSpeed = false;
+
+// the sea's wave speed a script set (SetRippleWaterSpeed), applied now; the full push applies the level's again
+void Wicked_Update_WaterSpeed(float fSpeed)
+{
+	wiScene::WeatherComponent* weather = wiScene::GetScene().weathers.GetComponent(g_weatherEntityID);
+	if (weather) weather->oceanParameters.time_scale = fSpeed;
+}
 
 // the renderer's timing (wiProfiler) kept on for a script (SetRenderTiming), which hiding Tab Tab would otherwise switch off
 bool g_bLuaRenderTiming = false;
@@ -8529,6 +8537,7 @@ void LuaGameVisuals_Apply(void* pPushedVisuals)
 	if (g_bLuaSetWaterColor) WickedCall_UpdateWaterColor(t.gamevisuals.WaterRed_f, t.gamevisuals.WaterGreen_f, t.gamevisuals.WaterBlue_f);
 	if (g_bLuaSetWaterFog) WickedCall_UpdateWaterFog(t.gamevisuals.WaterFogMinDist, t.gamevisuals.WaterFogMaxDist, t.gamevisuals.WaterFogMinAmount);
 	if (g_bLuaSetLUT) Wicked_Update_LUT(&t.gamevisuals);
+	if (g_bLuaSetWaterSpeed) Wicked_Update_WaterSpeed(t.gamevisuals.WaterSpeed1);
 }
 
 // at each level start and when a test game ends
@@ -8541,6 +8550,7 @@ void LuaGameVisuals_Clear(void)
 	g_bLuaSetWaterColor = false;
 	g_bLuaSetWaterFog = false;
 	g_bLuaSetLUT = false;
+	g_bLuaSetWaterSpeed = false;
 	if (g_bLuaRenderTiming && !bProfilerEnable) wiProfiler::SetEnabled(false);
 	g_bLuaRenderTiming = false;
 	wiProfiler::SetGPUEnabled(true);
