@@ -5031,7 +5031,16 @@ static void spline_draw( void )
 	if ( !pViewport ) return;
 	ImDrawList* dl = ImGui::GetForegroundDrawList( pViewport );
 	if ( !dl ) return;
-	dl->PushClipRect( renderTargetAreaPos, renderTargetAreaPos + renderTargetAreaSize );
+	// clipped to the 3D view: its window's own rectangle in ImGui's coordinates. renderTargetAreaPos is converted for the
+	// renderer (moved by the main viewport's place on the desktop and the menu bar), so as a clip it let the curves run up
+	// over the tab and the toolbar above the view
+	ImVec2 clipMin = renderTargetAreaPos, clipMax = renderTargetAreaPos + renderTargetAreaSize;
+	if ( ImGuiWindow* pView = ImGui::FindWindowByName( TABEDITORNAME ) )
+	{
+		clipMin = pView->InnerRect.Min;
+		clipMax = pView->InnerRect.Max;
+	}
+	dl->PushClipRect( clipMin, clipMax );
 	dl->AddCallback( (ImDrawCallback)10, NULL ); // force render
 
 	std::vector<sSplinePoint> points;
