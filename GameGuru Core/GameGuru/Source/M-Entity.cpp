@@ -8037,6 +8037,15 @@ void entity_addentitytomap_core ( void )
 	t.entityelement[t.e].scaley=t.gridentityscaley_f-100;
 	t.entityelement[t.e].scalez=t.gridentityscalez_f-100;
 	t.entityelement[t.e].eleprof=t.grideleprof;
+	// a new placement (not dropped back into its own element, nor restored by undo) is no road's: a copy of a road's entity
+	// (paste, duplicate) would carry the road's tag ('SPLN', M-Splines.cpp) and be taken away with the road's own when it
+	// places them again; the road tags its own placements after adding them
+	if (t.gridentityoverwritemode == 0 && bDroppedBackInSameElement == false && t.entityelement[t.e].eleprof.iObjectReserved1 == 0x4E4C5053)
+	{
+		t.entityelement[t.e].eleprof.iObjectReserved1 = 0;
+		t.entityelement[t.e].eleprof.iObjectReserved2 = 0;
+		t.entityelement[t.e].eleprof.iObjectReserved3 = 0;
+	}
 	t.entityelement[t.e].eleprof.light.index=0;
 	t.entityelement[t.e].soundset = 0;
 	t.entityelement[t.e].soundset1 = 0;
