@@ -6622,7 +6622,8 @@ bool WickedCall_SentRay4_ThreadSafe(float originx, float originy, float originz,
 		}
 	}
 	double dPickStart = WickedCall_ProbeNow();
-	wiScene::PickResult hit = wiScene::Pick(pickRay, checkType, GGRENDERLAYERS_NORMAL, wiScene::GetScene(), exclude.data(), (uint32_t)exclude.size());
+	// GG: collision-off placements left out, as the main thread's ray (PickThread) leaves them out, so the Lua rays agree
+	wiScene::PickResult hit = wiScene::Pick(pickRay, checkType, GGRENDERLAYERS_NORMAL, wiScene::GetScene(), exclude.data(), (uint32_t)exclude.size(), true);
 	WickedCall_ProbeAddAnyThread(WICKEDCALL_PROBE_THREAD_PICK, WickedCall_ProbeNow() - dPickStart);
 	if (hit.entity > 0)
 	{
