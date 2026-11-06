@@ -9787,6 +9787,60 @@ void GGTerrain_InstantEnvProbeRefresh(int iCoolDownIndex)
 	}
 }
 
+// GG: the live probes waiting to be captured again after a light near them switched on or off (a bit a slot), and how far
+// past a probe's box a switched light's lit sphere may lie and still queue it (SetLightProbeRefreshReach; 0 queues every
+// live probe, as before). A probe's cube map sees lit ground well outside its box, so the reach runs past the box: past
+// 5000 units a lamp's pool is a small patch of the capture
+uint32_t g_iEnvProbeRefreshPending = 0;
+float g_fLightProbeRefreshReach = GGTERRAIN_LIGHTPROBE_REACH_DEFAULT;
+int g_iLightProbeSwitchCounts[4] = { 0, 0, 0, 0 }; // switches, out of reach, probes queued, probes captured
+
+// GG: queue the live probes a light that switched on or off can show in: its lit sphere (where it shines, its range)
+// within the reach of the probe's box, bounded by the box's sphere. Answers whether any was queued
+bool GGTerrain_QueueEnvProbesForLight(float x, float y, float z, float range)
+{
+	bool bQueued = false;
+	for (int i = 0; i < LOCALENVPROBECOUNT; i++)
+	{
+		if (g_iEnvProbeTracking[i] <= 0) continue;
+		wiScene::TransformComponent* pTransform = wiScene::GetScene().transforms.GetComponent(localEnvProbe[i]);
+		if (!pTransform || !wiScene::GetScene().probes.GetComponent(localEnvProbe[i])) continue;
+		if (g_fLightProbeRefreshReach > 0.0f)
+		{
+			const XMFLOAT3 c = pTransform->GetPosition();
+			const XMFLOAT3 s = pTransform->scale_local;
+			const float fBox = sqrtf(s.x * s.x + s.y * s.y + s.z * s.z);
+			const float dx = x - c.x, dy = y - c.y, dz = z - c.z;
+			if (sqrtf(dx * dx + dy * dy + dz * dz) > fBox + range + g_fLightProbeRefreshReach) continue;
+		}
+		if (!(g_iEnvProbeRefreshPending & (1u << i))) g_iLightProbeSwitchCounts[2]++;
+		g_iEnvProbeRefreshPending |= 1u << i;
+		bQueued = true;
+	}
+	return bQueued;
+}
+
+// GG: capture the next queued live probe again; answers whether more wait
+bool GGTerrain_RefreshNextEnvProbe(void)
+{
+	for (int i = 0; i < LOCALENVPROBECOUNT; i++)
+	{
+		if (!(g_iEnvProbeRefreshPending & (1u << i))) continue;
+		g_iEnvProbeRefreshPending &= ~(1u << i);
+		EnvironmentProbeComponent* probe = wiScene::GetScene().probes.GetComponent(localEnvProbe[i]);
+		if (probe && g_iEnvProbeTracking[i] > 0)
+		{
+			probe->SetDirty();
+			g_iLightProbeSwitchCounts[3]++;
+			break;
+		}
+	}
+	return g_iEnvProbeRefreshPending != 0;
+}
+
+void GGTerrain_SetLightProbeRefreshReach(float fReach) { g_fLightProbeRefreshReach = fReach > 0.0f ? fReach : 0.0f; }
+float GGTerrain_GetLightProbeRefreshReach(void) { return g_fLightProbeRefreshReach; }
+
 void GGTerrain_AddEnvProbeList(float x, float y, float z, float range, float quatx, float quaty, float quatz, float quatw, float sx, float sy, float sz, float brightness)
 {
 	envProbeItem item;

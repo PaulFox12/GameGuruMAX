@@ -8326,11 +8326,13 @@ struct infinilighttype
 	float spotlightradius;
 	bool bCanShadow;
 	bool bEntityLight; // GG: the light entity e carries (its .fpe's entitylight), placed with it every frame
+	float fMaxDistance; // GG: its own reach from the camera (SetLightMaxDistanceFor), 0 for the global one
 
 	// Constructor
 	infinilighttype ( )
 	{
 		 bEntityLight = false;
+		 fMaxDistance = 0.0f;
 		 bCanShadow = true;
 		 wickedlightindex = 0;
 		 fLightHasProbe = 0.0f;

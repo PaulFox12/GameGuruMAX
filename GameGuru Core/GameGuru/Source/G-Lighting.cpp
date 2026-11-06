@@ -200,6 +200,7 @@ void lighting_loop(void)
 					//PE: For now just move it way out there.
 					WickedCall_UpdateLight(pLightPtr->wickedlightindex, -999999.0, -999999.0, -999999.0, pLightPtr->f_angle_x, pLightPtr->f_angle_y, pLightPtr->f_angle_z, pLightPtr->range, pLightPtr->spotlightradius, pLightPtr->colrgb.r, pLightPtr->colrgb.g, pLightPtr->colrgb.b, false);
 				}
+				WickedCall_SetLightMaxDistance(pLightPtr->wickedlightindex, pLightPtr->fMaxDistance);
 			}
 		}
 	}
@@ -266,21 +267,17 @@ void lighting_loop(void)
 	extern bool g_bLightProbeInstantChange;
 	if (g_bLightProbeInstantChange == true)
 	{
-		// rather than a rebuild of the probe list, trigger an instant refresh (used when lights go on and off)
+		// GG: the live probes a light switch queued (GGTerrain_QueueEnvProbesForLight) captured again one a frame, after a
+		// frame's grace, until none wait; before, every live probe was, wherever the light was
 		extern int g_iLightProbeInstantChangeCoolDown;
 		if (g_iLightProbeInstantChangeCoolDown == 0)
 		{
 			g_iLightProbeInstantChangeCoolDown = 1;
 		}
-		else
+		else if (!GGTerrain::GGTerrain_RefreshNextEnvProbe())
 		{
-			GGTerrain::GGTerrain_InstantEnvProbeRefresh(g_iLightProbeInstantChangeCoolDown);
-			g_iLightProbeInstantChangeCoolDown++;
-			if (g_iLightProbeInstantChangeCoolDown > 16)
-			{
-				g_iLightProbeInstantChangeCoolDown = 0;
-				g_bLightProbeInstantChange = false;
-			}
+			g_iLightProbeInstantChangeCoolDown = 0;
+			g_bLightProbeInstantChange = false;
 		}
 	}
 	extern bool bImGuiInTestGame;

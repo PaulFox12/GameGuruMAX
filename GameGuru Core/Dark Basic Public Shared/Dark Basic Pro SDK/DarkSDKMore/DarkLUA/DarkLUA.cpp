@@ -15263,6 +15263,58 @@ int SetLightMaxDistance(lua_State* L)
 	g_fLightMaxDistance = fDistance > 0.0f ? fDistance : 0.0f;
 	return 0;
 }
+// SetLightMaxDistanceFor(light, distance): the light's own SetLightMaxDistance: farther than this from the camera (its range
+// added) it is left out of the frame and takes no light slot; 0, the default, takes the global one. Back to 0 at the next
+// level and test end
+int SetLightMaxDistanceFor(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 2) return 0;
+	const int i = (int)lua_tonumber(L, 1);
+	if (i > 0 && i <= g.infinilightmax && t.infinilight[i].used == 1)
+	{
+		const float fDistance = (float)lua_tonumber(L, 2);
+		t.infinilight[i].fMaxDistance = fDistance > 0.0f ? fDistance : 0.0f;
+		extern void WickedCall_SetLightMaxDistance(uint64_t wickedlightindex, float fDistance);
+		WickedCall_SetLightMaxDistance(t.infinilight[i].wickedlightindex, t.infinilight[i].fMaxDistance);
+	}
+	return 0;
+}
+// GetLightMaxDistanceFor(light): the light's own reach (SetLightMaxDistanceFor), 0 when it takes the global one
+int GetLightMaxDistanceFor(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	const int i = (int)lua_tonumber(L, 1);
+	lua_pushnumber(L, (i > 0 && i <= g.infinilightmax && t.infinilight[i].used == 1) ? t.infinilight[i].fMaxDistance : 0.0f);
+	return 1;
+}
+namespace GGTerrain
+{
+	void GGTerrain_SetLightProbeRefreshReach( float fReach );
+	float GGTerrain_GetLightProbeRefreshReach( void );
+	extern int g_iLightProbeSwitchCounts[4];
+}
+// SetLightProbeRefreshReach(distance): a light switching on or off captures again only the live reflection probes whose box
+// its lit sphere comes within this distance of (5000 by default), and none when it is farther from the camera than its
+// reach; 0 captures every live probe again, as before. Back to the default at the next level and test end
+int SetLightProbeRefreshReach(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	GGTerrain::GGTerrain_SetLightProbeRefreshReach((float)lua_tonumber(L, 1));
+	return 0;
+}
+// GetLightProbeRefreshReach(): the reach SetLightProbeRefreshReach set
+int GetLightProbeRefreshReach(lua_State* L)
+{
+	lua_pushnumber(L, GGTerrain::GGTerrain_GetLightProbeRefreshReach());
+	return 1;
+}
+// GetLightProbeRefreshCounts(): since the engine started, the light switches (on or off) seen, those out of reach (no probe
+// queued), the live probes queued, and the probes captured again for them
+int GetLightProbeRefreshCounts(lua_State* L)
+{
+	for (int i = 0; i < 4; i++) lua_pushinteger(L, GGTerrain::g_iLightProbeSwitchCounts[i]);
+	return 4;
+}
 // SetShadowJobWait(on): the shadow job waits for the frame set up and prepass jobs even with delayed shadows off, as it
 // does with them on (off by default; for the stalls in Wicked's Render with delayed shadows off). Back to off at the next
 // level and test end
@@ -19001,6 +19053,11 @@ void addFunctions()
 	lua_register(lua, "SetTransparentShadows", SetTransparentShadows);
 	lua_register(lua, "SetShadowJobWait", SetShadowJobWait);
 	lua_register(lua, "SetLightMaxDistance", SetLightMaxDistance);
+	lua_register(lua, "SetLightMaxDistanceFor", SetLightMaxDistanceFor);
+	lua_register(lua, "GetLightMaxDistanceFor", GetLightMaxDistanceFor);
+	lua_register(lua, "SetLightProbeRefreshReach", SetLightProbeRefreshReach);
+	lua_register(lua, "GetLightProbeRefreshReach", GetLightProbeRefreshReach);
+	lua_register(lua, "GetLightProbeRefreshCounts", GetLightProbeRefreshCounts);
 	lua_register(lua, "ResetDelayedShadows", ResetDelayedShadows);
 	lua_register(lua, "GetDelayedShadows", GetDelayedShadows);
 	lua_register(lua, "SetShadowRange", SetShadowRange);

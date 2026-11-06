@@ -16,6 +16,7 @@
 #include <string.h>
 
 namespace GGTerrain { int GGTerrain_GetHeight( float x, float z, float* outHeight, int accurateButSlow, int includeFlatAreas ); }
+namespace GGTerrain { void GGTerrain_AddEnvProbeList( float x, float y, float z, float range, float quatx, float quaty, float quatz, float quatw, float sx, float sy, float sz, float brightness ); }
 #include <time.h>
 #include <windows.h>
 #include <string>
@@ -454,6 +455,16 @@ void AutoHarness_CheckForCommand ( void )
 		static char luaResult[8192];
 		int rc = RunLuaString ( arg, luaResult, sizeof(luaResult) );
 		_snprintf ( result, sizeof(result), "%s: %s", ( rc == 0 ) ? "OK" : "FAIL", luaResult[0] ? luaResult : "(no result)" );
+		result[sizeof(result) - 1] = 0;
+	}
+	else if ( _stricmp ( cmd, "TEST_ENVPROBE" ) == 0 )
+	{
+		// TEST_ENVPROBE x y z size: a reflection probe placed as a probe light marker places it (a box of half size each way),
+		// for testing the probes in a level with none; it lasts until the probe list is made again
+		float x = 0, y = 0, z = 0, s = 500;
+		int n = sscanf ( arg, "%f %f %f %f", &x, &y, &z, &s );
+		if ( n >= 3 ) GGTerrain::GGTerrain_AddEnvProbeList ( x, y, z, s, 0, 0, 0, 1, s, s, s, 1.0f );
+		_snprintf ( result, sizeof(result), n >= 3 ? "OK: TEST_ENVPROBE %.0f %.0f %.0f %.0f" : "ERROR: TEST_ENVPROBE x y z [size]", x, y, z, s );
 		result[sizeof(result) - 1] = 0;
 	}
 	else if ( _stricmp ( cmd, "SET_PARTICLESCATTER" ) == 0 )

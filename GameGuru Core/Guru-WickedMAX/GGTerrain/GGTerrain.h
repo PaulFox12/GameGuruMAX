@@ -291,6 +291,14 @@ void GGTerrain_WindowResized();
 
 void GGTerrain_ClearEnvProbeList(void);
 void GGTerrain_InstantEnvProbeRefresh(int iCoolDownIndex);
+// GG: the live probes a light switching on or off can show in, queued and captured again one a frame
+#define GGTERRAIN_LIGHTPROBE_REACH_DEFAULT 5000.0f
+bool GGTerrain_QueueEnvProbesForLight(float x, float y, float z, float range);
+bool GGTerrain_RefreshNextEnvProbe(void);
+void GGTerrain_SetLightProbeRefreshReach(float fReach);
+float GGTerrain_GetLightProbeRefreshReach(void);
+// GG: counts since the start: light switches, those out of reach (queued none), probes queued, probes captured
+extern int g_iLightProbeSwitchCounts[4];
 void GGTerrain_AddEnvProbeList(float x, float y, float z, float range, float quatx, float quaty, float quatz, float quatw, float sx, float sy, float sz, float brightness = 1.0f);
 
 void GGTerrain_Update( float playerX, float playerY, float playerZ, wiGraphics::CommandList cmd, bool bRenderTargetFocus ); // updates chunks and virtual texture, must not be called from a render pass

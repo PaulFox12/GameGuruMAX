@@ -8488,6 +8488,11 @@ void LuaRenderSettings_Clear(void)
 	if (old.iShadowJobWait >= 0) g_bShadowJobWaits = false;
 	extern float g_fLightMaxDistance;
 	g_fLightMaxDistance = 0.0f;
+	// each light's own reach (SetLightMaxDistanceFor) back to the global one, the lighting loop passing it on; the probe
+	// refresh's reach (SetLightProbeRefreshReach) back to its default
+	if (g.infinilightmax > 0 && g.infinilightmax <= ArrayCount(t.infinilight))
+		for (int l = 1; l <= g.infinilightmax; l++) t.infinilight[l].fMaxDistance = 0.0f;
+	GGTerrain::GGTerrain_SetLightProbeRefreshReach(GGTERRAIN_LIGHTPROBE_REACH_DEFAULT);
 	extern void WickedCall_SetParticleScatter(float fStrength);
 	WickedCall_SetParticleScatter(0.0f); // the particles' forward scattering (SetParticleScatter) back to off
 }

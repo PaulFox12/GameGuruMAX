@@ -273,6 +273,7 @@ void WickedCall_SetObjectLightToUnlit(sObject* pObject, int shaderType);
 uint64_t WickedCall_AddLight(int iLightType);
 void WickedCall_DeleteLight(uint64_t wickedlightindex);
 void WickedCall_UpdateLight(uint64_t wickedlightindex, float fX, float fY, float fZ, float fAX, float fAY, float fAZ, float fRange, float fSpotRadius, int iColR, int iColG, int iColB, bool bCastShadow);
+void WickedCall_SetLightMaxDistance(uint64_t wickedlightindex, float fDistance);
 void WickedCall_UpdateProbes(void);
 int WickedCall_Get2DShadowLights(void);
 int WickedCall_GetCubeShadowLights(bool bDebug);

@@ -8094,6 +8094,8 @@ void WickedCall_UpdateLight(uint64_t wickedlightindex, float fX, float fY, float
 
 	// for now, only change env probe if light on/off
 	TransformComponent* transformLight = wiScene::GetScene ().transforms.GetComponent (wickedlightindex);
+	const XMFLOAT3 oldLitPos = transformLight->translation_local; // GG: where it shone, for a switch off
+	const float fOldLitRange = lightComponent->range_local;
 	bool bDetectOnOffNotRangeChange = false;
 	if (lightComponent->range_local != fRange)
 	{
@@ -8106,7 +8108,21 @@ void WickedCall_UpdateLight(uint64_t wickedlightindex, float fX, float fY, float
 	if (fCurrentX > -999999.0 && fX <= -999999.0) bDetectOnOffNotRangeChange = true;
 	if (bDetectOnOffNotRangeChange == true)
 	{
-		bLightScapeHasChangedEnoughForEnvProbeUpdate = true;
+		// GG: only the live probes the light can show in are captured again (GGTerrain_QueueEnvProbesForLight), from where
+		// it shines when on (now, or before it went off). One farther from the camera than its reach (its own
+		// SetLightMaxDistanceFor, else SetLightMaxDistance) is in no capture, as a capture is lit by the frame's
+		// visible lights, so it queues none
+		const bool bOnNow = fX > -999999.0f && fRange > 1.0f;
+		const XMFLOAT3 lit = bOnNow ? XMFLOAT3(fX, fY, fZ) : oldLitPos;
+		const float fLitRange = bOnNow ? fRange : fOldLitRange;
+		const float fReach = lightComponent->gg_maxDistance > 0.0f ? lightComponent->gg_maxDistance : g_fLightMaxDistance;
+		const XMFLOAT3 eye = wiScene::GetCamera().Eye;
+		const float ex = lit.x - eye.x, ey = lit.y - eye.y, ez = lit.z - eye.z;
+		const bool bOutOfReach = fReach > 0.0f && sqrtf(ex * ex + ey * ey + ez * ez) > fReach + fLitRange;
+		GGTerrain::g_iLightProbeSwitchCounts[0]++;
+		if (bOutOfReach) GGTerrain::g_iLightProbeSwitchCounts[1]++;
+		if (!bOutOfReach && GGTerrain::GGTerrain_QueueEnvProbesForLight(lit.x, lit.y, lit.z, fLitRange))
+			bLightScapeHasChangedEnoughForEnvProbeUpdate = true;
 	}
 
 	transformLight->ClearTransform();
@@ -8133,6 +8149,14 @@ void WickedCall_UpdateLight(uint64_t wickedlightindex, float fX, float fY, float
 		extern bool g_bLightProbeInstantChange;
 		g_bLightProbeInstantChange = true;
 	}
+}
+
+// GG: a light's own reach from the camera (SetLightMaxDistanceFor); 0 takes the global SetLightMaxDistance
+void WickedCall_SetLightMaxDistance(uint64_t wickedlightindex, float fDistance)
+{
+	if (wickedlightindex == 0) return;
+	LightComponent* lightComponent = wiScene::GetScene().lights.GetComponent(wickedlightindex);
+	if (lightComponent) lightComponent->gg_maxDistance = fDistance;
 }
 
 void WickedCall_UpdateProbes(void)
