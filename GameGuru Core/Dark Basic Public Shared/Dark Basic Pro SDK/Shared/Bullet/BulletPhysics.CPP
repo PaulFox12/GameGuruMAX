@@ -70,6 +70,7 @@ char				g_ProvidedMeshFilenameForBNVHSaving[MAX_PATH];
 char				g_ProvidedMeshFilenameForOBJLoading[MAX_PATH];
 
 void DeleteallImporters(); //PE: We need to remove mem used by importers.
+void FreePlayOBJCollision(); // GG: the OBJ collision meshes kept loaded during play
 
 // externals to ragdoll system
 extern DBProJointManager* jointManager;
@@ -961,6 +962,7 @@ void ODEEnd ( void )
 	}
 	
 	DeleteallImporters();
+	FreePlayOBJCollision();
 
 	//next line is optional: it will be cleared by the destructor when the array goes out of scope
 	g_collisionShapes.clear();
@@ -2400,6 +2402,80 @@ void KeepOBJCollisionMesh (bool bKeep)
 	g_bKeepOBJCollisionMesh = bKeep;
 }
 
+// GG: during play (no level physics start running) the OBJ collision meshes stay loaded and hidden, each in an object of its
+// own, so a body made again from the same file (a helicopter's CollisionOn at every landing) doesn't load it again: loading
+// makes a whole object with its render data, 11-15 ms for a helicopter. Each body still makes its own shape from it, so
+// nothing a body does (a turned limb) reaches another. The longest unused gives its object up when all are taken, an object
+// another system holds is never used, and all are freed when the physics ends. The entity files' checks for an OBJ are
+// kept the same way
+#define PLAYOBJCOLLISION_FIRST 69901
+#define PLAYOBJCOLLISION_SLOTS 16
+struct sPlayOBJCollision
+{
+	char pMesh[MAX_PATH];
+	sObject* pData;
+	DWORD dwUsed;
+};
+static sPlayOBJCollision g_PlayOBJCollision[PLAYOBJCOLLISION_SLOTS] = {};
+static DWORD g_dwPlayOBJCollisionUses = 0;
+static std::unordered_map<std::string, std::string> g_PlayOBJCollisionChecks;
+
+static std::string PlayOBJCollisionKey ( const char* pName )
+{
+	std::string sKey ( pName );
+	for ( char& c : sKey ) c = (char)tolower ( (unsigned char)c );
+	return sKey;
+}
+
+// the object holding this OBJ, loaded into a free or the longest unused slot if it isn't there; 0 when none can be used
+static int PlayOBJCollisionObject ( const char* pMesh )
+{
+	int iFree = -1, iOldest = -1;
+	for ( int s = 0; s < PLAYOBJCOLLISION_SLOTS; s++ )
+	{
+		sPlayOBJCollision& kept = g_PlayOBJCollision[ s ];
+		const int iObj = PLAYOBJCOLLISION_FIRST + s;
+		const bool bOurs = kept.pData && ObjectExist ( iObj ) == 1 && GetObjectData ( iObj ) == kept.pData;
+		if ( !bOurs ) { kept.pData = NULL; kept.pMesh[0] = 0; }
+		if ( bOurs && stricmp ( kept.pMesh, pMesh ) == 0 )
+		{
+			kept.dwUsed = ++g_dwPlayOBJCollisionUses;
+			return iObj;
+		}
+		if ( !bOurs && ObjectExist ( iObj ) == 0 && iFree < 0 ) iFree = s;
+		if ( bOurs && ( iOldest < 0 || kept.dwUsed < g_PlayOBJCollision[ iOldest ].dwUsed ) ) iOldest = s;
+	}
+	const int s = iFree >= 0 ? iFree : iOldest;
+	if ( s < 0 ) return 0;
+	sPlayOBJCollision& kept = g_PlayOBJCollision[ s ];
+	const int iObj = PLAYOBJCOLLISION_FIRST + s;
+	if ( kept.pData ) DeleteObject ( iObj );
+	kept.pData = NULL;
+	kept.pMesh[0] = 0;
+	char pLoad[MAX_PATH];
+	strcpy ( pLoad, pMesh );
+	LoadObject ( pLoad, iObj );
+	if ( ObjectExist ( iObj ) == 0 ) return 0;
+	HideObject ( iObj );
+	kept.pData = GetObjectData ( iObj );
+	strcpy ( kept.pMesh, pMesh );
+	kept.dwUsed = ++g_dwPlayOBJCollisionUses;
+	return iObj;
+}
+
+void FreePlayOBJCollision ( void )
+{
+	for ( int s = 0; s < PLAYOBJCOLLISION_SLOTS; s++ )
+	{
+		sPlayOBJCollision& kept = g_PlayOBJCollision[ s ];
+		const int iObj = PLAYOBJCOLLISION_FIRST + s;
+		if ( kept.pData && ObjectExist ( iObj ) == 1 && GetObjectData ( iObj ) == kept.pData ) DeleteObject ( iObj );
+		kept.pData = NULL;
+		kept.pMesh[0] = 0;
+	}
+	g_PlayOBJCollisionChecks.clear();
+}
+
 // GG: a hull decomposition's hulls were made from three points for each of their triangles, so each corner was there about
 // five times (a .bullet file keeps them so), and every contact test reads all of a hull's points. Only the corners are
 // kept: the same shapes. A hull the hull computer can't make again keeps its points
@@ -2567,15 +2643,22 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 	// determine if OBJ file carries collision mesh
 	bool bObjectUsesOBJCollisionMesh = false;
 	int iObjectUsedToExtractPhysicsMesh = 0;
+	bool bPlayKeptOBJ = false; // GG: the OBJ is in an object kept during play (PlayOBJCollisionObject), not to be deleted
 	if (strlen(g_ProvidedMeshFilenameForOBJLoading) > 4)
 	{
 		char pNoFPE[MAX_PATH];
 		strcpy(pNoFPE, g_ProvidedMeshFilenameForOBJLoading);
 		pNoFPE[strlen(pNoFPE) - 4] = 0;
 		char pOBJCollisionMesh[MAX_PATH];
+		const bool bPlay = !g_bKeepOBJCollisionMesh;
+		auto itPlayCheck = bPlay ? g_PlayOBJCollisionChecks.find(PlayOBJCollisionKey(pNoFPE)) : g_PlayOBJCollisionChecks.end();
 		if (g_bKeepOBJCollisionMesh && stricmp(pNoFPE, g_pCheckedOBJCollisionFPE) == 0)
 		{
 			strcpy(pOBJCollisionMesh, g_pCheckedOBJCollisionMesh);
+		}
+		else if (itPlayCheck != g_PlayOBJCollisionChecks.end())
+		{
+			strcpy(pOBJCollisionMesh, itPlayCheck->second.c_str());
 		}
 		else
 		{
@@ -2592,12 +2675,19 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 				strcpy(g_pCheckedOBJCollisionFPE, pNoFPE);
 				strcpy(g_pCheckedOBJCollisionMesh, pOBJCollisionMesh);
 			}
+			if (bPlay) g_PlayOBJCollisionChecks[PlayOBJCollisionKey(pNoFPE)] = pOBJCollisionMesh;
 		}
 		if (pOBJCollisionMesh[0])
 		{
 			iObjectUsedToExtractPhysicsMesh = 69501;// g.temp2objectoffset;
-			bool bKept = g_pKeptOBJCollisionObject && stricmp(pOBJCollisionMesh, g_pKeptOBJCollisionMesh) == 0
-				&& ObjectExist(iObjectUsedToExtractPhysicsMesh) == 1 && GetObjectData(iObjectUsedToExtractPhysicsMesh) == g_pKeptOBJCollisionObject;
+			const int iPlayObject = bPlay ? PlayOBJCollisionObject(pOBJCollisionMesh) : 0;
+			if (iPlayObject > 0)
+			{
+				iObjectUsedToExtractPhysicsMesh = iPlayObject;
+				bPlayKeptOBJ = true;
+			}
+			bool bKept = bPlayKeptOBJ || (g_pKeptOBJCollisionObject && stricmp(pOBJCollisionMesh, g_pKeptOBJCollisionMesh) == 0
+				&& ObjectExist(iObjectUsedToExtractPhysicsMesh) == 1 && GetObjectData(iObjectUsedToExtractPhysicsMesh) == g_pKeptOBJCollisionObject);
 			if (!bKept)
 			{
 				if (ObjectExist(iObjectUsedToExtractPhysicsMesh) == 1) DeleteObject(iObjectUsedToExtractPhysicsMesh);
@@ -2945,7 +3035,7 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 	// free any temp object (used to load OBJ collision data in), unless kept for the next mesh
 	if (bObjectUsesOBJCollisionMesh==true)
 	{
-		if (g_pKeptOBJCollisionObject == NULL && ObjectExist(iObjectUsedToExtractPhysicsMesh) == 1) DeleteObject(iObjectUsedToExtractPhysicsMesh);
+		if (!bPlayKeptOBJ && g_pKeptOBJCollisionObject == NULL && ObjectExist(iObjectUsedToExtractPhysicsMesh) == 1) DeleteObject(iObjectUsedToExtractPhysicsMesh);
 		bObjectUsesOBJCollisionMesh = false;
 		iObjectUsedToExtractPhysicsMesh = 0;
 	}
