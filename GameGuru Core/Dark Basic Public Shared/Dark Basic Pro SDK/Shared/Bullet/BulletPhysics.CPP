@@ -2407,14 +2407,16 @@ void KeepOBJCollisionMesh (bool bKeep)
 // makes a whole object with its render data, 11-15 ms for a helicopter. Each body still makes its own shape from it, so
 // nothing a body does (a turned limb) reaches another. The longest unused gives its object up when all are taken, an object
 // another system holds is never used, and all are freed when the physics ends. The entity files' checks for an OBJ are
-// kept the same way
+// kept the same way. A mesh preloaded by the game's Lua (PreloadCollisionMeshes, during the loading cover) is pinned: never
+// given up
 #define PLAYOBJCOLLISION_FIRST 69901
-#define PLAYOBJCOLLISION_SLOTS 16
+#define PLAYOBJCOLLISION_SLOTS 32
 struct sPlayOBJCollision
 {
 	char pMesh[MAX_PATH];
 	sObject* pData;
 	DWORD dwUsed;
+	bool bPinned;
 };
 static sPlayOBJCollision g_PlayOBJCollision[PLAYOBJCOLLISION_SLOTS] = {};
 static DWORD g_dwPlayOBJCollisionUses = 0;
@@ -2427,8 +2429,9 @@ static std::string PlayOBJCollisionKey ( const char* pName )
 	return sKey;
 }
 
-// the object holding this OBJ, loaded into a free or the longest unused slot if it isn't there; 0 when none can be used
-static int PlayOBJCollisionObject ( const char* pMesh )
+// the object holding this OBJ, loaded into a free or the longest unused unpinned slot if it isn't there (bPin: pinned, never
+// given up); 0 when none can be used
+static int PlayOBJCollisionObject ( const char* pMesh, bool bPin = false )
 {
 	int iFree = -1, iOldest = -1;
 	for ( int s = 0; s < PLAYOBJCOLLISION_SLOTS; s++ )
@@ -2436,14 +2439,15 @@ static int PlayOBJCollisionObject ( const char* pMesh )
 		sPlayOBJCollision& kept = g_PlayOBJCollision[ s ];
 		const int iObj = PLAYOBJCOLLISION_FIRST + s;
 		const bool bOurs = kept.pData && ObjectExist ( iObj ) == 1 && GetObjectData ( iObj ) == kept.pData;
-		if ( !bOurs ) { kept.pData = NULL; kept.pMesh[0] = 0; }
+		if ( !bOurs ) { kept.pData = NULL; kept.pMesh[0] = 0; kept.bPinned = false; }
 		if ( bOurs && stricmp ( kept.pMesh, pMesh ) == 0 )
 		{
 			kept.dwUsed = ++g_dwPlayOBJCollisionUses;
+			if ( bPin ) kept.bPinned = true;
 			return iObj;
 		}
 		if ( !bOurs && ObjectExist ( iObj ) == 0 && iFree < 0 ) iFree = s;
-		if ( bOurs && ( iOldest < 0 || kept.dwUsed < g_PlayOBJCollision[ iOldest ].dwUsed ) ) iOldest = s;
+		if ( bOurs && !kept.bPinned && ( iOldest < 0 || kept.dwUsed < g_PlayOBJCollision[ iOldest ].dwUsed ) ) iOldest = s;
 	}
 	const int s = iFree >= 0 ? iFree : iOldest;
 	if ( s < 0 ) return 0;
@@ -2460,6 +2464,7 @@ static int PlayOBJCollisionObject ( const char* pMesh )
 	kept.pData = GetObjectData ( iObj );
 	strcpy ( kept.pMesh, pMesh );
 	kept.dwUsed = ++g_dwPlayOBJCollisionUses;
+	kept.bPinned = bPin;
 	return iObj;
 }
 
@@ -2472,6 +2477,7 @@ void FreePlayOBJCollision ( void )
 		if ( kept.pData && ObjectExist ( iObj ) == 1 && GetObjectData ( iObj ) == kept.pData ) DeleteObject ( iObj );
 		kept.pData = NULL;
 		kept.pMesh[0] = 0;
+		kept.bPinned = false;
 	}
 	g_PlayOBJCollisionChecks.clear();
 }
@@ -4164,6 +4170,28 @@ void ODESetOBJLoadingFilename (LPSTR pName)
 void ODEKeepOBJCollisionMesh ( int iKeep )
 {
 	KeepOBJCollisionMesh ( iKeep != 0 );
+}
+
+// GG: the OBJ collision mesh an entity file with collision mode 8 uses (its .obj, else its _COL.obj, as CreateMesh finds
+// it from the same full .fpe path) loaded now and pinned in the play cache, so no body made from it later loads it
+// (PreloadCollisionMeshes, during the loading cover); 1 when the file has one and it is loaded
+int ODEPreloadOBJCollisionMesh ( LPSTR pFullFPEFilename )
+{
+	if ( !pFullFPEFilename || strlen ( pFullFPEFilename ) <= 4 ) return 0;
+	char pNoFPE[MAX_PATH];
+	strcpy ( pNoFPE, pFullFPEFilename );
+	pNoFPE[strlen ( pNoFPE ) - 4] = 0;
+	char pMesh[MAX_PATH];
+	sprintf ( pMesh, "%s.obj", pNoFPE );
+	GG_GetRealPath ( pMesh, 0 );
+	if ( FileExist ( pMesh ) == 0 )
+	{
+		sprintf ( pMesh, "%s_COL.obj", pNoFPE );
+		GG_GetRealPath ( pMesh, 0 );
+		if ( FileExist ( pMesh ) == 0 ) return 0;
+	}
+	g_PlayOBJCollisionChecks[ PlayOBJCollisionKey ( pNoFPE ) ] = pMesh;
+	return PlayOBJCollisionObject ( pMesh, true ) > 0 ? 1 : 0;
 }
 void ODECreateStaticTerrainMesh ( int iObjectNumber )
 {

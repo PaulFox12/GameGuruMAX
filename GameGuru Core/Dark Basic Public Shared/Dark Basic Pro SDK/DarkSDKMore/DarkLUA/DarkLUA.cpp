@@ -15315,6 +15315,86 @@ int GetLightProbeRefreshCounts(lua_State* L)
 	for (int i = 0; i < 4; i++) lua_pushinteger(L, GGTerrain::g_iLightProbeSwitchCounts[i]);
 	return 4;
 }
+// PreloadCollisionMeshes(folder): every OBJ collision mesh (an entity file's .obj or _COL.obj, collision mode 8) the .fpe
+// files in this bank folder and its subfolders use, loaded now and kept for the game, so no body made from them later
+// loads one (a helicopter's CollisionOn at its first landing). The folder as "entitybank\User\Aircraft\Helicopters", the
+// install's and the user's copy alike; answers the meshes loaded and the milliseconds taken. Freed when the game ends
+static void PreloadCollisionMeshesWalk(const std::string& sDir, const std::string& sRel, std::vector<std::string>& rels)
+{
+	WIN32_FIND_DATAA fd;
+	HANDLE h = FindFirstFileA((sDir + "\\*").c_str(), &fd);
+	if (h == INVALID_HANDLE_VALUE) return;
+	do
+	{
+		if (fd.cFileName[0] == '.') continue;
+		const std::string sName = fd.cFileName;
+		const std::string sChild = sRel.empty() ? sName : sRel + "\\" + sName;
+		if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) PreloadCollisionMeshesWalk(sDir + "\\" + sName, sChild, rels);
+		else if (sName.size() > 4 && _stricmp(sName.c_str() + sName.size() - 4, ".fpe") == 0)
+		{
+			bool bHave = false;
+			for (const std::string& r : rels) if (_stricmp(r.c_str(), sChild.c_str()) == 0) { bHave = true; break; }
+			if (!bHave) rels.push_back(sChild);
+		}
+	} while (FindNextFileA(h, &fd));
+	FindClose(h);
+}
+static int PreloadCollisionMeshesMode(const char* pFPE)
+{
+	char pReal[MAX_PATH];
+	strcpy(pReal, pFPE);
+	extern int GG_GetRealPath(char* fullPath, int create, bool bIgnoreAdditional);
+	GG_GetRealPath(pReal, 0, false);
+	FILE* f = fopen(pReal, "r");
+	if (!f) return 0;
+	int iMode = 0;
+	char pLine[512];
+	while (fgets(pLine, sizeof(pLine), f))
+	{
+		const char* s = pLine;
+		while (*s == ' ' || *s == '\t') s++;
+		if (_strnicmp(s, "collisionmode", 13) != 0) continue;
+		s += 13;
+		while (*s == ' ' || *s == '\t') s++;
+		if (*s != '=') continue;
+		iMode = atoi(s + 1);
+		break;
+	}
+	fclose(f);
+	return iMode;
+}
+int PreloadCollisionMeshes(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 1) return 0;
+	const char* pFolder = lua_tostring(L, 1);
+	if (!pFolder) return 0;
+	LARGE_INTEGER freq, start, end;
+	QueryPerformanceFrequency(&freq);
+	QueryPerformanceCounter(&start);
+	extern int GG_GetRealPath(char* fullPath, int create, bool bIgnoreAdditional);
+	extern int ODEPreloadOBJCollisionMesh(LPSTR pFullFPEFilename);
+	char pRoot[MAX_PATH];
+	sprintf(pRoot, "%s\\Files\\%s", g.fpscrootdir_s.Get(), pFolder);
+	char pReal[MAX_PATH];
+	strcpy(pReal, pRoot);
+	GG_GetRealPath(pReal, 0, false);
+	std::vector<std::string> rels;
+	PreloadCollisionMeshesWalk(pRoot, "", rels);
+	if (_stricmp(pReal, pRoot) != 0) PreloadCollisionMeshesWalk(pReal, "", rels);
+	int iLoaded = 0;
+	for (const std::string& rel : rels)
+	{
+		// the full .fpe path as the physics start hands it over (M-Physics: <root>\Files\entitybank\<bank file>)
+		char pFPE[MAX_PATH];
+		sprintf(pFPE, "%s\\%s", pRoot, rel.c_str());
+		if (PreloadCollisionMeshesMode(pFPE) != 8) continue;
+		iLoaded += ODEPreloadOBJCollisionMesh(pFPE);
+	}
+	QueryPerformanceCounter(&end);
+	lua_pushinteger(L, iLoaded);
+	lua_pushnumber(L, (double)(end.QuadPart - start.QuadPart) * 1000.0 / (double)freq.QuadPart);
+	return 2;
+}
 // SetShadowJobWait(on): the shadow job waits for the frame set up and prepass jobs even with delayed shadows off, as it
 // does with them on (off by default; for the stalls in Wicked's Render with delayed shadows off). Back to off at the next
 // level and test end
@@ -19058,6 +19138,7 @@ void addFunctions()
 	lua_register(lua, "SetLightProbeRefreshReach", SetLightProbeRefreshReach);
 	lua_register(lua, "GetLightProbeRefreshReach", GetLightProbeRefreshReach);
 	lua_register(lua, "GetLightProbeRefreshCounts", GetLightProbeRefreshCounts);
+	lua_register(lua, "PreloadCollisionMeshes", PreloadCollisionMeshes);
 	lua_register(lua, "ResetDelayedShadows", ResetDelayedShadows);
 	lua_register(lua, "GetDelayedShadows", GetDelayedShadows);
 	lua_register(lua, "SetShadowRange", SetShadowRange);
