@@ -2213,6 +2213,89 @@ void darkai_shootplayer (void)
 	darkai_shoottarget(0);
 }
 
+// GG: an NPC's round that lands on an entity taking bullet holes (not a character) leaves one where it meets the entity's
+// visible meshes, as the player's gunfire does: one ray against that entity's own meshes (WickedCall_ObjectRay, which a
+// vehicle with no physics body still meets), the jittered aim first and its centre after, then a physics ray up to the hit
+// for cover (the terrain or another object first keeps the hole off), the shooter and its gun left out. The hole rides the
+// entity as the player's do. The damage is untouched. Each is logged with its time ("NPC HOLE"), 300 lines a session.
+static bool darkai_npcholetarget(int ee)
+{
+	if (ee <= 0 || t.entityelement[ee].obj <= 0 || ObjectExist(t.entityelement[ee].obj) == 0) return false;
+	if (t.entityprofile[t.entityelement[ee].bankindex].ischaracter == 1) return false;
+	return entity_allowsbulletholes(ee);
+}
+static void darkai_npcbullethole(int ee, float fFromX, float fFromY, float fFromZ, float fAimX, float fAimY, float fAimZ, float fCentreX, float fCentreY, float fCentreZ)
+{
+	extern bool WickedCall_ObjectRay(sObject* pObject, const float* pFrom, const float* pDir, float fLength, float* pDistance, float* pNormal, int* pLimb);
+	extern int ODERayEx(float fX, float fY, float fZ, float fToX, float fToY, float fToZ, int iCollisionType, int iIgnoreObj1, int iIgnoreObj2);
+	extern int ODEGetRayObjectHit(void);
+	static int iLogged = 0;
+	// at most three a frame or so (each about 0.2-0.3 ms, the mesh ray), so a burst at a vehicle costs under a millisecond
+	static ULONGLONG uWindow = 0;
+	static int iInWindow = 0;
+	const ULONGLONG uNow = GetTickCount64();
+	if (uNow - uWindow > 33) { uWindow = uNow; iInWindow = 0; }
+	if (++iInWindow > 3) return;
+	LARGE_INTEGER qStart, qEnd, qFreq;
+	QueryPerformanceCounter(&qStart);
+	const int iEntID = t.entityelement[ee].bankindex;
+	int iMaterial = t.entityprofile[iEntID].materialindex;
+	if (!t.entityelement[ee].eleprof.bUseFPESettings && t.entityelement[ee].eleprof.iMaterialSoundIndex > 0) iMaterial = t.entityelement[ee].eleprof.iMaterialSoundIndex;
+	if (iMaterial <= 0 || iMaterial == 6) return;
+	sObject* pObject = GetObjectData(t.entityelement[ee].obj);
+	if (!pObject) return;
+	const float fFrom[3] = { fFromX, fFromY, fFromZ };
+	float fDir[3] = { 0, 0, 0 }, fNormal[3] = { 0, 1, 0 }, fHit[3] = { 0, 0, 0 };
+	float fDistance = 0;
+	bool bHit = false;
+	for (int iTry = 0; iTry < 2 && !bHit; iTry++)
+	{
+		const float fToX = iTry == 0 ? fAimX : fCentreX, fToY = iTry == 0 ? fAimY : fCentreY, fToZ = iTry == 0 ? fAimZ : fCentreZ;
+		fDir[0] = fToX - fFromX; fDir[1] = fToY - fFromY; fDir[2] = fToZ - fFromZ;
+		const float fLen = sqrtf(fDir[0] * fDir[0] + fDir[1] * fDir[1] + fDir[2] * fDir[2]);
+		if (fLen < 1.0f) continue;
+		fDir[0] /= fLen; fDir[1] /= fLen; fDir[2] /= fLen;
+		int iLimb = -1;
+		bHit = WickedCall_ObjectRay(pObject, fFrom, fDir, fLen + 300.0f, &fDistance, fNormal, &iLimb);
+	}
+	const char* pResult = "missed";
+	int iBlocker = 0;
+	if (bHit)
+	{
+		for (int i = 0; i < 3; i++) fHit[i] = fFrom[i] + fDir[i] * fDistance;
+		const float fCover = fDistance - 5.0f;
+		if (fCover > 0 && ODERayEx(fFromX, fFromY, fFromZ, fFromX + fDir[0] * fCover, fFromY + fDir[1] * fCover, fFromZ + fDir[2] * fCover,
+			1 | (1 << 1) | (1 << 3), t.entityelement[t.te].obj, t.tattachedobj) == 1)
+		{
+			const int iObjHit = ODEGetRayObjectHit();
+			if (iObjHit != t.entityelement[ee].obj) iBlocker = iObjHit != 0 ? iObjHit : -1; // -1 the terrain
+		}
+		if (iBlocker == 0)
+		{
+			bulletholes_add(iMaterial, fHit[0], fHit[1], fHit[2], fNormal[0], fNormal[1], fNormal[2], ee);
+			pResult = "hole";
+		}
+		else
+			pResult = "blocked";
+	}
+	QueryPerformanceCounter(&qEnd);
+	QueryPerformanceFrequency(&qFreq);
+	if (iLogged < 300)
+	{
+		iLogged++;
+		int iBlockerE = 0;
+		if (iBlocker > 0)
+			for (int e2 = 1; e2 <= g.entityelementlist; e2++) if (t.entityelement[e2].obj == iBlocker) { iBlockerE = e2; break; }
+		char line[400];
+		_snprintf(line, sizeof(line), "NPC HOLE e=%d '%s' by e=%d: %s at (%.0f, %.0f, %.0f) normal (%.2f, %.2f, %.2f) blocker %d (e=%d '%s') material %d in %.3f ms",
+			ee, t.entityelement[ee].eleprof.name_s.Get(), t.te, pResult, fHit[0], fHit[1], fHit[2], fNormal[0], fNormal[1], fNormal[2],
+			iBlocker, iBlockerE, iBlockerE > 0 ? t.entityelement[iBlockerE].eleprof.name_s.Get() : "", iMaterial,
+			(double)(qEnd.QuadPart - qStart.QuadPart) * 1000.0 / (double)qFreq.QuadPart);
+		line[sizeof(line) - 1] = 0;
+		timestampactivity(0, line);
+	}
+}
+
 void darkai_shooteffect (void)
 {
 	// needs tgunid, example; tgunid=entityprofile(tentid).hasweapon
@@ -2403,6 +2486,15 @@ void darkai_shooteffect (void)
 		t.tdamage = g.firemodes[t.tgunid][0].settings.damage;
 		if (ee > 0)
 		{
+			// GG: a target taking bullet holes is aimed at a point scattered round its centre, which the tracer and the hole share
+			const bool bHoleTarget = darkai_npcholetarget(ee);
+			float fAimX = t.entityelement[ee].x, fAimY = t.entityelement[ee].y + 50, fAimZ = t.entityelement[ee].z;
+			if (bHoleTarget)
+			{
+				fAimX += (float)(Rnd(80) - 40);
+				fAimY += (float)(Rnd(50) - 25);
+				fAimZ += (float)(Rnd(80) - 40);
+			}
 			if (t.entityelement[ee].obj > 0 && ObjectExist(t.entityelement[ee].obj))
 			{
 				if (t.gun[t.tgunid].settings.tracer_active)
@@ -2415,9 +2507,9 @@ void darkai_shooteffect (void)
 
 					int entid = t.entityelement[ee].bankindex;
 
-					float fTorseAreaX = t.entityelement[ee].x;
-					float fTorseAreaY = t.entityelement[ee].y + 50;
-					float fTorseAreaZ = t.entityelement[ee].z;
+					float fTorseAreaX = fAimX;
+					float fTorseAreaY = fAimY;
+					float fTorseAreaZ = fAimZ;
 					int torselimbindex = t.entityprofile[entid].spine2;
 					if (torselimbindex > 0)
 					{
@@ -2453,6 +2545,10 @@ void darkai_shooteffect (void)
 
 			// create either material decal specified in FPE or blood decal
 			entity_applydecalfordamage(ee,-1,-1,-1);
+
+			// GG: and a bullet hole where the round met it
+			if (bHoleTarget && ee <= g.entityelementlist && t.entityelement[ee].obj > 0 && ObjectExist(t.entityelement[ee].obj))
+				darkai_npcbullethole(ee, t.tx_f, t.ty_f, t.tz_f, fAimX, fAimY, fAimZ, t.entityelement[ee].x, t.entityelement[ee].y + 50, t.entityelement[ee].z);
 		}
 		else
 		{

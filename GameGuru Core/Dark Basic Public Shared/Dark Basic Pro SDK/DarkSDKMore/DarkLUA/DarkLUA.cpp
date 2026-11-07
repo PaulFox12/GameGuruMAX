@@ -13973,7 +13973,8 @@ int FirePlayerWeapon(lua_State *L)
 // AddBulletHole(x, y, z, nx, ny, nz [, material [, e]]): a bullet hole where a script's shot hit, as the player's gunfire
 // leaves one. material is an entity profile's materialindex (1 stone, 2 metal, 3 wood, 4 glass; default 1; 0 leaves
 // none). With e, the hole obeys the same rules as gunfire: only on a static entity or one that allows bullet holes, and
-// it goes when that entity moves, hides or is removed. Returns 1 if a hole was requested, 0 if a rule refused it
+// it rides that entity as it moves and turns (not a character's), and goes when the entity hides or is removed. Returns 1
+// if a hole was requested, 0 if a rule refused it
 int AddBulletHole ( lua_State *L )
 {
 	lua = L;
