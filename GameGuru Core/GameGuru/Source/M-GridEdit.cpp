@@ -17977,6 +17977,14 @@ void input_calculatelocalcursor ( void )
 						}
 						if (bAdjustAndTilt == true)
 						{
+							// a ground object on ground within 2 degrees of level stands upright, turned by R alone, so its angles read back
+							// as turned (a slight slope made four presses of R read 181 degrees, not 180)
+							bool bUprightOnLevelGround = false;
+							if (iForwardFacing == 0 && t.entityprofile[t.gridentity].ismarker == 0)
+							{
+								float fNormalLength = sqrt(fNormalX * fNormalX + fNormalY * fNormalY + fNormalZ * fNormalZ);
+								if (fNormalLength > 0.0f && fNormalY / fNormalLength > 0.99939f) bUprightOnLevelGround = true;
+							}
 							fNormalX *= 100.0f;
 							fNormalY *= 100.0f;
 							fNormalZ *= 100.0f;
@@ -17984,11 +17992,18 @@ void input_calculatelocalcursor ( void )
 							float fStoreAngX = ObjectAngleX(iObj);
 							float fStoreAngY = ObjectAngleY(iObj);
 							float fStoreAngZ = ObjectAngleZ(iObj);
-							PointObject(t.gridentityobj, ObjectPositionX(iObj) - fNormalX, ObjectPositionY(iObj) - fNormalY, ObjectPositionZ(iObj) - fNormalZ);
-							if (iForwardFacing == 0)
+							if (bUprightOnLevelGround == true)
 							{
-								PitchObjectUp(iObj, 90);
-								TurnObjectRight(iObj, g_fLocalTurnRotationForSmartMode);
+								RotateObject(iObj, 0, g_fLocalTurnRotationForSmartMode, 0);
+							}
+							else
+							{
+								PointObject(t.gridentityobj, ObjectPositionX(iObj) - fNormalX, ObjectPositionY(iObj) - fNormalY, ObjectPositionZ(iObj) - fNormalZ);
+								if (iForwardFacing == 0)
+								{
+									PitchObjectUp(iObj, 90);
+									TurnObjectRight(iObj, g_fLocalTurnRotationForSmartMode);
+								}
 							}
 							float fStoreEntAngX = t.gridentityrotatex_f;
 							float fStoreEntAngY = t.gridentityrotatey_f;
