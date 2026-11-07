@@ -3806,6 +3806,30 @@ void gun_flash ( void )
 	}
 }
 
+// the order the casings (hud objects 6 to 20) were thrown in, the oldest lowest
+unsigned int g_uBrassSerial[21] = { 0 };
+unsigned int g_uBrassThrown = 0;
+
+// the casing slot to free when the pool is full: the oldest out of view (outside the camera's view, or far enough to be
+// under a pixel), else the oldest; 0 if none is out
+int gun_brass_slottofree ( void )
+{
+	const wiScene::CameraComponent& camera = wiScene::GetCamera();
+	int iOldest = 0;
+	int iOldestUnseen = 0;
+	for ( int o = 6; o <= 20; o++ )
+	{
+		int obj = g.hudbankoffset + o;
+		if ( GetVisible(obj) == 0 ) continue;
+		if ( iOldest == 0 || g_uBrassSerial[o] < g_uBrassSerial[iOldest] ) iOldest = o;
+		if ( iOldestUnseen != 0 && g_uBrassSerial[o] >= g_uBrassSerial[iOldestUnseen] ) continue;
+		XMFLOAT3 vecPos = XMFLOAT3(ObjectPositionX(obj), ObjectPositionY(obj), ObjectPositionZ(obj));
+		float fDX = vecPos.x - camera.Eye.x, fDY = vecPos.y - camera.Eye.y, fDZ = vecPos.z - camera.Eye.z;
+		if ( fDX*fDX + fDY*fDY + fDZ*fDZ > 1500.0f*1500.0f || camera.frustum.CheckSphere(vecPos, 4.0f) == false ) iOldestUnseen = o;
+	}
+	return iOldestUnseen != 0 ? iOldestUnseen : iOldest;
+}
+
 void gun_brass ( void )
 {
 	extern bool bHideWeapons;
@@ -3815,44 +3839,22 @@ void gun_brass ( void )
 
 	//  Twin gun second brass feature
 	t.gunbrass2 = 0; if ( t.gunbrass == 1 && t.gun[t.gunid].settings.flashlimb2 != -1 ) t.gunbrass2 = 1;
-	
-	// count available brass, and if two are not available, free the oldest
+
+	// count available brass, and if two are not available, free the oldest out of view (the oldest if all are in view)
 	if ( t.gunbrass > 0 ||  t.gunbrass2 > 0 )
 	{
-		int iCountBrass = 0;
-		int iCountBrassVisible = 0;
+		int iBrassNeeded = 2;
 		for ( t.o = 6 ; t.o <= 20; t.o++ )
 		{
-			iCountBrass++;
-			t.obj=g.hudbankoffset+t.o;
-			if ( GetVisible(t.obj) == 1 ) 
-				iCountBrassVisible++;
+			if ( GetVisible(g.hudbankoffset+t.o) == 0 ) iBrassNeeded--;
 		}
-		int iBrassNeeded = iCountBrassVisible - (iCountBrass-2);
-		if ( iBrassNeeded > 0 )
+		while ( iBrassNeeded > 0 )
 		{
-			// need to free up oldest (i.e lowest) brass
-			while ( iBrassNeeded > 0 )
-			{
-				int iLowestObj = 0;
-				float fLowestY = 999999.0f;
-				for ( t.o = 6 ; t.o <= 20; t.o++ )
-				{
-					t.obj = g.hudbankoffset+t.o;
-					float fThisY = ObjectPositionY(t.obj);
-					if ( fThisY < fLowestY )
-					{
-						iLowestObj = t.obj;
-						fLowestY = fThisY;
-					}
-				}
-				if ( iLowestObj > 0 ) 
-				{
-					ODEDestroyObject ( iLowestObj );
-					HideObject ( iLowestObj );
-				}
-				iBrassNeeded--;
-			}
+			int iFreeSlot = gun_brass_slottofree();
+			if ( iFreeSlot == 0 ) break;
+			ODEDestroyObject ( g.hudbankoffset+iFreeSlot );
+			HideObject ( g.hudbankoffset+iFreeSlot );
+			iBrassNeeded--;
 		}
 	}
 
@@ -3879,6 +3881,7 @@ void gun_brass ( void )
 			PositionObject (  t.obj,t.lx_f,t.ly_f,t.lz_f );
 			RotateObject (  t.obj,0,CameraAngleY(0),0 );
 			t.brassfallcount_f[t.o]=g.firemodes[t.gunid][g.firemode].settings.brasslife;
+			g_uBrassSerial[t.o] = ++g_uBrassThrown;
 			ShowObject (  t.obj );
 			ODECreateDynamicBox(t.obj, -1, 12); //PE: Make sure not to move player.
 			t.tbrassang_f=g.firemodes[t.gunid][g.firemode].settings.brassangle+Rnd(g.firemodes[t.gunid][g.firemode].settings.brassanglerand);
@@ -3906,6 +3909,7 @@ void gun_brass ( void )
 				PositionObject(t.obj, t.lx_f, t.ly_f, t.lz_f);
 				RotateObject(t.obj, 0, CameraAngleY(), 0);
 				t.brassfallcount_f[t.o] = 25.0;
+				g_uBrassSerial[t.o] = ++g_uBrassThrown;
 				ShowObject(t.obj);
 				ODECreateDynamicBox(t.obj, -1, 12); //PE: Make sure not to move player.
 			}

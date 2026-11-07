@@ -10,12 +10,21 @@
 #include "optick.h"
 #endif
 
+#include ".\..\..\Guru-WickedMAX\wickedcalls.h"
+
 // globals
 #define BULLETHOLESMAX 1000
+// holes have no lifetime: with every slot taken a new hole takes the oldest hole's slot that is out of view (outside the
+// camera's view or past BULLETHOLESUNSEENDIST, where a hole is under a pixel), else the oldest; one entity carries at most
+// BULLETHOLESPEROWNER, its oldest giving way (a moving vehicle's holes are placed again and the hole mesh refreshed each
+// frame it moves)
+#define BULLETHOLESPEROWNER 50
+#define BULLETHOLESUNSEENDIST 5000.0f
 struct sBulletHole
 {
 	int iVertIndexStart;
-	float fLifeCounter;
+	unsigned int uSerial;
+	float fBornTime;
 	float fRadius;
 	GGVECTOR3 vecWorldPos;
 
@@ -33,6 +42,7 @@ struct sBulletHole
 	GGMATRIX matOwnerWorld;
 };
 std::vector<sBulletHole> g_bulletholes;
+
 bool g_bulletholeavailable[BULLETHOLESMAX];
 GGVECTOR3 g_vecBulletHoleQuad[4];
 GGVECTOR3 g_vecBulletHoleQuadUV[4];
@@ -43,7 +53,53 @@ GGVECTOR3 g_vecBulletHoleQuadUV[4];
 bool g_bBulletHolesDirty = false;
 bool g_bBulletHolesFullRebuild = true;
 
+// the order holes were made in (the oldest has the lowest), and holes recycled this level for the log, in all and by reason
+// (out of view, all in view, an entity's cap)
+unsigned int g_uBulletHoleSerial = 0;
+int g_iBulletHoleRecycles = 0;
+int g_iBulletHoleRecyclesBy[3] = { 0, 0, 0 };
+
 // functions
+
+void bulletholes_changesinglehole (int iVertIndex, float fNX, float fNY, float fNZ);
+
+// true while a hole could be seen: inside the camera's view and near enough to cover a pixel
+static bool bulletholes_inview (sBulletHole* pBulletHole)
+{
+	const wiScene::CameraComponent& camera = wiScene::GetCamera();
+	float fDX = pBulletHole->vecWorldPos.x - camera.Eye.x;
+	float fDY = pBulletHole->vecWorldPos.y - camera.Eye.y;
+	float fDZ = pBulletHole->vecWorldPos.z - camera.Eye.z;
+	if (fDX*fDX + fDY*fDY + fDZ*fDZ > BULLETHOLESUNSEENDIST*BULLETHOLESUNSEENDIST) return false;
+	return camera.frustum.CheckSphere(XMFLOAT3(pBulletHole->vecWorldPos.x, pBulletHole->vecWorldPos.y, pBulletHole->vecWorldPos.z), pBulletHole->fRadius * 2.0f);
+}
+
+// takes hole b out of the mesh and the list and frees its slot
+static void bulletholes_removeat (int b)
+{
+	bulletholes_changesinglehole (g_bulletholes[b].iVertIndexStart, 0, 0, 0);
+	g_bulletholeavailable[g_bulletholes[b].iVertIndexStart / 6] = false;
+	g_bulletholes.erase(g_bulletholes.begin() + b);
+	g_bBulletHolesDirty = true;
+}
+
+// removes hole b to make room for a new one (iWhy 0 out of view, 1 all in view, 2 its entity's cap), logged with the totals
+// by reason: each of the first 50, after them a line of totals at most every 2 seconds (bulletholes_update)
+static void bulletholes_recycle (int b, int iWhy)
+{
+	const char* pWhy[3] = { "unseen", "all in view", "owner cap" };
+	g_iBulletHoleRecycles++;
+	g_iBulletHoleRecyclesBy[iWhy]++;
+	if (g_iBulletHoleRecycles <= 50)
+	{
+		char pLog[256];
+		sprintf_s(pLog, "BULLETHOLE RECYCLE slot %d (owner %d, age %.0f s, %s); recycled %d: unseen %d, all in view %d, owner cap %d; %d holes",
+			g_bulletholes[b].iVertIndexStart / 6, g_bulletholes[b].iOwnerEntity, (float)GetTickCount() / 1000.0f - g_bulletholes[b].fBornTime,
+			pWhy[iWhy], g_iBulletHoleRecycles, g_iBulletHoleRecyclesBy[0], g_iBulletHoleRecyclesBy[1], g_iBulletHoleRecyclesBy[2], (int)g_bulletholes.size());
+		timestampactivity(0, pLog);
+	}
+	bulletholes_removeat(b);
+}
 
 void bulletholes_refreshobject (void)
 {
@@ -133,6 +189,8 @@ void bulletholes_clearall (void)
 	// clear the list
 	g_bulletholes.clear();
 	memset(g_bulletholeavailable, 0, sizeof(g_bulletholeavailable));
+	g_iBulletHoleRecycles = 0;
+	g_iBulletHoleRecyclesBy[0] = g_iBulletHoleRecyclesBy[1] = g_iBulletHoleRecyclesBy[2] = 0;
 	g_bBulletHolesDirty = true;
 }
 
@@ -181,19 +239,33 @@ void bulletholes_add (int iMaterialIndex, float fX, float fY, float fZ, float fN
 		case 4: iAtlasIndex = 2; fBulletHoleRadius = 0.75f; break; // glass
 	}
 
-	// instant reject if near an existing bullethole (avoid zclash)
+	// instant reject if near an existing bullethole (avoid zclash); squared distances, as this runs over every hole
 	GGVECTOR3 vecPointInWorldSpace = GGVECTOR3(fX, fY, fZ);
-	for (int n = 0; n < g_bulletholes.size(); n++)
+	for (int n = 0; n < (int)g_bulletholes.size(); n++)
 	{
 		float fDX = g_bulletholes[n].vecWorldPos.x - vecPointInWorldSpace.x;
 		float fDY = g_bulletholes[n].vecWorldPos.y - vecPointInWorldSpace.y;
 		float fDZ = g_bulletholes[n].vecWorldPos.z - vecPointInWorldSpace.z;
-		float fDist = sqrt(fabs(fDX*fDX) + fabs(fDY*fDY) + fabs(fDZ*fDZ));
-		if (fDist < g_bulletholes[n].fRadius+fBulletHoleRadius)
+		float fNear = g_bulletholes[n].fRadius + fBulletHoleRadius;
+		if (fDX*fDX + fDY*fDY + fDZ*fDZ < fNear*fNear)
 		{
 			// bullethole too near an existing one
 			return;
 		}
+	}
+
+	// an entity at its cap gives up its oldest hole
+	if (iOwnerEntity > 0)
+	{
+		int iOwnerCount = 0;
+		int iOwnerOldest = -1;
+		for (int n = 0; n < (int)g_bulletholes.size(); n++)
+		{
+			if (g_bulletholes[n].iOwnerEntity != iOwnerEntity) continue;
+			iOwnerCount++;
+			if (iOwnerOldest < 0 || g_bulletholes[n].uSerial < g_bulletholes[iOwnerOldest].uSerial) iOwnerOldest = n;
+		}
+		if (iOwnerCount >= BULLETHOLESPEROWNER && iOwnerOldest >= 0) bulletholes_recycle(iOwnerOldest, 2);
 	}
 
 	// find free vertindex to place bullethole
@@ -201,6 +273,22 @@ void bulletholes_add (int iMaterialIndex, float fX, float fY, float fZ, float fN
 	for (iBulletSlot = 0; iBulletSlot < BULLETHOLESMAX; iBulletSlot++)
 		if (g_bulletholeavailable[iBulletSlot] == false)
 			break;
+
+	// every slot taken: the oldest hole out of view gives up its slot, else the oldest
+	if (iBulletSlot >= BULLETHOLESMAX && g_bulletholes.size() > 0)
+	{
+		int iOldestUnseen = -1;
+		int iOldest = -1;
+		for (int n = 0; n < (int)g_bulletholes.size(); n++)
+		{
+			if (iOldest < 0 || g_bulletholes[n].uSerial < g_bulletholes[iOldest].uSerial) iOldest = n;
+			if (iOldestUnseen >= 0 && g_bulletholes[n].uSerial >= g_bulletholes[iOldestUnseen].uSerial) continue;
+			if (bulletholes_inview(&g_bulletholes[n]) == false) iOldestUnseen = n;
+		}
+		int iVictim = iOldestUnseen >= 0 ? iOldestUnseen : iOldest;
+		iBulletSlot = g_bulletholes[iVictim].iVertIndexStart / 6;
+		bulletholes_recycle(iVictim, iOldestUnseen >= 0 ? 0 : 1);
+	}
 
 	// add bullethole if found a free space
 	if (iBulletSlot < BULLETHOLESMAX)
@@ -258,7 +346,8 @@ void bulletholes_add (int iMaterialIndex, float fX, float fY, float fZ, float fN
 		// add bullet hole to list
 		sBulletHole bullethole;
 		bullethole.iVertIndexStart = iBulletSlot * 6;
-		bullethole.fLifeCounter = 2000.0f;
+		bullethole.uSerial = g_uBulletHoleSerial++;
+		bullethole.fBornTime = (float)GetTickCount() / 1000.0f;
 		bullethole.fRadius = fBulletHoleRadius;
 		bullethole.vecWorldPos = vecPointInWorldSpace;
 		bullethole.iOwnerEntity = 0;
@@ -384,35 +473,26 @@ void bulletholes_update (void)
 			continue;
 		}
 		if (pBulletHole->bFollowsOwner == false && bulletholes_ownerunchanged(pBulletHole) == true) continue;
-		bulletholes_changesinglehole (pBulletHole->iVertIndexStart, 0, 0, 0);
-		g_bulletholeavailable[pBulletHole->iVertIndexStart / 6] = false;
-		g_bulletholes.erase(g_bulletholes.begin() + b);
+		bulletholes_removeat(b);
 		bUpdateTheObject = true;
 	}
 
-	// go through all bulletholes in list and remove those that have expired
-	for (int b = 0; b < g_bulletholes.size(); b++)
-	{
-		sBulletHole* pBulletHole = &g_bulletholes[b];
-		pBulletHole->fLifeCounter -= g.timeelapsed_f;
-		if ( pBulletHole->fLifeCounter < 0.0f ) //LB: could also condition this based on camera distance/view so user NEVER sees the hole disappear
-		{
-			// remove bullethole from object
-			bulletholes_changesinglehole (pBulletHole->iVertIndexStart, 0, 0, 0);
-
-			// remove bullet hoel from list
-			int iBulletSlot = pBulletHole->iVertIndexStart / 6;
-			g_bulletholeavailable[iBulletSlot] = false;
-			g_bulletholes.erase(g_bulletholes.begin() + b);
-
-			// see the change
-			bUpdateTheObject = true;
-
-			// break from loop, only delete one from list per cycle
-			break;
-		}
-	}
+	// holes no longer expire: one stays until its slot is needed (bulletholes_add) or its entity hides, goes or moves
 	if (bUpdateTheObject == true) g_bBulletHolesDirty = true;
+
+	// past the first 50 recycles, their totals at most every 2 seconds
+	static int iRecyclesLogged = 0;
+	static DWORD dwRecyclesLoggedAt = 0;
+	if (g_iBulletHoleRecycles < iRecyclesLogged) iRecyclesLogged = 0;
+	if (g_iBulletHoleRecycles > 50 && g_iBulletHoleRecycles != iRecyclesLogged && GetTickCount() - dwRecyclesLoggedAt > 2000)
+	{
+		char pLog[256];
+		sprintf_s(pLog, "BULLETHOLE RECYCLE totals: recycled %d: unseen %d, all in view %d, owner cap %d; %d holes",
+			g_iBulletHoleRecycles, g_iBulletHoleRecyclesBy[0], g_iBulletHoleRecyclesBy[1], g_iBulletHoleRecyclesBy[2], (int)g_bulletholes.size());
+		timestampactivity(0, pLog);
+		iRecyclesLogged = g_iBulletHoleRecycles;
+		dwRecyclesLoggedAt = GetTickCount();
+	}
 
 	// show this frame's new, expired and removed holes in one refresh
 	if (g_bBulletHolesDirty == true) bulletholes_refreshobject();
