@@ -7455,6 +7455,7 @@ struct gunsettingstype
 	float tracer_scaleV;
 	float tracer_width;
 	float tracer_maxlength;
+	float tracer_mps;
 	float tracer_colorR;
 	float tracer_colorG;
 	float tracer_colorB;

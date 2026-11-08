@@ -4470,6 +4470,10 @@ void gun_shoot_oneray ( void )
 	t.bulletisinfactmeleestrike = 0;
 	t.gunrange_f=t.range_f;
 
+	// a hand-held tracer with a muzzle speed (gunspec tracermps) waits for the ray below, which finds where the round ends
+	int iTracerGunWaitingForRay = 0;
+	XMFLOAT3 tracerWaitingFrom;
+
 	//PE: Do not make a tracer if melee.
 	//weapontype ; 0-grenade, 1-pistol, 2-rocket, 3-shotgun, 4-uzi, 5-assault, 51-melee(noammo)
 	if( t.gun[t.gunid].weapontype < 50 && t.gun[t.gunid].settings.ismelee == 0)
@@ -4603,18 +4607,26 @@ void gun_shoot_oneray ( void )
 					tracer_hit.z = XMVectorGetZ(end);
 				}
 
-				Tracers::AddTracer(
-					tracer_from,
-					tracer_hit,
-					t.gun[t.gunid].settings.tracer_lifetime, // Lifetime
-					XMFLOAT4(t.gun[t.gunid].settings.tracer_colorR, t.gun[t.gunid].settings.tracer_colorG, t.gun[t.gunid].settings.tracer_colorB, 1), // Color
-					t.gun[t.gunid].settings.tracer_glow, // 5.0f, // Glow
-					t.gun[t.gunid].settings.tracer_scrollV, // Scroll
-					t.gun[t.gunid].settings.tracer_scaleV, // scaleV
-					t.gun[t.gunid].settings.tracer_width, // width
-					t.gun[t.gunid].settings.tracer_maxlength, // max length
-					t.gunid //Image to use.
-				);
+				if (t.gun[t.gunid].settings.tracer_mps > 0)
+				{
+					iTracerGunWaitingForRay = t.gunid;
+					tracerWaitingFrom = tracer_from;
+				}
+				else
+				{
+					Tracers::AddTracer(
+						tracer_from,
+						tracer_hit,
+						t.gun[t.gunid].settings.tracer_lifetime, // Lifetime
+						XMFLOAT4(t.gun[t.gunid].settings.tracer_colorR, t.gun[t.gunid].settings.tracer_colorG, t.gun[t.gunid].settings.tracer_colorB, 1), // Color
+						t.gun[t.gunid].settings.tracer_glow, // 5.0f, // Glow
+						t.gun[t.gunid].settings.tracer_scrollV, // Scroll
+						t.gun[t.gunid].settings.tracer_scaleV, // scaleV
+						t.gun[t.gunid].settings.tracer_width, // width
+						t.gun[t.gunid].settings.tracer_maxlength, // max length
+						t.gunid //Image to use.
+					);
+				}
 			}
 		}
 	}
@@ -4727,6 +4739,44 @@ void gun_shoot_oneray ( void )
 	playerhit_openray ( iPlayerHitKind, g_iPlayerHitPullShot, g_iPlayerHitPullGunID, t.x1_f, t.y1_f, t.z1_f );
 	entity_hasbulletrayhit ( );
 	playerhit_close ( );
+
+	// the waiting tracer: from the muzzle to where the round really ended (a miss ends at the range), for as long as the round
+	// took to get there; a hit nearer the camera than the muzzle draws nothing, the streak would fly back at the camera
+	if ( iTracerGunWaitingForRay > 0 )
+	{
+		float fRayX = t.brayx2_f - t.brayx1_f;
+		float fRayY = t.brayy2_f - t.brayy1_f;
+		float fRayZ = t.brayz2_f - t.brayz1_f;
+		float fRayLength = sqrt ( fRayX*fRayX + fRayY*fRayY + fRayZ*fRayZ );
+		float fMuzzleAlongRay = 0;
+		if ( fRayLength > 0 ) fMuzzleAlongRay = ( (tracerWaitingFrom.x - t.brayx1_f)*fRayX + (tracerWaitingFrom.y - t.brayy1_f)*fRayY + (tracerWaitingFrom.z - t.brayz1_f)*fRayZ ) / fRayLength;
+		if ( fRayLength > fMuzzleAlongRay )
+		{
+			XMFLOAT3 tracerEnd = XMFLOAT3 ( t.brayx2_f, t.brayy2_f, t.brayz2_f );
+			float fShotX = tracerEnd.x - tracerWaitingFrom.x;
+			float fShotY = tracerEnd.y - tracerWaitingFrom.y;
+			float fShotZ = tracerEnd.z - tracerWaitingFrom.z;
+			float fShotLength = sqrt ( fShotX*fShotX + fShotY*fShotY + fShotZ*fShotZ );
+			float fLifetime = fShotLength / ( t.gun[iTracerGunWaitingForRay].settings.tracer_mps * 39.37f );
+			if ( fLifetime < 0.03f ) fLifetime = 0.03f;
+			if ( fLifetime > 0.8f ) fLifetime = 0.8f;
+			// a streak longer than the shot would run back from the hit
+			float fMaxLength = t.gun[iTracerGunWaitingForRay].settings.tracer_maxlength;
+			if ( fMaxLength > fShotLength ) fMaxLength = fShotLength;
+			Tracers::AddTracer(
+				tracerWaitingFrom,
+				tracerEnd,
+				fLifetime,
+				XMFLOAT4(t.gun[iTracerGunWaitingForRay].settings.tracer_colorR, t.gun[iTracerGunWaitingForRay].settings.tracer_colorG, t.gun[iTracerGunWaitingForRay].settings.tracer_colorB, 1),
+				t.gun[iTracerGunWaitingForRay].settings.tracer_glow,
+				t.gun[iTracerGunWaitingForRay].settings.tracer_scrollV,
+				t.gun[iTracerGunWaitingForRay].settings.tracer_scaleV,
+				t.gun[iTracerGunWaitingForRay].settings.tracer_width,
+				fMaxLength,
+				iTracerGunWaitingForRay
+			);
+		}
+	}
 }
 
 void gun_soundcontrol ( void )

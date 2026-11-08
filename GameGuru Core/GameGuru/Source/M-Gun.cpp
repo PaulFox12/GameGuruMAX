@@ -67,6 +67,7 @@ void gun_loaddata ( void )
 	t.gun[t.gunid].settings.tracer_scaleV = 1.0f;
 	t.gun[t.gunid].settings.tracer_width = 1.0f;
 	t.gun[t.gunid].settings.tracer_maxlength = 0;
+	t.gun[t.gunid].settings.tracer_mps = 0;
 	t.gun[t.gunid].settings.tracer_imagefile = "tracer.dds";
 	t.gun[t.gunid].settings.tracer_WPEId = 0;
 	t.gun[t.gunid].settings.tracer_colorR = 1.0f;
@@ -1678,6 +1679,8 @@ void gun_loaddata ( void )
 					if (matched) t.gun[t.gunid].settings.tracer_width = t.value1;
 					cmpStrConst(t_field_s, "tracermaxlength");
 					if (matched) t.gun[t.gunid].settings.tracer_maxlength = t.value1;
+					cmpStrConst(t_field_s, "tracermps");
+					if (matched) t.gun[t.gunid].settings.tracer_mps = t.value1;
 					cmpStrConst(t_field_s, "tracercolorr");
 					if (matched) t.gun[t.gunid].settings.tracer_colorR = t.value1 / 255.0f;
 					cmpStrConst(t_field_s, "tracercolorg");
