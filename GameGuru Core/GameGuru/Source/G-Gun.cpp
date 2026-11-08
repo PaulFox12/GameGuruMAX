@@ -4760,9 +4760,6 @@ void gun_shoot_oneray ( void )
 			float fLifetime = fShotLength / ( t.gun[iTracerGunWaitingForRay].settings.tracer_mps * 39.37f );
 			if ( fLifetime < 0.03f ) fLifetime = 0.03f;
 			if ( fLifetime > 0.8f ) fLifetime = 0.8f;
-			// a streak longer than the shot would run back from the hit
-			float fMaxLength = t.gun[iTracerGunWaitingForRay].settings.tracer_maxlength;
-			if ( fMaxLength > fShotLength ) fMaxLength = fShotLength;
 			Tracers::AddTracer(
 				tracerWaitingFrom,
 				tracerEnd,
@@ -4772,7 +4769,7 @@ void gun_shoot_oneray ( void )
 				t.gun[iTracerGunWaitingForRay].settings.tracer_scrollV,
 				t.gun[iTracerGunWaitingForRay].settings.tracer_scaleV,
 				t.gun[iTracerGunWaitingForRay].settings.tracer_width,
-				fMaxLength,
+				t.gun[iTracerGunWaitingForRay].settings.tracer_maxlength,
 				iTracerGunWaitingForRay
 			);
 		}
