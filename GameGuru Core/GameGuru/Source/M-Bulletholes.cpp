@@ -16,13 +16,35 @@
 #define BULLETHOLESMAX 1000
 // holes have no lifetime: with every slot taken a new hole takes the oldest hole's slot that is out of view (outside the
 // camera's view or past BULLETHOLESUNSEENDIST, where a hole is under a pixel), else the oldest; one entity carries at most
-// BULLETHOLESPEROWNER, its oldest giving way (a moving vehicle's holes are placed again and the hole mesh refreshed each
-// frame it moves)
+// BULLETHOLESPEROWNER, its oldest giving way
 #define BULLETHOLESPEROWNER 50
 #define BULLETHOLESUNSEENDIST 5000.0f
+// the holes of an entity that moves go in a small object of their own, in its space, that follows its world matrix, so nothing
+// is sent to the renderer while it moves (rebuilding a mesh's render data cost 0.2 to 0.5 ms however small the mesh); they go
+// back to the main mesh after BULLETHOLESMOVERHOLD frames still. Objects 3481-3488, free below g.bulletholesobject (Common.cpp)
+#define BULLETHOLESMOVERS 8
+#define BULLETHOLESMOVERHOLD 120
+#define BULLETHOLESMOVEROBJECT 3481
+struct sBulletHoleMover
+{
+	int iOwnerObject; // 0 while free
+	int iHoles;
+	int iLastMovedFrame;
+	bool bMovedThisFrame;
+	bool bDirty;
+	bool bFullRebuild;
+	bool bSlotUsed[BULLETHOLESPEROWNER];
+};
+sBulletHoleMover g_bulletholemovers[BULLETHOLESMOVERS];
+int g_iBulletHoleFrame = 0;
+int g_iBulletHoleMoverLogs = 40;
+
 struct sBulletHole
 {
 	int iVertIndexStart;
+	int iMover;
+	int iMoverSlot;
+	GGVECTOR3 vecQuadUV[4];
 	unsigned int uSerial;
 	float fBornTime;
 	float fRadius;
@@ -30,7 +52,7 @@ struct sBulletHole
 
 	// the entity the hole was made on (0 for terrain), its object, and where that object stood when hit. The hole is removed
 	// when the entity hides or goes. On anything but a character it follows the object as it moves: it keeps its quad and
-	// normal in the object's own space and is placed again, in the one world-space mesh, whenever the object's world matrix
+	// normal in the object's own space and is placed again, or carried by a mover, whenever the object's world matrix
 	// changes. A character's holes are removed when it moves instead, as a flat quad can't bend with it
 	int iOwnerEntity;
 	int iOwnerObject;
@@ -62,6 +84,7 @@ int g_iBulletHoleRecyclesBy[3] = { 0, 0, 0 };
 // functions
 
 void bulletholes_changesinglehole (int iVertIndex, float fNX, float fNY, float fNZ);
+static void bulletholes_leavemover (sBulletHole* pBulletHole);
 
 // true while a hole could be seen: inside the camera's view and near enough to cover a pixel
 static bool bulletholes_inview (sBulletHole* pBulletHole)
@@ -77,7 +100,8 @@ static bool bulletholes_inview (sBulletHole* pBulletHole)
 // takes hole b out of the mesh and the list and frees its slot
 static void bulletholes_removeat (int b)
 {
-	bulletholes_changesinglehole (g_bulletholes[b].iVertIndexStart, 0, 0, 0);
+	if (g_bulletholes[b].iMover >= 0) bulletholes_leavemover (&g_bulletholes[b]);
+	else bulletholes_changesinglehole (g_bulletholes[b].iVertIndexStart, 0, 0, 0);
 	g_bulletholeavailable[g_bulletholes[b].iVertIndexStart / 6] = false;
 	g_bulletholes.erase(g_bulletholes.begin() + b);
 	g_bBulletHolesDirty = true;
@@ -101,12 +125,12 @@ static void bulletholes_recycle (int b, int iWhy)
 	bulletholes_removeat(b);
 }
 
-void bulletholes_refreshobject (void)
+static void bulletholes_refreshanobject (int iObject, bool* pbFullRebuild)
 {
-	if (ObjectExist(g.bulletholesobject) == 0) return;
-	sObject* pObject = GetObjectData(g.bulletholesobject);
+	if (ObjectExist(iObject) == 0) return;
+	sObject* pObject = GetObjectData(iObject);
 	if (!pObject) return;
-	if (g_bBulletHolesFullRebuild == true || pObject->iMeshCount < 1 || !pObject->ppMeshList || !pObject->ppMeshList[0])
+	if (*pbFullRebuild == true || pObject->iMeshCount < 1 || !pObject->ppMeshList || !pObject->ppMeshList[0])
 	{
 		WickedCall_RemoveObject(pObject);
 		WickedCall_AddObject(pObject);
@@ -114,19 +138,34 @@ void bulletholes_refreshobject (void)
 		WickedCall_SetObjectCastShadows(pObject, false);
 		WickedCall_SetObjectTransparent(pObject);
 		WickedCall_SetObjectRenderLayer(pObject, GGRENDERLAYERS_CURSOROBJECT);
-		g_bBulletHolesFullRebuild = false;
+		*pbFullRebuild = false;
 	}
 	else
 	{
 		// positions, normals and UVs; recreating the render data also refits the mesh bounds to the holes
 		WickedCall_UpdateMeshVertexData(pObject->ppMeshList[0], true);
 	}
-	g_bBulletHolesDirty = false;
 }
 
-void bulletholes_init (void)
+void bulletholes_refreshobject (void)
 {
-	if (ObjectExist(g.bulletholesobject) == 0)
+	if (g_bBulletHolesDirty == true)
+	{
+		bulletholes_refreshanobject (g.bulletholesobject, &g_bBulletHolesFullRebuild);
+		g_bBulletHolesDirty = false;
+	}
+	for (int m = 0; m < BULLETHOLESMOVERS; m++)
+	{
+		if (g_bulletholemovers[m].bDirty == false) continue;
+		bulletholes_refreshanobject (BULLETHOLESMOVEROBJECT + m, &g_bulletholemovers[m].bFullRebuild);
+		g_bulletholemovers[m].bDirty = false;
+	}
+}
+
+// makes a hole object with room for iHoles quads of six vertices each
+static void bulletholes_makeobject (int iObject, int iHoles)
+{
+	if (ObjectExist(iObject) == 0)
 	{
 		// create bullethole memblock mesh
 		int iMemblockIndex = 0;
@@ -139,9 +178,8 @@ void bulletholes_init (void)
 			}
 		}
 		if (iMemblockIndex == 0) return;
-		int iPolygonCount = BULLETHOLESMAX*2;
 		int vertsize = 12+12+8;
-		int iVertexCount = iPolygonCount * 6;
+		int iVertexCount = iHoles * 6;
 		int iSizeBytes = 12; // header size
 		iSizeBytes += vertsize * iVertexCount;
 		MakeMemblock(iMemblockIndex, iSizeBytes);
@@ -153,22 +191,34 @@ void bulletholes_init (void)
 		int iWorkMeshID = g.meshgeneralwork2;
 		if (GetMeshExist(iWorkMeshID) == 1) DeleteMesh(iWorkMeshID);
 		CreateMeshFromMemblock(iWorkMeshID, iMemblockIndex);
-		MakeObject(g.bulletholesobject, iWorkMeshID, 0);
+		MakeObject(iObject, iWorkMeshID, 0);
 		if (GetMeshExist(iWorkMeshID) == 1) DeleteMesh(iWorkMeshID);
 		if (MemblockExist(iMemblockIndex) == 1) DeleteMemblock(iMemblockIndex);
 
 		// set bulletholes object for rendering
 		LoadImage("gamecore\\bulletholes\\bulletholes_color.dds", g.bulletholeimage);
-		TextureObject(g.bulletholesobject, g.bulletholeimage);
-		SetObjectTransparency(g.bulletholesobject, 1);
-		SetObjectCull(g.bulletholesobject, 0);
+		TextureObject(iObject, g.bulletholeimage);
+		SetObjectTransparency(iObject, 1);
+		SetObjectCull(iObject, 0);
+	}
+}
+
+void bulletholes_init (void)
+{
+	bulletholes_makeobject (g.bulletholesobject, BULLETHOLESMAX);
+	for (int m = 0; m < BULLETHOLESMOVERS; m++)
+	{
+		bulletholes_makeobject (BULLETHOLESMOVEROBJECT + m, BULLETHOLESPEROWNER);
+		sObject* pObject = GetObjectData(BULLETHOLESMOVEROBJECT + m);
+		if (pObject) pObject->position.bCustomWorldMatrix = true;
 	}
 
 	//  clear all bulletholes
 	bulletholes_clearall();
 
-	// the first change in this level rebuilds the renderer's object
+	// the first change in this level rebuilds the renderer's objects
 	g_bBulletHolesFullRebuild = true;
+	for (int m = 0; m < BULLETHOLESMOVERS; m++) g_bulletholemovers[m].bFullRebuild = true;
 }
 
 void bulletholes_clearall (void)
@@ -176,15 +226,29 @@ void bulletholes_clearall (void)
 	// wipe out data in object
 	if (ObjectExist(g.bulletholesobject) == 1)
 	{
-		int iPolygonCount = BULLETHOLESMAX * 2;
-		int iVertexCount = iPolygonCount * 6;
 		LockVertexDataForLimbCore(g.bulletholesobject, 0, 1);
-		for (int iVertIndex = 0; iVertIndex < iVertexCount; iVertIndex++)
+		for (int iVertIndex = 0; iVertIndex < BULLETHOLESMAX * 6; iVertIndex++)
 		{
 			SetVertexDataPosition(iVertIndex, 0, 0, 0);
 		}
 		UnlockVertexData();
 	}
+	for (int m = 0; m < BULLETHOLESMOVERS; m++)
+	{
+		sBulletHoleMover* pMover = &g_bulletholemovers[m];
+		bool bFullRebuild = pMover->bFullRebuild;
+		memset(pMover, 0, sizeof(sBulletHoleMover));
+		pMover->bFullRebuild = bFullRebuild;
+		pMover->bDirty = true;
+		if (ObjectExist(BULLETHOLESMOVEROBJECT + m) == 0) continue;
+		LockVertexDataForLimbCore(BULLETHOLESMOVEROBJECT + m, 0, 1);
+		for (int iVertIndex = 0; iVertIndex < BULLETHOLESPEROWNER * 6; iVertIndex++)
+		{
+			SetVertexDataPosition(iVertIndex, 0, 0, 0);
+		}
+		UnlockVertexData();
+	}
+	g_iBulletHoleMoverLogs = 40;
 
 	// clear the list
 	g_bulletholes.clear();
@@ -219,6 +283,93 @@ void bulletholes_changesinglehole (int iVertIndex, float fNX, float fNY, float f
 		}
 	}
 	UnlockVertexData();
+}
+
+// sets a hole's six vertices in a hole object: its corners, normal and texture coordinates
+static void bulletholes_placesinglehole (int iObject, int iVertIndex, GGVECTOR3* pQuad, GGVECTOR3 vecNormal, GGVECTOR3* pUV)
+{
+	const int iWhichCornerOfQuad[6] = { 0, 1, 2, 1, 3, 2 };
+	LockVertexDataForLimbCore(iObject, 0, 1);
+	for (int v = 0; v < 6; v++)
+	{
+		GGVECTOR3* pCorner = &pQuad[iWhichCornerOfQuad[v]];
+		GGVECTOR3* pCornerUV = &pUV[iWhichCornerOfQuad[v]];
+		SetVertexDataPosition(iVertIndex + v, pCorner->x, pCorner->y, pCorner->z);
+		SetVertexDataNormals(iVertIndex + v, vecNormal.x, vecNormal.y, vecNormal.z);
+		SetVertexDataUV(iVertIndex + v, pCornerUV->x, pCornerUV->y);
+	}
+	UnlockVertexData();
+}
+
+// the mover carrying an owner object's holes, -1 if none
+static int bulletholes_findmover (int iOwnerObject)
+{
+	for (int m = 0; m < BULLETHOLESMOVERS; m++)
+		if (g_bulletholemovers[m].iOwnerObject == iOwnerObject)
+			return m;
+	return -1;
+}
+
+// puts a hole in its owner's mover, taking a free one if it has none; false with none free, and the hole stays in the main mesh
+static bool bulletholes_joinmover (sBulletHole* pBulletHole)
+{
+	int iMover = bulletholes_findmover(pBulletHole->iOwnerObject);
+	if (iMover < 0)
+	{
+		iMover = bulletholes_findmover(0);
+		if (iMover < 0) return false;
+		g_bulletholemovers[iMover].iOwnerObject = pBulletHole->iOwnerObject;
+		g_bulletholemovers[iMover].bMovedThisFrame = true;
+		if (g_iBulletHoleMoverLogs > 0)
+		{
+			g_iBulletHoleMoverLogs--;
+			char pLog[128];
+			sprintf_s(pLog, "BULLETHOLE MOVER %d carries the holes of object %d", iMover, pBulletHole->iOwnerObject);
+			timestampactivity(0, pLog);
+		}
+	}
+	sBulletHoleMover* pMover = &g_bulletholemovers[iMover];
+	for (int iSlot = 0; iSlot < BULLETHOLESPEROWNER; iSlot++)
+	{
+		if (pMover->bSlotUsed[iSlot] == true) continue;
+		GGVECTOR3 vecNormal;
+		GGVec3Normalize(&vecNormal, &pBulletHole->vecLocalNormal);
+		bulletholes_placesinglehole(BULLETHOLESMOVEROBJECT + iMover, iSlot * 6, pBulletHole->vecLocalQuad, vecNormal, pBulletHole->vecQuadUV);
+		pMover->bSlotUsed[iSlot] = true;
+		pMover->iHoles++;
+		pMover->iLastMovedFrame = g_iBulletHoleFrame;
+		pMover->bDirty = true;
+		pBulletHole->iMover = iMover;
+		pBulletHole->iMoverSlot = iSlot;
+		return true;
+	}
+	return false;
+}
+
+// takes a hole out of its mover, which is free again once it carries none
+static void bulletholes_leavemover (sBulletHole* pBulletHole)
+{
+	sBulletHoleMover* pMover = &g_bulletholemovers[pBulletHole->iMover];
+	LockVertexDataForLimbCore(BULLETHOLESMOVEROBJECT + pBulletHole->iMover, 0, 1);
+	for (int v = 0; v < 6; v++) SetVertexDataPosition((pBulletHole->iMoverSlot * 6) + v, 0, 0, 0);
+	UnlockVertexData();
+	pMover->bSlotUsed[pBulletHole->iMoverSlot] = false;
+	pMover->bDirty = true;
+	pMover->iHoles--;
+	if (pMover->iHoles <= 0)
+	{
+		if (g_iBulletHoleMoverLogs > 0)
+		{
+			g_iBulletHoleMoverLogs--;
+			char pLog[128];
+			sprintf_s(pLog, "BULLETHOLE MOVER %d free again (object %d)", pBulletHole->iMover, pMover->iOwnerObject);
+			timestampactivity(0, pLog);
+		}
+		pMover->iOwnerObject = 0;
+		pMover->bMovedThisFrame = false;
+	}
+	pBulletHole->iMover = -1;
+	pBulletHole->iMoverSlot = -1;
 }
 
 void bulletholes_add (int iMaterialIndex, float fX, float fY, float fZ, float fNX, float fNY, float fNZ, int iOwnerEntity)
@@ -346,6 +497,9 @@ void bulletholes_add (int iMaterialIndex, float fX, float fY, float fZ, float fN
 		// add bullet hole to list
 		sBulletHole bullethole;
 		bullethole.iVertIndexStart = iBulletSlot * 6;
+		bullethole.iMover = -1;
+		bullethole.iMoverSlot = -1;
+		for (int p = 0; p < 4; p++) bullethole.vecQuadUV[p] = g_vecBulletHoleQuadUV[p];
 		bullethole.uSerial = g_uBulletHoleSerial++;
 		bullethole.fBornTime = (float)GetTickCount() / 1000.0f;
 		bullethole.fRadius = fBulletHoleRadius;
@@ -385,25 +539,15 @@ void bulletholes_add (int iMaterialIndex, float fX, float fY, float fZ, float fN
 		g_bulletholes.push_back(bullethole);
 		g_bulletholeavailable[iBulletSlot] = true;
 
-		// add vert data to represent this bullet hole, seen after the next bulletholes_update
-		bulletholes_changesinglehole (bullethole.iVertIndexStart, fNX, fNY, fNZ);
-		g_bBulletHolesDirty = true;
+		// add vert data to represent this bullet hole, seen after the next bulletholes_update: on an entity whose holes
+		// have a mover, straight into it
+		sBulletHole* pNewHole = &g_bulletholes.back();
+		if (pNewHole->bFollowsOwner == false || bulletholes_findmover(pNewHole->iOwnerObject) < 0 || bulletholes_joinmover(pNewHole) == false)
+		{
+			bulletholes_changesinglehole (bullethole.iVertIndexStart, fNX, fNY, fNZ);
+			g_bBulletHolesDirty = true;
+		}
 	}
-}
-
-// moves a hole's quad (the six vertices of its two triangles) to new corners and a new normal, keeping its texture
-// coordinates
-static void bulletholes_placesinglehole (int iVertIndex, GGVECTOR3* pQuad, GGVECTOR3 vecNormal)
-{
-	const int iWhichCornerOfQuad[6] = { 0, 1, 2, 1, 3, 2 };
-	LockVertexDataForLimbCore(g.bulletholesobject, 0, 1);
-	for (int v = 0; v < 6; v++)
-	{
-		GGVECTOR3* pCorner = &pQuad[iWhichCornerOfQuad[v]];
-		SetVertexDataPosition(iVertIndex + v, pCorner->x, pCorner->y, pCorner->z);
-		SetVertexDataNormals(iVertIndex + v, vecNormal.x, vecNormal.y, vecNormal.z);
-	}
-	UnlockVertexData();
 }
 
 // true while the entity a hole was made on still has the object it was hit on, shown
@@ -449,7 +593,7 @@ void bulletholes_update (void)
 #ifdef OPTICK_ENABLE
 	OPTICK_EVENT();
 #endif
-	bool bUpdateTheObject = false;
+	g_iBulletHoleFrame++;
 
 	// holes on an entity that has hidden (a wreck swap hides it) or gone since the hit are removed; those on one that has
 	// moved or turned follow it, or are removed from a character, all of them in this one update
@@ -460,25 +604,47 @@ void bulletholes_update (void)
 		if (pBulletHole->bFollowsOwner == true && bulletholes_ownerpresent(pBulletHole) == true)
 		{
 			sObject* pOwnerObject = GetObjectData(pBulletHole->iOwnerObject);
-			if (!pOwnerObject || bulletholes_samematrix(&pOwnerObject->position.matWorld, &pBulletHole->matOwnerWorld) == true) continue;
-			pBulletHole->matOwnerWorld = pOwnerObject->position.matWorld;
+			if (!pOwnerObject) continue;
+			bool bStill = bulletholes_samematrix(&pOwnerObject->position.matWorld, &pBulletHole->matOwnerWorld);
+			if (bStill == true && (pBulletHole->iMover < 0 || g_iBulletHoleFrame - g_bulletholemovers[pBulletHole->iMover].iLastMovedFrame < BULLETHOLESMOVERHOLD)) continue;
+			if (bStill == false)
+			{
+				pBulletHole->matOwnerWorld = pOwnerObject->position.matWorld;
+				if (pBulletHole->iMover < 0 && bulletholes_joinmover(pBulletHole) == true)
+				{
+					bulletholes_changesinglehole(pBulletHole->iVertIndexStart, 0, 0, 0);
+					g_bBulletHolesDirty = true;
+				}
+				if (pBulletHole->iMover >= 0)
+				{
+					// its mover carries it: only its place in the world for the checks in bulletholes_add
+					GGVECTOR3 vecCentre = (pBulletHole->vecLocalQuad[0] + pBulletHole->vecLocalQuad[3]) * 0.5f;
+					GGVec3TransformCoord(&pBulletHole->vecWorldPos, &vecCentre, &pBulletHole->matOwnerWorld);
+					g_bulletholemovers[pBulletHole->iMover].iLastMovedFrame = g_iBulletHoleFrame;
+					g_bulletholemovers[pBulletHole->iMover].bMovedThisFrame = true;
+					continue;
+				}
+			}
+			else
+			{
+				// still long enough: back to the main mesh
+				bulletholes_leavemover(pBulletHole);
+			}
 			GGVECTOR3 vecQuad[4];
 			for (int p = 0; p < 4; p++) GGVec3TransformCoord(&vecQuad[p], &pBulletHole->vecLocalQuad[p], &pBulletHole->matOwnerWorld);
 			GGVECTOR3 vecNormal;
 			GGVec3TransformNormal(&vecNormal, &pBulletHole->vecLocalNormal, &pBulletHole->matOwnerWorld);
 			GGVec3Normalize(&vecNormal, &vecNormal);
 			pBulletHole->vecWorldPos = (vecQuad[0] + vecQuad[3]) * 0.5f;
-			bulletholes_placesinglehole(pBulletHole->iVertIndexStart, vecQuad, vecNormal);
-			bUpdateTheObject = true;
+			bulletholes_placesinglehole(g.bulletholesobject, pBulletHole->iVertIndexStart, vecQuad, vecNormal, pBulletHole->vecQuadUV);
+			g_bBulletHolesDirty = true;
 			continue;
 		}
 		if (pBulletHole->bFollowsOwner == false && bulletholes_ownerunchanged(pBulletHole) == true) continue;
 		bulletholes_removeat(b);
-		bUpdateTheObject = true;
 	}
 
 	// holes no longer expire: one stays until its slot is needed (bulletholes_add) or its entity hides, goes or moves
-	if (bUpdateTheObject == true) g_bBulletHolesDirty = true;
 
 	// past the first 50 recycles, their totals at most every 2 seconds
 	static int iRecyclesLogged = 0;
@@ -495,7 +661,20 @@ void bulletholes_update (void)
 	}
 
 	// show this frame's new, expired and removed holes in one refresh
-	if (g_bBulletHolesDirty == true) bulletholes_refreshobject();
+	bulletholes_refreshobject();
+
+	// a mover whose owner moved takes its world matrix, and that is all the renderer needs
+	for (int m = 0; m < BULLETHOLESMOVERS; m++)
+	{
+		sBulletHoleMover* pMover = &g_bulletholemovers[m];
+		if (pMover->bMovedThisFrame == false) continue;
+		pMover->bMovedThisFrame = false;
+		sObject* pObject = GetObjectData(BULLETHOLESMOVEROBJECT + m);
+		sObject* pOwnerObject = GetObjectData(pMover->iOwnerObject);
+		if (!pObject || !pOwnerObject) continue;
+		pObject->position.matWorld = pOwnerObject->position.matWorld;
+		WickedCall_UpdateObject(pObject);
+	}
 }
 
 void bulletholes_free (void)
@@ -509,4 +688,7 @@ void bulletholes_free (void)
 		// hide the actual object
 		HideObject(g.bulletholesobject);
 	}
+	for (int m = 0; m < BULLETHOLESMOVERS; m++)
+		if (ObjectExist(BULLETHOLESMOVEROBJECT + m) == 1)
+			HideObject(BULLETHOLESMOVEROBJECT + m);
 }
