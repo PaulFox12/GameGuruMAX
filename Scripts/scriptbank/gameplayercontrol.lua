@@ -1517,6 +1517,20 @@ function gameplayercontrol.underwatersound(on)
 	end
 end
 
+-- the ambient track and the exit sound come back on any way out, not only through the 20 units at the surface
+function gameplayercontrol.leftunderwater()
+	if ( g_prevunderwater == 1 ) then
+		StartAmbientMusicTrack()
+		local exitSound = GetGamePlayerControlSoundStartIndex()+14
+		if ( RawSoundExist ( exitSound ) == 1 ) then
+			if ( RawSoundPlaying ( exitSound ) == 0 ) then
+				PlayRawSound ( exitSound )
+			end
+		end
+		g_prevunderwater = 0
+	end
+end
+
 function gameplayercontrol.control()
 
 	local timeNow = g_Time
@@ -2126,16 +2140,7 @@ function gameplayercontrol.control()
 					gameplayercontrol.underwatersound(0)
 					
 					-- play exit underwater sound
-					if( g_prevunderwater == 1) then
-						StartAmbientMusicTrack()
-						ttsnd = GetGamePlayerControlSoundStartIndex()+14
-						if ( RawSoundExist ( ttsnd ) == 1 ) then
-							if(RawSoundPlaying(ttsnd) == 0) then
-								PlayRawSound ( ttsnd )
-							end
-						end
-						g_prevunderwater = 0
-					end
+					gameplayercontrol.leftunderwater()
 					
 					if(g_swimimpulsetimer == 0) then
 						local swimSound = GetGamePlayerControlSoundStartIndex()+35+math.random(0,3)
@@ -2167,6 +2172,7 @@ function gameplayercontrol.control()
 			else
 				-- head comes out of water
 				gameplayercontrol.underwatersound(0)
+				gameplayercontrol.leftunderwater()
 				if ( GetGamePlayerControlInWaterState() > 1 ) then 
 					SetGamePlayerControlInWaterState(1)
 					SetGamePlayerControlDrownTimestamp(0)
@@ -2188,9 +2194,11 @@ function gameplayercontrol.control()
 				g_gravitymode = 0
 				g_gravitymoderefresh = 1
 			end
+			gameplayercontrol.leftunderwater()
 		end
 	else
       gameplayercontrol.underwatersound(0)
+      gameplayercontrol.leftunderwater()
       SetGamePlayerControlInWaterState(0)
       SetUnderwaterOff()
 	  g_gravitymode = 0
