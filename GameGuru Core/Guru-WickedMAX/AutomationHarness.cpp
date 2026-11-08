@@ -9,6 +9,7 @@
 #include "gameguru.h"
 #include "globstruct.h"
 #include "master.h"
+namespace Tracers { void DebugLastAdded(char* out, int osize); }
 #include "..\GameGuru\Imgui\imgui.h"
 #include "..\GameGuru\Imgui\imgui_internal.h"
 #include "..\GameGuru\Imgui\imgui_gg_dx11.h"
@@ -573,6 +574,27 @@ void AutoHarness_CheckForCommand ( void )
 		extern void WickedCall_UpdateLuaTextureScroll(float fSeconds);
 		WickedCall_UpdateLuaTextureScroll(fSeconds);
 		_snprintf(result, sizeof(result), "OK: TEXSCROLL_STEP %.3f", fSeconds);
+		result[sizeof(result) - 1] = 0;
+	}
+	else if ( _stricmp ( cmd, "TRACER_TEST" ) == 0 )
+	{
+		// TRACER_TEST [mps [active]]: with arguments every loaded gun's tracermps (and traceractive) as the gunspec keys set them;
+		// answers the held gun's settings, the last ray and the last streak added
+		if ( arg && *arg )
+		{
+			float fMps = 0; int iActive = -1;
+			sscanf ( arg, "%f %d", &fMps, &iActive );
+			for ( int iGun = 1; iGun <= g.gunmax; iGun++ )
+			{
+				t.gun[iGun].settings.tracer_mps = fMps;
+				if ( iActive >= 0 ) t.gun[iGun].settings.tracer_active = ( iActive != 0 );
+			}
+		}
+		char pLast[256]; pLast[0] = 0;
+		Tracers::DebugLastAdded ( pLast, sizeof(pLast) );
+		_snprintf ( result, sizeof(result), "OK: TRACER_TEST gun=%d '%s' active=%d mps=%.0f lifetime=%.2f maxlength=%.1f zoomheld=%d ray=(%.1f,%.1f,%.1f)-(%.1f,%.1f,%.1f) %s",
+			t.gunid, t.gun_s.Get(), t.gun[t.gunid].settings.tracer_active ? 1 : 0, t.gun[t.gunid].settings.tracer_mps, t.gun[t.gunid].settings.tracer_lifetime, t.gun[t.gunid].settings.tracer_maxlength,
+			g.gdisablerightmousehold, t.brayx1_f, t.brayy1_f, t.brayz1_f, t.brayx2_f, t.brayy2_f, t.brayz2_f, pLast );
 		result[sizeof(result) - 1] = 0;
 	}
 	else if ( _stricmp ( cmd, "TEST_DECAL" ) == 0 )

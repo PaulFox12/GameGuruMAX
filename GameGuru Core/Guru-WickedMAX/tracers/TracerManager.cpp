@@ -269,12 +269,25 @@ namespace Tracers
         CreatePipelineState();
     }
 
+    // GG: the last streak added and how many so far, for the harness's TRACER_TEST
+    Tracer lastAdded;
+    int iAddedTotal = 0;
+    void DebugLastAdded(char* out, int osize)
+    {
+        _snprintf(out, osize, "added=%d from=(%.1f,%.1f,%.1f) to=(%.1f,%.1f,%.1f) life=%.3f maxlength=%.1f image=%u", iAddedTotal,
+            lastAdded.startPos.x, lastAdded.startPos.y, lastAdded.startPos.z, lastAdded.endPos.x, lastAdded.endPos.y, lastAdded.endPos.z,
+            lastAdded.lifeTime, lastAdded.max_length, lastAdded.tracerID);
+        out[osize - 1] = 0;
+    }
+
     void AddTracer(const XMFLOAT3& start, const XMFLOAT3& end, float lifeTime, XMFLOAT4 color, float glow, float scroll, float scaleV, float width, float max_length, uint32_t tracerID)
     {
 #ifdef DISABLETEMP
         return;
 #endif
         tracers.push_back({ start, end, gameTime, lifeTime, color, glow, scroll ,scaleV, width, max_length, tracerID });
+        lastAdded = tracers.back();
+        iAddedTotal++;
     }
 
 
