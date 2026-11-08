@@ -576,6 +576,28 @@ void AutoHarness_CheckForCommand ( void )
 		_snprintf(result, sizeof(result), "OK: TEXSCROLL_STEP %.3f", fSeconds);
 		result[sizeof(result) - 1] = 0;
 	}
+	else if ( _stricmp ( cmd, "DUMP_METALS" ) == 0 )
+	{
+		// DUMP_METALS: every material in the scene, its metalness, roughness, whether its surface map loaded and the colour and
+		// surface maps' names, to metals_dump.txt beside the exe; answers how many are metal with no surface map to scale it
+		char pPath[MAX_PATH];
+		GetModuleFileNameA ( NULL, pPath, MAX_PATH );
+		char* pSlash = strrchr ( pPath, '\\' );
+		if ( pSlash ) strcpy ( pSlash + 1, "metals_dump.txt" );
+		FILE* f = fopen ( pPath, "w" );
+		wiScene::Scene& scene = wiScene::GetScene();
+		int iMetalNoMap = 0;
+		for ( size_t i = 0; i < scene.materials.GetCount(); i++ )
+		{
+			wiScene::MaterialComponent& m = scene.materials[i];
+			bool bMap = ( m.textures[wiScene::MaterialComponent::SURFACEMAP].resource != nullptr );
+			if ( m.metalness > 0.5f && !bMap ) iMetalNoMap++;
+			if ( f ) fprintf ( f, "%.2f %.2f %d | %s | %s\n", m.metalness, m.roughness, bMap ? 1 : 0, m.textures[wiScene::MaterialComponent::BASECOLORMAP].name.c_str(), m.textures[wiScene::MaterialComponent::SURFACEMAP].name.c_str() );
+		}
+		if ( f ) fclose ( f );
+		_snprintf ( result, sizeof(result), "OK: DUMP_METALS %d materials, %d metal with no surface map", (int)scene.materials.GetCount(), iMetalNoMap );
+		result[sizeof(result) - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "TRACER_TEST" ) == 0 )
 	{
 		// TRACER_TEST [mps [active]]: with arguments every loaded gun's tracermps (and traceractive) as the gunspec keys set them;
