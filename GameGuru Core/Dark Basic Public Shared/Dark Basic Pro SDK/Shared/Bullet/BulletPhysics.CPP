@@ -2408,9 +2408,10 @@ void KeepOBJCollisionMesh (bool bKeep)
 // nothing a body does (a turned limb) reaches another. The longest unused gives its object up when all are taken, an object
 // another system holds is never used, and all are freed when the physics ends. The entity files' checks for an OBJ are
 // kept the same way. A mesh preloaded by the game's Lua (PreloadCollisionMeshes, during the loading cover) is pinned: never
-// given up
-#define PLAYOBJCOLLISION_FIRST 69901
-#define PLAYOBJCOLLISION_SLOTS 32
+// given up. 69600 to 69932 are free between the temporary objects and the instance stamp's; 32 slots held 9 pinned helicopters and
+// lost most of a level's rubble before it fell, and a preload past the slots got nothing
+#define PLAYOBJCOLLISION_FIRST 69600
+#define PLAYOBJCOLLISION_SLOTS 333
 struct sPlayOBJCollision
 {
 	char pMesh[MAX_PATH];
