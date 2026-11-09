@@ -4997,6 +4997,7 @@ void c_entity_loadelementsdata ( void )
 						{
 							t.entityelement[t.e] = t.storeentityelement[t.e];
 						}
+						UnDim (t.storeentityelement);
 					}
 				}
 				for ( int n = 1; n <= iElementsInFile; n++ )
@@ -8111,6 +8112,8 @@ void entity_growelementarray ( int iNewMax )
 	{
 		t.entityelement[e] = t.storeentityelement[e];
 	}
+	// the copy is only for the move, and an element is 29 KB (225 MB kept on Outdoors)
+	UnDim ( t.storeentityelement );
 }
 
 void entity_addentitytomap ( void )
