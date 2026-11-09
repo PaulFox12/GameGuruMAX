@@ -6,7 +6,7 @@
 struct DistantLight
 {
 	float4 posSize; // xyz the light, w its size (world units)
-	float4 color; // rgb its colour, a its brightness
+	float4 color; // rgb its colour by its brightness, a the share of the fog it takes (0 to 1)
 };
 
 StructuredBuffer<DistantLight> lights : register(t1);
@@ -54,13 +54,13 @@ VSOut main(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
 	}
 	else
 	{
-		keep = 1.0f - g_DLFog.z * (1.0f - exp(-max(0.0f, distance - g_DLFog.x) * g_DLFog.y));
+		keep = 1.0f - l.color.a * g_DLFog.z * (1.0f - exp(-max(0.0f, distance - g_DLFog.x) * g_DLFog.y));
 	}
 
 	VSOut output;
 	output.pos = clip;
 	output.corner = corner;
-	output.color = l.color.rgb * l.color.a * g_DLFade.z * fadeIn * keep;
+	output.color = l.color.rgb * g_DLFade.z * fadeIn * keep;
 	// further than the far plane: drawn at it (the depth is reversed, far is 0), where only the scene drawn nearer hides it
 	output.pos.z = max(output.pos.z, 0.0f);
 	// none to draw: behind the far plane by its depth alone (all its corners alike)

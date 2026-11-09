@@ -11,8 +11,9 @@ namespace DistantLights
 {
 	void Initialize();
 	// a light at a world position, its colour (0 to 1), its size (world units, the size it is drawn at until that is
-	// smaller than the smallest dot), its brightness and its tag; false when the list is full
-	bool Add(float fX, float fY, float fZ, float fR, float fG, float fB, float fSize, float fBrightness, int iTag);
+	// smaller than the smallest dot), its brightness, its tag and how much of the scene's fog it takes (1 all of it, 0 none:
+	// a runway light or a beacon, made to cut through); false when the list is full
+	bool Add(float fX, float fY, float fZ, float fR, float fG, float fB, float fSize, float fBrightness, int iTag, float fFogShare = 1.0f);
 	// every light, or those with the tag
 	void Clear(int iTag = -1);
 	// all of them brighter or dimmer, 0 (none drawn) to any
@@ -26,5 +27,7 @@ namespace DistantLights
 	void GetLook(float* pMinPixels, float* pMaxPixels, float* pFadeFrom, float* pFadeTo, float* pPull);
 	// lights listed, those whose tag is on (drawn), the most there can be
 	void GetStats(int* piCount, int* piDrawn, int* piCapacity);
+	// lights taking less than all of the fog
+	int GetFogShared();
 	extern "C" void distantlight_draw(const wiScene::CameraComponent& camera, wiGraphics::CommandList cmd);
 }

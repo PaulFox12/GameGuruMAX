@@ -1768,12 +1768,12 @@ TriggerWaterRipple: TriggerWaterRipple(x,y,z) -- triggers a ripple decal animati
 TriggerWaterRippleSize : TriggerWaterRippleSize ( x, y, z, sizex, sizey [, nx, ny, nz] ) -- a ripple ring of that size; with a surface normal it lies on that surface (a slope) rather than flat. Nothing checks for water, so it can mark wet ground. Not made past GetDecalRange() from the camera
 SetRippleBatching : SetRippleBatching ( on ) -- 1 draws water ripples (TriggerWaterRipple, TriggerWaterRippleSize) as one batch, one instanced draw with the ripple decal's look, cheaper and up to 2048 at once; 0 (at first, and when a test game ends) the decal elements as before (not in the stock exe: guard it)
 GetRippleBatching : on, live, capacity, dropped = GetRippleBatching ( ) -- whether ripples are batched, the rings showing, the most there can be, and the rings not made because all were in use
-AddDistantLight : added = AddDistantLight ( x, y, z, r, g, b [, size [, brightness [, tag] ] ] ) -- a light drawn far off as a dot a pixel or two across (lamps, lit windows: a town at night); r g b 0-255, size 40, brightness 1, tag 0-255 (0); near ones fade out; cleared at the next level or test game end
+AddDistantLight : added = AddDistantLight ( x, y, z, r, g, b [, size [, brightness [, tag [, fogShare] ] ] ] ) -- a light drawn far off as a dot a pixel or two across (lamps, lit windows: a town at night); r g b 0-255, size 40, brightness 1, tag 0-255 (0), fogShare 0-1 how much of the scene's fog it takes (1; 0 keeps it as in clear air: a runway light, a beacon); near ones fade out; cleared at the next level or test game end
 ClearDistantLights : ClearDistantLights ( [tag] ) -- every distant light, or the tag's
 SetDistantLightsAmount : SetDistantLightsAmount ( amount ) -- every distant light's brightness times this; 0 none drawn (daytime), 1 unless set
 SetDistantLightTag : SetDistantLightTag ( tag, on ) -- the tag's distant lights drawn (1) or not (0), a power cut
 SetDistantLightsLook : SetDistantLightsLook ( minPixels, maxPixels, fadeFrom, fadeTo [, pull] ) -- the smallest and largest dot (1.5, 3 pixels), faded in from and full by (6000, 12000 units), drawn toward the camera by (60)
-GetDistantLights : count, drawn, capacity, amount, minPixels, maxPixels, fadeFrom, fadeTo, pull = GetDistantLights ( )
+GetDistantLights : count, drawn, capacity, amount, minPixels, maxPixels, fadeFrom, fadeTo, pull, fogShared = GetDistantLights ( ) -- fogShared: how many take less than all of the fog
 PlayFootfallSound: snd=PlayFootfallSound(type,x,y,z,lastsnd) -- triggers footfall sound and returns raw sound index used
 PlayFootfallSound: snd=PlayFootfallSound(type,x,y,z,lastsnd,leftorright,walkorrun) -- additional parameters for greater footfall variety
 ResetUnderwaterState: ResetUnderwaterState() -- resets the underwater sub-system when player emerges from water

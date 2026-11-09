@@ -19,6 +19,7 @@ namespace DistantLights
 		XMFLOAT4 posSize;
 		XMFLOAT4 color;
 		int tag;
+		float fogShare;
 	};
 
 	// one light for the vertex shader (DistantLightVS.hlsl)
@@ -118,13 +119,14 @@ namespace DistantLights
 		device->CreatePipelineState(&desc, &pso);
 	}
 
-	bool Add(float fX, float fY, float fZ, float fR, float fG, float fB, float fSize, float fBrightness, int iTag)
+	bool Add(float fX, float fY, float fZ, float fR, float fG, float fB, float fSize, float fBrightness, int iTag, float fFogShare)
 	{
 		if (lights.size() >= DISTANTLIGHTS_MAX) return false;
 		Light l;
 		l.posSize = XMFLOAT4(fX, fY, fZ, fSize > 0 ? fSize : 0);
 		l.color = XMFLOAT4(fR, fG, fB, fBrightness > 0 ? fBrightness : 0);
 		l.tag = iTag < 0 ? 0 : (iTag > 255 ? 255 : iTag);
+		l.fogShare = fFogShare < 0 ? 0 : (fFogShare > 1 ? 1 : fFogShare);
 		lights.push_back(l);
 		bDirty = true;
 		return true;
@@ -172,6 +174,13 @@ namespace DistantLights
 		*pPull = fPull;
 	}
 
+	int GetFogShared()
+	{
+		int iShared = 0;
+		for (const Light& l : lights) if (l.fogShare < 1) iShared++;
+		return iShared;
+	}
+
 	void GetStats(int* piCount, int* piDrawn, int* piCapacity)
 	{
 		if (bDirty)
@@ -202,7 +211,7 @@ namespace DistantLights
 				if (!bTagOn[l.tag]) continue;
 				LightGPU g;
 				g.posSize = l.posSize;
-				g.color = l.color;
+				g.color = XMFLOAT4(l.color.x * l.color.w, l.color.y * l.color.w, l.color.z * l.color.w, l.fogShare);
 				gpuLights.push_back(g);
 			}
 			iDrawn = (uint32_t)gpuLights.size();

@@ -9000,7 +9000,8 @@ int GetRippleBatching(lua_State *L)
 // the distant lights (#220, Guru-WickedMAX's DistantLightManager)
 namespace DistantLights
 {
-	bool Add(float fX, float fY, float fZ, float fR, float fG, float fB, float fSize, float fBrightness, int iTag);
+	bool Add(float fX, float fY, float fZ, float fR, float fG, float fB, float fSize, float fBrightness, int iTag, float fFogShare);
+	int GetFogShared();
 	void Clear(int iTag);
 	void SetAmount(float fAmount);
 	float GetAmount();
@@ -9009,9 +9010,10 @@ namespace DistantLights
 	void GetLook(float* pMinPixels, float* pMaxPixels, float* pFadeFrom, float* pFadeTo, float* pPull);
 	void GetStats(int* piCount, int* piDrawn, int* piCapacity);
 }
-// AddDistantLight(x, y, z, r, g, b [, size [, brightness [, tag]]]): a light drawn far off as a dot a pixel or two across
+// AddDistantLight(x, y, z, r, g, b [, size [, brightness [, tag [, fogShare]]]]): a light drawn far off as a dot a pixel or two across
 // (a lamp, a lit window), so a town reads as lived in at night; r g b 0 to 255, size in world units (40 unless given),
-// brightness 1 unless given, tag 0 to 255 (0 unless given) for SetDistantLightTag. True unless the list is full (65,536).
+// brightness 1 unless given, tag 0 to 255 (0 unless given) for SetDistantLightTag, fogShare 0 to 1 how much of the scene's
+// fog it takes (1 unless given: 0 keeps it as in clear air, for a runway light or a beacon). True unless the list is full (65,536).
 // Near ones fade out (the real lights and lamp heads show there). Cleared at the next level or when a test game ends
 int AddDistantLight(lua_State *L)
 {
@@ -9019,7 +9021,7 @@ int AddDistantLight(lua_State *L)
 	if (n < 6) return 0;
 	bool bAdded = DistantLights::Add(lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3),
 		lua_tonumber(L, 4) / 255.0f, lua_tonumber(L, 5) / 255.0f, lua_tonumber(L, 6) / 255.0f,
-		n >= 7 ? lua_tonumber(L, 7) : 40.0f, n >= 8 ? lua_tonumber(L, 8) : 1.0f, n >= 9 ? (int)lua_tointeger(L, 9) : 0);
+		n >= 7 ? lua_tonumber(L, 7) : 40.0f, n >= 8 ? lua_tonumber(L, 8) : 1.0f, n >= 9 ? (int)lua_tointeger(L, 9) : 0, n >= 10 ? lua_tonumber(L, 10) : 1.0f);
 	lua_pushboolean(L, bAdded ? 1 : 0);
 	return 1;
 }
@@ -9055,7 +9057,8 @@ int SetDistantLightsLook(lua_State *L)
 	DistantLights::SetLook(lua_tonumber(L, 1), lua_tonumber(L, 2), lua_tonumber(L, 3), lua_tonumber(L, 4), n >= 5 ? lua_tonumber(L, 5) : fPull);
 	return 0;
 }
-// GetDistantLights(): count, drawn (their tag on), the most there can be, amount, minPixels, maxPixels, fadeFrom, fadeTo, pull
+// GetDistantLights(): count, drawn (their tag on), the most there can be, amount, minPixels, maxPixels, fadeFrom, fadeTo, pull,
+// and how many take less than all of the fog (fogShare)
 int GetDistantLights(lua_State *L)
 {
 	int iCount = 0, iDrawn = 0, iCapacity = 0;
@@ -9071,7 +9074,8 @@ int GetDistantLights(lua_State *L)
 	lua_pushnumber(L, fFrom);
 	lua_pushnumber(L, fTo);
 	lua_pushnumber(L, fPull);
-	return 9;
+	lua_pushinteger(L, DistantLights::GetFogShared());
+	return 10;
 }
 // SetDecalRange(units): decals (water splashes and ripples, impacts, blood) further than this from the camera are not
 // made; 800 (about 20 m) unless set, back to that at the next level. GetDecalRange() reads it
