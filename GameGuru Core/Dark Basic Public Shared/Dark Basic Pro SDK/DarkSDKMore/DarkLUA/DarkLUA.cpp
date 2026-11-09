@@ -6297,6 +6297,19 @@ int GetVideoMemoryUsed ( lua_State *L )
 	lua_pushnumber ( L, fSharedBudgetMB );
 	return 4;
 }
+// GetProcessMemory(): this process's memory in MB: its working set (what it holds in RAM now), its commit (what the log's V: figure shows), and the
+// peak of each. A test game counts the editor it runs in
+int GetProcessMemory ( lua_State* L )
+{
+	float fWorkingSetMB = 0, fCommitMB = 0, fPeakWorkingSetMB = 0, fPeakCommitMB = 0;
+	extern void GetProcessMemoryMB ( float* pfWorkingSetMB, float* pfCommitMB, float* pfPeakWorkingSetMB, float* pfPeakCommitMB );
+	GetProcessMemoryMB ( &fWorkingSetMB, &fCommitMB, &fPeakWorkingSetMB, &fPeakCommitMB );
+	lua_pushnumber ( L, fWorkingSetMB );
+	lua_pushnumber ( L, fCommitMB );
+	lua_pushnumber ( L, fPeakWorkingSetMB );
+	lua_pushnumber ( L, fPeakCommitMB );
+	return 4;
+}
 // GetDrawCalls(): the last frame's draw calls in the main pass, in the shadow passes and for transparent objects, and
 // the triangles the main pass drew
 int GetDrawCalls ( lua_State *L )
@@ -18116,6 +18129,7 @@ void addFunctions()
 	lua_register(lua, "GetGamePaused" , GetGamePaused );
 	lua_register(lua, "SetEscapeMenu" , SetEscapeMenu );
 	lua_register(lua, "GetVideoMemoryUsed" , GetVideoMemoryUsed );
+	lua_register(lua, "GetProcessMemory" , GetProcessMemory );
 	lua_register(lua, "GetDrawCalls" , GetDrawCalls );
 	lua_register(lua, "SetRenderTiming" , SetRenderTiming );
 	lua_register(lua, "GetRenderTime" , GetRenderTime );

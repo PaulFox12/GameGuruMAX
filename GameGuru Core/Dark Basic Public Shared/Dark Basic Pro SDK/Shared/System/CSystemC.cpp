@@ -413,6 +413,20 @@ DARKSDK int SMEMAvailable( int iMode )
 	}
 }
 
+// GG: this process's memory in MB: its working set (what it holds in RAM now), its commit (what the V: figure in the log shows) and the peak of each
+void GetProcessMemoryMB ( float* pfWorkingSetMB, float* pfCommitMB, float* pfPeakWorkingSetMB, float* pfPeakCommitMB )
+{
+	PROCESS_MEMORY_COUNTERS pmc;
+	memset ( &pmc, 0, sizeof(PROCESS_MEMORY_COUNTERS) );
+	pmc.cb = sizeof ( PROCESS_MEMORY_COUNTERS );
+	GetProcessMemoryInfo ( GetCurrentProcess(), &pmc, sizeof(pmc) );
+	const float fMB = 1024.0f * 1024.0f;
+	*pfWorkingSetMB = (float)pmc.WorkingSetSize / fMB;
+	*pfCommitMB = (float)pmc.PagefileUsage / fMB;
+	*pfPeakWorkingSetMB = (float)pmc.PeakWorkingSetSize / fMB;
+	*pfPeakCommitMB = (float)pmc.PeakPagefileUsage / fMB;
+}
+
 // global activity
 
 DARKSDK void DisableEscapeKey(void)
