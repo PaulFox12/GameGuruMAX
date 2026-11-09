@@ -21,6 +21,11 @@ namespace DistantLights
 	float GetAmount();
 	// a tag's lights drawn or not
 	void SetTag(int iTag, bool bOn);
+	// a tag's lights carried by a Wicked entity (an object's root): while tied, the lights added under the tag are points in
+	// the entity's own space, placed every frame through its world matrix as drawn; 0 unties (the lights are world positions
+	// again). Lights whose entity is gone are not drawn
+	void SetTagEntity(int iTag, uint64_t entity);
+	int GetTiedTags();
 	// the smallest and largest dot in pixels, the distance they fade in from and are full by, how far each is drawn toward
 	// the camera (so its own lamp's mesh doesn't hide it)
 	void SetLook(float fMinPixels, float fMaxPixels, float fFadeFrom, float fFadeTo, float fPull);

@@ -43,8 +43,12 @@ namespace DistantLights
 	std::vector<Light> lights;
 	std::vector<LightGPU> gpuLights;
 	bool bTagOn[256];
+	uint64_t tagEntity[256];
 	bool bDirty = true;
 	uint32_t iDrawn = 0;
+	uint32_t iStaticDrawn = 0;
+	uint32_t iTiedDrawn = 0;
+	XMFLOAT3 tiedPlaced[16]; // where the last draw put the first tied lights (the harness's DUMP_DISTANTLIGHTS)
 	float fAmount = 1.0f;
 	float fMinPixels = 1.5f;
 	float fMaxPixels = 3.0f;
@@ -65,7 +69,7 @@ namespace DistantLights
 	{
 		if (bInitialised) return;
 		bInitialised = true;
-		for (int t = 0; t < 256; t++) bTagOn[t] = true;
+		for (int t = 0; t < 256; t++) { bTagOn[t] = true; tagEntity[t] = 0; }
 		GraphicsDevice* device = wiRenderer::GetDevice();
 
 		// made once here, written when the list changes
@@ -137,7 +141,7 @@ namespace DistantLights
 		if (iTag < 0)
 		{
 			lights.clear();
-			for (int t = 0; t < 256; t++) bTagOn[t] = true;
+			for (int t = 0; t < 256; t++) { bTagOn[t] = true; tagEntity[t] = 0; }
 		}
 		else
 		{
@@ -154,6 +158,20 @@ namespace DistantLights
 		if (iTag < 0 || iTag > 255 || bTagOn[iTag] == bOn) return;
 		bTagOn[iTag] = bOn;
 		bDirty = true;
+	}
+
+	void SetTagEntity(int iTag, uint64_t entity)
+	{
+		if (iTag < 0 || iTag > 255 || tagEntity[iTag] == entity) return;
+		tagEntity[iTag] = entity;
+		bDirty = true;
+	}
+
+	int GetTiedTags()
+	{
+		int n = 0;
+		for (int t = 0; t < 256; t++) if (tagEntity[t] != 0) n++;
+		return n;
 	}
 
 	void SetLook(float fNewMinPixels, float fNewMaxPixels, float fNewFadeFrom, float fNewFadeTo, float fNewPull)
@@ -197,23 +215,61 @@ namespace DistantLights
 		*piCapacity = (int)DISTANTLIGHTS_MAX;
 	}
 
+	void GetDebug(char* pOut, size_t size)
+	{
+		_snprintf(pOut, size, "lights=%d drawn=%d tied_tags=%d tied_drawn=%d amount=%.2f", (int)lights.size(), (int)iDrawn, GetTiedTags(), (int)iTiedDrawn, fAmount);
+		for (uint32_t i = 0; i < iTiedDrawn && i < 16; i++)
+		{
+			size_t used = strlen(pOut);
+			if (used + 48 >= size) break;
+			_snprintf(pOut + used, size - used, " tied%u=%.2f,%.2f,%.2f", i, tiedPlaced[i].x, tiedPlaced[i].y, tiedPlaced[i].z);
+		}
+	}
+
 	extern "C" void distantlight_draw(const wiScene::CameraComponent& camera, CommandList cmd)
 	{
 		if (!bInitialised || lights.empty() || fAmount <= 0 || !pso.IsValid()) return;
 		GraphicsDevice* device = wiRenderer::GetDevice();
 
-		// the lights whose tag is on, written only when the list or a tag changed
+		// the lights whose tag is on, written only when the list or a tag changed; while a tag is tied to an entity its lights
+		// go after them, placed through the entity's world matrix and written every frame (an entity gone: not drawn)
+		const bool bTied = GetTiedTags() > 0;
+		iTiedDrawn = 0;
 		if (bDirty)
 		{
 			gpuLights.clear();
 			for (const Light& l : lights)
 			{
-				if (!bTagOn[l.tag]) continue;
+				if (!bTagOn[l.tag] || tagEntity[l.tag] != 0) continue;
 				LightGPU g;
 				g.posSize = l.posSize;
 				g.color = XMFLOAT4(l.color.x * l.color.w, l.color.y * l.color.w, l.color.z * l.color.w, l.fogShare);
 				gpuLights.push_back(g);
 			}
+			iStaticDrawn = (uint32_t)gpuLights.size();
+		}
+		if (bTied)
+		{
+			gpuLights.resize(iStaticDrawn);
+			const wiScene::Scene& scene = wiScene::GetScene();
+			for (const Light& l : lights)
+			{
+				const uint64_t entity = tagEntity[l.tag];
+				if (entity == 0 || !bTagOn[l.tag] || gpuLights.size() >= DISTANTLIGHTS_MAX) continue;
+				const wiScene::TransformComponent* pTransform = scene.transforms.GetComponent((wiECS::Entity)entity);
+				if (!pTransform) continue;
+				XMFLOAT3 world;
+				XMStoreFloat3(&world, XMVector3Transform(XMVectorSet(l.posSize.x, l.posSize.y, l.posSize.z, 1), XMLoadFloat4x4(&pTransform->world)));
+				LightGPU g;
+				g.posSize = XMFLOAT4(world.x, world.y, world.z, l.posSize.w);
+				g.color = XMFLOAT4(l.color.x * l.color.w, l.color.y * l.color.w, l.color.z * l.color.w, l.fogShare);
+				gpuLights.push_back(g);
+				if (iTiedDrawn < 16) tiedPlaced[iTiedDrawn] = world;
+				iTiedDrawn++;
+			}
+		}
+		if (bDirty || bTied)
+		{
 			iDrawn = (uint32_t)gpuLights.size();
 			if (iDrawn > 0) device->UpdateBuffer(&lightBuffer, gpuLights.data(), cmd, (int)(sizeof(LightGPU) * iDrawn));
 			bDirty = false;
@@ -250,4 +306,10 @@ namespace DistantLights
 		wiRenderer::BindCommonResources(cmd);
 		device->EventEnd(cmd);
 	}
+}
+
+// for the harness's DUMP_DISTANTLIGHTS
+void DistantLights_GetDebug(char* pOut, size_t size)
+{
+	DistantLights::GetDebug(pOut, size);
 }

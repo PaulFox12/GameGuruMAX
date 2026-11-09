@@ -477,6 +477,15 @@ void AutoHarness_CheckForCommand ( void )
 		_snprintf(result, sizeof(result), "OK: SET_PARTICLESCATTER %.3f", WickedCall_GetParticleScatter());
 		result[sizeof(result) - 1] = 0;
 	}
+	else if ( _stricmp ( cmd, "DUMP_DISTANTLIGHTS" ) == 0 )
+	{
+		// DUMP_DISTANTLIGHTS: the distant lights: lights listed and drawn, tags tied to an object and their lights drawn, where the first were placed
+		extern void DistantLights_GetDebug(char* pOut, size_t size);
+		char text[1024];
+		DistantLights_GetDebug(text, sizeof(text));
+		_snprintf(result, sizeof(result), "OK: DUMP_DISTANTLIGHTS %s", text);
+		result[sizeof(result) - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "SET_SUN" ) == 0 )
 	{
 		// SET_SUN r g b intensity: the sun light's colour (0-255, as the visuals) and intensity set directly, the level's

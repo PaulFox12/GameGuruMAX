@@ -9006,9 +9006,36 @@ namespace DistantLights
 	void SetAmount(float fAmount);
 	float GetAmount();
 	void SetTag(int iTag, bool bOn);
+	void SetTagEntity(int iTag, uint64_t entity);
+	int GetTiedTags();
 	void SetLook(float fMinPixels, float fMaxPixels, float fFadeFrom, float fFadeTo, float fPull);
 	void GetLook(float* pMinPixels, float* pMaxPixels, float* pFadeFrom, float* pFadeTo, float* pPull);
 	void GetStats(int* piCount, int* piDrawn, int* piCapacity);
+}
+// SetDistantLightTagObject(tag, obj): the tag's distant lights carried by an object (an aircraft's nav lights, its beacon):
+// while tied, lights added under the tag are points in the object's own space (its model units before its scale; the
+// object's position, turn and scale as drawn place them), moved with it every frame by the engine; obj 0 unties, and the
+// tag's lights are world positions again. A deleted object's lights aren't drawn. Flashing stays SetDistantLightTag's.
+// True when tied (or untied), false when the object doesn't exist
+int SetDistantLightTagObject(lua_State *L)
+{
+	if (LUA_GETTOP(L) < 2) return 0;
+	int iTag = (int)lua_tointeger(L, 1);
+	int iObj = (int)lua_tointeger(L, 2);
+	uint64_t entity = 0;
+	if (iObj > 0)
+	{
+		sObject* pObject = GetObjectData(iObj);
+		if (pObject) entity = pObject->wickedrootentityindex;
+		if (entity == 0)
+		{
+			lua_pushboolean(L, 0);
+			return 1;
+		}
+	}
+	DistantLights::SetTagEntity(iTag, entity);
+	lua_pushboolean(L, 1);
+	return 1;
 }
 // AddDistantLight(x, y, z, r, g, b [, size [, brightness [, tag [, fogShare]]]]): a light drawn far off as a dot a pixel or two across
 // (a lamp, a lit window), so a town reads as lived in at night; r g b 0 to 255, size in world units (40 unless given),
@@ -9058,7 +9085,7 @@ int SetDistantLightsLook(lua_State *L)
 	return 0;
 }
 // GetDistantLights(): count, drawn (their tag on), the most there can be, amount, minPixels, maxPixels, fadeFrom, fadeTo, pull,
-// and how many take less than all of the fog (fogShare)
+// how many take less than all of the fog (fogShare), and how many tags are tied to an object (SetDistantLightTagObject)
 int GetDistantLights(lua_State *L)
 {
 	int iCount = 0, iDrawn = 0, iCapacity = 0;
@@ -9075,7 +9102,8 @@ int GetDistantLights(lua_State *L)
 	lua_pushnumber(L, fTo);
 	lua_pushnumber(L, fPull);
 	lua_pushinteger(L, DistantLights::GetFogShared());
-	return 10;
+	lua_pushinteger(L, DistantLights::GetTiedTags());
+	return 11;
 }
 // SetDecalRange(units): decals (water splashes and ripples, impacts, blood) further than this from the camera are not
 // made; 800 (about 20 m) unless set, back to that at the next level. GetDecalRange() reads it
@@ -18279,6 +18307,7 @@ void addFunctions()
 	lua_register(lua, "ClearDistantLights", ClearDistantLights);
 	lua_register(lua, "SetDistantLightsAmount", SetDistantLightsAmount);
 	lua_register(lua, "SetDistantLightTag", SetDistantLightTag);
+	lua_register(lua, "SetDistantLightTagObject", SetDistantLightTagObject);
 	lua_register(lua, "SetDistantLightsLook", SetDistantLightsLook);
 	lua_register(lua, "GetDistantLights", GetDistantLights);
 	lua_register(lua, "SetDecalRange", SetDecalRange);

@@ -1772,8 +1772,9 @@ AddDistantLight : added = AddDistantLight ( x, y, z, r, g, b [, size [, brightne
 ClearDistantLights : ClearDistantLights ( [tag] ) -- every distant light, or the tag's
 SetDistantLightsAmount : SetDistantLightsAmount ( amount ) -- every distant light's brightness times this; 0 none drawn (daytime), 1 unless set
 SetDistantLightTag : SetDistantLightTag ( tag, on ) -- the tag's distant lights drawn (1) or not (0), a power cut
+SetDistantLightTagObject : ok = SetDistantLightTagObject ( tag, obj ) -- the tag's distant lights carried by object obj: lights added under the tag are points in the object's own space (model units before its scale), placed through its position, turn and scale every frame; obj 0 unties (world positions again); false when the object doesn't exist
 SetDistantLightsLook : SetDistantLightsLook ( minPixels, maxPixels, fadeFrom, fadeTo [, pull] ) -- the smallest and largest dot (1.5, 3 pixels), faded in from and full by (6000, 12000 units), drawn toward the camera by (60)
-GetDistantLights : count, drawn, capacity, amount, minPixels, maxPixels, fadeFrom, fadeTo, pull, fogShared = GetDistantLights ( ) -- fogShared: how many take less than all of the fog
+GetDistantLights : count, drawn, capacity, amount, minPixels, maxPixels, fadeFrom, fadeTo, pull, fogShared, tiedTags = GetDistantLights ( ) -- fogShared: how many take less than all of the fog; tiedTags: tags tied to an object
 PlayFootfallSound: snd=PlayFootfallSound(type,x,y,z,lastsnd) -- triggers footfall sound and returns raw sound index used
 PlayFootfallSound: snd=PlayFootfallSound(type,x,y,z,lastsnd,leftorright,walkorrun) -- additional parameters for greater footfall variety
 ResetUnderwaterState: ResetUnderwaterState() -- resets the underwater sub-system when player emerges from water
