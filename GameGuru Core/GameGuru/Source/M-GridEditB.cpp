@@ -6618,11 +6618,14 @@ void tab_tab_visuals(int iPage, int iMode)
 			{
 				ImGui::PushItemWidth(-10);
 				//PE: Set default selection. if not the correct.
-				if (t.visuals.ColorGradingLUT != lutImages_s[current_lutimage_selection])
+				// a script's LUT (SetLutTo) shown while it holds it; a pick sets the level's and the game's
+				extern bool g_bLuaSetLUT;
+				visualstype& lutShown = g_bLuaSetLUT ? t.gamevisuals : t.visuals; // read only (cStr's compare isn't const)
+				if (lutShown.ColorGradingLUT != lutImages_s[current_lutimage_selection])
 				{
 					for (int l = 0; l < g_lutimage_item_count; l++)
 					{
-						if (t.visuals.ColorGradingLUT == lutImages_s[l])
+						if (lutShown.ColorGradingLUT == lutImages_s[l])
 						{
 							current_lutimage_selection = l;
 							break;
@@ -8508,6 +8511,7 @@ bool g_bLuaSetWaterColor = false;
 bool g_bLuaSetWaterFog = false;
 bool g_bLuaSetLUT = false;
 bool g_bLuaSetWaterSpeed = false;
+bool g_bLuaSetWaterHeight = false; // SetWaterHeight: t.terrain.waterliney_f holds the script's line, which a visuals push keeps
 
 // the sea's wave speed a script set (SetRippleWaterSpeed), applied now; the full push applies the level's again
 void Wicked_Update_WaterSpeed(float fSpeed)
@@ -8557,6 +8561,8 @@ void LuaGameVisuals_Clear(void)
 	g_bLuaSetWaterFog = false;
 	g_bLuaSetLUT = false;
 	g_bLuaSetWaterSpeed = false;
+	if (g_bLuaSetWaterHeight) t.terrain.waterliney_f = g.gdefaultwaterheight; // the level's water line back
+	g_bLuaSetWaterHeight = false;
 	// the distant lights a script listed, and their amount and look
 	DistantLights::Clear();
 	DistantLights::SetAmount(1.0f);
@@ -8734,7 +8740,7 @@ void Wicked_Update_Visuals(void *voidvisual)
 		if (bWaterEnabled)
 		{
 			weather->SetOceanEnabled(true);
-			weather->oceanParameters.waterHeight = g.gdefaultwaterheight;
+			weather->oceanParameters.waterHeight = g_bLuaSetWaterHeight ? t.terrain.waterliney_f : g.gdefaultwaterheight; // a script's SetWaterHeight kept
 			XMFLOAT4 waterColor = XMFLOAT4(visuals->WaterRed_f / 255.0f, visuals->WaterGreen_f / 255.0f, visuals->WaterBlue_f / 255.0f, visuals->WaterAlpha_f / 255.0f);
 			weather->oceanParameters.waterColor = waterColor;
 			weather->oceanParameters.time_scale = visuals->WaterSpeed1;
@@ -8762,7 +8768,7 @@ void Wicked_Update_Visuals(void *voidvisual)
 		}
 		else
 		{
-			weather->oceanParameters.waterHeight = g.gdefaultwaterheight; //PE: Pauls shader need this set.
+			weather->oceanParameters.waterHeight = g_bLuaSetWaterHeight ? t.terrain.waterliney_f : g.gdefaultwaterheight; //PE: Pauls shader need this set.
 			weather->SetOceanEnabled(false);
 		}
 	}
@@ -54468,12 +54474,16 @@ bool Graphics_Performance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			ImGui::PopItemWidth();
 		}
 
-		// Physics World At 60Hz: the physics world steps 60 times a second in the game, the player's controller its own 120
-		bool bPhysicsWorldAt60 = t.visuals.bPhysicsWorldAt60;
+		// Physics World At 60Hz: the physics world steps 60 times a second in the game, the player's controller its own 120.
+		// It shows the rate in force, which is the level's except while a script's SetPhysicsWorldRate holds another in a game,
+		// and an edit sets both, as the graphics settings a script can change do
+		extern bool g_bPhysicsWorldAt60;
+		bool bPhysicsWorldAt60 = g_bPhysicsWorldAt60;
 		ImGui::PushItemWidth(-10);
 		if (ImGui::Checkbox("Physics World At 60Hz##Animationsculling", &bPhysicsWorldAt60))
 		{
 			t.gamevisuals.bPhysicsWorldAt60 = t.visuals.bPhysicsWorldAt60 = bPhysicsWorldAt60;
+			g_bPhysicsWorldAt60 = bPhysicsWorldAt60;
 			g.projectmodified = 1;
 		}
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("The physics world steps 60 times a second in the game instead of 120, about half the physics work of each frame.\nThe player controller keeps its own 120 steps, so player movement does not change.\nScripts can still set it with SetPhysicsWorldRate.");
@@ -54945,6 +54955,7 @@ bool Vegetation_Distance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::PushItemWidth(-10);
 		if (ImGui::SliderFloat("##TabTabTreeLODDist", &ggtrees_global_params.lod_dist, 750.0f, 20000.0f, "%.0f"))
 		{
+			GGTrees_DropLuaOverride(GGTREES_OV_LOD_DIST); // a script's SetTreeDistance gives way to the edit
 			ggtrees_editor_lod_params.lod_dist = ggtrees_global_params.lod_dist;
 			g.projectmodified = 1;
 		}
@@ -54955,6 +54966,7 @@ bool Vegetation_Distance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::PushItemWidth(-10);
 		if (ImGui::SliderFloat("##TabTabTreeShadowLODDist", &ggtrees_global_params.lod_dist_shadow, 750.0f, 20000.0f, "%.0f"))
 		{
+			GGTrees_DropLuaOverride(GGTREES_OV_LOD_DIST_SHADOW);
 			ggtrees_editor_lod_params.lod_dist_shadow = ggtrees_global_params.lod_dist_shadow;
 			g.projectmodified = 1;
 		}
@@ -54965,6 +54977,7 @@ bool Vegetation_Distance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::PushItemWidth(-10);
 		if (ImGui::SliderFloat("##TabTabTreeTransition", &ggtrees_global_params.lod_transition, 100.0f, 4000.0f, "%.0f"))
 		{
+			GGTrees_DropLuaOverride(GGTREES_OV_TRANSITION);
 			ggtrees_editor_lod_params.lod_transition = ggtrees_global_params.lod_transition;
 			g.projectmodified = 1;
 		}
@@ -54975,6 +54988,7 @@ bool Vegetation_Distance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::PushItemWidth(-10);
 		if (ImGui::SliderFloat("##TabTabTreeShadowTransition", &ggtrees_global_params.lod_transition_shadow, 100.0f, 4000.0f, "%.0f"))
 		{
+			GGTrees_DropLuaOverride(GGTREES_OV_TRANSITION_SHADOW);
 			ggtrees_editor_lod_params.lod_transition_shadow = ggtrees_global_params.lod_transition_shadow;
 			g.projectmodified = 1;
 		}
@@ -54985,6 +54999,7 @@ bool Vegetation_Distance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::PushItemWidth(-10);
 		if (ImGui::SliderInt("##TabTabTreeShadowRange", &ggtrees_global_params.tree_shadow_range, 0, 5))
 		{
+			GGTrees_DropLuaOverride(GGTREES_OV_SHADOW_RANGE);
 			ggtrees_editor_lod_params.tree_shadow_range = ggtrees_global_params.tree_shadow_range;
 			g.projectmodified = 1;
 		}
@@ -54995,6 +55010,7 @@ bool Vegetation_Distance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		ImGui::PushItemWidth(-10);
 		if (ImGui::SliderInt("##TabTabTreeShadowRangeHigh", &ggtrees_global_params.tree_shadow_range_high, 0, 5))
 		{
+			GGTrees_DropLuaOverride(GGTREES_OV_SHADOW_RANGE_HIGH);
 			ggtrees_editor_lod_params.tree_shadow_range_high = ggtrees_global_params.tree_shadow_range_high;
 			g.projectmodified = 1;
 		}
@@ -55013,6 +55029,7 @@ bool Vegetation_Distance_Settings(float fTabColumnWidth, bool bVisualUpdated)
 		{
 			gggrass_global_params.lod_dist = fGrassDistance;
 			gggrass_save_params.lod_dist = fGrassDistance;
+			extern float g_fGrassDistanceOverride; g_fGrassDistanceOverride = 0.0f; // a script's SetGrassDistance gives way to the edit
 			g.projectmodified = 1;
 		}
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Grass draw distance, applied when the slider is released (SetGrassDistance)");

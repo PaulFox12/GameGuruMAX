@@ -9754,6 +9754,7 @@ int GetTreeSubsurface(lua_State* L)
 int SetWaterHeight(lua_State *L) 
 {
 	t.terrain.waterliney_f = lua_tonumber(L, 1);
+	extern bool g_bLuaSetWaterHeight; g_bLuaSetWaterHeight = true; // kept through visuals pushes and shown in Tab Tab until the level ends
 	terrain_updatewaterphysics();
 	extern void WickedCall_UpdateWaterHeight(float);
 	WickedCall_UpdateWaterHeight(t.terrain.waterliney_f);

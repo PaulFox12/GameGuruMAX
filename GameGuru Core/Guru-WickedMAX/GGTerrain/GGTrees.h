@@ -140,6 +140,10 @@ namespace GGTrees
 	void GGTrees_ApplyLuaOverrides();
 	void GGTrees_ClearLuaOverrides();
 	void GGTrees_ClearLuaDistances(); // a script's tree distances and transitions forgotten, the quality's or the level's back
+	// one of a script's tree distance overrides forgotten, so a Tab Tab edit of it holds (the value in ggtrees_global_params stays)
+	enum GGTreesLuaOverride { GGTREES_OV_LOD_DIST, GGTREES_OV_LOD_DIST_SHADOW, GGTREES_OV_TRANSITION, GGTREES_OV_TRANSITION_SHADOW, GGTREES_OV_SHADOW_RANGE, GGTREES_OV_SHADOW_RANGE_HIGH };
+	void GGTrees_DropLuaOverride( GGTreesLuaOverride which );
+	bool GGTrees_HasLuaOverride( GGTreesLuaOverride which );
 	void GGTrees_Delete_Trees(float pickX, float pickZ, float radius);
 
 	void GGTrees_Init();

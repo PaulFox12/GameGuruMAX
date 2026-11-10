@@ -6440,9 +6440,11 @@ void imgui_Customize_Water(int mode)
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enable Water");
 		
 
+		extern bool g_bLuaSetWaterHeight;
 		if (t.visuals.bWaterEnable)
 		{
-			t.terrain.waterliney_f = g.gdefaultwaterheight;
+			// the level's water line, unless a script's SetWaterHeight holds another in a game
+			if (!g_bLuaSetWaterHeight) t.terrain.waterliney_f = g.gdefaultwaterheight;
 
 			ImGui::PushItemWidth(-10);
 			float waterHeight = GGTerrain_UnitsToMeters( g.gdefaultwaterheight );
@@ -6526,27 +6528,30 @@ void imgui_Customize_Water(int mode)
 			ImGui::PopItemWidth();
 
 			ImGui::PushItemWidth(-10);
-			if (ImGui::SliderFloat("##fWaterFogMinAmount", &t.visuals.WaterFogMinAmount, 0.0f, 1.0f, "%.3f", 1.0f))
+			// a script's water fog (SetWaterFog) shown while it holds it; an edit sets the level's and the game's value
+			extern bool g_bLuaSetWaterFog;
+			visualstype& wf = g_bLuaSetWaterFog ? t.gamevisuals : t.visuals;
+			if (ImGui::SliderFloat("##fWaterFogMinAmount", &wf.WaterFogMinAmount, 0.0f, 1.0f, "%.3f", 1.0f))
 			{
-				t.gamevisuals.WaterFogMinAmount = t.visuals.WaterFogMinAmount;
+				t.visuals.WaterFogMinAmount = t.gamevisuals.WaterFogMinAmount = wf.WaterFogMinAmount;
 				Wicked_Update_Visuals((void *)&t.visuals);
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Water Fog Min Amount");
 			ImGui::PopItemWidth();
 
 			ImGui::PushItemWidth(-10);
-			if (ImGui::SliderFloat("##fWaterFogMinDist", &t.visuals.WaterFogMinDist, 0.0f, 100000.0f, "%.2f", 2.0f))
+			if (ImGui::SliderFloat("##fWaterFogMinDist", &wf.WaterFogMinDist, 0.0f, 100000.0f, "%.2f", 2.0f))
 			{
-				if ( t.visuals.WaterFogMinDist > t.visuals.WaterFogMaxDist ) t.visuals.WaterFogMaxDist = t.visuals.WaterFogMinDist+0.1;
-				t.gamevisuals.WaterFogMinDist = t.visuals.WaterFogMinDist;
+				if ( wf.WaterFogMinDist > wf.WaterFogMaxDist ) wf.WaterFogMaxDist = wf.WaterFogMinDist+0.1;
+				t.visuals.WaterFogMinDist = t.gamevisuals.WaterFogMinDist = wf.WaterFogMinDist;
 				Wicked_Update_Visuals((void *)&t.visuals);
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Water Fog Min Distance");
 			
-			if (ImGui::SliderFloat("##fWaterFogMaxDist", &t.visuals.WaterFogMaxDist, 0.0f, 100000.0f, "%.2f", 2.0f))
+			if (ImGui::SliderFloat("##fWaterFogMaxDist", &wf.WaterFogMaxDist, 0.0f, 100000.0f, "%.2f", 2.0f))
 			{
-				if ( t.visuals.WaterFogMinDist > t.visuals.WaterFogMaxDist ) t.visuals.WaterFogMinDist = t.visuals.WaterFogMaxDist-0.1;
-				t.gamevisuals.WaterFogMaxDist = t.visuals.WaterFogMaxDist;
+				if ( wf.WaterFogMinDist > wf.WaterFogMaxDist ) wf.WaterFogMinDist = wf.WaterFogMaxDist-0.1;
+				t.visuals.WaterFogMaxDist = t.gamevisuals.WaterFogMaxDist = wf.WaterFogMaxDist;
 				Wicked_Update_Visuals((void *)&t.visuals);
 			}
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Water Fog Max Distance");
@@ -6601,22 +6606,28 @@ void imgui_Customize_Water_V2(int mode)
 			t.gamevisuals.bWaterEnable = t.visuals.bWaterEnable = true;
 		}
 
+		extern bool g_bLuaSetWaterHeight;
 		if (t.visuals.bWaterEnable)
 		{
 
-			t.terrain.waterliney_f = g.gdefaultwaterheight;
+			// the level's water line, unless a script's SetWaterHeight holds another in a game, which the sliders below show;
+			// an edit sets the level's and hands the line back to it
+			if (!g_bLuaSetWaterHeight) t.terrain.waterliney_f = g.gdefaultwaterheight;
+			const float waterShown = g_bLuaSetWaterHeight ? t.terrain.waterliney_f : g.gdefaultwaterheight;
 
 			// water height calc is confusing if need it as a unit (as it has min/max and power applied to match terrain biome params)
 			if (pref.iEnableAdvancedWater)
 			{
 				// simpler Y axis units for working with water control
 				ImGui::TextCenter("Water Height (units)");
-				float fTmp = g.gdefaultwaterheight - 3937;
+				float fTmp = waterShown - 3937;
 				int iMinValue = -100 * 39.37f;
 				int iMaxValue = 300 * 39.37f;
 				if (ImGui::MaxSliderInputFloat("##igdefaultwaterheightinunits", &fTmp, iMinValue, iMaxValue, "Set Water Height based on simple Y-axis unit value", iMinValue, fabs(iMinValue)+fabs(iMaxValue)))
 				{
 					g.gdefaultwaterheight = fTmp + 3937;
+					t.terrain.waterliney_f = g.gdefaultwaterheight;
+					g_bLuaSetWaterHeight = false;
 					Wicked_Update_Visuals((void*)&t.visuals);
 					g.projectmodified = 1;
 					ggterrain_extra_params.iUpdateTrees = 1;
@@ -6625,18 +6636,23 @@ void imgui_Customize_Water_V2(int mode)
 			else
 			{
 				ImGui::TextCenter("Water Height (meters)");
-				float fTmp = GGTerrain_UnitsToMeters(g.gdefaultwaterheight);
+				float fTmp = GGTerrain_UnitsToMeters(waterShown);
 				if (ImGui::MaxSliderInputFloatPower("##igdefaultwaterheight", &fTmp, -100.0, 300.0, "Set Water Height using a meter scale tied to the original biome settings", -100, 300, 30, 1.2f, 1))
 				{
 					g.gdefaultwaterheight = GGTerrain_MetersToUnits(fTmp);
+					t.terrain.waterliney_f = g.gdefaultwaterheight;
+					g_bLuaSetWaterHeight = false;
 					Wicked_Update_Visuals((void*)&t.visuals);
 					g.projectmodified = 1;
 					ggterrain_extra_params.iUpdateTrees = 1;
 				}
 			}
 
+			// a script's wave speed and water colour (SetRippleWaterSpeed, SetWaterColor) shown while it holds them; an edit sets the
+			// level's and the game's value, and the script's then follows it
+			extern bool g_bLuaSetWaterSpeed, g_bLuaSetWaterColor;
 			ImGui::TextCenter("Water Speed");
-			float fTmp = t.visuals.WaterSpeed1 * 100.0f;
+			float fTmp = (g_bLuaSetWaterSpeed ? t.gamevisuals.WaterSpeed1 : t.visuals.WaterSpeed1) * 100.0f;
 			if (ImGui::MaxSliderInputFloat("##fWaterSpeed1:", &fTmp, 0.0f, 50.0f, "Set Water Speed", 0, 50.0f))
 			{
 				t.visuals.WaterSpeed1 = fTmp * 0.01f;
@@ -6646,7 +6662,8 @@ void imgui_Customize_Water_V2(int mode)
 			}
 
 			ImGui::TextCenter("Water Base Color");
-			ImVec4 mycolor = ImVec4(t.visuals.WaterRed_f / 255.0, t.visuals.WaterGreen_f / 255.0, t.visuals.WaterBlue_f / 255.0, 1.0);
+			const visualstype& waterColShown = g_bLuaSetWaterColor ? t.gamevisuals : t.visuals;
+			ImVec4 mycolor = ImVec4(waterColShown.WaterRed_f / 255.0, waterColShown.WaterGreen_f / 255.0, waterColShown.WaterBlue_f / 255.0, 1.0);
 
 			bool open_popup = ImGui::ColorButton("##NewV2WickedWaterColor", mycolor, 0, ImVec2(w - 20.0, 0));
 			if (open_popup)
@@ -6711,28 +6728,31 @@ void imgui_Customize_Water_V2(int mode)
 				}
 
 
+				// a script's water fog (SetWaterFog) shown while it holds it; an edit sets the level's and the game's value
+				extern bool g_bLuaSetWaterFog;
+				visualstype& wf = g_bLuaSetWaterFog ? t.gamevisuals : t.visuals;
 				ImGui::TextCenter("Water Fog Start");
-				if (ImGui::MaxSliderInputFloat("##fWaterFogMinDist", &t.visuals.WaterFogMinDist, 0.0f, 100000.0f, "Water clarity: closer than this distance under water will have the minimum amount of fog (Lua SetWaterFog)"))
+				if (ImGui::MaxSliderInputFloat("##fWaterFogMinDist", &wf.WaterFogMinDist, 0.0f, 100000.0f, "Water clarity: closer than this distance under water will have the minimum amount of fog (Lua SetWaterFog)"))
 				{
-					if (t.visuals.WaterFogMinDist > t.visuals.WaterFogMaxDist) t.visuals.WaterFogMaxDist = t.visuals.WaterFogMinDist;
-					t.gamevisuals.WaterFogMinDist = t.visuals.WaterFogMinDist;
+					if (wf.WaterFogMinDist > wf.WaterFogMaxDist) wf.WaterFogMaxDist = wf.WaterFogMinDist;
+					t.visuals.WaterFogMinDist = t.gamevisuals.WaterFogMinDist = wf.WaterFogMinDist;
 					Wicked_Update_Visuals((void*)&t.visuals);
 					g.projectmodified = 1;
 				}
 
 				ImGui::TextCenter("Water Fog Maximum");
-				if (ImGui::MaxSliderInputFloat("##fWaterFogMaxDist", &t.visuals.WaterFogMaxDist, 0.0f, 100000.0f, "Water clarity: after this distance under water it will be completely opaque (Lua SetWaterFog)"))
+				if (ImGui::MaxSliderInputFloat("##fWaterFogMaxDist", &wf.WaterFogMaxDist, 0.0f, 100000.0f, "Water clarity: after this distance under water it will be completely opaque (Lua SetWaterFog)"))
 				{
-					if (t.visuals.WaterFogMinDist > t.visuals.WaterFogMaxDist) t.visuals.WaterFogMinDist = t.visuals.WaterFogMaxDist;
-					t.gamevisuals.WaterFogMaxDist = t.visuals.WaterFogMaxDist;
+					if (wf.WaterFogMinDist > wf.WaterFogMaxDist) wf.WaterFogMinDist = wf.WaterFogMaxDist;
+					t.visuals.WaterFogMaxDist = t.gamevisuals.WaterFogMaxDist = wf.WaterFogMaxDist;
 					Wicked_Update_Visuals((void*)&t.visuals);
 					g.projectmodified = 1;
 				}
 
 				ImGui::TextCenter("Water Fog Minimum");
-				if (ImGui::MaxSliderInputFloat("##fWaterFogMinAmount", &t.visuals.WaterFogMinAmount, 0.0f, 1.0f, "Water clarity: the minimum amount of under water fog that will always be present regardless of distance, lower is clearer (Lua SetWaterFog)"))
+				if (ImGui::MaxSliderInputFloat("##fWaterFogMinAmount", &wf.WaterFogMinAmount, 0.0f, 1.0f, "Water clarity: the minimum amount of under water fog that will always be present regardless of distance, lower is clearer (Lua SetWaterFog)"))
 				{
-					t.gamevisuals.WaterFogMinAmount = t.visuals.WaterFogMinAmount;
+					t.visuals.WaterFogMinAmount = t.gamevisuals.WaterFogMinAmount = wf.WaterFogMinAmount;
 					Wicked_Update_Visuals((void*)&t.visuals);
 					g.projectmodified = 1;
 				}
@@ -7097,8 +7117,12 @@ void imgui_Customize_Weather_V2(int mode)
 			ImGui::Text("Wind Speed");
 			ImGui::SameLine(); ImGui::SetCursorPosX(fWickedStartX);
 			ImGui::PushItemWidth((float)iItemWidth);
-			if (ImGui::SliderFloat("##Wind Speed", &t.visuals.wind_speed, 0.0f, 5.0f,"%.2f"))
+			// a script's wind (SetWind) is shown while it holds it; an edit sets the level's and the game's value
+			extern bool g_bLuaSetWind;
+			float wind_speedShown = g_bLuaSetWind ? t.gamevisuals.wind_speed : t.visuals.wind_speed;
+			if (ImGui::SliderFloat("##Wind Speed", &wind_speedShown, 0.0f, 5.0f,"%.2f"))
 			{
+				t.visuals.wind_speed = wind_speedShown;
 				t.gamevisuals.wind_speed = t.visuals.wind_speed;
 				bUpdatePPWeather = true;
 			}
@@ -7109,8 +7133,10 @@ void imgui_Customize_Weather_V2(int mode)
 			ImGui::Text("Wind Direction");
 			ImGui::SameLine(); ImGui::SetCursorPosX(fWickedStartX);
 			ImGui::PushItemWidth((float)dir_width);
-			if (ImGui::SliderFloat("##Wind Direction X", &t.visuals.wind_direction_x, -20.0f, 20.0f, "%.1f"))
+			float wind_direction_xShown = g_bLuaSetWind ? t.gamevisuals.wind_direction_x : t.visuals.wind_direction_x;
+			if (ImGui::SliderFloat("##Wind Direction X", &wind_direction_xShown, -20.0f, 20.0f, "%.1f"))
 			{
+				t.visuals.wind_direction_x = wind_direction_xShown;
 				t.gamevisuals.wind_direction_x = t.visuals.wind_direction_x;
 				bUpdatePPWeather = true;
 			}
@@ -7127,8 +7153,10 @@ void imgui_Customize_Weather_V2(int mode)
 
 			ImGui::SameLine();
 			ImGui::PushItemWidth((float)dir_width);
-			if (ImGui::SliderFloat("##Wind Direction Z", &t.visuals.wind_direction_z, -20.0f, 20.0f, "%.1f"))
+			float wind_direction_zShown = g_bLuaSetWind ? t.gamevisuals.wind_direction_z : t.visuals.wind_direction_z;
+			if (ImGui::SliderFloat("##Wind Direction Z", &wind_direction_zShown, -20.0f, 20.0f, "%.1f"))
 			{
+				t.visuals.wind_direction_z = wind_direction_zShown;
 				t.gamevisuals.wind_direction_z = t.visuals.wind_direction_z;
 				bUpdatePPWeather = true;
 			}
@@ -7137,8 +7165,10 @@ void imgui_Customize_Weather_V2(int mode)
 			ImGui::Text("Wind Randomness");
 			ImGui::SameLine(); ImGui::SetCursorPosX(fWickedStartX);
 			ImGui::PushItemWidth((float)iItemWidth);
-			if (ImGui::SliderFloat("##Windrandomness", &t.visuals.wind_randomness, 0.0f, 2.0f, "%.2f"))
+			float wind_randomnessShown = g_bLuaSetWind ? t.gamevisuals.wind_randomness : t.visuals.wind_randomness;
+			if (ImGui::SliderFloat("##Windrandomness", &wind_randomnessShown, 0.0f, 2.0f, "%.2f"))
 			{
+				t.visuals.wind_randomness = wind_randomnessShown;
 				t.gamevisuals.wind_randomness = t.visuals.wind_randomness;
 				bUpdatePPWeather = true;
 			}
@@ -7667,8 +7697,12 @@ void imgui_Customize_Sky_V2(int mode)
 		else
 		{
 			
+			// a script's clouds (SetCloudDensity and the rest) are shown while it holds them; an edit sets the level's and the
+			// game's value, which the visuals push applies with the script's others
+			extern bool g_bLuaSetClouds;
+			const visualstype& cloudsShown = g_bLuaSetClouds ? t.gamevisuals : t.visuals;
 			ImGui::TextCenter("Cloud Density");
-			fTmp = t.visuals.SkyCloudiness * 100.0f;
+			fTmp = cloudsShown.SkyCloudiness * 100.0f;
 			if (ImGui::MaxSliderInputFloat("##V2WickedSkyCloudiness", &fTmp, 0.0f, 400.0f, "Sets how dense the clouds are", 0.0f, 400.0f))
 			{
 				t.visuals.SkyCloudiness = fTmp * 0.01f;
@@ -7682,7 +7716,7 @@ void imgui_Customize_Sky_V2(int mode)
 				WickedCall_UpdateProbes();
 			}
 			ImGui::TextCenter("Cloud Coverage");
-			fTmp = t.visuals.SkyCloudCoverage * 100.0f;
+			fTmp = cloudsShown.SkyCloudCoverage * 100.0f;
 			if (ImGui::MaxSliderInputFloat("##V2WickedSkyCloudCoverage", &fTmp, 0.0f, 200.0f, "How much of the sky is covered with clouds", 0.0f, 200.0f ))
 			{
 				t.visuals.SkyCloudCoverage = fTmp * 0.01f;
@@ -7695,7 +7729,7 @@ void imgui_Customize_Sky_V2(int mode)
 				WickedCall_UpdateProbes();
 			}
 			ImGui::TextCenter("Cloud Height (meters)");
-			float cloudHeight = GGTerrain_UnitsToMeters( t.visuals.SkyCloudHeight );
+			float cloudHeight = GGTerrain_UnitsToMeters( cloudsShown.SkyCloudHeight );
 			if (ImGui::SliderFloat("##V2WickedSkyCloudScale", &cloudHeight, -100, 3500, "%.0f", 2.0f))
 			{
 				t.visuals.SkyCloudHeight = GGTerrain_MetersToUnits( cloudHeight );
@@ -7709,7 +7743,7 @@ void imgui_Customize_Sky_V2(int mode)
 				WickedCall_UpdateProbes();
 			}
 			ImGui::TextCenter("Cloud Thickness (meters)");
-			cloudHeight = GGTerrain_UnitsToMeters( t.visuals.SkyCloudThickness );
+			cloudHeight = GGTerrain_UnitsToMeters( cloudsShown.SkyCloudThickness );
 			fTmp = cloudHeight * 0.1f;
 			if (ImGui::MaxSliderInputFloat("##V2WickedSkyCloudThickness", &fTmp, 0, 400, "This is how thick the clouds are from top to bottom", 0, 400))
 			{
@@ -7724,8 +7758,10 @@ void imgui_Customize_Sky_V2(int mode)
 				WickedCall_UpdateProbes();
 			}
 			ImGui::TextCenter("Cloud Speed");
-			if (ImGui::MaxSliderInputFloat("##V2WickedSkyCloudSpeed", &t.visuals.SkyCloudSpeed, 0.0f, 50.0f, "The cloud movement speed across the sky", 0.0f, 50.0f))
+			float cloudSpeed = cloudsShown.SkyCloudSpeed;
+			if (ImGui::MaxSliderInputFloat("##V2WickedSkyCloudSpeed", &cloudSpeed, 0.0f, 50.0f, "The cloud movement speed across the sky", 0.0f, 50.0f))
 			{
+				t.visuals.SkyCloudSpeed = cloudSpeed;
 				t.gamevisuals.SkyCloudSpeed = t.visuals.SkyCloudSpeed;
 				weather->cloudSpeed = t.visuals.SkyCloudSpeed;
 				weather->volumetricCloudParameters.CoverageWindSpeed = t.visuals.SkyCloudSpeed;

@@ -2634,6 +2634,34 @@ void GGTrees_SetCrownShade( float amount, int mode )
 	if ( mode >= 0 ) ggtrees_global_params.crown_mode = (mode > 0) ? 1 : 0;
 }
 
+void GGTrees_DropLuaOverride( GGTreesLuaOverride which )
+{
+	const GGTreesLuaOverrides none;
+	switch ( which )
+	{
+		case GGTREES_OV_LOD_DIST: ggtrees_lua_overrides.lod_dist = none.lod_dist; break;
+		case GGTREES_OV_LOD_DIST_SHADOW: ggtrees_lua_overrides.lod_dist_shadow = none.lod_dist_shadow; break;
+		case GGTREES_OV_TRANSITION: ggtrees_lua_overrides.lod_transition = none.lod_transition; break;
+		case GGTREES_OV_TRANSITION_SHADOW: ggtrees_lua_overrides.lod_transition_shadow = none.lod_transition_shadow; break;
+		case GGTREES_OV_SHADOW_RANGE: ggtrees_lua_overrides.tree_shadow_range = none.tree_shadow_range; break;
+		case GGTREES_OV_SHADOW_RANGE_HIGH: ggtrees_lua_overrides.tree_shadow_range_high = none.tree_shadow_range_high; break;
+	}
+}
+
+bool GGTrees_HasLuaOverride( GGTreesLuaOverride which )
+{
+	switch ( which )
+	{
+		case GGTREES_OV_LOD_DIST: return ggtrees_lua_overrides.lod_dist > 0;
+		case GGTREES_OV_LOD_DIST_SHADOW: return ggtrees_lua_overrides.lod_dist_shadow > 0;
+		case GGTREES_OV_TRANSITION: return ggtrees_lua_overrides.lod_transition > 0;
+		case GGTREES_OV_TRANSITION_SHADOW: return ggtrees_lua_overrides.lod_transition_shadow > 0;
+		case GGTREES_OV_SHADOW_RANGE: return ggtrees_lua_overrides.tree_shadow_range >= 0;
+		case GGTREES_OV_SHADOW_RANGE_HIGH: return ggtrees_lua_overrides.tree_shadow_range_high >= 0;
+	}
+	return false;
+}
+
 void GGTrees_ClearLuaOverrides()
 {
 	ggtrees_lua_overrides = GGTreesLuaOverrides();
