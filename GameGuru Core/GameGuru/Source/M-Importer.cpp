@@ -1017,9 +1017,12 @@ void animsystem_prepareobjectforanimtool(int objectnumber, int iNotUsed)
 				wiScene::AnimationComponent* animationcomponent = wiScene::GetScene().animations.GetComponent( pObject->pAnimationSet->wickedanimentityindex );
 				if (animationcomponent)
 				{
+					extern bool WickedCall_AnimDataRelease(wiECS::Entity data);
 					for (int i = 0; i < animationcomponent->samplers.size(); i++)
 					{
-						wiScene::GetScene().Entity_Remove(animationcomponent->samplers[i].data);
+						// key data shared with a template or other clones is kept for them
+						if (WickedCall_AnimDataRelease(animationcomponent->samplers[i].data))
+							wiScene::GetScene().Entity_Remove(animationcomponent->samplers[i].data);
 					}
 				}
 				wiScene::GetScene().Entity_Remove(pObject->pAnimationSet->wickedanimentityindex);
@@ -1868,15 +1871,22 @@ void animsystem_clearoldanimationfromobject ( sObject* pObject )
 	sAnimationSet* pAnimSet = pObject->pAnimationSet;
 	if (pAnimSet)
 	{
+		// its animations are being replaced, so it builds its own from now on, never its source's (a shared clone)
+		extern void WickedCall_AnimMarkOwnBuild(sObject* pObject);
+		WickedCall_AnimMarkOwnBuild(pObject);
+
 		// only first animset is used by wicked engine
 		if (pAnimSet->wickedanimentityindex > 0)
 		{
 			wiScene::AnimationComponent* animationcomponent = wiScene::GetScene().animations.GetComponent( pAnimSet->wickedanimentityindex );
 			if (animationcomponent)
 			{
+				extern bool WickedCall_AnimDataRelease(wiECS::Entity data);
 				for (int i = 0; i < animationcomponent->samplers.size(); i++)
 				{
-					wiScene::GetScene().Entity_Remove(animationcomponent->samplers[i].data);
+					// key data shared with a template or other clones is kept for them
+					if (WickedCall_AnimDataRelease(animationcomponent->samplers[i].data))
+						wiScene::GetScene().Entity_Remove(animationcomponent->samplers[i].data);
 				}
 			}
 			wiScene::GetScene().Entity_Remove(pAnimSet->wickedanimentityindex);

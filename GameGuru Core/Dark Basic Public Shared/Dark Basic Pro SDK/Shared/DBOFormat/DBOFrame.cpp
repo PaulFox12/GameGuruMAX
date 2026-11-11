@@ -1241,6 +1241,11 @@ DARKSDK_DLL bool AppendAnimationData ( sObject* pObject, LPSTR szFilename, int i
 		extern void animsystem_clearoldanimationfromobject(sObject*);
 		animsystem_clearoldanimationfromobject(pObject);
 	}
+	#ifdef WICKEDENGINE
+	// what replaced its animations, so clones made the same way can share one built animation
+	extern void WickedCall_AnimSetReplaced(sObject* pObject, const char* pFile, int iFrameStart);
+	WickedCall_AnimSetReplaced(pObject, szFilename, iFrameStart);
+	#endif
 
 	// determine if loading an encrypted model file
 	char VirtualFilename[_MAX_PATH];

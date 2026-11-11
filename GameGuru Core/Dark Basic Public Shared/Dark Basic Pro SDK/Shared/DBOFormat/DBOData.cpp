@@ -479,6 +479,12 @@ sObject::sObject ( )
 
 sObject::~sObject ( )
 {
+	#ifdef WICKEDENGINE
+	// forget its own-animation mark, so a new object made at this address may share its source's animation
+	extern void WickedCall_AnimForgetObject ( sObject* pObject );
+	WickedCall_AnimForgetObject ( this );
+	#endif
+
 	// lee - 021014 - if removing an object, ensure it's also removed from any temp shortlist
 	if ( g_ppSortedObjectList )
 		for ( int iIndex = 0; iIndex < g_iSortedObjectCount; iIndex++ )

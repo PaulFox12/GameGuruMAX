@@ -11,6 +11,7 @@
 #pragma comment(lib, "dbghelp.lib")
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "..\Dark Basic Pro SDK\Shared\Objects\CObjectManagerWicked.h"
 #include "M-Entity.h"
@@ -1055,6 +1056,207 @@ void WickedCall_LoadNode(sFrame* pFrame, Entity parent, Entity root, WickedLoade
 }
 
 
+// Animation key data shared between a template and its clones (CloneObject's shared mode): the holders of each data
+// entity that has more than one; a data entity not listed has a single holder
+static std::unordered_map<Entity, int> g_AnimDataHolders;
+static std::unordered_set<sObject*> g_AnimOwnBuild;
+static std::unordered_map<sObject*, std::string> g_AnimShareKey;
+static std::unordered_map<std::string, sObject*> g_AnimProvider;
+int g_iAnimSharedBuilds = 0;
+// why a clone built its own animation: 0 not a shared clone, 1 its source has no load state, 2 the source's animation not
+// built, 3 the source's animation empty, 4 matrix keys, 5 the animations don't pair up, 6 a bone not found, 7 a sampler
+// index, 8 key data missing, 9 its animations were replaced, 10 replaced from a file no clone provides yet
+int g_iAnimShareMiss[11] = { 0 };
+
+static void WickedCall_AnimDataAddHolder(Entity data)
+{
+	auto it = g_AnimDataHolders.find(data);
+	if (it == g_AnimDataHolders.end())
+		g_AnimDataHolders[data] = 2;
+	else
+		it->second++;
+}
+
+// an animation lets go of a key data entity: true when it was the last holder, so the data is to be removed
+bool WickedCall_AnimDataRelease(Entity data)
+{
+	auto it = g_AnimDataHolders.find(data);
+	if (it == g_AnimDataHolders.end())
+		return true;
+	if (--it->second <= 1)
+		g_AnimDataHolders.erase(it);
+	return false;
+}
+
+void WickedCall_AnimMarkOwnBuild(sObject* pObject)
+{
+	if (pObject) g_AnimOwnBuild.insert(pObject);
+}
+
+static void WickedCall_AnimForgetProvider(sObject* pObject)
+{
+	for (auto it = g_AnimProvider.begin(); it != g_AnimProvider.end(); )
+	{
+		if (it->second == pObject) it = g_AnimProvider.erase(it); else ++it;
+	}
+}
+
+// a set of animations was loaded into the object from pFile from frame iFrameStart (0 replaced them): a shared clone so
+// made is keyed by its source and the file, and the first one built provides its animation to the next
+void WickedCall_AnimSetReplaced(sObject* pObject, const char* pFile, int iFrameStart)
+{
+	if (!pObject) return;
+	WickedCall_AnimForgetProvider(pObject);
+	auto it = g_AnimShareKey.find(pObject);
+	if (iFrameStart != 0 || !pObject->pObjectDependency || !pFile)
+	{
+		if (it != g_AnimShareKey.end()) g_AnimShareKey.erase(it);
+		return;
+	}
+	std::string key = std::to_string((int)pObject->pObjectDependency->dwObjectNumber) + "|";
+	for (const char* p = pFile; *p; p++) key += (char)tolower((unsigned char)*p);
+	g_AnimShareKey[pObject] = key;
+}
+
+void WickedCall_AnimForgetObject(sObject* pObject)
+{
+	g_AnimOwnBuild.erase(pObject);
+	g_AnimShareKey.erase(pObject);
+	WickedCall_AnimForgetProvider(pObject);
+}
+
+static void WickedCall_AnimMaybeProvide(sObject* pObject)
+{
+	auto it = g_AnimShareKey.find(pObject);
+	if (it == g_AnimShareKey.end() || !pObject->wickedloaderstateptr) return;
+	if (g_AnimProvider.find(it->second) == g_AnimProvider.end())
+		g_AnimProvider[it->second] = pObject;
+}
+
+// a clone made sharing its source takes its source's built animation instead of building its own from its copy of the keys:
+// the same key data entities, its channels pointed at its own bones by frame. False, and nothing changed, unless the two
+// pair up exactly
+static bool WickedCall_ShareSourceAnimations(sObject* pObject, WickedLoaderState* pstate, AnimationComponent& anim)
+{
+	sObject* pSource = pObject->pObjectDependency;
+	if (!pSource) { g_iAnimShareMiss[0]++; return false; }
+	auto key = g_AnimShareKey.find(pObject);
+	if (key != g_AnimShareKey.end())
+	{
+		auto provider = g_AnimProvider.find(key->second);
+		if (provider == g_AnimProvider.end() || provider->second == pObject) { g_iAnimShareMiss[10]++; return false; }
+		pSource = provider->second;
+	}
+	else if (g_AnimOwnBuild.count(pObject)) { g_iAnimShareMiss[9]++; return false; }
+	if (!pstate || !pSource->pAnimationSet || !pSource->wickedloaderstateptr) { g_iAnimShareMiss[1]++; return false; }
+	if (pSource->pAnimationSet->wickedanimentityindex == 0) { g_iAnimShareMiss[2]++; return false; }
+	wiScene::Scene& scene = wiScene::GetScene();
+	AnimationComponent* src = scene.animations.GetComponent(pSource->pAnimationSet->wickedanimentityindex);
+	if (!src || src->samplers.empty() || src->channels.empty()) { g_iAnimShareMiss[3]++; return false; }
+
+	sAnimation* pAnim = pObject->pAnimationSet->pAnimation;
+	sAnimation* pSrcAnim = pSource->pAnimationSet->pAnimation;
+	while (pAnim && pSrcAnim)
+	{
+		if (pAnim->dwNumMatrixKeys > 0) { g_iAnimShareMiss[4]++; return false; }
+		pAnim = pAnim->pNext;
+		pSrcAnim = pSrcAnim->pNext;
+	}
+	if (pAnim || pSrcAnim) { g_iAnimShareMiss[5]++; return false; }
+
+	WickedLoaderState* srcState = (WickedLoaderState*)pSource->wickedloaderstateptr;
+	unordered_map<Entity, int> frameOfEntity;
+	for (const auto& p : srcState->entityMap) frameOfEntity[p.second] = p.first;
+	std::vector<AnimationComponent::AnimationChannel> channels = src->channels;
+	for (AnimationComponent::AnimationChannel& channel : channels)
+	{
+		auto f = frameOfEntity.find(channel.target);
+		if (f == frameOfEntity.end()) { g_iAnimShareMiss[6]++; return false; }
+		auto e = pstate->entityMap.find(f->second);
+		if (e == pstate->entityMap.end() || e->second == INVALID_ENTITY) { g_iAnimShareMiss[6]++; return false; }
+		channel.target = e->second;
+		if (channel.samplerIndex < 0 || channel.samplerIndex >= (int)src->samplers.size()) { g_iAnimShareMiss[7]++; return false; }
+	}
+
+	// this Wicked makes a sampler's key data entity when the animation first plays unculled, so a hidden template may not
+	// have them yet: made here as it would
+	for (AnimationComponent::AnimationSampler& sampler : src->samplers)
+	{
+		if (sampler.data == INVALID_ENTITY && !sampler.backwards_compatibility_data.keyframe_times.empty())
+		{
+			sampler.data = CreateEntity();
+			scene.animation_datas.Create(sampler.data) = sampler.backwards_compatibility_data;
+			sampler.backwards_compatibility_data.keyframe_times.clear();
+			sampler.backwards_compatibility_data.keyframe_data.clear();
+		}
+		if (sampler.data == INVALID_ENTITY || !scene.animation_datas.GetComponent(sampler.data)) { g_iAnimShareMiss[8]++; return false; }
+	}
+
+	anim.samplers = src->samplers;
+	anim.channels = channels;
+	anim.start = src->start;
+	anim.end = src->end;
+	for (const AnimationComponent::AnimationSampler& sampler : anim.samplers)
+		WickedCall_AnimDataAddHolder(sampler.data);
+
+	pAnim = pObject->pAnimationSet->pAnimation;
+	pSrcAnim = pSource->pAnimationSet->pAnimation;
+	while (pAnim && pSrcAnim)
+	{
+		for (int i = 0; i < 3; i++)
+		{
+			pAnim->wickedanimationchannel[i] = pSrcAnim->wickedanimationchannel[i];
+			pAnim->wickedanimationsampler[i] = pSrcAnim->wickedanimationsampler[i];
+		}
+		pAnim = pAnim->pNext;
+		pSrcAnim = pSrcAnim->pNext;
+	}
+	g_iAnimSharedBuilds++;
+	return true;
+}
+
+// the harness's ANIM_SHARING: clones that shared, key data shared now, the scene's animations and key data, the misses
+void WickedCall_AnimSharingInfo(char* pOut, int iSize)
+{
+	wiScene::Scene& scene = wiScene::GetScene();
+	_snprintf(pOut, iSize, "OK: ANIM_SHARING sharedbuilds=%d shareddata=%d animations=%d animdatas=%d missed=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d providers=%d",
+		g_iAnimSharedBuilds, (int)g_AnimDataHolders.size(), (int)scene.animations.GetCount(), (int)scene.animation_datas.GetCount(),
+		g_iAnimShareMiss[0], g_iAnimShareMiss[1], g_iAnimShareMiss[2], g_iAnimShareMiss[3], g_iAnimShareMiss[4], g_iAnimShareMiss[5],
+		g_iAnimShareMiss[6], g_iAnimShareMiss[7], g_iAnimShareMiss[8], g_iAnimShareMiss[9], g_iAnimShareMiss[10], (int)g_AnimProvider.size());
+	pOut[iSize - 1] = 0;
+}
+
+// the harness's ANIM_POSE: an object's animation (playing, timer, samplers, its first key data and whether shared) and its
+// pose as the sum of its first armature's bones' animated local rotations
+void WickedCall_AnimPoseInfo(sObject* pObj, int e, char* pOut, int iSize)
+{
+	wiScene::Scene& scene = wiScene::GetScene();
+	uint64_t animEnt = (pObj && pObj->pAnimationSet) ? pObj->pAnimationSet->wickedanimentityindex : 0;
+	const AnimationComponent* anim = animEnt ? scene.animations.GetComponent((Entity)animEnt) : nullptr;
+	Entity data0 = (anim && !anim->samplers.empty()) ? anim->samplers[0].data : INVALID_ENTITY;
+	float poseSum = 0.0f;
+	int bones = 0;
+	for (int m = 0; pObj && m < pObj->iMeshCount && bones == 0; m++)
+	{
+		sMesh* pMesh = pObj->ppMeshList[m];
+		if (!pMesh || pMesh->wickedarmatureindex == 0) continue;
+		const ArmatureComponent* arm = scene.armatures.GetComponent((Entity)pMesh->wickedarmatureindex);
+		if (!arm) continue;
+		for (size_t b = 0; b < arm->boneCollection.size() && b < 64; b++)
+		{
+			const TransformComponent* tr = scene.transforms.GetComponent(arm->boneCollection[b]);
+			if (!tr) continue;
+			poseSum += fabsf(tr->rotation_local.x) + fabsf(tr->rotation_local.y) * 2.0f + fabsf(tr->rotation_local.z) * 3.0f;
+			bones++;
+		}
+	}
+	_snprintf(pOut, iSize, "OK: ANIM_POSE e=%d obj=%d anim=%llu playing=%d timer=%.3f start=%.1f end=%.1f samplers=%d data0=%u shared=%d bones=%d pose=%.5f",
+		e, pObj ? (int)pObj->dwObjectNumber : 0, (unsigned long long)animEnt, anim ? (anim->IsPlaying() ? 1 : 0) : -1, anim ? anim->timer : 0.0f,
+		anim ? anim->start : 0.0f, anim ? anim->end : 0.0f, anim ? (int)anim->samplers.size() : 0, (unsigned)data0,
+		data0 != INVALID_ENTITY && g_AnimDataHolders.find(data0) != g_AnimDataHolders.end() ? 1 : 0, bones, poseSum);
+	pOut[iSize - 1] = 0;
+}
+
 void WickedCall_RefreshObjectAnimations(sObject* pObject, void* pstateptr)
 {
 	// get true pointer to loader state
@@ -1070,6 +1272,10 @@ void WickedCall_RefreshObjectAnimations(sObject* pObject, void* pstateptr)
 		// go through [first] animation set[s]
 		sAnimationSet* pAnimSet = pObject->pAnimationSet;
 		{
+			// a refresh (animations appended or replaced since) always builds from the object's own keys
+			const bool bRefresh = pAnimSet->wickedanimentityindex > 0;
+			if (bRefresh) WickedCall_AnimForgetProvider(pObject);
+
 			// clear any old wicked animation components (in case of a refresh)
 			if (pAnimSet->wickedanimentityindex > 0)
 			{
@@ -1078,7 +1284,9 @@ void WickedCall_RefreshObjectAnimations(sObject* pObject, void* pstateptr)
 				{
 					for (int i = 0; i < animationcomponent->samplers.size(); i++)
 					{
-						wiScene::GetScene().Entity_Remove(animationcomponent->samplers[i].data);
+						// key data shared with a template or other clones is kept for them
+						if (WickedCall_AnimDataRelease(animationcomponent->samplers[i].data))
+							wiScene::GetScene().Entity_Remove(animationcomponent->samplers[i].data);
 					}
 				}
 				wiScene::GetScene().Entity_Remove(pAnimSet->wickedanimentityindex);
@@ -1164,6 +1372,11 @@ void WickedCall_RefreshObjectAnimations(sObject* pObject, void* pstateptr)
 					}
 				}
 			}
+
+			// a clone sharing its source's data takes the source's built animation (the keys not converted again)
+			if (!bRefresh && WickedCall_ShareSourceAnimations(pObject, pstate, animationcomponent))
+				return;
+
 			// increases as add more anim data (all goes into the above animationcomponent)
 			int iSamplerAndChannelCount = 0;
 
@@ -1390,6 +1603,9 @@ void WickedCall_RefreshObjectAnimations(sObject* pObject, void* pstateptr)
 				// next animation
 				pAnim = pAnim->pNext;
 			}
+
+			// built from its own keys: a clone keyed by what replaced its animations provides them to the next such clone
+			if (!bRefresh) WickedCall_AnimMaybeProvide(pObject);
 		}
 	}
 }
@@ -1906,6 +2122,9 @@ bool WickedCall_GetObjectPlaying(sObject* pObject)
 bool bBlockSceneUpdate = false;
 void WickedCall_RemoveObject( sObject* pObject )
 {
+	// its animation goes with it, so it no longer provides one to share
+	WickedCall_AnimForgetProvider(pObject);
+
 	// when removing assets from the wicked engine scene
 	uint64_t rootEntity = pObject->wickedrootentityindex;
 	if (rootEntity > 0)
@@ -1929,7 +2148,9 @@ void WickedCall_RemoveObject( sObject* pObject )
 					{
 						for (int i = 0; i < animationcomponent->samplers.size(); i++)
 						{
-							wiScene::GetScene().Entity_Remove(animationcomponent->samplers[i].data);
+							// key data shared with a template or other clones is kept for them
+							if (WickedCall_AnimDataRelease(animationcomponent->samplers[i].data))
+								wiScene::GetScene().Entity_Remove(animationcomponent->samplers[i].data);
 						}
 					}
 					wiScene::GetScene().Entity_Remove(pAnimSet->wickedanimentityindex);
