@@ -759,6 +759,25 @@ void AutoHarness_CheckForCommand ( void )
 			_snprintf ( result, sizeof(result), "OK: SAVE_LEVEL completed without crashing" );
 		}
 	}
+	else if ( _stricmp ( cmd, "ANIM_SHARING" ) == 0 )
+	{
+		// ANIM_SHARING: clones that took their template's built animation, key data held by more than one, the scene's
+		// animations and key data, the builds that didn't share by reason, the providers (as the DX12 build's verb)
+		extern void WickedCall_AnimSharingInfo ( char* pOut, int iSize );
+		WickedCall_AnimSharingInfo ( result, sizeof(result) );
+	}
+	else if ( _stricmp ( cmd, "ANIM_POSE" ) == 0 )
+	{
+		// ANIM_POSE e: entity e's animation and its pose as a sum of its bones' animated rotations (as the DX12 build's verb)
+		int e = atoi ( arg );
+		if ( e < 1 || e > g.entityelementlist || t.entityelement[e].obj <= 0 || !ObjectExist ( t.entityelement[e].obj ) )
+			_snprintf ( result, sizeof(result), "ERROR: ANIM_POSE entity %d has no object", e );
+		else
+		{
+			extern void WickedCall_AnimPoseInfo ( sObject* pObj, int e, char* pOut, int iSize );
+			WickedCall_AnimPoseInfo ( GetObjectData ( t.entityelement[e].obj ), e, result, sizeof(result) );
+		}
+	}
 	else if ( _stricmp ( cmd, "PRESS_ESCAPE" ) == 0 )
 	{
 		// PRESS_ESCAPE: leave a test game as its Escape key does (the game's loops ended), as the DX12 build's verb
