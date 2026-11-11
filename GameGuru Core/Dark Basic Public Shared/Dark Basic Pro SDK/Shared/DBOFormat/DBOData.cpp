@@ -143,6 +143,7 @@ sMesh::sMesh ( )
 	pIndicesLOD1 = 0;
 	pIndicesLOD2 = 0;
 	pIndicesLOD3 = 0;
+	fLODError[0] = fLODError[1] = fLODError[2] = 0.0f;
 
 	#endif
 }

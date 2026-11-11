@@ -591,6 +591,8 @@ struct sMesh : public sMeshFVF,
 	WORD*							pIndicesLOD2;
 	DWORD							dwIndexCountLOD3;								// number of indices
 	WORD*							pIndicesLOD3;
+	// GG: each LOD's worst outline error against LOD 0 in the model's units (DBOBLOCK_MESH_LODERROR); 0 none
+	float							fLODError[3];
 
 	#endif
 

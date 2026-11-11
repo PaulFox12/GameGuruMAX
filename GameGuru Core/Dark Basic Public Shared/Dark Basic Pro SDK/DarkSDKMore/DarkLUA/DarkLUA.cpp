@@ -9451,6 +9451,30 @@ int SetEntityReceivesDecals(lua_State *L)
 	if (iObj > 0 && ObjectExist(iObj) == 1) WickedCall_SetObjectReceivesDecals(GetObjectData(iObj), lua_tointeger(L, 2) != 0);
 	return 0;
 }
+namespace wiScene { extern float gg_lod_hysteresis, gg_lod_pixel_budget; }
+// SetLODTransitions(hysteresis, fade, pixelbudget): how models change LOD. hysteresis: a finer LOD comes back only this share
+// nearer than where the coarser came in (0.1; 0 none, at most 0.5), so nothing flicks on a boundary. fade: the seconds of
+// the DX12 build's dithered crossfade, taken and kept here but not drawn (this build has no temporal pass to smooth it).
+// pixelbudget: for a model whose LODs carry their measured outline error (DBO block 506), each LOD comes in where its error
+// reaches this many pixels on screen (1); a model without them keeps the LOD Multiplier's steps. A value below 0 keeps that
+// setting
+static float g_fLODTransitionFade = 0.25f;
+int SetLODTransitions(lua_State *L)
+{
+	int n = lua_gettop(L);
+	if (n >= 1) { float v = (float)lua_tonumber(L, 1); if (v >= 0) wiScene::gg_lod_hysteresis = v > 0.5f ? 0.5f : v; }
+	if (n >= 2) { float v = (float)lua_tonumber(L, 2); if (v >= 0) g_fLODTransitionFade = v > 2.0f ? 2.0f : v; }
+	if (n >= 3) { float v = (float)lua_tonumber(L, 3); if (v >= 0) wiScene::gg_lod_pixel_budget = v < 0.05f ? 0.05f : v; }
+	return 0;
+}
+// GetLODTransitions(): hysteresis, fade, pixelbudget as SetLODTransitions takes them
+int GetLODTransitions(lua_State *L)
+{
+	lua_pushnumber(L, wiScene::gg_lod_hysteresis);
+	lua_pushnumber(L, g_fLODTransitionFade);
+	lua_pushnumber(L, wiScene::gg_lod_pixel_budget);
+	return 3;
+}
 // SetEntityLOD(e, lod): the entity draws at LOD lod, 0 (full detail) to 3, whatever its distance; -1 (or leaving lod out)
 // chooses by distance again. Only a model with LOD levels (its _lod.dbo) has any to force; a level past its last draws
 // its last. Per entity, until the level ends
@@ -18328,6 +18352,8 @@ void addFunctions()
 	lua_register(lua, "GetProjectedDecalCount", GetProjectedDecalCount);
 	lua_register(lua, "SetEntityReceivesDecals", SetEntityReceivesDecals);
 	lua_register(lua, "SetEntityLOD", SetEntityLOD);
+	lua_register(lua, "SetLODTransitions", SetLODTransitions);
+	lua_register(lua, "GetLODTransitions", GetLODTransitions);
 	lua_register(lua, "GetEntityLOD", GetEntityLOD);
 	lua_register(lua, "SetEntityShaderParam", SetEntityShaderParam);
 	lua_register(lua, "SetEntityTextureScroll", SetEntityTextureScroll);

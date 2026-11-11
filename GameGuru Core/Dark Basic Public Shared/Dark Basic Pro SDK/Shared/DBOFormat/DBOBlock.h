@@ -146,6 +146,8 @@
 #define	DBOBLOCK_MESH_INDEXCOUNT_LOD1		503
 #define	DBOBLOCK_MESH_INDEXCOUNT_LOD2		504
 #define	DBOBLOCK_MESH_INDEXCOUNT_LOD3		505
+// GG: each LOD's worst outline error against LOD 0, in the model's own units (three floats, LOD 1 to 3)
+#define	DBOBLOCK_MESH_LODERROR				506
 
 DARKSDK bool DBOConvertObjectToBlock	( sObject* pObject, void** ppBlock, DWORD* pdwBlockSize );
 DARKSDK bool DBOConvertBlockToObject	( void* pBlock, DWORD dwBlockSize, sObject** ppObject );

@@ -829,6 +829,8 @@ void WickedCall_LoadNode(sFrame* pFrame, Entity parent, Entity root, WickedLoade
 					mesh.indices.push_back(pDBOMesh->pIndicesLOD3[i + 1]);
 				}
 			}
+			// the LODs' outline errors (DBO block 506), so they switch by their error on screen (wiScene::gg_lod_pixel_budget)
+			for (int e = 0; e < 3; e++) mesh.gg_lod_error[e] = pDBOMesh->fLODError[e];
 
 			#ifdef PICKBVHTHREADED
 			#define MAX_SUBAABB 16

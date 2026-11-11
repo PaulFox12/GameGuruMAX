@@ -864,6 +864,14 @@ DARKSDK_DLL bool ScanMesh ( sMesh* pMesh, LPSTR* ppBlock, DWORD* pdwSize )
 		WriteDWORD(pMesh->dwIndexCountLOD3, ppBlock, pdwSize);
 		WriteCR(ppBlock, pdwSize);
 
+		// GG: the LODs' outline errors, kept through a clone (which goes through a block)
+		if (pMesh->fLODError[0] > 0 || pMesh->fLODError[1] > 0 || pMesh->fLODError[2] > 0)
+		{
+			WriteCODE(DBOBLOCK_MESH_LODERROR, 12, ppBlock, pdwSize);
+			for (int e = 0; e < 3; e++) WriteDWORD(*(DWORD*)&pMesh->fLODError[e], ppBlock, pdwSize);
+			WriteCR(ppBlock, pdwSize);
+		}
+
 		// If non-standard vertex declaration, write it
 		if ( pMesh->dwFVF==0 )
 		{
@@ -1637,6 +1645,17 @@ DARKSDK_DLL bool ConstructMesh ( sMesh** ppMesh, LPSTR* ppBlock )
 			case DBOBLOCK_MESH_INDEXCOUNT_LOD1:		ReadDWORD(&(*ppMesh)->dwIndexCountLOD1, ppBlock);													break;
 			case DBOBLOCK_MESH_INDEXCOUNT_LOD2:		ReadDWORD(&(*ppMesh)->dwIndexCountLOD2, ppBlock);													break;
 			case DBOBLOCK_MESH_INDEXCOUNT_LOD3:		ReadDWORD(&(*ppMesh)->dwIndexCountLOD3, ppBlock);													break;
+			// GG: the LODs' outline errors (three floats); a block of another size is skipped whole
+			case DBOBLOCK_MESH_LODERROR:
+				if (dwCodeSize == 12)
+				{
+					for (int e = 0; e < 3; e++) ReadDWORD((DWORD*)&(*ppMesh)->fLODError[e], ppBlock);
+				}
+				else
+				{
+					*ppBlock += dwCodeSize;
+				}
+				break;
 
 
 			case DBOBLOCK_MESH_VERTEXDEC :		ReadIntoMemory ( (BYTE*)(*ppMesh)->pVertexDeclaration, sizeof((*ppMesh)->pVertexDeclaration), ppBlock );	break;
