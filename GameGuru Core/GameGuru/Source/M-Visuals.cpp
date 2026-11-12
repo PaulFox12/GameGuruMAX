@@ -477,6 +477,7 @@ void visuals_newlevel ( void )
 
 	//  New level resets these values
 	visuals_resetvalues ( );
+	{ extern bool g_bPhysicsWorldAt60; g_bPhysicsWorldAt60 = t.visuals.bPhysicsWorldAt60; } // the rate in force follows the new level's
 
 	//  Trigger all visuals to update
 	t.visuals.refreshvegetation=0;

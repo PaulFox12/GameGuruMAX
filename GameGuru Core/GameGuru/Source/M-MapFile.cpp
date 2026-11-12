@@ -1266,6 +1266,9 @@ void mapfile_loadproject_fpm ( void )
 		{
 			t.tstorefpscrootdir_s=g.fpscrootdir_s;
 			g.fpscrootdir_s="" ; visuals_load ( );
+			// the rate in force is the level's until a script sets another (Tab Tab's Physics World At 60Hz shows it): it was
+			// taken from the level only as a test game started or ended, so the box showed the last level's until then
+			{ extern bool g_bPhysicsWorldAt60; g_bPhysicsWorldAt60 = t.visuals.bPhysicsWorldAt60; }
 			g.fpscrootdir_s=t.tstorefpscrootdir_s;
 			t.trerfeshvisualsassets=1;
 
