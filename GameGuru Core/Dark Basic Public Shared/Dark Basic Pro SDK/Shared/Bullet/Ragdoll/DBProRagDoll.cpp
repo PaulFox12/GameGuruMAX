@@ -501,6 +501,9 @@ extern void PhysicsApplyPush(btRigidBody* pBody, const btVector3& force, const b
 
 void DBProRagDoll::ApplyForce(int iLimbNumber, btVector3& Start, btVector3& End, float fForceValue)
 {
+	// no direction, no push: a zero vector divided by its length gave every pushed bone a NaN impulse, and the body
+	// was NaN from then on (SetEntityRagdollForce's direction travels as whole numbers, so 0.7, 0.7, 0 arrives as nothing)
+	if ((End - Start).length2() < 0.000001f) return;
 	for (int i = 0; i < m_ragDollBoneArray.size(); i++)
 	{
 		btRigidBody* pBody = m_ragDollBoneArray[i]->GetRigidBody();
