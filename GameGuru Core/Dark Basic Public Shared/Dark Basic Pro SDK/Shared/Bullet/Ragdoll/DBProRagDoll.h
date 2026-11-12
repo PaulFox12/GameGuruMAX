@@ -54,6 +54,12 @@ public:
 	void Hold(int boneIndex, const btVector3& position, const btMatrix3x3& rotation, btScalar fYawDegrees, unsigned int uNowMs);
 	void Release();
 	bool IsHeld();
+	// GG: at rest by where its bodies are (harness RAGDOLL_SETTLE): the simulated time it has run, when its bodies last
+	// moved off their places, and those places; and the fastest of its bodies now, for the counts
+	void GetMaxSpeeds(float* pLinear, float* pAngular);
+	btScalar m_fStillClock;
+	btScalar m_fStillSince;
+	btAlignedObjectArray<btVector3> m_stillAnchor;
 	bool IsResting();
 	void HoldFrame(btScalar frameTime);
 	void HoldStep(btScalar timeStep);

@@ -3522,13 +3522,19 @@ int SpawnCloneSound(int iTemplateSound, char* pFile)
  }
 
 
+ // GG: the body of DeleteNewEntity, so a soldier's unused weapon pickup goes with him by the same steps
+ static void DeleteNewEntityCore(int iEntityIndex, int iDepth);
  int DeleteNewEntity(lua_State* L)
  {
 	 lua = L;
 	 int n = LUA_GETTOP(L);
 	 if (n < 1) return 0;
-	 int iEntityIndex = lua_tonumber(L, 1);
-	 if (iEntityIndex > 0)
+	 DeleteNewEntityCore ( (int)lua_tonumber(L, 1), 0 );
+	 return 0;
+ }
+ static void DeleteNewEntityCore(int iEntityIndex, int iDepth)
+ {
+	 if (iEntityIndex > 0 && iEntityIndex < (int)t.entityelement.size())
 	 {
 		 // GG: or a clone spawned into a free element inside the level's list (entity_addentitytomap reuses the first free one,
 		 // which the index test missed, so the delete did nothing and the clone lived on)
@@ -3556,9 +3562,19 @@ int SpawnCloneSound(int iTemplateSound, char* pFile)
 			 }
 			 if (t.entityelement[t.tentitytoselect].attachmentobj > 0)
 			 {
-				 HideObject (t.entityelement[t.tentitytoselect].attachmentobj);
+				 // GG: its gun and the gun's firespot cube deleted and their number freed for the next character's gun; hidden,
+				 // as they were, each deleted soldier kept them for the rest of the game
+				 extern void entity_releaseattachment ( int iAttachObj );
+				 entity_releaseattachment ( t.entityelement[t.tentitytoselect].attachmentobj );
 				 t.entityelement[t.tentitytoselect].attachmentobj = 0;
 			 }
+			 // GG: the weapon pickup made for him when he was (the "pre-spawn weapon drops" in entity_configueelementforuse),
+			 // hidden at -99999 until he drops it: one he never dropped goes with him; one lying on the ground as loot
+			 // (cantakeweapon 100 + its id) stays. Left, each deleted soldier kept a whole weapon entity and its g_Entity row
+			 const int iPickup = t.entityelement[t.tentitytoselect].precreatedspawnedentityelementindex;
+			 t.entityelement[t.tentitytoselect].precreatedspawnedentityelementindex = 0;
+			 const bool bPickupUnused = iPickup > 0 && iPickup != t.tentitytoselect && iPickup < (int)t.entityelement.size()
+				 && t.entityelement[t.tentitytoselect].eleprof.cantakeweapon != 100 + iPickup && t.entityelement[iPickup].collected == 0;
 			 // GG: its ragdoll goes with it, before the object: left behind, its 13 or so bodies fell for ever, awake
 			 extern int BPhys_RagdollExist(int ragdollID);
 			 if (BPhys_RagdollExist(t.entityelement[t.tentitytoselect].obj) == 1)
@@ -3587,9 +3603,9 @@ int SpawnCloneSound(int iTemplateSound, char* pFile)
 
 			 t.e = storee;
 			 t.entid = storeentid;
+			 if (bPickupUnused && iDepth == 0) DeleteNewEntityCore ( iPickup, 1 );
 		 }
 	 }
-	 return 0;
  }
 
  // Other stuff

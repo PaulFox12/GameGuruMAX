@@ -18,6 +18,9 @@ public:
 	void HoldFrame(float frameTime);
 	void HoldStep(float timeStep);
 	int GetIDFromBoneObject(int objectID);
+	// GG: how many ragdolls there are, how many are static, how many awake ones are all but still (every body under 4
+	// world units a second and 1 radian a second), the bodies awake, and the fastest awake body's speeds
+	void Counts(int* pTotal, int* pStatic, int* pAwakeSlow, int* pBodiesAwake, float* pMaxLinear, float* pMaxAngular);
 	static void AssertRagdollExist(int ragdollID, LPCSTR message, bool bExist = true); 
 
 private:

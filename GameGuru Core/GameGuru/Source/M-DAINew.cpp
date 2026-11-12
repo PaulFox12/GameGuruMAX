@@ -2163,7 +2163,8 @@ void darkai_shoottarget (int targete)
 						if (SoundPlaying(t.ttsnd) == 0 || t.tt == t.ttrr + 1)
 						{
 							t.toldsndid = t.charanimstate.firesoundindex;
-							if (t.toldsndid > 0)
+							// GG: the same sound is stopped and rewound by its PlaySound below; a second stop here only cost the round time
+							if (t.toldsndid > 0 && t.toldsndid != t.ttsnd)
 							{
 								if (SoundExist(t.toldsndid) == 1)
 								{
@@ -2217,7 +2218,10 @@ void darkai_shootplayer (void)
 // visible meshes, as the player's gunfire does: one ray against that entity's own meshes (WickedCall_ObjectRay, which a
 // vehicle with no physics body still meets), the jittered aim first and its centre after, then a physics ray up to the hit
 // for cover (the terrain or another object first keeps the hole off), the shooter and its gun left out. The hole rides the
-// entity as the player's do. The damage is untouched. Each is logged with its time ("NPC HOLE"), 300 lines a session.
+// entity as the player's do. The damage is untouched. With g_iNpcHoleLog on (harness NPCHOLE_LOG 1, for npc_hole_check.py)
+// each is logged with its time ("NPC HOLE"), 300 lines a session; off by default, as the log write cost about 2 ms a hole on
+// DX12, four times the hole itself (npc_shot_cost.py, 2026-11-12)
+int g_iNpcHoleLog = 0;
 static bool darkai_npcholetarget(int ee)
 {
 	if (ee <= 0 || t.entityelement[ee].obj <= 0 || ObjectExist(t.entityelement[ee].obj) == 0) return false;
@@ -2280,7 +2284,7 @@ static void darkai_npcbullethole(int ee, float fFromX, float fFromY, float fFrom
 	}
 	QueryPerformanceCounter(&qEnd);
 	QueryPerformanceFrequency(&qFreq);
-	if (iLogged < 300)
+	if (g_iNpcHoleLog != 0 && iLogged < 300)
 	{
 		iLogged++;
 		int iBlockerE = 0;

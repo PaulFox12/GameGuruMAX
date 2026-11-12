@@ -54,6 +54,8 @@ DBProRagDoll::DBProRagDoll(int ragdollID) : BaseItem(ragdollID)
 
 	// GG: nothing held and no body followed until asked
 	m_iFollowBone = -1;
+	m_fStillClock = 0;
+	m_fStillSince = 0;
 	m_iHoldBone = -1;
 	m_pHoldAnchor = NULL;
 	m_pHoldAnchorShape = NULL;
@@ -200,6 +202,7 @@ bool DBProRagDoll::IsStatic()
 void DBProRagDoll::SetStatic(bool bStatic)
 {
 	m_bIsStatic = bStatic;
+	m_stillAnchor.clear(); // GG: woken or settled, its rest is judged afresh
 	for ( int i = 0; i < m_ragDollBoneArray.size(); i++)
 	{
 		if(bStatic)
@@ -621,6 +624,30 @@ void CalculateRelativeMatricesFromWorld (sFrame* pParentFrame, sFrame* pFrame)
 	}
 }
 
+// GG: the at-rest-by-place rule's switch and numbers, and how many ragdolls each rule has settled (harness RAGDOLL_SETTLE);
+// on, 8 units for 1 s (ragdoll_settle_check.py, 2026-11-12 on DX12: 24 thrown soldiers all at rest by 25 s where 15 still
+// jittered awake at 30 s by the speed rule alone, half the body-seconds awake, the throw as long)
+int g_iRagdollSettleRule = 1;
+float g_fRagdollSettleDistance = 8.0f;
+float g_fRagdollSettleSeconds = 1.0f;
+int g_iRagdollSettledByPlace = 0, g_iRagdollSettledBySpeed = 0;
+
+// GG: the fastest of its bodies now: linear in world units a second, angular in radians a second
+void DBProRagDoll::GetMaxSpeeds(float* pLinear, float* pAngular)
+{
+	float fLinear = 0, fAngular = 0;
+	for (int i = 0; i < m_ragDollBoneArray.size(); i++)
+	{
+		btRigidBody* body = m_ragDollBoneArray[i]->GetRigidBody();
+		if (!body) continue;
+		const float fL = (float)body->getLinearVelocity().length() * 40.0f, fA = (float)body->getAngularVelocity().length();
+		if (fL > fLinear) fLinear = fL;
+		if (fA > fAngular) fAngular = fA;
+	}
+	if (pLinear) *pLinear = fLinear;
+	if (pAngular) *pAngular = fAngular;
+}
+
 void DBProRagDoll::Update() 
 {
 	bool bStillMoving = false;
@@ -760,6 +787,32 @@ void DBProRagDoll::Update()
 		m_fHoldYawAtUpdate = m_fHoldYawStepped;
 		m_bHoldDrawnKnown = true;
 	}
+
+	// GG: at rest by place as well as by speed (harness RAGDOLL_SETTLE, on by default): a body whose every bone has
+	// stayed within g_fRagdollSettleDistance world units of where it was for g_fRagdollSettleSeconds of simulated time is
+	// lying still, though one bone twitching past the speed test above would keep all of it awake and in the solver
+	if (bStillMoving && g_iRagdollSettleRule != 0 && m_pHoldJoint == NULL)
+	{
+		const int iBones = m_ragDollBoneArray.size();
+		const btScalar fLimit = g_fRagdollSettleDistance / 40.0f; // world units to the physics world's
+		bool bMoved = m_stillAnchor.size() != iBones;
+		for (int i = 0; i < iBones && !bMoved; i++)
+		{
+			if ((m_ragDollBoneArray[i]->GetRigidBody()->getWorldTransform().getOrigin() - m_stillAnchor[i]).length2() > fLimit * fLimit) bMoved = true;
+		}
+		if (bMoved)
+		{
+			m_stillAnchor.resize(iBones);
+			for (int i = 0; i < iBones; i++) m_stillAnchor[i] = m_ragDollBoneArray[i]->GetRigidBody()->getWorldTransform().getOrigin();
+			m_fStillSince = m_fStillClock;
+		}
+		else if (m_fStillClock - m_fStillSince >= g_fRagdollSettleSeconds)
+		{
+			bStillMoving = false;
+			g_iRagdollSettledByPlace++;
+		}
+	}
+	else if (!bStillMoving) g_iRagdollSettledBySpeed++;
 
 	// if overall ragdoll has stopped moving, switch it to static
 	// GG: not while held, or a held body that stops swinging could no longer be carried
@@ -1440,6 +1493,7 @@ void DBProRagDoll::SetHeldCollision(bool bHeld)
 // GG: the time the coming physics update covers: while easing, the anchor reaches its target by the end of it
 void DBProRagDoll::HoldFrame(btScalar frameTime)
 {
+	m_fStillClock += frameTime; // GG: simulated time, so a paused game ages no body
 	m_fHoldTimeLeft = frameTime;
 	m_fHoldYawStepped = m_fHoldTargetYaw;
 	m_bHoldSteppedEased = m_bHoldEased;

@@ -158,6 +158,7 @@ std::vector<int> g_EntityPlrVisList;
 #include "GGThread.h"
 using namespace GGThread;
 threadLock g_PlrVisibilityListLock;
+int g_iPlrVisHoldLock = 0; // GG: 1 the old way, the lock held through the rays (harness PLRVIS_LOCK, for a before and after)
 void entity_lua_getentityplrvisible_clear ( void )
 {
 	while (!g_PlrVisibilityListLock.Acquire()) {}
@@ -166,14 +167,20 @@ void entity_lua_getentityplrvisible_clear ( void )
 }
 void entity_lua_getentityplrvisible_processlist (void)
 {
-	if (g_EntityPlrVisList.size() > 0)
+	// GG: the list is taken under the lock and worked through outside it. Held through every entity's rays (a terrain ray
+	// and a scene ray each), the lock made the game's thread wait in each GetEntityPlayerVisibility call, and at the next
+	// frame's clear, until this thread had finished the whole batch
+	std::vector<int> listNow;
+	while (!g_PlrVisibilityListLock.Acquire()) {}
+	listNow.swap ( g_EntityPlrVisList );
+	if ( g_iPlrVisHoldLock == 0 ) g_PlrVisibilityListLock.Release();
+	if (listNow.size() > 0)
 	{
 		// entity to process
-		while (!g_PlrVisibilityListLock.Acquire()) {}
-		for ( int i = 0; i < g_EntityPlrVisList.size(); i++ )
+		for ( int i = 0; i < listNow.size(); i++ )
 		{
 			//PE: We should never use globals in threads (t.e), it get changed everywhere,got a crash here (as it got changed while inside the function).
-			int te = g_EntityPlrVisList[i];
+			int te = listNow[i];
 			if (te > 0)
 			{
 				// calculate vis for this entity (LBOPT: can further optimize by placing this on a timer (no need to work out plr visibilty 30 times per second)
@@ -192,18 +199,17 @@ void entity_lua_getentityplrvisible_processlist (void)
 				}
 
 				// and erase all other instances of E in list, as now up to date for plrvis
-				for (int i = 0; i < g_EntityPlrVisList.size(); i++)
+				for (int i = 0; i < listNow.size(); i++)
 				{
-					if (g_EntityPlrVisList[i] == te)
+					if (listNow[i] == te)
 					{
-						g_EntityPlrVisList[i] = 0;
+						listNow[i] = 0;
 					}
 				}
 			}
 		}
-		g_EntityPlrVisList.clear();
-		g_PlrVisibilityListLock.Release();
 	}
+	if ( g_iPlrVisHoldLock != 0 ) g_PlrVisibilityListLock.Release();
 }
 
 void entity_lua_getentityplrvisible ( void )

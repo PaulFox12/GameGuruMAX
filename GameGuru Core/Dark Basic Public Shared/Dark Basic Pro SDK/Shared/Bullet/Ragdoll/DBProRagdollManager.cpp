@@ -57,6 +57,29 @@ int DBProRagdollManager::GetIDFromBoneObject(int objectID)
 	return -1;
 }
 
+void DBProRagdollManager::Counts(int* pTotal, int* pStatic, int* pAwakeSlow, int* pBodiesAwake, float* pMaxLinear, float* pMaxAngular)
+{
+	int iStatic = 0, iAwakeSlow = 0, iBodies = 0;
+	float fMaxLinear = 0, fMaxAngular = 0;
+	for (int i = 0; i < m_data.size(); i++)
+	{
+		DBProRagDoll* ragdoll = (DBProRagDoll*)m_data[i];
+		if (ragdoll->IsStatic()) { iStatic++; continue; }
+		float fLinear = 0, fAngular = 0;
+		ragdoll->GetMaxSpeeds(&fLinear, &fAngular);
+		iBodies += ragdoll->GetRagdollBones().size();
+		if (fLinear < 4.0f && fAngular < 1.0f) iAwakeSlow++;
+		if (fLinear > fMaxLinear) fMaxLinear = fLinear;
+		if (fAngular > fMaxAngular) fMaxAngular = fAngular;
+	}
+	if (pTotal) *pTotal = (int)m_data.size();
+	if (pStatic) *pStatic = iStatic;
+	if (pAwakeSlow) *pAwakeSlow = iAwakeSlow;
+	if (pBodiesAwake) *pBodiesAwake = iBodies;
+	if (pMaxLinear) *pMaxLinear = fMaxLinear;
+	if (pMaxAngular) *pMaxAngular = fMaxAngular;
+}
+
 void DBProRagdollManager::Update()
 {
 	for(int i = 0; i < m_data.size(); i++)

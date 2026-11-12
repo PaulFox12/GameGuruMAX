@@ -4672,6 +4672,18 @@ int BPhys_RagdollExists(int ragdollID)
 	return ( ragdollManager && ragdollManager->GetRagdoll(ragdollID) ) ? 1 : 0;
 }
 
+// GG: the ragdolls' counts (harness RAGDOLL_COUNTS): see DBProRagdollManager::Counts
+void BPhys_RagdollCounts(int* pTotal, int* pStatic, int* pAwakeSlow, int* pBodiesAwake, float* pMaxLinear, float* pMaxAngular)
+{
+	if (pTotal) *pTotal = 0;
+	if (pStatic) *pStatic = 0;
+	if (pAwakeSlow) *pAwakeSlow = 0;
+	if (pBodiesAwake) *pBodiesAwake = 0;
+	if (pMaxLinear) *pMaxLinear = 0;
+	if (pMaxAngular) *pMaxAngular = 0;
+	if (ragdollManager) ragdollManager->Counts(pTotal, pStatic, pAwakeSlow, pBodiesAwake, pMaxLinear, pMaxAngular);
+}
+
 int BPhys_RagdollIsStatic(int ragdollID)
 {
 	if ( ragdollManager )

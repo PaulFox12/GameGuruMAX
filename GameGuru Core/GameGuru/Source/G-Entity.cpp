@@ -79,7 +79,7 @@ void entity_init ( void )
 
 	//  activate all entities and perform any pre-test game setup
 	timestampactivity(0,"Configure entity attachments and AI obstacles");
-	g.entityattachmentindex=0;
+	entity_resetattachmentindices();
 
 	//PE: Could we use collisionmode == 0 and only create it as a box ? and not all faces.
 	//PE: t.tobstype=t.entityprofile[t.entid].forcesimpleobstacle = true;
@@ -3163,6 +3163,45 @@ void entity_applydecalfordamage ( int ee, float fX, float fY, float fZ)
 	}
 }
 
+// GG: the numbers of characters' gun objects (3500 + n) and their firespot cubes (5400 + n), n 1 to 499. A deleted
+// character's gun and cube are deleted (entity_releaseattachment) and n is taken by the next gun made; a game's start sets
+// them all free
+static std::vector<int> g_FreeAttachmentIndices;
+int g_iAttachmentRefused = 0;
+const int ENTITY_ATTACHMENT_MAX = 499;
+void entity_resetattachmentindices ( void )
+{
+	g.entityattachmentindex = 0;
+	g_FreeAttachmentIndices.clear();
+}
+int entity_takeattachmentindex ( void )
+{
+	if ( !g_FreeAttachmentIndices.empty() )
+	{
+		const int iIndex = g_FreeAttachmentIndices.back();
+		g_FreeAttachmentIndices.pop_back();
+		if ( g.entityattachmentindex < iIndex ) g.entityattachmentindex = iIndex;
+		return iIndex;
+	}
+	if ( g.entityattachmentindex >= ENTITY_ATTACHMENT_MAX )
+	{
+		if ( g_iAttachmentRefused++ == 0 ) timestampactivity ( 0, "every character gun object number (3500-3999) is in use: a character made now goes without a visible gun" );
+		return 0;
+	}
+	return ++g.entityattachmentindex;
+}
+void entity_releaseattachment ( int iAttachObj )
+{
+	const int iIndex = iAttachObj - g.entityattachmentsoffset;
+	if ( iIndex < 1 || iIndex > ENTITY_ATTACHMENT_MAX ) return;
+	const int iFirespot = g.entityattachments2offset + iIndex;
+	if ( ObjectExist ( iFirespot ) == 1 ) { UnGlueObject ( iFirespot ); DeleteObject ( iFirespot ); }
+	if ( ObjectExist ( iAttachObj ) == 1 ) { UnGlueObject ( iAttachObj ); DeleteObject ( iAttachObj ); }
+	for ( int i : g_FreeAttachmentIndices ) if ( i == iIndex ) return;
+	g_FreeAttachmentIndices.push_back ( iIndex );
+}
+int entity_attachmentindicesfree ( void ) { return (int)g_FreeAttachmentIndices.size(); }
+
 void entity_gettruecamera ( void )
 {
 	//  True camera position
@@ -4011,8 +4050,12 @@ void entity_createattachment ( void )
 								int iGunID = t.entityelement[t.e].eleprof.hasweapon;
 
 								// go and load this gun (attached to calling entity instance)
-								++g.entityattachmentindex;
-								t.ttobj=g.entityattachmentsoffset+g.entityattachmentindex;
+								// GG: a number a deleted character gave back first (entity_releaseattachment), else the next; the block
+								// is 3500-3999 (and its firespot cubes 5400-5899), and past it the old count ran on into other
+								// objects' numbers and deleted them. With all 500 in use the character goes without a visible gun
+								const int iAttachIndex = entity_takeattachmentindex ( );
+								if ( iAttachIndex <= 0 ) break;
+								t.ttobj=g.entityattachmentsoffset+iAttachIndex;
 								if (ObjectExist(t.ttobj) == 1)
 								{
 									UnGlueObject(t.ttobj);
@@ -4103,7 +4146,7 @@ void entity_createattachment ( void )
 									MakeObject(t.ttobj, g.meshgeneralwork2, 0);
 
 									// make a firespot debug object
-									int iDebugFirespotObj = g.entityattachments2offset + g.entityattachmentindex;
+									int iDebugFirespotObj = g.entityattachments2offset + iAttachIndex;
 									if (ObjectExist(iDebugFirespotObj) == 1) DeleteObject(iDebugFirespotObj);
 									MakeObjectCube(iDebugFirespotObj, 5);
 									if (t.gun[iGunID].handusesnewweaponsystem == 1)

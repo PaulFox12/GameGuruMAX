@@ -21,6 +21,7 @@ namespace GGTerrain { void GGTerrain_AddEnvProbeList( float x, float y, float z,
 #include <time.h>
 #include <windows.h>
 #include <string>
+#include <map>
 #include <vector>
 
 extern bool bWelcomeScreen_Window;
@@ -370,8 +371,15 @@ static void Cmd_GetPerfData ( char* result, int resultSize )
 	float fps = ImGui::GetCurrentContext() ? ImGui::GetIO().Framerate : 0.0f;
 	float fUsedMB = 0, fBudgetMB = 0, fSharedUsedMB = 0, fSharedBudgetMB = 0;
 	GetVramUsageAndBudget ( &fUsedMB, &fBudgetMB, &fSharedUsedMB, &fSharedBudgetMB );
-	_snprintf ( result, resultSize, "STATE: %s\nFPS: %.1f\nFRAME_TIME_MS: %.2f\nVRAM_MB: %.1f\nVRAM_BUDGET_MB: %.1f\nVRAM_SHARED_MB: %.1f\nPOLYS: %d\nDRAW_CALLS: %d\n",
+	int written = _snprintf ( result, resultSize, "STATE: %s\nFPS: %.1f\nFRAME_TIME_MS: %.2f\nVRAM_MB: %.1f\nVRAM_BUDGET_MB: %.1f\nVRAM_SHARED_MB: %.1f\nPOLYS: %d\nDRAW_CALLS: %d\n",
 		AutoHarness_GetAppState(), fps, fps > 0.0f ? 1000.0f / fps : 0.0f, fUsedMB, fBudgetMB, fSharedUsedMB, (int)wiProfiler::GetPolygons(), (int)wiProfiler::GetDrawCalls() );
+	// GG: the scene's component counts, as the DX12 build's (clone_memory_check.py reads them)
+	wiScene::Scene& scene = wiScene::GetScene();
+	if ( written > 0 && written < resultSize - 256 )
+		_snprintf ( result + written, resultSize - written, "SCENE_OBJECTS: %d\nSCENE_MESHES: %d\nSCENE_MATERIALS: %d\nSCENE_ARMATURES: %d\nSCENE_ANIMATIONS: %d\n"
+			"SCENE_TRANSFORMS: %d\nSCENE_HIERARCHY: %d\nSCENE_EMITTERS: %d\nSCENE_SOUNDS: %d\n",
+			(int)scene.objects.GetCount(), (int)scene.meshes.GetCount(), (int)scene.materials.GetCount(), (int)scene.armatures.GetCount(), (int)scene.animations.GetCount(),
+			(int)scene.transforms.GetCount(), (int)scene.hierarchy.GetCount(), (int)scene.emitters.GetCount(), (int)scene.sounds.GetCount() );
 	result[resultSize - 1] = 0;
 }
 
@@ -758,6 +766,63 @@ void AutoHarness_CheckForCommand ( void )
 			gridedit_save_map ( );
 			_snprintf ( result, sizeof(result), "OK: SAVE_LEVEL completed without crashing" );
 		}
+	}
+	else if ( _stricmp ( cmd, "RAGDOLL_COUNTS" ) == 0 || _stricmp ( cmd, "RAGDOLL_SETTLE" ) == 0 )
+	{
+		// RAGDOLL_COUNTS / RAGDOLL_SETTLE [0|1 [distance [seconds]]]: as the DX12 build's verbs
+		extern void BPhys_RagdollCounts(int* pTotal, int* pStatic, int* pAwakeSlow, int* pBodiesAwake, float* pMaxLinear, float* pMaxAngular);
+		extern int g_iRagdollSettleRule, g_iRagdollSettledByPlace, g_iRagdollSettledBySpeed;
+		extern float g_fRagdollSettleDistance, g_fRagdollSettleSeconds;
+		if ( _stricmp ( cmd, "RAGDOLL_SETTLE" ) == 0 && arg && arg[0] )
+		{
+			int on = 0; float distance = g_fRagdollSettleDistance, seconds = g_fRagdollSettleSeconds;
+			sscanf ( arg, "%d %f %f", &on, &distance, &seconds );
+			g_iRagdollSettleRule = on != 0 ? 1 : 0;
+			if ( distance > 0.01f ) g_fRagdollSettleDistance = distance;
+			if ( seconds > 0.05f ) g_fRagdollSettleSeconds = seconds;
+		}
+		int total = 0, stat = 0, slow = 0, bodies = 0; float lin = 0, ang = 0;
+		BPhys_RagdollCounts ( &total, &stat, &slow, &bodies, &lin, &ang );
+		_snprintf ( result, sizeof(result), "OK: %s ragdolls=%d static=%d awake=%d awake_slow=%d bodies_awake=%d fastest=%.1f units/s %.2f rad/s | rule=%d distance=%.2f seconds=%.2f settled_by_place=%d settled_by_speed=%d",
+			cmd, total, stat, total - stat, slow, bodies, lin, ang, g_iRagdollSettleRule, g_fRagdollSettleDistance, g_fRagdollSettleSeconds, g_iRagdollSettledByPlace, g_iRagdollSettledBySpeed );
+	}
+	else if ( _stricmp ( cmd, "NPCHOLE_LOG" ) == 0 )
+	{
+		// NPCHOLE_LOG [0|1]: 1 logs each NPC round's bullet hole ("NPC HOLE", 300 a session); 0, the default, doesn't
+		extern int g_iNpcHoleLog;
+		if ( arg && arg[0] ) g_iNpcHoleLog = atoi ( arg ) != 0 ? 1 : 0;
+		_snprintf ( result, sizeof(result), "OK: NPCHOLE_LOG %d", g_iNpcHoleLog );
+	}
+	else if ( _stricmp ( cmd, "PLRVIS_LOCK" ) == 0 )
+	{
+		// PLRVIS_LOCK [0|1]: 1 holds the visibility list's lock through the extra thread's rays as before 2026-11-12
+		extern int g_iPlrVisHoldLock;
+		if ( arg && arg[0] ) g_iPlrVisHoldLock = atoi ( arg ) != 0 ? 1 : 0;
+		_snprintf ( result, sizeof(result), "OK: PLRVIS_LOCK %d", g_iPlrVisHoldLock );
+	}
+	else if ( _stricmp ( cmd, "OBJECT_NAMES" ) == 0 )
+	{
+		// OBJECT_NAMES: the scene's objects counted by name (digits folded), "count name" a line in object_names.txt in the
+		// game's current folder (Files), as the DX12 build's verb
+		wiScene::Scene& scene = wiScene::GetScene();
+		std::map<std::string, int> counts;
+		for ( size_t i = 0; i < scene.objects.GetCount(); i++ )
+		{
+			const wiECS::Entity e = scene.objects.GetEntity ( i );
+			const wiScene::NameComponent* nm = scene.names.GetComponent ( e );
+			std::string name = nm ? nm->name : std::string ( "(unnamed)" );
+			for ( char& c : name ) if ( c >= '0' && c <= '9' ) c = '#';
+			const wiScene::MeshComponent* mesh = scene.meshes.GetComponent ( scene.objects[i].meshID );
+			if ( mesh && mesh->armatureID != wiECS::INVALID_ENTITY ) name += " [skinned]";
+			counts[name]++;
+		}
+		FILE* f = fopen ( "object_names.txt", "w" );
+		if ( f )
+		{
+			for ( auto& kv : counts ) fprintf ( f, "%d %s\n", kv.second, kv.first.c_str() );
+			fclose ( f );
+		}
+		_snprintf ( result, sizeof(result), "OK: OBJECT_NAMES objects=%d names=%d written=%d", (int)scene.objects.GetCount(), (int)counts.size(), f ? 1 : 0 );
 	}
 	else if ( _stricmp ( cmd, "GET_PHYSRATE" ) == 0 )
 	{
