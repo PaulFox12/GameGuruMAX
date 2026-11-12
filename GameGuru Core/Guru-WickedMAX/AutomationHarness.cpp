@@ -759,6 +759,13 @@ void AutoHarness_CheckForCommand ( void )
 			_snprintf ( result, sizeof(result), "OK: SAVE_LEVEL completed without crashing" );
 		}
 	}
+	else if ( _stricmp ( cmd, "GET_PHYSRATE" ) == 0 )
+	{
+		// GET_PHYSRATE: the physics world's rate in force (what Tab Tab's Physics World At 60Hz box shows) and the level's
+		extern bool g_bPhysicsWorldAt60;
+		_snprintf ( result, sizeof(result), "OK: GET_PHYSRATE in_force=%d level=%d game_level=%d", g_bPhysicsWorldAt60 ? 60 : 120,
+			t.visuals.bPhysicsWorldAt60 ? 60 : 120, t.gamevisuals.bPhysicsWorldAt60 ? 60 : 120 );
+	}
 	else if ( _stricmp ( cmd, "ANIM_SHARING" ) == 0 )
 	{
 		// ANIM_SHARING: clones that took their template's built animation, key data held by more than one, the scene's
