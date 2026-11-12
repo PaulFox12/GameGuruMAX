@@ -4628,6 +4628,9 @@ bool BPhys_RagDollApplyForce(int ragdollID,int iLimbNumber,float fFX,float fFY,f
 			// halve the force for MAX - more subtle
 			fForce /= 2;
 			#endif
+			// a ragdoll that stopped moving was made static (every bone's mass 0), and waking it alone left a settled body
+			// deaf to a push: its bones get their mass back, and it goes static again by itself once it stops (as the hold does)
+			if (ragdoll->IsStatic()) ragdoll->SetStatic(false);
 			ragdoll->Activate();
 			ragdoll->ApplyForce(iLimbNumber,btVector3(fFX,fFY,fFZ),btVector3(fTX,fTY,fTZ),fForce);
 			return true;
