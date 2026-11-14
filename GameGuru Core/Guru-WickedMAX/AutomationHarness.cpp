@@ -793,6 +793,41 @@ void AutoHarness_CheckForCommand ( void )
 		if ( arg && arg[0] ) g_iNpcHoleLog = atoi ( arg ) != 0 ? 1 : 0;
 		_snprintf ( result, sizeof(result), "OK: NPCHOLE_LOG %d", g_iNpcHoleLog );
 	}
+	else if ( _stricmp ( cmd, "SET_LUASCREEN" ) == 0 )
+	{
+		// SET_LUASCREEN [w h]: the screen size Lua's sprite calls turn percentages into pixels by, set for a test of another
+		// screen's shape (2560 1080 for 21:9); 0 0 puts back what it was; as the DX12 build's verb
+		extern DWORD g_dwScreenWidth, g_dwScreenHeight;
+		static DWORD savedW = 0, savedH = 0;
+		int w = -1, h = -1;
+		if ( arg && sscanf ( arg, "%d %d", &w, &h ) == 2 )
+		{
+			if ( w > 0 && h > 0 )
+			{
+				if ( savedW == 0 ) { savedW = g_dwScreenWidth; savedH = g_dwScreenHeight; }
+				g_dwScreenWidth = (DWORD)w; g_dwScreenHeight = (DWORD)h;
+			}
+			else if ( savedW != 0 )
+			{
+				g_dwScreenWidth = savedW; g_dwScreenHeight = savedH; savedW = savedH = 0;
+			}
+		}
+		_snprintf ( result, sizeof(result), "OK: SET_LUASCREEN %lu %lu", (unsigned long)g_dwScreenWidth, (unsigned long)g_dwScreenHeight );
+	}
+	else if ( _stricmp ( cmd, "SPRITE_SIZE" ) == 0 && arg && arg[0] )
+	{
+		// SPRITE_SIZE <sprite>: a sprite's size and offset in pixels and its image's size, as the DX12 build's verb
+		extern int SpriteExist(int iID); extern int GetSpriteImage(int iID); extern int SpriteWidth(int iID); extern int SpriteHeight(int iID);
+		extern int SpriteOffsetX(int iID); extern int SpriteOffsetY(int iID); extern int ImageWidth(int iID); extern int ImageHeight(int iID);
+		const int id = atoi ( arg );
+		if ( SpriteExist ( id ) != 1 ) _snprintf ( result, sizeof(result), "ERROR: SPRITE_SIZE no sprite %d", id );
+		else
+		{
+			const int img = GetSpriteImage ( id );
+			_snprintf ( result, sizeof(result), "OK: SPRITE_SIZE %d w=%d h=%d offx=%d offy=%d image=%d imgw=%d imgh=%d", id, SpriteWidth ( id ), SpriteHeight ( id ),
+				SpriteOffsetX ( id ), SpriteOffsetY ( id ), img, img > 0 ? ImageWidth ( img ) : 0, img > 0 ? ImageHeight ( img ) : 0 );
+		}
+	}
 	else if ( _stricmp ( cmd, "PLRVIS_LOCK" ) == 0 )
 	{
 		// PLRVIS_LOCK [0|1]: 1 holds the visibility list's lock through the extra thread's rays as before 2026-11-12
