@@ -5053,6 +5053,7 @@ int SetSpriteOffset(lua_State *L)
 
 		if (x == -1 && y == -1) return 0;
 
+		// a -1 side follows the image's aspect, with no integer screen ratio (2 at 21:9, #504)
 		if (x != -1)
 		{
 			x = (x * g_dwScreenWidth) / 100.0f;
@@ -5065,13 +5066,13 @@ int SetSpriteOffset(lua_State *L)
 			if (x == -1)
 			{
 				float perc = (y / ImageHeight(GetSpriteImage(iID))) * 100.0f;
-				x = ((perc * ImageWidth(GetSpriteImage(iID))) / 100.0f) * (g_dwScreenWidth / g_dwScreenHeight);
+				x = ((perc * ImageWidth(GetSpriteImage(iID))) / 100.0f);
 			}
 		}
 		else
 		{
 			float perc = (x / ImageWidth(GetSpriteImage(iID))) * 100.0f;
-			y = ((perc * ImageHeight(GetSpriteImage(iID))) / 100.0f) * (g_dwScreenWidth / g_dwScreenHeight);
+			y = ((perc * ImageHeight(GetSpriteImage(iID))) / 100.0f);
 		}
 
 		if (SpriteExist (iID) == 1)
@@ -5115,6 +5116,7 @@ int SetSpriteSize ( lua_State *L )
 
 		if (sizeX == -1 && sizeY == -1) return 0;
 
+		// a -1 side follows the image's aspect, with no integer screen ratio (2 at 21:9, #504)
 		if (sizeX != -1)
 		{
 			sizeX = (sizeX * g_dwScreenWidth) / 100.0f;
@@ -5127,7 +5129,7 @@ int SetSpriteSize ( lua_State *L )
 			if (sizeX == -1)
 			{
 				float perc = (sizeY / ImageHeight(GetSpriteImage(iID))) * 100.0f;
-				sizeX = ((perc * ImageWidth(GetSpriteImage(iID))) / 100.0f) * (g_dwScreenWidth / g_dwScreenHeight);
+				sizeX = ((perc * ImageWidth(GetSpriteImage(iID))) / 100.0f);
 			}
 		}
 		else
@@ -5142,7 +5144,7 @@ int SetSpriteSize ( lua_State *L )
 	//		sprintf(tmp, "g_dwScreenWidth: %d", g_dwScreenWidth); // 1920
 	//		MessageBox(NULL, tmp, "g_dwScreenWidth", MB_TOPMOST | MB_OK);
 			float perc = (sizeX / ImageWidth(GetSpriteImage(iID))) * 100.0f;
-			sizeY = ((perc * ImageHeight(GetSpriteImage(iID))) / 100.0f) * (g_dwScreenWidth / g_dwScreenHeight);
+			sizeY = ((perc * ImageHeight(GetSpriteImage(iID))) / 100.0f);
 		}
 
 		if (SpriteExist (iID) == 1)
