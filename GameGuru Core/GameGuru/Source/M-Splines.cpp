@@ -9489,7 +9489,27 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 				if ( t.data & GGTrees::GGTREES_FLAG_KEEPFROMROADS ) keep++;
 				if ( t.data & GGTrees::GGTREES_FLAG_USERMOVED ) moved++;
 			}
-			sprintf_s( pResult, resultSize, "OK: shown=%d keep=%d usermoved=%d", (int)all.size(), keep, moved );
+			// the kept trees the engine itself leaves undrawn: under a flattened area (data bit 3) or invalid on a slope or under
+			// the water (bit 4), with the first places of each
+			int keptAll = 0, keptFlat = 0, keptInvalid = 0;
+			std::string where;
+			GGTrees::GGTreeSlot slot;
+			for ( uint32_t id = 0; id < 700000; id++ )
+			{
+				if ( !GGTrees::GGTrees_GetTreeSlot( id, &slot ) || !(slot.data & GGTrees::GGTREES_FLAG_KEEPFROMROADS) ) continue;
+				keptAll++;
+				const bool bFlat = (slot.data & 0x8) != 0, bInvalid = (slot.data & 0x10) != 0;
+				keptFlat += bFlat ? 1 : 0;
+				keptInvalid += bInvalid ? 1 : 0;
+				if ( (bFlat || bInvalid) && where.size() < 3000 )
+				{
+					char one[64];
+					sprintf_s( one, sizeof(one), " %s%.0f,%.0f", bFlat ? "F" : "I", slot.x, slot.z );
+					where += one;
+				}
+			}
+			sprintf_s( pResult, resultSize, "OK: shown=%d keep=%d usermoved=%d keptall=%d keptflattened=%d keptinvalid=%d hidden:%s",
+				(int)all.size(), keep, moved, keptAll, keptFlat, keptInvalid, where.c_str() );
 			return true;
 		}
 		sprintf_s( pResult, resultSize, "FAIL: SPLINE_TREETEST pavement|add|get|keepoff|count" );
