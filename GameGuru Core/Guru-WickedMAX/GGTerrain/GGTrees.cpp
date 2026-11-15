@@ -249,7 +249,7 @@ static const float g_TreeGroundContact[ 38 ][ 5 ][ 2 ] =
 struct InstanceTree
 {
 	float x, y, z;
-	uint32_t data; // [0]=visible, [1]=user moved, [2]=highlighted, [3]=flattened, [4]=invalid (slope or underwater), [5]=killed (removed by a blast in a game, never saved), [6-7]=reserved for flags, [8-10]=variation index, [11-16]=tree type, [17-24]=scale
+	uint32_t data; // [0]=visible, [1]=user moved, [2]=highlighted, [3]=flattened, [4]=invalid (slope or underwater), [5]=killed (removed by a blast in a game, never saved), [6]=kept from roads (GGTREES_FLAG_KEEPFROMROADS), [7]=reserved for flags, [8-10]=variation index, [11-16]=tree type, [17-24]=scale
 	uint32_t id; // not sent to GPU
 
 	bool IsVisible() { return (data & 0x1) != 0; }
@@ -1939,6 +1939,15 @@ bool GGTrees_GetTreeSlot( uint32_t id, GGTreeSlot* pOut )
 	pOut->diameter = pInstance->GetTreeThickness() * pInstance->GetScaleFloat();
 	pOut->data = pInstance->data;
 	return true;
+}
+
+void GGTrees_SetTreeFlags( uint32_t id, uint32_t set, uint32_t clear )
+{
+	// the flags only: not visible, invalid or killed, which the module keeps itself
+	const uint32_t allowed = GGTREES_FLAG_USERMOVED | GGTREES_FLAG_KEEPFROMROADS;
+	if ( !ggtrees_initialised || id >= numTotalTrees ) return;
+	InstanceTree* pInstance = &pAllTrees[ id ];
+	pInstance->data = (pInstance->data & ~(clear & allowed)) | (set & allowed);
 }
 
 void (*pfnTreePaintHook)( float minX, float minZ, float maxX, float maxZ ) = 0; // GG: told the area the brush added or sprayed in (GGTrees_SetPaintHook)

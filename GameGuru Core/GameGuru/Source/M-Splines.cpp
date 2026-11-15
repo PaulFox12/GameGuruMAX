@@ -1232,6 +1232,8 @@ static void spline_bakeshape( sSpline& sp, const std::vector<sRoadSample>& c, co
 	GGTrees::GGTrees_GetTreesInRect( minX - treeReach - 200.0f, minZ - treeReach - 200.0f, maxX + treeReach + 200.0f, maxZ + treeReach + 200.0f, trees );
 	for ( const GGTrees::GGTreeSlot& tree : trees )
 	{
+		// a tree kept from roads (a street tree planted on a pavement) stands whatever the margin
+		if ( tree.data & GGTrees::GGTREES_FLAG_KEEPFROMROADS ) continue;
 		const int ix = (int)(toTexel( tree.trunkX ) + 0.5f), iz = (int)(toTexel( tree.trunkZ ) + 0.5f);
 		if ( ix < 0 || iz < 0 || ix >= SPLINE_MAP_SIZE || iz >= SPLINE_MAP_SIZE ) continue;
 		auto it = foot.find( (uint32_t)iz * SPLINE_MAP_SIZE + (uint32_t)ix );
@@ -5805,6 +5807,7 @@ static void spline_keepofftrees( float minX, float minZ, float maxX, float maxZ 
 		{
 			if ( done[ ti ] ) continue;
 			const GGTrees::GGTreeSlot& tree = trees[ ti ];
+			if ( tree.data & GGTrees::GGTREES_FLAG_KEEPFROMROADS ) continue; // a street tree kept from roads
 			if ( tree.trunkX < b[0] || tree.trunkX > b[2] || tree.trunkZ < b[1] || tree.trunkZ > b[3] ) continue;
 			float best2 = FLT_MAX, bestPad = 0;
 			for ( size_t i = 0; i < s.bakedLine.size(); i += 4 )
@@ -9389,6 +9392,107 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		sprintf_s( pResult, resultSize, "OK: SPLINE_ENTITY %d maintype %d bank %d at %.0f %.0f %.0f tag %08X %d %d", e, t.entityelement[ e ].maintype,
 			t.entityelement[ e ].bankindex, t.entityelement[ e ].x, t.entityelement[ e ].y, t.entityelement[ e ].z,
 			(unsigned)p.iObjectReserved1, p.iObjectReserved2, p.iObjectReserved3 );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_TREETEST" ) == 0 )
+	{
+		// for the tests of trees kept from roads (GGTREES_FLAG_KEEPFROMROADS):
+		//   pavement si fraction side offset: the point offset units past the baked core's edge (a road's kerb) on side 1 (right
+		//     of its direction) or -1, at a fraction of its baked line; the ground there and the pad (the pavement and margin)
+		//   add x z type keep: a tree planted there (scale 128), with keep 1 kept from roads and user moved: its id
+		//   get id: whether the slot is shown, its place and flags
+		//   keepoff x z r: the brushes' Keep Off Roads over a square; count: the trees shown map-wide, kept and user moved
+		char sub[16] = "";
+		if ( pArg ) sscanf_s( pArg, "%15s", sub, (unsigned)sizeof(sub) );
+		if ( _stricmp( sub, "pavement" ) == 0 )
+		{
+			int si = -1, side = 1;
+			float f = 0.5f, offset = 0;
+			sscanf_s( pArg, "%*s %d %f %d %f", &si, &f, &side, &offset );
+			if ( si < 0 || si >= (int)g_Splines.size() )
+			{
+				sprintf_s( pResult, resultSize, "FAIL: SPLINE_TREETEST pavement si fraction side offset" );
+				return true;
+			}
+			sSpline& s = g_Splines[ si ];
+			spline_ensureline( s );
+			if ( s.bakedLine.size() < 2 )
+			{
+				sprintf_s( pResult, resultSize, "FAIL: SPLINE_TREETEST: spline %d has no baked line", si );
+				return true;
+			}
+			const int n = (int)s.bakedLine.size();
+			const int i = std::min( n - 2, std::max( 0, (int)(f * (n - 1)) ) );
+			const sSplineBakeSample& p = s.bakedLine[ i ];
+			const sSplineBakeSample& q = s.bakedLine[ i + 1 ];
+			float dx = q.x - p.x, dz = q.z - p.z;
+			const float len = sqrtf( dx * dx + dz * dz );
+			if ( len > 0 ) { dx /= len; dz /= len; }
+			// right of the direction as the bake tells a side (spline_bakeshape): (-dz, dx)
+			const float d = s.bakedHalfCore + offset;
+			const float x = p.x - dz * d * (float)side, z = p.z + dx * d * (float)side;
+			sprintf_s( pResult, resultSize, "OK: x=%.1f z=%.1f y=%.1f halfcore=%.1f pad=%.1f treemargin=%.1f", x, z, spline_groundy( x, z ),
+				s.bakedHalfCore, p.pad, s.bakedTreeMargin );
+			return true;
+		}
+		if ( _stricmp( sub, "add" ) == 0 )
+		{
+			float x = 0, z = 0;
+			int type = 0, keep = 0;
+			if ( sscanf_s( pArg, "%*s %f %f %d %d", &x, &z, &type, &keep ) < 3 )
+			{
+				sprintf_s( pResult, resultSize, "FAIL: SPLINE_TREETEST add x z type keep" );
+				return true;
+			}
+			const int id = GGTrees::GGTrees_AddTree( x, z, (uint32_t)type, 128 );
+			if ( id >= 0 && keep ) GGTrees::GGTrees_SetTreeFlags( (uint32_t)id, GGTrees::GGTREES_FLAG_KEEPFROMROADS | GGTrees::GGTREES_FLAG_USERMOVED, 0 );
+			GGTrees::GGTrees_RefreshRect( x - 200.0f, z - 200.0f, x + 200.0f, z + 200.0f );
+			sprintf_s( pResult, resultSize, "%s: id=%d", id >= 0 ? "OK" : "FAIL", id );
+			return true;
+		}
+		if ( _stricmp( sub, "get" ) == 0 )
+		{
+			int id = -1;
+			sscanf_s( pArg, "%*s %d", &id );
+			GGTrees::GGTreeSlot slot;
+			if ( id < 0 || !GGTrees::GGTrees_GetTreeSlot( (uint32_t)id, &slot ) )
+			{
+				sprintf_s( pResult, resultSize, "OK: id=%d shown=0", id );
+				return true;
+			}
+			sprintf_s( pResult, resultSize, "OK: id=%d shown=1 x=%.1f z=%.1f keep=%d usermoved=%d data=0x%08X", id, slot.x, slot.z,
+				(slot.data & GGTrees::GGTREES_FLAG_KEEPFROMROADS) ? 1 : 0, (slot.data & GGTrees::GGTREES_FLAG_USERMOVED) ? 1 : 0, slot.data );
+			return true;
+		}
+		if ( _stricmp( sub, "keepoff" ) == 0 )
+		{
+			// keepoff x z r: the brushes' Keep Off Roads over that square, as the tree brush's hook calls it after a stroke
+			float x = 0, z = 0, r = 0;
+			if ( sscanf_s( pArg, "%*s %f %f %f", &x, &z, &r ) < 3 )
+			{
+				sprintf_s( pResult, resultSize, "FAIL: SPLINE_TREETEST keepoff x z r" );
+				return true;
+			}
+			spline_keepofftrees( x - r, z - r, x + r, z + r );
+			sprintf_s( pResult, resultSize, "OK: keepoff (%.0f, %.0f) r %.0f, keep off roads %d", x, z, r, g_bSplineTreeKeep ? 1 : 0 );
+			return true;
+		}
+		if ( _stricmp( sub, "count" ) == 0 )
+		{
+			// count: the trees shown over the whole map, and those kept from roads and user moved among them
+			const float E = GGTerrain::GGTerrain_GetEditableSize();
+			std::vector<GGTrees::GGTreeSlot> all;
+			GGTrees::GGTrees_GetTreesInRect( -E, -E, E, E, all );
+			int keep = 0, moved = 0;
+			for ( const GGTrees::GGTreeSlot& t : all )
+			{
+				if ( t.data & GGTrees::GGTREES_FLAG_KEEPFROMROADS ) keep++;
+				if ( t.data & GGTrees::GGTREES_FLAG_USERMOVED ) moved++;
+			}
+			sprintf_s( pResult, resultSize, "OK: shown=%d keep=%d usermoved=%d", (int)all.size(), keep, moved );
+			return true;
+		}
+		sprintf_s( pResult, resultSize, "FAIL: SPLINE_TREETEST pavement|add|get|keepoff|count" );
 		return true;
 	}
 	if ( _stricmp( pCmd, "SPLINE_LIST" ) == 0 )

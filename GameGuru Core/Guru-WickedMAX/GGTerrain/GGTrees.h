@@ -108,6 +108,12 @@ namespace GGTrees
 	// GGTrees_GetTreeSlot reads a slot back (false when hidden), so a tool can tell whether its tree is still there
 	int GGTrees_AddTree( float x, float z, uint32_t type, uint32_t scale );
 	bool GGTrees_GetTreeSlot( uint32_t id, GGTreeSlot* pOut );
+	// a tree's flag bits (the data's low byte, saved with it): user moved (shown below the water margin too) and kept from
+	// roads, a tree the roads' and rivers' bakes and the grass and tree brushes' Keep Off Roads never hide (street trees on a
+	// pavement, set by whoever plants them); GGTrees_SetTreeFlags sets and clears them on a slot
+	const uint32_t GGTREES_FLAG_USERMOVED = 0x02;
+	const uint32_t GGTREES_FLAG_KEEPFROMROADS = 0x40;
+	void GGTrees_SetTreeFlags( uint32_t id, uint32_t set, uint32_t clear );
 	// GG: called after the brush adds a tree or sprays, with the area it touched
 	void GGTrees_SetPaintHook( void (*pfnHook)( float minX, float minZ, float maxX, float maxZ ) );
 	void GGTrees_GetUsedTypes( uint64_t* pTypes ); // GG: the types of the trees standing, a bit each as paint_tree_bitfield
