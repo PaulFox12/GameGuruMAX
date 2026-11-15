@@ -17,7 +17,7 @@
 // holes have no lifetime: with every slot taken a new hole takes the oldest hole's slot that is out of view (outside the
 // camera's view or past BULLETHOLESUNSEENDIST, where a hole is under a pixel), else the oldest; one entity carries at most
 // BULLETHOLESPEROWNER, its oldest giving way
-#define BULLETHOLESPEROWNER 50
+#define BULLETHOLESPEROWNER 100
 #define BULLETHOLESUNSEENDIST 5000.0f
 // the holes of an entity that moves go in a small object of their own, in its space, that follows its world matrix, so nothing
 // is sent to the renderer while it moves (rebuilding a mesh's render data cost 0.2 to 0.5 ms however small the mesh); they go
