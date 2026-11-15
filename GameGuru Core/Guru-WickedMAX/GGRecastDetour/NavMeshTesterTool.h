@@ -102,6 +102,20 @@ public:
 	virtual void reset();
 	virtual void findAPath(float* pStart, float* pEnd);
 	virtual void getPathResult(int* piPointCount, float** ppfPointData);
+	// GG: the blocking boxes (closed doors, parked vehicles) in the last straight path search: the box its start stood in and
+	// was moved out of (else -1), the same for its goal, its lines that cut across a box and were taken round it, those that
+	// could not be (the path thrown out), and rounded corners left sharp as their curve touched a box
+	int m_ggStartBox = -1, m_ggGoalBox = -1;
+	int m_ggRerouted = 0, m_ggRerouteFailed = 0, m_ggArcsKept = 0;
+	bool ggBoxExit(int iBox, const float* pPos, dtPolyRef posRef, const float* pOther, bool bGoal, float* pOut, dtPolyRef* pOutRef);
+	int ggCorridorIndex(int iPoint);
+	bool ggWalkable(dtPolyRef fromRef, const float* pFrom, const float* pTo);
+	int ggInsertPoints(int iAfter, const float* pPoints, const dtPolyRef* pRefs, int iCount);
+	void ggRemovePoints(int iFrom, int iCount);
+	int ggRerouteBySearch(int iPoint);
+	float m_ggNodePos[MAX_POLYS * 3]; // the points the last search stepped between, one a path polygon (ggRerouteBySearch)
+	int m_ggNodeCount = 0;
+	int ggRerouteRoundBoxes(int iPoint);
 	virtual bool isWithinNavMeshEx(float fX, float fY, float fZ, float* pvecNearestPt, bool* isOverPoly);
 	virtual bool isWithinNavMesh(float fX, float fY, float fZ);
 	virtual float getYFromPos(float fX, float fY, float fZ);

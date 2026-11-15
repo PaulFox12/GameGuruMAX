@@ -28,6 +28,10 @@ using namespace GGTerrain;
 using namespace GGTrees;
 #include "GGRecastDetour.h"
 GGRecastDetour g_RecastDetour;
+// the harness's NAV_BOXCHECK, NAV_BOXES and NAV_PATHBATCH
+void GG_NavBoxCheck(char* pOut, int size) { g_RecastDetour.getBoxCheck(pOut, size); }
+void GG_NavBoxes(char* pOut, int size) { g_RecastDetour.getBoxes(pOut, size); }
+int GG_NavPathBatch(const char* pIn, const char* pOut, int iReps) { return g_RecastDetour.runPathBatch(pIn, pOut, iReps); }
 bool g_bShowRecastDetourDebugVisuals = false;
 int old_render_params2 = 0;
 

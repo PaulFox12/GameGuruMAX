@@ -2,6 +2,7 @@
 #include "GGRecastDetour.h"
 #include "CFileC.h"
 #include "DetourCommon.h"
+#include <chrono>
 
 // Globals
 bool g_bNavMeshChanged = false;
@@ -247,6 +248,91 @@ int GGRecastDetour::findPath (float fStart[3], float fEnd[3])
 	return 0;
 }
 
+void GGRecastDetour::getBoxCheck (char* pOut, int size)
+{
+	// GG: the last path as Lua's RDGetPathPoint* calls give it, each of its lines checked against every blocking box (the first
+	// line excepted when it steps out of the box the start stands in): how many cross one, and the first that does
+	if (!tool) { sprintf_s(pOut, size, "no navmesh"); return; }
+	int iPoints = 0;
+	float* pPoints = NULL;
+	tool->getPathResult(&iPoints, &pPoints);
+	if (pPoints == NULL) iPoints = 0;
+	extern int g_iGGLastBlockerHit;
+	extern bool g_bGGNavBoxExits;
+	extern bool DoesLineGoThroughBlocker (float fFromX, float fFromY, float fFromZ, float fToX, float fToY, float fToZ);
+	const int iLastHit = g_iGGLastBlockerHit;
+	int iCrossing = 0, iFirst = -1, iFirstBox = -1;
+	for (int i = 0; i + 1 < iPoints; i++)
+	{
+		if (i == 0 && tool->m_ggStartBox >= 0) continue;
+		const float* p = pPoints + (i * 3);
+		const float* q = pPoints + ((i + 1) * 3);
+		if (DoesLineGoThroughBlocker(p[0], p[1], p[2], q[0], q[1], q[2]))
+		{
+			iCrossing++;
+			if (iFirst < 0) { iFirst = i; iFirstBox = g_iGGLastBlockerHit; }
+		}
+	}
+	g_iGGLastBlockerHit = iLastHit;
+	const float* e = iPoints > 0 ? pPoints + ((iPoints - 1) * 3) : NULL;
+	sprintf_s(pOut, size, "points=%d crossing=%d first=%d box=%d start_box=%d goal_box=%d rerouted=%d reroute_failed=%d arcs_kept=%d end=%.0f,%.0f,%.0f fix=%d",
+		iPoints, iCrossing, iFirst, iFirstBox, tool->m_ggStartBox, tool->m_ggGoalBox, tool->m_ggRerouted, tool->m_ggRerouteFailed,
+		tool->m_ggArcsKept, e ? e[0] : 0.0f, e ? e[1] : 0.0f, e ? e[2] : 0.0f, g_bGGNavBoxExits ? 1 : 0);
+}
+int GGRecastDetour::runPathBatch (const char* pIn, const char* pOut, int iReps)
+{
+	// GG: path searches read from a file, one a line (start x y z, goal x y z), each run iReps times and timed, then a line each
+	// written: its index, ms a search, the box check (getBoxCheck) and its points as Lua's RDGetPathPoint* calls give them. The
+	// searches done, or -1 if a file could not be opened (harness NAV_PATHBATCH: a test's hundreds of searches in one call)
+	if (!tool) return -1;
+	FILE* fIn = NULL;
+	FILE* fOut = NULL;
+	if (fopen_s(&fIn, pIn, "r") != 0 || fIn == NULL) return -1;
+	if (fopen_s(&fOut, pOut, "w") != 0 || fOut == NULL) { fclose(fIn); return -1; }
+	if (iReps < 1) iReps = 1;
+	char line[512];
+	int iDone = 0;
+	while (fgets(line, sizeof(line), fIn))
+	{
+		float s[3], e[3];
+		if (sscanf_s(line, "%f %f %f %f %f %f", &s[0], &s[1], &s[2], &e[0], &e[1], &e[2]) != 6) continue;
+		auto t0 = std::chrono::high_resolution_clock::now();
+		for (int r = 0; r < iReps; r++)
+		{
+			float fStart[3] = { s[0], s[1], s[2] };
+			float fEnd[3] = { e[0], e[1], e[2] };
+			findPath(fStart, fEnd);
+		}
+		const double ms = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - t0).count() / iReps;
+		char check[400];
+		getBoxCheck(check, sizeof(check));
+		int iPoints = 0;
+		float* pPoints = NULL;
+		getPath(&iPoints, &pPoints);
+		if (pPoints == NULL) iPoints = 0;
+		fprintf(fOut, "%d ms=%.4f %s pts=", iDone, ms, check);
+		for (int i = 0; i < iPoints; i++)
+			fprintf(fOut, "%s%.1f,%.1f,%.1f", i ? " " : "", pPoints[i * 3], pPoints[i * 3 + 1], pPoints[i * 3 + 2]);
+		fprintf(fOut, "\n");
+		iDone++;
+	}
+	fclose(fIn);
+	fclose(fOut);
+	return iDone;
+}
+void GGRecastDetour::getBoxes (char* pOut, int size)
+{
+	// GG: every blocker box: its index, closed (1) or open, centre, half sizes in its own frame, turn and height span
+	int len = sprintf_s(pOut, size, "%d", (int)g_BlockerList.size());
+	for (int i = 0; i < (int)g_BlockerList.size() && len > 0 && len < size - 128; i++)
+	{
+		const sBlocker& b = g_BlockerList[i];
+		int n = sprintf_s(pOut + len, size - len, ";%d %d %.2f %.2f %.2f %.2f %.3f %.2f %.2f", i, b.bBlocking ? 1 : 0,
+			(b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2, (b.maxX - b.minX) / 2, (b.maxZ - b.minZ) / 2, b.fAngle, b.minY, b.maxY);
+		if (n <= 0) break;
+		len += n;
+	}
+}
 int GGRecastDetour::getPath (int* piPointCount, float** ppfPointData)
 {
 	if (tool)
@@ -433,6 +519,8 @@ float GGRecastDetour::GetTokenDropZ(int iIndex) { return g_TokenDropList[iIndex]
 int GGRecastDetour::GetTokenDropType(int iIndex) { return g_TokenDropList[iIndex].iType; }
 float GGRecastDetour::GetTokenDropTimeLeft(int iIndex) { return g_TokenDropList[iIndex].fTimeLeft; }
 
+bool g_bGGNavBoxExits = true; // GG: the blocking boxes' new rule (see GGNavPointInBlocker); harness SET_NAVBOXFIX 0 gives the old
+int g_iGGLastBlockerHit = -1; // GG: the blocker the last blocked line went through
 bool DoesLineGoThroughBlocker (float fFromOrigX, float fFromOrigY, float fFromOrigZ, float fToOrigX, float fToOrigY, float fToOrigZ)
 {
 	// LB: add an extra cost if the path runs through an area marked as a door, it will
@@ -502,6 +590,41 @@ bool DoesLineGoThroughBlocker (float fFromOrigX, float fFromOrigY, float fFromOr
 					fToA = (fToA + g_BlockerList[iDoorIndex].fAngle) * tofromradian;
 					fToX = fCenterX + (sinf(fToA) * fDD);
 					fToZ = fCenterZ - (cosf(fToA) * fDD);
+
+					// GG: the turned line against the box exactly (slabs), not by samples 2 units apart: one test where a long line
+					// near a box took hundreds, and no corner clipped between two samples
+					if (g_bGGNavBoxExits == true)
+					{
+						const float fF[3] = { fFromX, fFromY, fFromZ };
+						const float fD[3] = { fToX - fFromX, fToY - fFromY, fToZ - fFromZ };
+						const float fMin[3] = { fDoorMinX, fDoorMinY, fDoorMinZ };
+						const float fMax[3] = { fDoorMaxX, fDoorMaxY, fDoorMaxZ };
+						float fTMin = 0.0f, fTMax = 1.0f;
+						bool bHit = true;
+						for (int a = 0; a < 3 && bHit; a++)
+						{
+							if (fabs(fD[a]) < 0.000001f)
+							{
+								if (fF[a] < fMin[a] || fF[a] > fMax[a]) bHit = false;
+							}
+							else
+							{
+								float fT1 = (fMin[a] - fF[a]) / fD[a];
+								float fT2 = (fMax[a] - fF[a]) / fD[a];
+								if (fT1 > fT2) { float fT = fT1; fT1 = fT2; fT2 = fT; }
+								if (fT1 > fTMin) fTMin = fT1;
+								if (fT2 < fTMax) fTMax = fT2;
+								if (fTMin > fTMax) bHit = false;
+							}
+						}
+						if (bHit)
+						{
+							bBlocked = true;
+							g_iGGLastBlockerHit = iDoorIndex;
+						}
+						continue;
+					}
+
 					float fX = fFromX;
 					float fY = fFromY;
 					float fZ = fFromZ;
@@ -522,6 +645,7 @@ bool DoesLineGoThroughBlocker (float fFromOrigX, float fFromOrigY, float fFromOr
 								{
 									// the path goes through a door
 									bBlocked = true;
+									g_iGGLastBlockerHit = iDoorIndex;
 									break;
 								}
 							}
@@ -540,6 +664,112 @@ bool DoesLineGoThroughBlocker (float fFromOrigX, float fFromOrigY, float fFromOr
 		}
 	}
 	return bBlocked;
+}
+
+// GG: points against the blocking boxes (closed doors, parked vehicles). DoesLineGoThroughBlocker refuses any line with a sample
+// inside a box, so no path could leave a box it starts in or reach a goal inside one: the search runs from (to) the nearest
+// point just outside the box instead, and a straight path line that cuts across a box goes round it (NavMeshTesterTool::recalc)
+static void GGNavTurnAboutBox (const sBlocker& b, float fX, float fZ, float fTurn, float* pfOutX, float* pfOutZ)
+{
+	// as DoesLineGoThroughBlocker turns a point into the box's own frame (fTurn the box's angle); minus the angle turns it back
+	float tofromradian = 0.0174533f;
+	float fCenterX = b.minX + ((b.maxX - b.minX) / 2);
+	float fCenterZ = b.minZ + ((b.maxZ - b.minZ) / 2);
+	float fDX = fX - fCenterX;
+	float fDZ = fCenterZ - fZ;
+	float fDD = sqrtf((fDX * fDX) + (fDZ * fDZ));
+	float fA = ((atan2(fDX, fDZ) / tofromradian) + fTurn) * tofromradian;
+	*pfOutX = fCenterX + (sinf(fA) * fDD);
+	*pfOutZ = fCenterZ - (cosf(fA) * fDD);
+}
+int GGNavPointInBlocker (float fX, float fY, float fZ)
+{
+	// the first blocking box holding the point, tested as DoesLineGoThroughBlocker tests a line's samples, or -1
+	for (int i = 0; i < (int)g_BlockerList.size(); i++)
+	{
+		const sBlocker& b = g_BlockerList[i];
+		if (b.bBlocking == false) continue;
+		if (fY < b.minY || fY > b.maxY) continue;
+		float fBX, fBZ;
+		GGNavTurnAboutBox(b, fX, fZ, b.fAngle, &fBX, &fBZ);
+		if (fBX >= b.minX && fBX <= b.maxX && fBZ >= b.minZ && fBZ <= b.maxZ) return i;
+	}
+	return -1;
+}
+bool GGNavBlockerFacePoint (int iBox, float fX, float fZ, int iFace, float fMargin, float* pfOutX, float* pfOutZ, float* pfFaceDist)
+{
+	// the point fMargin past face iFace of box iBox (0 its -x side, 1 +x, 2 -z, 3 +z, in the box's own frame) straight out from
+	// the point given, in the world, and how far the point given is from that face
+	if (iBox < 0 || iBox >= (int)g_BlockerList.size()) return false;
+	const sBlocker& b = g_BlockerList[iBox];
+	float fBX, fBZ, fDist;
+	GGNavTurnAboutBox(b, fX, fZ, b.fAngle, &fBX, &fBZ);
+	switch (iFace)
+	{
+	case 0: fDist = fBX - b.minX; fBX = b.minX - fMargin; break;
+	case 1: fDist = b.maxX - fBX; fBX = b.maxX + fMargin; break;
+	case 2: fDist = fBZ - b.minZ; fBZ = b.minZ - fMargin; break;
+	default: fDist = b.maxZ - fBZ; fBZ = b.maxZ + fMargin; break;
+	}
+	GGNavTurnAboutBox(b, fBX, fBZ, -b.fAngle, pfOutX, pfOutZ);
+	if (pfFaceDist) *pfFaceDist = fDist;
+	return true;
+}
+bool GGNavPastBlockerFace (int iBox, float fX, float fZ, int iFace)
+{
+	// the point lies straight out from face iFace of box iBox: past that face, within the box's span along it
+	if (iBox < 0 || iBox >= (int)g_BlockerList.size()) return false;
+	const sBlocker& b = g_BlockerList[iBox];
+	float fBX, fBZ;
+	GGNavTurnAboutBox(b, fX, fZ, b.fAngle, &fBX, &fBZ);
+	switch (iFace)
+	{
+	case 0: return fBX < b.minX && fBZ >= b.minZ && fBZ <= b.maxZ;
+	case 1: return fBX > b.maxX && fBZ >= b.minZ && fBZ <= b.maxZ;
+	case 2: return fBZ < b.minZ && fBX >= b.minX && fBX <= b.maxX;
+	default: return fBZ > b.maxZ && fBX >= b.minX && fBX <= b.maxX;
+	}
+}
+int GGNavBlockersNear (float fX1, float fZ1, float fX2, float fZ2, float fReach, int* piOut, int iMax)
+{
+	// the closed boxes that come within fReach of the line from 1 to 2 (each taken as a circle round its corners), nearest first,
+	// up to iMax; how many
+	float fDist[64];
+	int iIndex[64];
+	int n = 0;
+	const float fSegX = fX2 - fX1, fSegZ = fZ2 - fZ1;
+	const float fSegLenSqr = (fSegX * fSegX) + (fSegZ * fSegZ);
+	for (int i = 0; i < (int)g_BlockerList.size() && n < 64; i++)
+	{
+		const sBlocker& b = g_BlockerList[i];
+		if (b.bBlocking == false) continue;
+		const float fCenterX = (b.minX + b.maxX) / 2, fCenterZ = (b.minZ + b.maxZ) / 2;
+		const float fHalfX = (b.maxX - b.minX) / 2, fHalfZ = (b.maxZ - b.minZ) / 2;
+		float fT = 0.0f;
+		if (fSegLenSqr > 0.0f) fT = (((fCenterX - fX1) * fSegX) + ((fCenterZ - fZ1) * fSegZ)) / fSegLenSqr;
+		if (fT < 0.0f) fT = 0.0f;
+		if (fT > 1.0f) fT = 1.0f;
+		const float fNearX = fX1 + (fSegX * fT) - fCenterX, fNearZ = fZ1 + (fSegZ * fT) - fCenterZ;
+		const float fD = sqrtf((fNearX * fNearX) + (fNearZ * fNearZ)) - sqrtf((fHalfX * fHalfX) + (fHalfZ * fHalfZ));
+		if (fD > fReach) continue;
+		int k = n++;
+		while (k > 0 && fDist[k - 1] > fD) { fDist[k] = fDist[k - 1]; iIndex[k] = iIndex[k - 1]; k--; }
+		fDist[k] = fD;
+		iIndex[k] = i;
+	}
+	if (n > iMax) n = iMax;
+	for (int i = 0; i < n; i++) piOut[i] = iIndex[i];
+	return n;
+}
+bool GGNavBlockerCorner (int iBox, int iCorner, float fMargin, float* pfOutX, float* pfOutZ)
+{
+	// corner iCorner of box iBox pushed fMargin out along both sides, in the world; corners 0 to 3 go round the box in turn
+	if (iBox < 0 || iBox >= (int)g_BlockerList.size()) return false;
+	const sBlocker& b = g_BlockerList[iBox];
+	float fBX = (iCorner == 1 || iCorner == 2) ? b.maxX + fMargin : b.minX - fMargin;
+	float fBZ = (iCorner >= 2) ? b.maxZ + fMargin : b.minZ - fMargin;
+	GGNavTurnAboutBox(b, fBX, fBZ, -b.fAngle, pfOutX, pfOutZ);
+	return true;
 }
 
 void GGRecastDetour::ResetBlockerSystem(void)

@@ -519,6 +519,13 @@ public:
 	/// @return The navigation mesh the query object is using.
 	const dtNavMesh* getAttachedNavMesh() const { return m_nav; }
 
+	/// GG: the mid point of the edge two neighbouring polygons share (a path corridor's portal), as the path search steps by
+	dtStatus ggPortalMidPoint(dtPolyRef from, dtPolyRef to, float* mid) const { return getEdgeMidPoint(from, to, mid); }
+
+	/// GG: the points the last findPath stepped between, one a path polygon (the start, then where the search entered each
+	/// polygon), each step from one to the next one the search took; call it straight after findPath. The number written
+	int ggGetPathNodePositions(float* pos, const int maxPath) const;
+
 	/// @}
 	
 private:
@@ -574,6 +581,7 @@ private:
 	class dtNodePool* m_tinyNodePool;	///< Pointer to small node pool.
 	class dtNodePool* m_nodePool;		///< Pointer to node pool.
 	class dtNodeQueue* m_openList;		///< Pointer to open list queue.
+	mutable unsigned int m_ggLastPathNode;	///< GG: the node the last findPath's path ends at, 0 if none (ggGetPathNodePositions)
 };
 
 /// Allocates a query object using the Detour allocator.

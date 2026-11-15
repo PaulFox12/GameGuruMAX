@@ -140,7 +140,8 @@ dtNavMeshQuery::dtNavMeshQuery() :
 	m_nav(0),
 	m_tinyNodePool(0),
 	m_nodePool(0),
-	m_openList(0)
+	m_openList(0),
+	m_ggLastPathNode(0)
 {
 	memset(&m_query, 0, sizeof(dtQueryData));
 }
@@ -984,6 +985,7 @@ dtStatus dtNavMeshQuery::findPath(dtPolyRef startRef, dtPolyRef endRef,
 		return DT_FAILURE | DT_INVALID_PARAM;
 
 	*pathCount = 0;
+	m_ggLastPathNode = 0;
 	
 	// Validate input
 	if (!m_nav->isValidPolyRef(startRef) || !m_nav->isValidPolyRef(endRef) ||
@@ -1079,11 +1081,38 @@ dtStatus dtNavMeshQuery::findPath(dtPolyRef startRef, dtPolyRef endRef,
 			}
 			
 			// If the node is visited the first time, calculate node position.
+			extern bool g_bGGNavBoxExits;
+			extern bool DoesLineGoThroughBlocker (float fFromX, float fFromY, float fFromZ, float fToX, float fToY, float fToZ);
+			int ggStepBlocked = -1;
 			if (neighbourNode->flags == 0)
 			{
 				getEdgeMidPoint(bestRef, bestPoly, bestTile,
 								neighbourRef, neighbourPoly, neighbourTile,
 								neighbourNode->pos);
+
+				// GG: when the step to the mid point crosses a blocking box (a closed door, a parked vehicle), the first other point along
+				// the shared edge that the step reaches clear of them, so a large polygon with a vehicle in it can still be left
+				if (g_bGGNavBoxExits)
+				{
+					const float* pFrom = bestNode->pos;
+					ggStepBlocked = DoesLineGoThroughBlocker(pFrom[0], pFrom[1], pFrom[2], neighbourNode->pos[0], neighbourNode->pos[1], neighbourNode->pos[2]) ? 1 : 0;
+					float left[3], right[3];
+					if (ggStepBlocked == 1 && dtStatusSucceed(getPortalPoints(bestRef, bestPoly, bestTile, neighbourRef, neighbourPoly, neighbourTile, left, right)))
+					{
+						static const float ggAlong[6] = { 0.3f, 0.7f, 0.15f, 0.85f, 0.05f, 0.95f };
+						for (int k = 0; k < 6; k++)
+						{
+							float pt[3];
+							dtVlerp(pt, left, right, ggAlong[k]);
+							if (DoesLineGoThroughBlocker(pFrom[0], pFrom[1], pFrom[2], pt[0], pt[1], pt[2]) == false)
+							{
+								dtVcopy(neighbourNode->pos, pt);
+								ggStepBlocked = 0;
+								break;
+							}
+						}
+					}
+				}
 			}
 
 			// Calculate cost and heuristic.
@@ -1129,8 +1158,10 @@ dtStatus dtNavMeshQuery::findPath(dtPolyRef startRef, dtPolyRef endRef,
 			// force the system to find another path that does NOT go through dor areas (effectively blocking them as path ways when active)
 			// (this added 99999 to the heuristic and skipped any node whose total passed 99999, which as the cost is distance
 			// also cut off every path longer than 99999 units, about 2.5 km)
-			extern bool DoesLineGoThroughBlocker (float fFromX, float fFromY, float fFromZ, float fToX, float fToY, float fToZ);
-			if (DoesLineGoThroughBlocker (fFromX, fFromY, fFromZ, fToX, fToY, fToZ) == true)
+			// (GG: a node placed just now was tested as it was placed)
+			if (ggStepBlocked < 0)
+				ggStepBlocked = DoesLineGoThroughBlocker (fFromX, fFromY, fFromZ, fToX, fToY, fToZ) ? 1 : 0;
+			if (ggStepBlocked == 1)
 			{
 				// the path goes through a door, skip
 				continue;
@@ -1175,6 +1206,7 @@ dtStatus dtNavMeshQuery::findPath(dtPolyRef startRef, dtPolyRef endRef,
 	}
 
 	dtStatus status = getPathToNode(lastBestNode, path, pathCount, maxPath);
+	m_ggLastPathNode = m_nodePool->getNodeIdx(lastBestNode);
 
 	if (lastBestNode->id != endRef)
 		status |= DT_PARTIAL_RESULT;
@@ -1183,6 +1215,27 @@ dtStatus dtNavMeshQuery::findPath(dtPolyRef startRef, dtPolyRef endRef,
 		status |= DT_OUT_OF_NODES;
 	
 	return status;
+}
+
+int dtNavMeshQuery::ggGetPathNodePositions(float* pos, const int maxPath) const
+{
+	// GG: as getPathToNode walks the last path's nodes, their positions in place of their polygons
+	if (!m_nodePool || !m_ggLastPathNode || maxPath <= 0)
+		return 0;
+	const dtNode* endNode = m_nodePool->getNodeAtIdx(m_ggLastPathNode);
+	int length = 0;
+	for (const dtNode* node = endNode; node; node = m_nodePool->getNodeAtIdx(node->pidx))
+		length++;
+	const dtNode* curNode = endNode;
+	int writeCount;
+	for (writeCount = length; writeCount > maxPath; writeCount--)
+		curNode = m_nodePool->getNodeAtIdx(curNode->pidx);
+	for (int i = writeCount - 1; i >= 0; i--)
+	{
+		dtVcopy(&pos[i * 3], curNode->pos);
+		curNode = m_nodePool->getNodeAtIdx(curNode->pidx);
+	}
+	return writeCount;
 }
 
 dtStatus dtNavMeshQuery::getPathToNode(dtNode* endNode, dtPolyRef* path, int* pathCount, int maxPath) const

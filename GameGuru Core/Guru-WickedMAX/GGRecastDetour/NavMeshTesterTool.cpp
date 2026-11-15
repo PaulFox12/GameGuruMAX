@@ -38,6 +38,17 @@
 #include "DetourDebugDraw.h"
 #include "DetourCommon.h"
 #include "directx-macros.h"
+#include <float.h>
+
+// GG: the blocking boxes, closed doors and parked vehicles (GGRecastDetour.cpp)
+extern bool g_bGGNavBoxExits;
+extern int g_iGGLastBlockerHit;
+bool DoesLineGoThroughBlocker (float fFromX, float fFromY, float fFromZ, float fToX, float fToY, float fToZ);
+int GGNavPointInBlocker (float fX, float fY, float fZ);
+bool GGNavBlockerFacePoint (int iBox, float fX, float fZ, int iFace, float fMargin, float* pfOutX, float* pfOutZ, float* pfFaceDist);
+bool GGNavPastBlockerFace (int iBox, float fX, float fZ, int iFace);
+bool GGNavBlockerCorner (int iBox, int iCorner, float fMargin, float* pfOutX, float* pfOutZ);
+int GGNavBlockersNear (float fX1, float fZ1, float fX2, float fZ2, float fReach, int* piOut, int iMax);
 
 #ifdef WIN32
 #	define snprintf _snprintf
@@ -605,6 +616,11 @@ void NavMeshTesterTool::findAPath(float* pStart, float* pEnd)
 	if (bUseOriginalStartPos == true) iSmoothedPathCount++;
 	if (bUseOriginalFinishPos == true) iSmoothedPathCount+=2;
 
+	// GG: a path whose rounded corners would not fit in m_straightPath (over a quarter of MAX_POLYS points) keeps its sharp
+	// corners; they were written past the array's end
+	if (iSmoothedPathCount > MAX_POLYS)
+		return;
+
 	// reformat path for smooth curves
 	int iSmoothedPathIndex = 0;
 	float* pSmoothedPath = new float[iSmoothedPathCount * 3];
@@ -660,10 +676,9 @@ void NavMeshTesterTool::findAPath(float* pStart, float* pEnd)
 
 		// first point at B
 		GGVECTOR3 vAt = vNewA;
-		*(pSmoothedPath + (iSmoothedPathIndex * 3) + 0) = vAt.x;
-		*(pSmoothedPath + (iSmoothedPathIndex * 3) + 1) = vAt.y;
-		*(pSmoothedPath + (iSmoothedPathIndex * 3) + 2) = vAt.z;
-		iSmoothedPathIndex++;
+		GGVECTOR3 vArc[8];
+		int iArcCount = 0;
+		vArc[iArcCount++] = vAt;
 
 		// work out curve through 3D space
 		GGVECTOR3 vDirection;
@@ -673,9 +688,32 @@ void NavMeshTesterTool::findAPath(float* pStart, float* pEnd)
 			vDirection += vDirectionInc;
 			GGVec3Normalize(&vDirection, &vDirection);
 			vAt += vDirection * fDistanceStep;
-			*(pSmoothedPath + (iSmoothedPathIndex * 3) + 0) = vAt.x;
-			*(pSmoothedPath + (iSmoothedPathIndex * 3) + 1) = vAt.y;
-			*(pSmoothedPath + (iSmoothedPathIndex * 3) + 2) = vAt.z;
+			vArc[iArcCount++] = vAt;
+		}
+
+		// GG: a curve that cuts into a blocking box (a corner the path takes round a closed door or a parked vehicle, or the step
+		// out of the box the start stands in) is left as the sharp corner
+		bool bArcBlocked = false;
+		if (g_bGGNavBoxExits == true)
+		{
+			for (int i = 0; i < iArcCount && bArcBlocked == false; i++)
+			{
+				GGVECTOR3 vTo = (i + 1 < iArcCount) ? vArc[i + 1] : vNewC;
+				if (DoesLineGoThroughBlocker(vArc[i].x, vArc[i].y, vArc[i].z, vTo.x, vTo.y, vTo.z) == true)
+					bArcBlocked = true;
+			}
+		}
+		if (bArcBlocked == true)
+		{
+			m_ggArcsKept++;
+			vArc[0] = vB;
+			iArcCount = 1;
+		}
+		for (int i = 0; i < iArcCount; i++)
+		{
+			*(pSmoothedPath + (iSmoothedPathIndex * 3) + 0) = vArc[i].x;
+			*(pSmoothedPath + (iSmoothedPathIndex * 3) + 1) = vArc[i].y;
+			*(pSmoothedPath + (iSmoothedPathIndex * 3) + 2) = vArc[i].z;
 			iSmoothedPathIndex++;
 		}
 	}
@@ -700,11 +738,31 @@ void NavMeshTesterTool::findAPath(float* pStart, float* pEnd)
 		iSmoothedPathIndex++;
 	}
 
+	// GG: the rounded path checked against the blocking boxes as a whole (a curve's last point joins the next corner's first off
+	// the line checked before): one that touches a box is dropped and the path keeps its sharp corners
+	if (g_bGGNavBoxExits == true)
+	{
+		for (int i = (m_ggStartBox >= 0) ? 1 : 0; i + 1 < iSmoothedPathIndex; i++)
+		{
+			const float* p = pSmoothedPath + (i * 3);
+			const float* q = pSmoothedPath + ((i + 1) * 3);
+			if (DoesLineGoThroughBlocker(p[0], p[1], p[2], q[0], q[1], q[2]) == true)
+			{
+				m_ggArcsKept = -1;
+				delete[] pSmoothedPath;
+				return;
+			}
+		}
+	}
+
 	// replace old one
 	m_nstraightPath = iSmoothedPathIndex;
 	memset(m_straightPath, 0, sizeof(m_straightPath));
 	for (int i = 0; i < m_nstraightPath * 3; i++)
 		m_straightPath[i] = pSmoothedPath[i];
+
+	// GG: the rounded path was never freed, a leak on every path search
+	delete[] pSmoothedPath;
 }
 
 void NavMeshTesterTool::getPathResult(int* piPointCount, float** ppfPointData)
@@ -962,6 +1020,266 @@ void NavMeshTesterTool::reset()
 	m_distanceToWall = 0;
 }
 
+bool NavMeshTesterTool::ggBoxExit(int iBox, const float* pPos, dtPolyRef posRef, const float* pOther, bool bGoal, float* pOut, dtPolyRef* pOutRef)
+{
+	// GG: the nearest point on the navmesh just outside box iBox from pPos, straight out from one of its faces, in no box and
+	// walkable from pPos. A start leaves by its nearest face (a closed door's own side of it); a goal by the face nearest it
+	// counting half the way from there to pOther, the start (a goal deep in a vehicle is met on the start's side, one near its far
+	// side on that side)
+	const float fMargin = 20.0f;
+	float face[4][3], score[4];
+	int order[4] = { 0, 1, 2, 3 };
+	for (int f = 0; f < 4; f++)
+	{
+		float fDist = 0;
+		if (GGNavBlockerFacePoint(iBox, pPos[0], pPos[2], f, fMargin, &face[f][0], &face[f][2], &fDist) == false) return false;
+		face[f][1] = pPos[1];
+		score[f] = fDist;
+		if (bGoal == true) score[f] += 0.5f * dtVdist2D(face[f], pOther);
+	}
+	for (int i = 1; i < 4; i++)
+		for (int j = i; j > 0 && score[order[j]] < score[order[j - 1]]; j--)
+		{
+			int t = order[j]; order[j] = order[j - 1]; order[j - 1] = t;
+		}
+	float from[3];
+	if (dtStatusFailed(m_navQuery->closestPointOnPoly(posRef, pPos, from, 0))) return false;
+	for (int i = 0; i < 4; i++)
+	{
+		const int f = order[i];
+		dtPolyRef ref = 0;
+		float nearest[3];
+		m_navQuery->findNearestPoly(face[f], m_polyPickExt, &m_filter, &ref, nearest);
+		if (ref == 0) continue;
+		if (dtVdist2D(nearest, face[f]) > fMargin * 3) continue;
+		if (GGNavPastBlockerFace(iBox, nearest[0], nearest[2], f) == false) continue;
+		if (GGNavPointInBlocker(nearest[0], nearest[1], nearest[2]) >= 0) continue;
+		if (ggWalkable(posRef, from, nearest) == false) continue;
+		dtVcopy(pOut, nearest);
+		*pOutRef = ref;
+		return true;
+	}
+	return false;
+}
+
+int NavMeshTesterTool::ggCorridorIndex(int iPoint)
+{
+	// GG: the corridor polygon a straight path point leads into (where its line onward starts): its own polygon ref names it; the
+	// first point's is the first polygon, the end point's (ref 0) past the last
+	if (iPoint <= 0) return 0;
+	const dtPolyRef ref = m_straightPathPolys[iPoint];
+	if (ref == 0) return m_npolys;
+	for (int j = 0; j < m_npolys; j++)
+		if (m_polys[j] == ref) return j;
+	return -1;
+}
+
+bool NavMeshTesterTool::ggWalkable(dtPolyRef fromRef, const float* pFrom, const float* pTo)
+{
+	// GG: a straight line on the navmesh from pFrom (in polygon fromRef) reaches pTo without meeting its edge
+	if (fromRef == 0) return false;
+	dtRaycastHit hit;
+	memset(&hit, 0, sizeof(hit));
+	if (dtStatusFailed(m_navQuery->raycast(fromRef, pFrom, pTo, &m_filter, 0, &hit))) return false;
+	return hit.t == FLT_MAX;
+}
+
+int NavMeshTesterTool::ggInsertPoints(int iAfter, const float* pPoints, const dtPolyRef* pRefs, int iCount)
+{
+	// GG: points put into the straight path after point iAfter (-1 the front) with their polygons; the number added, or -1 if
+	// the path has no room for them
+	if (iCount <= 0) return 0;
+	if (m_nstraightPath + iCount > MAX_POLYS) return -1;
+	const int iAt = iAfter + 1;
+	const int iMove = m_nstraightPath - iAt;
+	if (iMove > 0)
+	{
+		memmove(&m_straightPath[(iAt + iCount) * 3], &m_straightPath[iAt * 3], sizeof(float) * 3 * iMove);
+		memmove(&m_straightPathFlags[iAt + iCount], &m_straightPathFlags[iAt], sizeof(unsigned char) * iMove);
+		memmove(&m_straightPathPolys[iAt + iCount], &m_straightPathPolys[iAt], sizeof(dtPolyRef) * iMove);
+	}
+	for (int i = 0; i < iCount; i++)
+	{
+		dtVcopy(&m_straightPath[(iAt + i) * 3], &pPoints[i * 3]);
+		m_straightPathFlags[iAt + i] = 0;
+		m_straightPathPolys[iAt + i] = pRefs[i];
+	}
+	m_nstraightPath += iCount;
+	return iCount;
+}
+
+void NavMeshTesterTool::ggRemovePoints(int iFrom, int iCount)
+{
+	// GG: straight path points iFrom on, iCount of them, taken out with their flags and polygons
+	if (iFrom < 0 || iCount <= 0 || iFrom + iCount > m_nstraightPath) return;
+	const int iMove = m_nstraightPath - (iFrom + iCount);
+	if (iMove > 0)
+	{
+		memmove(&m_straightPath[iFrom * 3], &m_straightPath[(iFrom + iCount) * 3], sizeof(float) * 3 * iMove);
+		memmove(&m_straightPathFlags[iFrom], &m_straightPathFlags[iFrom + iCount], sizeof(unsigned char) * iMove);
+		memmove(&m_straightPathPolys[iFrom], &m_straightPathPolys[iFrom + iCount], sizeof(dtPolyRef) * iMove);
+	}
+	m_nstraightPath -= iCount;
+}
+
+int NavMeshTesterTool::ggRerouteBySearch(int iPoint)
+{
+	// GG: straight path line iPoint to iPoint+1 crosses a blocking box: the line goes the search's own way instead. Through each
+	// corridor polygon it passes, the point the search entered it by (each step between those the search took clear of the
+	// boxes) and the portal it leaves by, in turn, so each point and the next lie in one polygon; then from each point the
+	// furthest of the next ones (up to 64) reached clear of the boxes and walkable on the navmesh. The points added, or -1 if
+	// some point reaches none
+	const int a = ggCorridorIndex(iPoint);
+	const int b = ggCorridorIndex(iPoint + 1);
+	static const int MAX_WAY = 512;
+	if (a < 0 || b < 0 || b <= a || m_ggNodeCount != m_npolys || (b - a) * 2 + 2 > MAX_WAY) return -1;
+	float way[MAX_WAY * 3];
+	dtPolyRef wayRef[MAX_WAY];
+	int n = 0;
+	dtVcopy(&way[0], &m_straightPath[iPoint * 3]);
+	wayRef[n++] = m_polys[a];
+	for (int j = a; j < b; j++)
+	{
+		// the search's point in polygon j (the start's own for the first polygon, already the line's first point)
+		if (j > 0)
+		{
+			dtVcopy(&way[n * 3], &m_ggNodePos[j * 3]);
+			wayRef[n++] = m_polys[j];
+		}
+		// the portal out of it, but for the last polygon, which the line's end point leaves by
+		if (j + 1 < b)
+		{
+			if (dtStatusFailed(m_navQuery->ggPortalMidPoint(m_polys[j], m_polys[j + 1], &way[n * 3]))) return -1;
+			wayRef[n++] = m_polys[j + 1];
+		}
+	}
+	dtVcopy(&way[n * 3], &m_straightPath[(iPoint + 1) * 3]);
+	wayRef[n++] = m_straightPathPolys[iPoint + 1];
+	float keep[MAX_WAY * 3];
+	dtPolyRef keepRef[MAX_WAY];
+	int nKeep = 0;
+	int cur = 0;
+	while (cur < n - 1)
+	{
+		// a point and the next lie in one convex polygon, so only a longer hop needs its walk checked
+		int next = -1;
+		const int iFurthest = (cur + 64 < n - 1) ? cur + 64 : n - 1;
+		for (int m = iFurthest; m > cur && next < 0; m--)
+		{
+			const float* p = &way[cur * 3];
+			const float* q = &way[m * 3];
+			if (DoesLineGoThroughBlocker(p[0], p[1], p[2], q[0], q[1], q[2]) == true) continue;
+			if (m > cur + 1 && ggWalkable(wayRef[cur], p, q) == false) continue;
+			next = m;
+		}
+		if (next < 0) return -1;
+		if (next < n - 1)
+		{
+			dtVcopy(&keep[nKeep * 3], &way[next * 3]);
+			keepRef[nKeep++] = wayRef[next];
+		}
+		cur = next;
+	}
+	return ggInsertPoints(iPoint, keep, keepRef, nKeep);
+}
+
+int NavMeshTesterTool::ggRerouteRoundBoxes(int iPoint)
+{
+	// GG: straight path line iPoint to iPoint+1 taken round the blocking boxes near it instead: the shortest way from its start
+	// to its end through their corners (each pushed out 20 units along both sides, on the navmesh and in no box), every hop
+	// clear of the boxes and walkable on the navmesh. For a line within one polygon, or one the search's own way can't replace
+	// (vehicles parked close together). The points added, or -1 if there is no such way
+	const float fMargin = 20.0f;
+	const float* p = &m_straightPath[iPoint * 3];
+	const float* q = &m_straightPath[(iPoint + 1) * 3];
+	static const int MAX_BOX = 8;
+	int boxes[MAX_BOX];
+	const int nBox = GGNavBlockersNear(p[0], p[2], q[0], q[2], 400.0f, boxes, MAX_BOX);
+	if (nBox <= 0) return -1;
+	static const int MAX_V = 2 + MAX_BOX * 4;
+	float v[MAX_V][3];
+	dtPolyRef vRef[MAX_V];
+	int nv = 0;
+	dtVcopy(v[nv], p);
+	vRef[nv++] = m_straightPathPolys[iPoint];
+	dtVcopy(v[nv], q);
+	vRef[nv++] = 0;
+	for (int i = 0; i < nBox; i++)
+	{
+		for (int c = 0; c < 4; c++)
+		{
+			float pt[3];
+			if (GGNavBlockerCorner(boxes[i], c, fMargin, &pt[0], &pt[2]) == false) continue;
+			pt[1] = (p[1] + q[1]) * 0.5f;
+			float nearest[3];
+			dtPolyRef ref = 0;
+			m_navQuery->findNearestPoly(pt, m_polyPickExt, &m_filter, &ref, nearest);
+			if (ref == 0 || dtVdist2D(nearest, pt) > fMargin) continue;
+			if (GGNavPointInBlocker(nearest[0], nearest[1], nearest[2]) >= 0) continue;
+			dtVcopy(v[nv], nearest);
+			vRef[nv++] = ref;
+		}
+	}
+	// A* over the corners, each hop tested as it is first wanted
+	float g[MAX_V];
+	int parent[MAX_V];
+	bool bClosed[MAX_V];
+	for (int i = 0; i < nv; i++) { g[i] = FLT_MAX; parent[i] = -1; bClosed[i] = false; }
+	g[0] = 0;
+	for (;;)
+	{
+		int cur = -1;
+		float fBest = FLT_MAX;
+		for (int i = 0; i < nv; i++)
+		{
+			if (bClosed[i] || g[i] == FLT_MAX) continue;
+			const float f = g[i] + dtVdist(v[i], v[1]);
+			if (f < fBest) { fBest = f; cur = i; }
+		}
+		if (cur < 0)
+		{
+			static int iLogCount = 0;
+			if (iLogCount < 40)
+			{
+				iLogCount++;
+				int iReached = 0;
+				for (int i = 0; i < nv; i++) if (bClosed[i]) iReached++;
+				extern void timestampactivity(int i, char* desc_s);
+				char pLog[512];
+				sprintf_s(pLog, sizeof(pLog), "Navmesh path thrown out: line %d of %d, %.0f,%.0f,%.0f to %.0f,%.0f,%.0f, crosses a closed door or parked vehicle and no way round was found (%d boxes near, %d of %d corners usable, %d reached)",
+					iPoint, m_nstraightPath, p[0], p[1], p[2], q[0], q[1], q[2], nBox, nv - 2, nBox * 4, iReached);
+				timestampactivity(0, pLog);
+			}
+			return -1;
+		}
+		if (cur == 1) break;
+		bClosed[cur] = true;
+		for (int u = 1; u < nv; u++)
+		{
+			if (u == cur || bClosed[u]) continue;
+			if (cur == 0 && u == 1) continue; // the line that crossed a box
+			const float fG = g[cur] + dtVdist(v[cur], v[u]);
+			if (fG >= g[u]) continue;
+			if (DoesLineGoThroughBlocker(v[cur][0], v[cur][1], v[cur][2], v[u][0], v[u][1], v[u][2]) == true) continue;
+			if (ggWalkable(vRef[cur], v[cur], v[u]) == false) continue;
+			g[u] = fG;
+			parent[u] = cur;
+		}
+	}
+	float pts[MAX_V * 3];
+	dtPolyRef refs[MAX_V];
+	int iCount = 0;
+	for (int i = parent[1]; i > 0; i = parent[i]) iCount++;
+	int k = iCount;
+	for (int i = parent[1]; i > 0; i = parent[i])
+	{
+		k--;
+		dtVcopy(&pts[k * 3], v[i]);
+		refs[k] = vRef[i];
+	}
+	return ggInsertPoints(iPoint, pts, refs, iCount);
+}
+
 void NavMeshTesterTool::recalc()
 {
 	if (!m_navMesh)
@@ -1127,14 +1445,35 @@ void NavMeshTesterTool::recalc()
 	}
 	else if (m_toolMode == TOOLMODE_PATHFIND_STRAIGHT)
 	{
-		if (m_sposSet && m_eposSet && m_startRef && m_endRef)
+		// GG: a start or goal inside a blocking box (a closed door or a parked vehicle): no step may leave or enter a box
+		// (DoesLineGoThroughBlocker), so the search runs from (to) the nearest point on the navmesh just outside it; the start
+		// itself goes back at the front of the path after the door check, its first line stepping out of the box
+		float ggSpos[3], ggEpos[3];
+		dtVcopy(ggSpos, m_spos);
+		dtVcopy(ggEpos, m_epos);
+		dtPolyRef ggStartRef = m_startRef;
+		dtPolyRef ggEndRef = m_endRef;
+		m_ggStartBox = m_ggGoalBox = -1;
+		m_ggRerouted = m_ggRerouteFailed = m_ggArcsKept = 0;
+		if (g_bGGNavBoxExits == true && m_sposSet && m_eposSet && m_startRef && m_endRef)
+		{
+			int iBox = GGNavPointInBlocker(m_spos[0], m_spos[1], m_spos[2]);
+			if (iBox >= 0 && ggBoxExit(iBox, m_spos, m_startRef, m_epos, false, ggSpos, &ggStartRef) == true)
+				m_ggStartBox = iBox;
+			iBox = GGNavPointInBlocker(m_epos[0], m_epos[1], m_epos[2]);
+			if (iBox >= 0 && ggBoxExit(iBox, m_epos, m_endRef, ggSpos, true, ggEpos, &ggEndRef) == true)
+				m_ggGoalBox = iBox;
+		}
+		if (m_sposSet && m_eposSet && ggStartRef && ggEndRef)
 		{
 #ifdef DUMP_REQS
 			printf("ps  %f %f %f  %f %f %f  0x%x 0x%x\n",
 				   m_spos[0],m_spos[1],m_spos[2], m_epos[0],m_epos[1],m_epos[2],
 				   m_filter.getIncludeFlags(), m_filter.getExcludeFlags()); 
 #endif
-			dtStatus pathStatus = m_navQuery->findPath(m_startRef, m_endRef, m_spos, m_epos, &m_filter, m_polys, &m_npolys, MAX_POLYS);
+			dtStatus pathStatus = m_navQuery->findPath(ggStartRef, ggEndRef, ggSpos, ggEpos, &m_filter, m_polys, &m_npolys, MAX_POLYS);
+			// GG: the points the search stepped between, for a line the string pull cuts across a box (ggRerouteBySearch)
+			m_ggNodeCount = m_navQuery->ggGetPathNodePositions(m_ggNodePos, MAX_POLYS);
 
 			// log a path cut short by the search or path size limits (not by a blocked or missing route), a limited number of times
 			if (dtStatusDetail(pathStatus, DT_OUT_OF_NODES) || dtStatusDetail(pathStatus, DT_BUFFER_TOO_SMALL))
@@ -1158,11 +1497,11 @@ void NavMeshTesterTool::recalc()
 			{
 				// In case of partial path, make sure the end point is clamped to the last polygon.
 				float epos[3];
-				dtVcopy(epos, m_epos);
-				if (m_polys[m_npolys-1] != m_endRef)
-					m_navQuery->closestPointOnPoly(m_polys[m_npolys-1], m_epos, epos, 0);
+				dtVcopy(epos, ggEpos);
+				if (m_polys[m_npolys-1] != ggEndRef)
+					m_navQuery->closestPointOnPoly(m_polys[m_npolys-1], ggEpos, epos, 0);
 				
-				m_navQuery->findStraightPath(m_spos, epos, m_polys, m_npolys,
+				m_navQuery->findStraightPath(ggSpos, epos, m_polys, m_npolys,
 											 m_straightPath, m_straightPathFlags,
 											 m_straightPathPolys, &m_nstraightPath, MAX_POLYS, m_straightPathOptions);
 
@@ -1181,6 +1520,30 @@ void NavMeshTesterTool::recalc()
 						extern bool DoesLineGoThroughBlocker (float fFromX, float fFromY, float fFromZ, float fToX, float fToY, float fToZ);
 						if ( DoesLineGoThroughBlocker (fFromX, fFromY, fFromZ, fToX, fToY, fToZ) == true )
 						{
+							// GG: the string pull cut across a box the search went round: the line goes the corridor's own way
+							// (its portals' mid points, which the search stepped by) or round the box's corners instead, and
+							// the path is thrown out only when neither is clear
+							if (g_bGGNavBoxExits == true)
+							{
+								const int iBox = g_iGGLastBlockerHit;
+								// a point the string pull bent at inside a box (a polygon's corner under a parked vehicle) can't
+								// be reached clear of it: the line goes on to the next point outside every box instead
+								int iTo = pointindex + 1;
+								while (iTo < m_nstraightPath - 1 && GGNavPointInBlocker(m_straightPath[iTo * 3], m_straightPath[iTo * 3 + 1], m_straightPath[iTo * 3 + 2]) >= 0)
+									iTo++;
+								if (iTo > pointindex + 1)
+									ggRemovePoints(pointindex + 1, iTo - pointindex - 1);
+								int iAdded = ggRerouteBySearch(pointindex);
+								if (iAdded < 0) iAdded = ggRerouteRoundBoxes(pointindex);
+								if (iAdded >= 0)
+								{
+									m_ggRerouted++;
+									pointindex += iAdded;
+									continue;
+								}
+								m_ggRerouteFailed++;
+								g_iGGLastBlockerHit = iBox;
+							}
 							bBlockedByDoor = true;
 							break;
 						}
@@ -1190,6 +1553,13 @@ void NavMeshTesterTool::recalc()
 						m_npolys = 0;
 						m_nstraightPath = 0;
 					}
+				}
+
+				// GG: the start, in the box it stands in, back at the front: the path's first line steps out of the box
+				if (m_ggStartBox >= 0 && m_nstraightPath > 0)
+				{
+					if (ggInsertPoints(-1, m_spos, &m_startRef, 1) < 0)
+						m_ggStartBox = -1;
 				}
 			}
 		}

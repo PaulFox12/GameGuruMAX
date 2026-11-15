@@ -793,6 +793,54 @@ void AutoHarness_CheckForCommand ( void )
 		if ( arg && arg[0] ) g_iNpcHoleLog = atoi ( arg ) != 0 ? 1 : 0;
 		_snprintf ( result, sizeof(result), "OK: NPCHOLE_LOG %d", g_iNpcHoleLog );
 	}
+	else if ( _stricmp ( cmd, "NAV_BOXCHECK" ) == 0 )
+	{
+		// NAV_BOXCHECK: the last navmesh path (Lua RDFindPath) as returned, each line checked against the blocking boxes (closed
+		// doors, parked vehicles; the first line excepted when it steps out of the box the start stood in): lines crossing one,
+		// the box the start and the goal were moved out of, lines taken round a box, rounded corners left sharp, the end point;
+		// as the DX12 build's verb
+		extern void GG_NavBoxCheck ( char* pOut, int size );
+		char check[400];
+		GG_NavBoxCheck ( check, sizeof(check) );
+		_snprintf ( result, sizeof(result), "OK: NAV_BOXCHECK %s", check );
+	}
+	else if ( _stricmp ( cmd, "NAV_BOXES" ) == 0 )
+	{
+		// NAV_BOXES: the navmesh's blocker boxes: count, then per box its index, closed (1), centre x z, half sizes in its own
+		// frame, turn in degrees, height span
+		extern void GG_NavBoxes ( char* pOut, int size );
+		char boxes[3000];
+		GG_NavBoxes ( boxes, sizeof(boxes) );
+		_snprintf ( result, sizeof(result), "OK: NAV_BOXES %s", boxes );
+	}
+	else if ( _stricmp ( cmd, "NAV_PATHBATCH" ) == 0 )
+	{
+		// NAV_PATHBATCH <in file>|<out file>[|reps]: path searches as Lua's RDFindPath makes them, one a line of the in file (start
+		// x y z, goal x y z), each run reps times (1) and timed; a line each in the out file: index, ms a search, NAV_BOXCHECK's
+		// answer, the points
+		extern int GG_NavPathBatch ( const char* pIn, const char* pOut, int iReps );
+		char a[2048];
+		strncpy_s ( a, sizeof(a), arg ? arg : "", _TRUNCATE );
+		char* pOutFile = strchr ( a, '|' );
+		int iReps = 1;
+		int iDone = -1;
+		if ( pOutFile )
+		{
+			*pOutFile++ = 0;
+			char* pReps = strchr ( pOutFile, '|' );
+			if ( pReps ) { *pReps++ = 0; iReps = atoi ( pReps ); }
+			iDone = GG_NavPathBatch ( a, pOutFile, iReps );
+		}
+		_snprintf ( result, sizeof(result), "%s: NAV_PATHBATCH %d searches, %d each", iDone >= 0 ? "OK" : "ERROR", iDone, iReps );
+	}
+	else if ( _stricmp ( cmd, "SET_NAVBOXFIX" ) == 0 )
+	{
+		// SET_NAVBOXFIX [0|1]: 1 (as built) a path search from or to a point inside a blocking box runs from (to) just outside it,
+		// and a straight line across a box goes round it; 0 the old rule (no path from or to a box, a path crossing one thrown out)
+		extern bool g_bGGNavBoxExits;
+		if ( arg && arg[0] ) g_bGGNavBoxExits = atoi ( arg ) != 0;
+		_snprintf ( result, sizeof(result), "OK: SET_NAVBOXFIX %d", g_bGGNavBoxExits ? 1 : 0 );
+	}
 	else if ( _stricmp ( cmd, "SET_LUASCREEN" ) == 0 )
 	{
 		// SET_LUASCREEN [w h]: the screen size Lua's sprite calls turn percentages into pixels by, set for a test of another

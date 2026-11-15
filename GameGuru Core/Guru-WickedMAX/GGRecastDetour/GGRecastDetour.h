@@ -26,6 +26,10 @@ public:
 	uint64_t saveWholeMap( const char* pSaveFile ); // the file's size, 0 if not written
 	int findPath (float fStart[3], float fEnd[3]);
 	int getPath (int* piPointCount, float** ppfPointData);
+	// GG: the last path's lines checked against the blocking boxes (harness NAV_BOXCHECK), the boxes (NAV_BOXES), searches from a file
+	void getBoxCheck (char* pOut, int size);
+	void getBoxes (char* pOut, int size);
+	int runPathBatch (const char* pIn, const char* pOut, int iReps); // harness NAV_PATHBATCH
 	bool isWithinNavMeshEx(float fX, float fY, float fZ, float* pvecNearestPt, bool bMustBeOverPoly);
 	bool isWithinNavMesh (float fX, float fY, float fZ);
 	float getYFromPos (float fX, float fY, float fZ);
