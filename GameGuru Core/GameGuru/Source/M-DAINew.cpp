@@ -2162,15 +2162,9 @@ void darkai_shoottarget (int targete)
 					{
 						if (SoundPlaying(t.ttsnd) == 0 || t.tt == t.ttrr + 1)
 						{
-							t.toldsndid = t.charanimstate.firesoundindex;
-							// GG: the same sound is stopped and rewound by its PlaySound below; a second stop here only cost the round time
-							if (t.toldsndid > 0 && t.toldsndid != t.ttsnd)
-							{
-								if (SoundExist(t.toldsndid) == 1)
-								{
-									StopSound (t.toldsndid);
-								}
-							}
+							// GG: the gun's other fire sound, when it was the last one, is left to play out (it is never looped here, see
+							// darkai_shooteffect), as on the DX12 build, where stopping it waited on the sound mixer; the same sound is
+							// stopped and rewound by its PlaySound below
 
 							t.charanimstate.firesoundindex = t.ttsnd; t.tt = 3;
 							t.tfireloopend = g.firemodes[t.tgunid][0].sound.fireloopend;
