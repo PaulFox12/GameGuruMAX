@@ -6704,6 +6704,8 @@ int GGTerrain_GetFlatAreasInRect( float minX, float minZ, float maxX, float maxZ
 		shape.sizeX = pArea->sizeX;
 		shape.sizeZ = pArea->sizeZ;
 		shape.angle = pArea->angle;
+		shape.id = i;
+		shape.vegetationOnly = pArea->IsVegetationOnly() ? 1 : 0;
 	}
 	return count;
 }

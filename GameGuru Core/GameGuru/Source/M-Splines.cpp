@@ -9515,6 +9515,78 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		sprintf_s( pResult, resultSize, "FAIL: SPLINE_TREETEST pavement|add|get|keepoff|count" );
 		return true;
 	}
+	if ( _stricmp( pCmd, "FLATAREAS_DUMP" ) == 0 )
+	{
+		// FLATAREAS_DUMP path: every live flat area as the editor made them at load (auto flatten pads, which flatten the
+		// ground, and Clear Grass and Trees areas, which leave it; the trees and grass inside either are not drawn), a
+		// tab-separated line each: its id, kind, centre, size (a circle's diameter), angle, and the element that owns it
+		// (eleprof.iFlattenID; -1 when none names it, several when more than one does) with its name, bank file, Clear
+		// Grass and Trees tick (0 unset, 1 yes, 2 no), the bank's autoflatten mode and the element's switch, static flag and
+		// position; then the elements whose iFlattenID names no live area
+		if ( !pArg || !pArg[0] )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: FLATAREAS_DUMP <path>" );
+			return true;
+		}
+		std::vector<GGTerrain::GGTerrainFlatAreaShape> shapes( 50000 );
+		int n = GGTerrain::GGTerrain_GetFlatAreasInRect( -1e9f, -1e9f, 1e9f, 1e9f, shapes.data(), (int)shapes.size() );
+		if ( n < 0 )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: FLATAREAS_DUMP: more than %d flat areas", (int)shapes.size() );
+			return true;
+		}
+		std::unordered_map<uint32_t, std::vector<int>> owners;
+		for ( int e = 1; e <= g.entityelementlist && e < (int)t.entityelement.size(); e++ )
+		{
+			if ( t.entityelement[ e ].bankindex > 0 && t.entityelement[ e ].eleprof.iFlattenID >= 0 )
+				owners[ (uint32_t)t.entityelement[ e ].eleprof.iFlattenID ].push_back( e );
+		}
+		FILE* fp = nullptr;
+		if ( fopen_s( &fp, pArg, "w" ) != 0 || !fp )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: FLATAREAS_DUMP: cannot write %s", pArg );
+			return true;
+		}
+		fprintf( fp, "id\tkind\tx\tz\tsizex\tsizez\tangle\towner\tname\tbank\tcleartick\tautoflatten\tautoflattenon\tstatic\tex\tey\tez\n" );
+		int owned = 0, shared = 0;
+		std::unordered_set<uint32_t> live;
+		for ( int i = 0; i < n; i++ )
+		{
+			const GGTerrain::GGTerrainFlatAreaShape& a = shapes[ i ];
+			live.insert( a.id );
+			const char* pKind = a.vegetationOnly ? "vegetation" : (a.type == GGTERRAIN_FLAT_AREA_TYPE_CIRCLE ? "flattencircle" : "flattenrect");
+			auto it = owners.find( a.id );
+			if ( it == owners.end() )
+			{
+				fprintf( fp, "%u\t%s\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\t-1\t\t\t\t\t\t\t\t\t\n", a.id, pKind, a.x, a.z, a.sizeX, a.sizeZ, a.angle );
+				continue;
+			}
+			owned++;
+			if ( it->second.size() > 1 ) shared++;
+			for ( int e : it->second )
+			{
+				const int bank = t.entityelement[ e ].bankindex;
+				fprintf( fp, "%u\t%s\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%.1f\t%.1f\t%.1f\n", a.id, pKind, a.x, a.z, a.sizeX,
+					a.sizeZ, a.angle, e, t.entityelement[ e ].eleprof.name_s.Get(), bank < (int)t.entitybank_s.size() ? t.entitybank_s[ bank ].Get() : "",
+					t.entityelement[ e ].iClearVegetation, t.entityprofile[ bank ].autoflatten, t.entityelement[ e ].eleprof.bAutoFlatten ? 1 : 0,
+					t.entityelement[ e ].staticflag, t.entityelement[ e ].x, t.entityelement[ e ].y, t.entityelement[ e ].z );
+			}
+		}
+		int stale = 0;
+		for ( auto& o : owners )
+		{
+			if ( live.count( o.first ) ) continue;
+			for ( int e : o.second )
+			{
+				stale++;
+				fprintf( fp, "%u\tstale\t\t\t\t\t\t%d\t%s\t\t\t\t\t\t\t\t\n", o.first, e, t.entityelement[ e ].eleprof.name_s.Get() );
+			}
+		}
+		fclose( fp );
+		sprintf_s( pResult, resultSize, "OK: FLATAREAS_DUMP %d areas, %d owned (%d by more than one element), %d unowned, %d elements naming no live area -> %s",
+			n, owned, shared, n - owned, stale, pArg );
+		return true;
+	}
 	if ( _stricmp( pCmd, "SPLINE_LIST" ) == 0 )
 	{
 		// a line each: index, kind (0 a line, 1 a road, 2 a river), nodes, baked texels, placed entities, the middle node's
