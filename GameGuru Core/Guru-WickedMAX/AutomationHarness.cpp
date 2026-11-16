@@ -20,7 +20,7 @@ namespace GGTerrain { int GGTerrain_GetHeight( float x, float z, float* outHeigh
 namespace GGTerrain { void GGTerrain_AddEnvProbeList( float x, float y, float z, float range, float quatx, float quaty, float quatz, float quatw, float sx, float sy, float sz, float brightness ); }
 namespace GGTrees { extern int gg_tree_local_shadows, gg_tree_local_shadow_lod; extern unsigned int gg_tree_local_shadow_counts[ 3 ]; }
 extern int g_iGunSmokePuffs, g_iGunSmokeNoKeyOn; // GUNSMOKE_STATE, SET_GUNSMOKENOKEY (G-Gun.cpp, M-Gun.cpp)
-extern int g_iLuaQuietSkip; void lua_loopstats_text ( char* pOut, int iSize, bool bReset ); // SET_LUAQUIET, LUA_LOOP_STATS (M-LUA.cpp)
+extern int g_iLuaQuietSkip; extern int g_iLuaFarRows; void lua_loopstats_text ( char* pOut, int iSize, bool bReset ); // SET_LUAQUIET, LUA_LOOP_STATS (M-LUA.cpp)
 void lua_row_text ( int e, char* pOut, int iSize ); // LUA_ROW (M-LUA.cpp)
 #include <time.h>
 #include <windows.h>
@@ -592,6 +592,13 @@ void AutoHarness_CheckForCommand ( void )
 		// SET_LUAQUIET [0|1]: lua_loop_allentities skips quiet turns (1, the default: statics with no script, and entities with
 		// no script whose Lua row already shows everything) or walks every entity as before (0); answers with the walk's stats
 		if ( arg && *arg ) g_iLuaQuietSkip = atoi(arg) ? 1 : 0;
+		lua_loopstats_text(result, sizeof(result), false);
+	}
+	else if ( _stricmp ( cmd, "SET_LUAFARROWS" ) == 0 )
+	{
+		// SET_LUAFARROWS [0|1]: an entity beyond its logic range is given its Lua row the frame it moves or its state
+		// changes (1, the default) or only on a hit or a kill, as before (0); answers with the walk stats
+		if ( arg && *arg ) g_iLuaFarRows = atoi(arg) ? 1 : 0;
 		lua_loopstats_text(result, sizeof(result), false);
 	}
 	else if ( _stricmp ( cmd, "LUA_ROW" ) == 0 )
