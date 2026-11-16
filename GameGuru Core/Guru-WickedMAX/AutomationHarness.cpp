@@ -18,6 +18,7 @@ namespace Tracers { void DebugLastAdded(char* out, int osize); }
 
 namespace GGTerrain { int GGTerrain_GetHeight( float x, float z, float* outHeight, int accurateButSlow, int includeFlatAreas ); }
 namespace GGTerrain { void GGTerrain_AddEnvProbeList( float x, float y, float z, float range, float quatx, float quaty, float quatz, float quatw, float sx, float sy, float sz, float brightness ); }
+namespace GGTrees { extern int gg_tree_local_shadows, gg_tree_local_shadow_lod; extern unsigned int gg_tree_local_shadow_counts[ 3 ]; }
 #include <time.h>
 #include <windows.h>
 #include <string>
@@ -581,6 +582,23 @@ void AutoHarness_CheckForCommand ( void )
 		extern unsigned int gg_shadow_texel_skipped;
 		if ( arg && *arg ) gg_shadow_min_texels = (float)atof(arg);
 		_snprintf(result, sizeof(result), "OK: SET_SHADOWMINTEXELS %.2f - left out last frame %u", gg_shadow_min_texels, gg_shadow_texel_skipped);
+		result[sizeof(result) - 1] = 0;
+	}
+	else if ( _stricmp ( cmd, "SET_TREELOCALSHADOWS" ) == 0 )
+	{
+		// SET_TREELOCALSHADOWS [0|1 [lod]]: the full detail trees cast into the spot and point lights' shadows (1, the default)
+		// or the sun's only (0, as before), from mesh LOD lod (0 the full mesh, 1 or 2 a type's lighter shadow mesh); no
+		// argument reads it. Answers with the light views drawn into, draws and trees since the start
+		if ( arg && *arg )
+		{
+			int on = -1, lod = -1;
+			sscanf_s(arg, "%d %d", &on, &lod);
+			if ( on >= 0 ) GGTrees::gg_tree_local_shadows = on ? 1 : 0;
+			if ( lod >= 0 ) GGTrees::gg_tree_local_shadow_lod = lod > 2 ? 2 : lod;
+		}
+		_snprintf(result, sizeof(result), "OK: SET_TREELOCALSHADOWS %d lod=%d views=%u draws=%u trees=%u",
+			GGTrees::gg_tree_local_shadows, GGTrees::gg_tree_local_shadow_lod, GGTrees::gg_tree_local_shadow_counts[0],
+			GGTrees::gg_tree_local_shadow_counts[1], GGTrees::gg_tree_local_shadow_counts[2]);
 		result[sizeof(result) - 1] = 0;
 	}
 	else if ( _stricmp ( cmd, "TEXSCROLL_STEP" ) == 0 )

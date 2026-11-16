@@ -71,6 +71,14 @@ GGTreesInternalParams ggtrees_internal_params;
 
 int ggtrees_draw_enabled = 1;
 
+// GG: the full detail trees cast into the spot and point lights' shadows too (1; 0 the sun's only, as before), from a type's
+// mesh LOD gg_tree_local_shadow_lod (0 the full mesh, 1 or 2 its lighter shadow mesh where it has one); harness
+// SET_TREELOCALSHADOWS. The counts are totals since the start: light views drawn into, draws, trees (a lamp's cached
+// shadow is drawn again only when something moves near it)
+int gg_tree_local_shadows = 1;
+int gg_tree_local_shadow_lod = 0;
+uint32_t gg_tree_local_shadow_counts[ 3 ] = { 0, 0, 0 };
+
 // billboard vertex
 struct VertexTree
 {
@@ -4269,7 +4277,7 @@ extern "C" void GGTrees_Draw_Prepass( const Frustum* frustum, int mode, CommandL
 // must be extern "C" to allow /alternatename linker flag to be set correctly
 // called from WickedEngine wiRenderer::DrawShadowmaps()
 // GG: draws a type's full detail shadow trees in the cells the cascade can see, joining neighbouring runs into one draw
-static void GGTrees_DrawShadowRuns( uint32_t type, uint32_t numIndices, const Frustum* frustum, CommandList cmd )
+static void GGTrees_DrawShadowRuns( uint32_t type, uint32_t numIndices, const Frustum* frustum, CommandList cmd, uint32_t* counts )
 {
 	GraphicsDevice* device = wiRenderer::GetDevice();
 	uint32_t drawStart = 0, drawCount = 0;
@@ -4281,11 +4289,75 @@ static void GGTrees_DrawShadowRuns( uint32_t type, uint32_t numIndices, const Fr
 			drawCount += run.count;
 			continue;
 		}
-		if ( drawCount > 0 ) device->DrawIndexedInstanced( numIndices, drawCount, 0, 0, drawStart, cmd );
+		if ( drawCount > 0 )
+		{
+			device->DrawIndexedInstanced( numIndices, drawCount, 0, 0, drawStart, cmd );
+			if ( counts ) { counts[ 1 ]++; counts[ 2 ] += drawCount; }
+		}
 		drawStart = run.start;
 		drawCount = run.count;
 	}
-	if ( drawCount > 0 ) device->DrawIndexedInstanced( numIndices, drawCount, 0, 0, drawStart, cmd );
+	if ( drawCount > 0 )
+	{
+		device->DrawIndexedInstanced( numIndices, drawCount, 0, 0, drawStart, cmd );
+		if ( counts ) { counts[ 1 ]++; counts[ 2 ] += drawCount; }
+	}
+}
+
+// GG: the full detail shadow trees, trunks then branches, from mesh LOD lod (0 the full mesh), in the cells the view meets;
+// the tree constants, samplers and noise texture already bound
+static void GGTrees_DrawShadowHigh( int lod, const Frustum* frustum, CommandList cmd, uint32_t* counts )
+{
+	GraphicsDevice* device = wiRenderer::GetDevice();
+
+	device->BindPipelineState( &psoTreesHighShadow, cmd );
+	device->BindResource( PS, &texTreeHigh, 52, cmd );
+
+	for( uint32_t i = 0; i < numTreeTypes; i++ )
+	{
+		if ( numTreeInstancesHighShadow[ i ] > 0 )
+		{
+			const GPUBuffer* pVertices = &bufferTreeHighVertices[i];
+			const GPUBuffer* pIndices = &bufferTreeHighIndices[i];
+			uint32_t numIndices = g_GGTrees[ i ].trunk->numIndices;
+			if ( lod > 0 && bufferTreeHighIndicesLOD[ lod-1 ][ i ].IsValid() )
+			{
+				pVertices = &bufferTreeHighVerticesLOD[ lod-1 ][ i ];
+				pIndices = &bufferTreeHighIndicesLOD[ lod-1 ][ i ];
+				numIndices = g_GGTreesShadowLOD[ lod-1 ][ i ].trunk->numIndices;
+			}
+			const GPUBuffer* vbs2[] = { pVertices, &bufferInstancesHighShadow[i] };
+			const uint32_t strides2[] = { sizeof(VertexTreeHigh), sizeof(InstanceTreeGPU) };
+			device->BindVertexBuffers( vbs2, 0, 2, strides2, 0, cmd );
+			device->BindIndexBuffer( pIndices, INDEXFORMAT_16BIT, 0, cmd );
+			GGTrees_DrawShadowRuns( i, numIndices, frustum, cmd, counts );
+		}
+	}
+
+	device->BindPipelineState( &psoBranchesHighShadow, cmd );
+	device->BindResource( PS, &texBranchesHigh, 54, cmd );
+
+	for( uint32_t i = 0; i < numTreeTypes; i++ )
+	{
+		if ( !g_GGTrees[ i ].branches ) continue; // some trees don't have branches
+		if ( numTreeInstancesHighShadow[ i ] > 0 )
+		{
+			const GPUBuffer* pVertices = &bufferBranchesHighVertices[i];
+			const GPUBuffer* pIndices = &bufferBranchesHighIndices[i];
+			uint32_t numIndices = g_GGTrees[ i ].branches->numIndices;
+			if ( lod > 0 && bufferBranchesHighIndicesLOD[ lod-1 ][ i ].IsValid() )
+			{
+				pVertices = &bufferBranchesHighVerticesLOD[ lod-1 ][ i ];
+				pIndices = &bufferBranchesHighIndicesLOD[ lod-1 ][ i ];
+				numIndices = g_GGTreesShadowLOD[ lod-1 ][ i ].branches->numIndices;
+			}
+			const GPUBuffer* vbs2[] = { pVertices, &bufferInstancesHighShadow[i] };
+			const uint32_t strides2[] = { sizeof(VertexTreeHigh), sizeof(InstanceTreeGPU) };
+			device->BindVertexBuffers( vbs2, 0, 2, strides2, 0, cmd );
+			device->BindIndexBuffer( pIndices, INDEXFORMAT_16BIT, 0, cmd );
+			GGTrees_DrawShadowRuns( i, numIndices, frustum, cmd, counts );
+		}
+	}
 }
 
 extern "C" void GGTrees_Draw_ShadowMap( const Frustum* frustum, int cascade, CommandList cmd )
@@ -4349,56 +4421,62 @@ extern "C" void GGTrees_Draw_ShadowMap( const Frustum* frustum, int cascade, Com
 			device->BindConstantBuffer( PS, &treeConstantBufferFarShadow, bindSlot, cmd );
 		}
 
-		device->BindPipelineState( &psoTreesHighShadow, cmd );
-		device->BindResource( PS, &texTreeHigh, 52, cmd );
-
-		for( uint32_t i = 0; i < numTreeTypes; i++ )
-		{
-			if ( numTreeInstancesHighShadow[ i ] > 0 )
-			{
-				const GPUBuffer* pVertices = &bufferTreeHighVertices[i];
-				const GPUBuffer* pIndices = &bufferTreeHighIndices[i];
-				uint32_t numIndices = g_GGTrees[ i ].trunk->numIndices;
-				if ( lod > 0 && bufferTreeHighIndicesLOD[ lod-1 ][ i ].IsValid() )
-				{
-					pVertices = &bufferTreeHighVerticesLOD[ lod-1 ][ i ];
-					pIndices = &bufferTreeHighIndicesLOD[ lod-1 ][ i ];
-					numIndices = g_GGTreesShadowLOD[ lod-1 ][ i ].trunk->numIndices;
-				}
-				const GPUBuffer* vbs2[] = { pVertices, &bufferInstancesHighShadow[i] };
-				const uint32_t strides2[] = { sizeof(VertexTreeHigh), sizeof(InstanceTreeGPU) };
-				device->BindVertexBuffers( vbs2, 0, 2, strides2, 0, cmd );
-				device->BindIndexBuffer( pIndices, INDEXFORMAT_16BIT, 0, cmd );
-				GGTrees_DrawShadowRuns( i, numIndices, frustum, cmd );
-			}
-		}
-
-		device->BindPipelineState( &psoBranchesHighShadow, cmd );
-		device->BindResource( PS, &texBranchesHigh, 54, cmd );
-
-		for( uint32_t i = 0; i < numTreeTypes; i++ )
-		{
-			if ( !g_GGTrees[ i ].branches ) continue; // some trees don't have branches
-			if ( numTreeInstancesHighShadow[ i ] > 0 )
-			{
-				const GPUBuffer* pVertices = &bufferBranchesHighVertices[i];
-				const GPUBuffer* pIndices = &bufferBranchesHighIndices[i];
-				uint32_t numIndices = g_GGTrees[ i ].branches->numIndices;
-				if ( lod > 0 && bufferBranchesHighIndicesLOD[ lod-1 ][ i ].IsValid() )
-				{
-					pVertices = &bufferBranchesHighVerticesLOD[ lod-1 ][ i ];
-					pIndices = &bufferBranchesHighIndicesLOD[ lod-1 ][ i ];
-					numIndices = g_GGTreesShadowLOD[ lod-1 ][ i ].branches->numIndices;
-				}
-				const GPUBuffer* vbs2[] = { pVertices, &bufferInstancesHighShadow[i] };
-				const uint32_t strides2[] = { sizeof(VertexTreeHigh), sizeof(InstanceTreeGPU) };
-				device->BindVertexBuffers( vbs2, 0, 2, strides2, 0, cmd );
-				device->BindIndexBuffer( pIndices, INDEXFORMAT_16BIT, 0, cmd );
-				GGTrees_DrawShadowRuns( i, numIndices, frustum, cmd );
-			}
-		}
+		GGTrees_DrawShadowHigh( lod, frustum, cmd, nullptr );
 	}
 	
+	device->EventEnd(cmd);
+}
+
+// must be extern "C" to allow /alternatename linker flag to be set correctly
+// called from WickedEngine wiRenderer::DrawShadowmaps(): whether any full detail shadow tree stands in a spot light's view or
+// a point light's face, so a light with no other caster still renders its shadow
+extern "C" bool GGTrees_Has_ShadowMapLocal( const Frustum* frustum )
+{
+	if (!ggtrees_initialised) return false;
+	if ( !gg_tree_local_shadows ) return false;
+	if ( !ggtrees_global_params.draw_enabled ) return false;
+	if ( !ggtrees_global_params.draw_shadows ) return false;
+	if ( ggtrees_global_params.tree_shadow_range_high <= 0 ) return false;
+	for( uint32_t i = 0; i < numTreeTypes; i++ )
+	{
+		if ( numTreeInstancesHighShadow[ i ] == 0 ) continue;
+		for( const ShadowChunkRun& run : shadowChunkRuns[ i ] )
+		{
+			if ( frustum->CheckBoxFast( run.bounds ) ) return true;
+		}
+	}
+	return false;
+}
+
+// must be extern "C" to allow /alternatename linker flag to be set correctly
+// called from WickedEngine wiRenderer::DrawShadowmaps() for a spot light, and for each face of a point light the camera sees
+// (its camera constants, viewport and render pass set)
+// GG: the full detail trees into the spot and point lights' shadows (the streetlights, the headlamps): the sun's full detail
+// shadow trees (those within the tree shadow LOD distance of the camera) in the cells the light's view meets, fading out
+// with them; the billboards are made for the sun's view from above and cast nothing here. Off with the full detail tree
+// shadows (SetTreeShadowCascades' second value 0)
+extern "C" void GGTrees_Draw_ShadowMapLocal( const Frustum* frustum, CommandList cmd )
+{
+	if ( !GGTrees_Has_ShadowMapLocal( frustum ) ) return;
+
+	GraphicsDevice* device = wiRenderer::GetDevice();
+	device->EventBegin("GGTrees Local Shadow Draw", cmd);
+
+	uint32_t bindSlot = 2;
+	device->BindConstantBuffer( VS, &treeConstantBuffer, bindSlot, cmd );
+	device->BindConstantBuffer( PS, &treeConstantBuffer, bindSlot, cmd );
+
+	device->BindResource( PS, &texNoise, 51, cmd );
+	device->BindSampler( PS, &samplerBilinearWrap, 0, cmd );
+	device->BindSampler( PS, &samplerTrilinearClamp, 1, cmd );
+	device->BindSampler( PS, &samplerTrilinearWrap, 2, cmd );
+
+	int lod = gg_tree_local_shadow_lod;
+	if ( lod < 0 ) lod = 0;
+	if ( lod > 2 ) lod = 2;
+	gg_tree_local_shadow_counts[ 0 ]++;
+	GGTrees_DrawShadowHigh( lod, frustum, cmd, gg_tree_local_shadow_counts );
+
 	device->EventEnd(cmd);
 }
 

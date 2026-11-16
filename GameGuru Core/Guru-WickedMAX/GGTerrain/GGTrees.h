@@ -76,6 +76,8 @@ namespace GGTrees
 	extern GGTreesParams ggtrees_global_params; // modify this anywhere
 
 	extern int ggtrees_draw_enabled;
+	extern int gg_tree_local_shadows, gg_tree_local_shadow_lod; // GG: the trees in spot and point light shadows (SET_TREELOCALSHADOWS)
+	extern uint32_t gg_tree_local_shadow_counts[ 3 ];          // GG: light views, draws, trees since the start
 
 	struct GGTreePoint
 	{
