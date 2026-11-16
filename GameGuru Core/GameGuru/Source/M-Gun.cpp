@@ -128,6 +128,10 @@ void gun_loaddata ( void )
 		// ensure material not ignored by default
 		g.firemodes[t.gunid][t.i].settings.ignorematerial = 0;
 
+		// GG: no smoke key yet (-1: on when a smoke decal is named), and no decal from an earlier load of this gun
+		g.firemodes[t.gunid][t.i].settings.smoke=-1;
+		g.firemodes[t.gunid][t.i].settings.smokedecal_s="";
+
 		// reset other items
 		g.firemodes[t.gunid][t.i].settings.brassdelay = 0;
 		g.firemodes[t.gunid][t.i].settings.zoombrassdelay = 0;
@@ -1772,6 +1776,12 @@ void gun_loaddata ( void )
 		if (  g.firemodes[t.gunid][t.i].settings.meleeforce == 0 ) 
 		{
 			g.firemodes[t.gunid][t.i].settings.meleeforce=g.firemodes[t.gunid][t.i].settings.damage;
+		}
+
+		// GG: a gunspec with no smoke key has smoke when it names a smoke decal, as before smoke = 0 turned it off
+		if ( g.firemodes[t.gunid][t.i].settings.smoke == -1 )
+		{
+			if ( g.firemodes[t.gunid][t.i].settings.smokedecal_s != "" ) g.firemodes[t.gunid][t.i].settings.smoke=1; else g.firemodes[t.gunid][t.i].settings.smoke=0;
 		}
 
 		//  Default smoke decal
