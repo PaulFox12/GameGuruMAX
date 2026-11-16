@@ -20,6 +20,8 @@ namespace GGTerrain { int GGTerrain_GetHeight( float x, float z, float* outHeigh
 namespace GGTerrain { void GGTerrain_AddEnvProbeList( float x, float y, float z, float range, float quatx, float quaty, float quatz, float quatw, float sx, float sy, float sz, float brightness ); }
 namespace GGTrees { extern int gg_tree_local_shadows, gg_tree_local_shadow_lod; extern unsigned int gg_tree_local_shadow_counts[ 3 ]; }
 extern int g_iGunSmokePuffs, g_iGunSmokeNoKeyOn; // GUNSMOKE_STATE, SET_GUNSMOKENOKEY (G-Gun.cpp, M-Gun.cpp)
+extern int g_iLuaQuietSkip; void lua_loopstats_text ( char* pOut, int iSize, bool bReset ); // SET_LUAQUIET, LUA_LOOP_STATS (M-LUA.cpp)
+void lua_row_text ( int e, char* pOut, int iSize ); // LUA_ROW (M-LUA.cpp)
 #include <time.h>
 #include <windows.h>
 #include <string>
@@ -584,6 +586,25 @@ void AutoHarness_CheckForCommand ( void )
 		if ( arg && *arg ) gg_shadow_min_texels = (float)atof(arg);
 		_snprintf(result, sizeof(result), "OK: SET_SHADOWMINTEXELS %.2f - left out last frame %u", gg_shadow_min_texels, gg_shadow_texel_skipped);
 		result[sizeof(result) - 1] = 0;
+	}
+	else if ( _stricmp ( cmd, "SET_LUAQUIET" ) == 0 )
+	{
+		// SET_LUAQUIET [0|1]: lua_loop_allentities skips quiet turns (1, the default: statics with no script, and entities with
+		// no script whose Lua row already shows everything) or walks every entity as before (0); answers with the walk's stats
+		if ( arg && *arg ) g_iLuaQuietSkip = atoi(arg) ? 1 : 0;
+		lua_loopstats_text(result, sizeof(result), false);
+	}
+	else if ( _stricmp ( cmd, "LUA_ROW" ) == 0 )
+	{
+		// LUA_ROW <e>: an entity's object position, element position, health, active, static and pending flags, beside what
+		// its Lua row was last given (UpdateEntity / UpdateEntityRT); for checking a skipped entity's row is current
+		lua_row_text(arg ? atoi(arg) : 0, result, sizeof(result));
+	}
+	else if ( _stricmp ( cmd, "LUA_LOOP_STATS" ) == 0 )
+	{
+		// LUA_LOOP_STATS [reset]: the entity walk per frame since the last reset: its time (mean, max), turns taken, statics and
+		// quiet entities skipped, rows given (UpdateEntityRT) and main calls; reset starts a new window
+		lua_loopstats_text(result, sizeof(result), arg && _stricmp(arg, "reset") == 0);
 	}
 	else if ( _stricmp ( cmd, "SET_GUNSMOKENOKEY" ) == 0 )
 	{

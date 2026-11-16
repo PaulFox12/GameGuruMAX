@@ -771,6 +771,8 @@ void lua_updateweaponstats ( void )
 	}
 }
 
+static void LuaRow_Remember ( int e, int tobj, int frm ); // GG: below, with lua_turn_isquiet
+
 void lua_ensureentityglobalarrayisinitialised ( void )
 {
 	if ( t.entityelement[t.e].lua.firsttime == 0 ) 
@@ -834,6 +836,7 @@ void lua_ensureentityglobalarrayisinitialised ( void )
 			t.entityelement[t.e].lua.dynamicavoidancestuckclock = 0.0f;
 			t.entityelement[t.e].lua.interuptpath = 0;
 			t.entityelement[t.e].lua.firsttime = 2;
+			LuaRow_Remember(t.e, t.tobj, t.tfrm); // GG
 			t.entityelement[t.e].lastx = t.entityelement[t.e].x;
 			t.entityelement[t.e].lasty = t.entityelement[t.e].y;
 			t.entityelement[t.e].lastz = t.entityelement[t.e].z;
@@ -862,6 +865,98 @@ static LONGLONG g_llLuaCostWindowStart = 0;
 static int g_iLuaCostKeyScannersFrame = 0;
 static sLuaEntityCostTop g_LuaCostFrameTop[3], g_LuaCostLastFrameTop[3];
 int LuaHeapKB ( void ); // DarkLUA.cpp
+
+// GG: what each entity's Lua row was last given (UpdateEntity, UpdateEntityRT), so a turn with nothing new to give it can
+// be skipped: lua_turn_isquiet
+struct sLuaRowSnap
+{
+	bool bValid = false;
+	int obj = 0;
+	float x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, plrdist = 0;
+	int active = 0, activated = 0, collected = 0, haskey = 0, plrinzone = 0, entityinzone = 0, plrvisible = 0, health = 0;
+	int frm = 0, dynamicavoidance = 0, detectedlimbhit = 0;
+};
+static std::vector<sLuaRowSnap> g_LuaRowSnap;
+// GG: 1 skips quiet turns (the default), 0 walks every entity as before (harness SET_LUAQUIET)
+int g_iLuaQuietSkip = 1;
+// GG: the entity walk measured (harness LUA_LOOP_STATS): frames, its time, turns taken, statics and quiet entities skipped,
+// rows given and main calls made
+struct sLuaLoopStats { uint32_t uFrames = 0, uTurns = 0, uStaticSkips = 0, uQuietSkips = 0, uRows = 0, uMains = 0; double dMs = 0, dMaxMs = 0, dMainMs = 0, dRowMs = 0; };
+sLuaLoopStats g_LuaLoopStats;
+
+static void LuaRow_Remember ( int e, int tobj, int frm )
+{
+	if ((int)g_LuaRowSnap.size() <= e) g_LuaRowSnap.resize(e + 256);
+	sLuaRowSnap& r = g_LuaRowSnap[e];
+	entitytype& el = t.entityelement[e];
+	r.bValid = true; r.obj = tobj; r.frm = frm;
+	r.x = el.x; r.y = el.y; r.z = el.z; r.rx = el.rx; r.ry = el.ry; r.rz = el.rz; r.plrdist = el.plrdist;
+	r.active = el.active; r.activated = el.activated; r.collected = el.collected; r.haskey = el.lua.haskey;
+	r.plrinzone = el.lua.plrinzone; r.entityinzone = el.lua.entityinzone; r.plrvisible = el.plrvisible; r.health = el.health;
+	r.dynamicavoidance = el.lua.dynamicavoidance; r.detectedlimbhit = el.detectedlimbhit;
+}
+
+// GG: a turn of lua_loop_allentities with nothing to do: no main script (none, no_behavior_selected or default), not a
+// character, always active, a zone, a door waiting for its key, animating, waiting on its preexit or showing blood;
+// and either static (a static entity has no Lua row) or nothing pending (flagschanged 0) with its row already showing all it
+// would be given now: its object, position, angles, state, health, hit limb, frame, and its player distance within 25 units or 5%;
+// beyond its logic range, where the stock turn gives no row, when its object hasn't moved. The
+// stock turn would only push the same values again. A hit (flagschanged 3), a move, a push that wakes its body, a hide, a spawn
+// or any change of state gives it its turn on the next frame. Returns -1 when quiet, else why not (LUA_LOOP_STATS why=)
+enum { LQ_CHARACTER, LQ_ALWAYS, LQ_ZONE, LQ_KEY, LQ_ANIM, LQ_SPECIAL, LQ_SCRIPT, LQ_FIRST, LQ_FLAGS, LQ_NOROW, LQ_OBJ, LQ_MOVED,
+	LQ_STATE, LQ_DIST, LQ_COUNT };
+static const char* g_pLuaQuietWhy[LQ_COUNT] = { "character", "always", "zone", "key", "anim", "special", "script", "first", "flags",
+	"norow", "obj", "moved", "state", "dist" };
+static uint32_t g_uLuaQuietWhy[LQ_COUNT];
+static int lua_turn_isquiet ( int e, int entid )
+{
+	entitytype& el = t.entityelement[e];
+	if (t.entityprofile[entid].ischaracter == 1) return LQ_CHARACTER;
+	if (el.eleprof.phyalways != 0) return LQ_ALWAYS;
+	if (el.eleprof.trigger.waypointzoneindex > 0) return LQ_ZONE;
+	// a far entity's key is never looked for (the scan runs within its logic range): an empty use key is no key
+	if (el.lua.haskey == 0 && Len(el.eleprof.usekey_s.Get()) > 0) return LQ_KEY;
+	if (el.lua.animating != 0) return LQ_ANIM;
+	if (el.eleprof.aipreexit >= 1 || el.eleprof.WEMaterial.customShaderID == 5) return LQ_SPECIAL;
+	if (el.eleprof.aimain == 1 && Len(el.eleprof.aimainname_s.Get()) > 1)
+	{
+		LPSTR pName = el.eleprof.aimainname_s.Get();
+		size_t n = strlen(pName);
+		if (!((n == 20 && strcmp(pName, "no_behavior_selected") == 0) || (n == 7 && strcmp(pName, "default") == 0))) return LQ_SCRIPT;
+	}
+	if (el.staticflag == 1) return -1;
+	if (el.lua.firsttime != 2 || g.mp.endplay != 0) return LQ_FIRST;
+	// beyond its logic range (750 units for one with no script or always active) the stock turn gives no row unless
+	// flagschanged is 2 or 3 (a hit), which the gate lets through; it only copies the object's position into the element
+	const int tobjFar = el.obj;
+	if (el.plrdist >= 750.0f && el.lua.flagschanged != 2 && el.lua.flagschanged != 3)
+	{
+		if (tobjFar > 0 && t.entityprofile[entid].collisionmode != 21 && ObjectExist(tobjFar) == 1)
+		{
+			if (ObjectPositionX(tobjFar) != el.x || ObjectPositionY(tobjFar) != el.y || ObjectPositionZ(tobjFar) != el.z) return LQ_MOVED;
+		}
+		return -1;
+	}
+	if (el.lua.flagschanged != 0) return LQ_FLAGS;
+	if (e >= (int)g_LuaRowSnap.size() || !g_LuaRowSnap[e].bValid) return LQ_NOROW;
+	const sLuaRowSnap& r = g_LuaRowSnap[e];
+	const int tobj = el.obj;
+	if (tobj != r.obj) return LQ_OBJ;
+	float x = el.x, y = el.y, z = el.z;
+	int frm = 0;
+	if (tobj > 0 && ObjectExist(tobj) == 1)
+	{
+		frm = GetFrame(tobj);
+		if (t.entityprofile[entid].collisionmode != 21) { x = ObjectPositionX(tobj); y = ObjectPositionY(tobj); z = ObjectPositionZ(tobj); }
+	}
+	if (x != r.x || y != r.y || z != r.z || el.rx != r.rx || el.ry != r.ry || el.rz != r.rz || frm != r.frm) return LQ_MOVED;
+	if (el.active != r.active || el.activated != r.activated || el.collected != r.collected || el.lua.haskey != r.haskey) return LQ_STATE;
+	if (el.lua.plrinzone != r.plrinzone || el.lua.entityinzone != r.entityinzone || el.plrvisible != r.plrvisible) return LQ_STATE;
+	if (el.health != r.health || el.lua.dynamicavoidance != r.dynamicavoidance || el.detectedlimbhit != r.detectedlimbhit) return LQ_STATE;
+	const float fDist = fabs(el.plrdist - r.plrdist);
+	if (fDist > 25.0f && fDist > r.plrdist * 0.05f) return LQ_DIST;
+	return -1;
+}
 
 static LONGLONG LuaCost_Ticks ( void )
 {
@@ -954,6 +1049,38 @@ static void LuaCost_EndFrame ( void )
 	g_llLuaCostWindowStart = llNow;
 }
 
+// GG: the entity walk per frame since the last reset (harness LUA_LOOP_STATS)
+void lua_loopstats_text ( char* pOut, int iSize, bool bReset )
+{
+	const sLuaLoopStats& st = g_LuaLoopStats;
+	const double f = st.uFrames > 0 ? (double)st.uFrames : 1.0;
+	_snprintf(pOut, iSize, "OK: LUA_LOOP_STATS quiet=%d frames=%u ms=%.4f max=%.3f turns=%.1f statics=%.1f quiet=%.1f rows=%.1f mains=%.1f mainms=%.4f rowms=%.4f elements=%d",
+		g_iLuaQuietSkip, st.uFrames, st.dMs / f, st.dMaxMs, st.uTurns / f, st.uStaticSkips / f, st.uQuietSkips / f, st.uRows / f, st.uMains / f,
+		st.dMainMs / f, st.dRowMs / f,
+		(int)g.entityelementlist);
+	int iLen = (int)strlen(pOut);
+	iLen += _snprintf(pOut + iLen, iSize - iLen, " why=");
+	for (int i = 0; i < LQ_COUNT && iLen > 0 && iLen < iSize - 32; i++)
+		if (g_uLuaQuietWhy[i] > 0) iLen += _snprintf(pOut + iLen, iSize - iLen, "%s:%.0f,", g_pLuaQuietWhy[i], g_uLuaQuietWhy[i] / f);
+	pOut[iSize - 1] = 0;
+	if (bReset) { g_LuaLoopStats = sLuaLoopStats(); for (int i = 0; i < LQ_COUNT; i++) g_uLuaQuietWhy[i] = 0; }
+}
+
+// GG: an entity's engine values beside what its Lua row was last given (harness LUA_ROW e)
+void lua_row_text ( int e, char* pOut, int iSize )
+{
+	if (e < 1 || e > g.entityelementlist) { _snprintf(pOut, iSize, "ERROR: LUA_ROW <e 1..%d>", (int)g.entityelementlist); pOut[iSize - 1] = 0; return; }
+	entitytype& el = t.entityelement[e];
+	float ox = 0, oy = 0, oz = 0;
+	if (el.obj > 0 && ObjectExist(el.obj) == 1) { ox = ObjectPositionX(el.obj); oy = ObjectPositionY(el.obj); oz = ObjectPositionZ(el.obj); }
+	const sLuaRowSnap* r = (e < (int)g_LuaRowSnap.size() && g_LuaRowSnap[e].bValid) ? &g_LuaRowSnap[e] : NULL;
+	_snprintf(pOut, iSize, "OK: LUA_ROW %d obj=%d object=%.2f,%.2f,%.2f element=%.2f,%.2f,%.2f health=%d active=%d static=%d flags=%d first=%d plrdist=%.0f"
+		" row=%s%.2f,%.2f,%.2f health=%d active=%d plrdist=%.0f",
+		e, el.obj, ox, oy, oz, el.x, el.y, el.z, el.health, el.active, el.staticflag, el.lua.flagschanged, el.lua.firsttime, el.plrdist,
+		r ? "" : "none ", r ? r->x : 0, r ? r->y : 0, r ? r->z : 0, r ? r->health : 0, r ? r->active : 0, r ? r->plrdist : 0);
+	pOut[iSize - 1] = 0;
+}
+
 bool lua_getentitycosts ( sLuaEntityCosts* pCosts )
 {
 	if (!g_bLuaCostLast || pCosts == NULL) return false;
@@ -988,6 +1115,7 @@ void lua_loop_allentities ( void )
 
 	LuaFrameCount++;
 	LuaCost_BeginFrame();
+	const LONGLONG llLoopStart = LuaCost_Ticks(); // GG: LUA_LOOP_STATS
 
 	bool bMarkerCount = false;
 	// Go through all entities with active LUA scripts
@@ -1024,6 +1152,19 @@ void lua_loop_allentities ( void )
 			{
 				continue;
 			}
+
+			// GG: a turn with nothing to do is skipped whole (lua_turn_isquiet)
+			if (g_iLuaQuietSkip == 1)
+			{
+				const int iWhy = lua_turn_isquiet(t.e, thisentid);
+				if (iWhy < 0)
+				{
+					if (t.entityelement[t.e].staticflag == 1) g_LuaLoopStats.uStaticSkips++; else g_LuaLoopStats.uQuietSkips++;
+					continue;
+				}
+				g_uLuaQuietWhy[iWhy]++;
+			}
+			g_LuaLoopStats.uTurns++;
 			if (t.entityprofile[thisentid].ischaracter == 1 )
 			{
 				t.ttte = t.e; entity_find_charanimindex_fromttte(); // small optimization if we can replace this with storing in entityelement!
@@ -1363,7 +1504,10 @@ void lua_loop_allentities ( void )
 							LuaPushInt ( t.entityelement[t.e].detectedlimbhit );
 							LuaCall (  );
 							t.entityelement[t.e].lua.flagschanged=0;
+							LuaRow_Remember(t.e, t.tobj, t.tfrm); // GG
+							g_LuaLoopStats.uRows++;
 							dCostRow = LuaCost_Ms(llCostRowStart, LuaCost_Ticks());
+							g_LuaLoopStats.dRowMs += dCostRow;
 							g_LuaCostSum.iRows++;
 						}
 					}
@@ -1420,6 +1564,8 @@ void lua_loop_allentities ( void )
 									LuaCall ();
 								}
 								dCostMain = LuaCost_Ms(llCostMainStart, LuaCost_Ticks());
+								g_LuaLoopStats.uMains++;
+								g_LuaLoopStats.dMainMs += dCostMain;
 								g_LuaCostSum.iMains++;
 							}
 						}
@@ -1452,6 +1598,12 @@ void lua_loop_allentities ( void )
 		}
 	}
 	LuaCost_EndFrame();
+	{
+		const double dLoopMs = LuaCost_Ms(llLoopStart, LuaCost_Ticks()); // GG: LUA_LOOP_STATS
+		g_LuaLoopStats.uFrames++;
+		g_LuaLoopStats.dMs += dLoopMs;
+		if (dLoopMs > g_LuaLoopStats.dMaxMs) g_LuaLoopStats.dMaxMs = dLoopMs;
+	}
 
 	// view LUA logic performance per entity
 	if ( g_iViewPerformanceTimers == 1 )
