@@ -2868,8 +2868,12 @@ bool importer_apply_materialformesh(MaterialComponentTEXTURESLOT eMatSlot, int i
 				entity_copytoremoteifnotthere(cFileSelected);
 
 				// loaded okay, update material
-				char* pTextureFilename = pSelectedMesh->pTextures[iGGMeshTexSlot].pName;
-				strcpy(pTextureFilename, cFileSelected);
+				// GG: a mesh can have no texture list to record the name in (an incomplete texture set)
+				if (pSelectedMesh->pTextures && (DWORD)iGGMeshTexSlot < pSelectedMesh->dwTextureCount)
+				{
+					char* pTextureFilename = pSelectedMesh->pTextures[iGGMeshTexSlot].pName;
+					strcpy(pTextureFilename, cFileSelected);
+				}
 				switch (iGGMeshTexSlot)
 				{
 				case GG_MESH_TEXTURE_NORMAL : 
