@@ -30,6 +30,8 @@ int constexpr conststrlen( const char* str )
 	if ( strncmp(str, cmpVal, len) != 0 ) matched = false; \
 }
 
+int g_iGunSmokeNoKeyOn = 1; // GG: 1, a gunspec naming a smoke decal with no smoke key has smoke; 0 as before (harness SET_GUNSMOKENOKEY)
+
 void gun_loaddata ( void )
 {
 	// used for new weapon system
@@ -1781,7 +1783,7 @@ void gun_loaddata ( void )
 		// GG: a gunspec with no smoke key has smoke when it names a smoke decal, as before smoke = 0 turned it off
 		if ( g.firemodes[t.gunid][t.i].settings.smoke == -1 )
 		{
-			if ( g.firemodes[t.gunid][t.i].settings.smokedecal_s != "" ) g.firemodes[t.gunid][t.i].settings.smoke=1; else g.firemodes[t.gunid][t.i].settings.smoke=0;
+			if ( g.firemodes[t.gunid][t.i].settings.smokedecal_s != "" && g_iGunSmokeNoKeyOn ) g.firemodes[t.gunid][t.i].settings.smoke=1; else g.firemodes[t.gunid][t.i].settings.smoke=0;
 		}
 
 		//  Default smoke decal

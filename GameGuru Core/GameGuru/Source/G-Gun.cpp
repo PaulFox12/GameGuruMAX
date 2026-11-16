@@ -3937,6 +3937,8 @@ void gun_brass_indi ( void )
 	}
 }
 
+int g_iGunSmokePuffs = 0; // GG: smoke puffs shown since the start (harness GUNSMOKE_STATE)
+
 void gun_smoke ( void )
 {
 	extern bool bHideWeaponsSmoke;
@@ -3976,6 +3978,7 @@ void gun_smoke ( void )
 				RotateObject (t.obj, 0, 0, 0);
 				PositionObject (t.obj, t.lx_f, t.ly_f, t.lz_f);
 				ShowObject (t.obj);
+				g_iGunSmokePuffs++;
 				t.smokeframe_f[t.o] = 0.0;
 				t.gunsmoke = 0; t.smokeframe = 0;
 			}
@@ -4002,6 +4005,7 @@ void gun_smoke ( void )
 				RotateObject (t.obj, 0, 0, 0);
 				PositionObject (t.obj, t.lx_f, t.ly_f, t.lz_f);
 				ShowObject (t.obj);
+				g_iGunSmokePuffs++;
 				t.smokeframe_f[t.o] = 0.0;
 				t.gunsmoke2 = 0; t.smokeframe = 0;
 			}

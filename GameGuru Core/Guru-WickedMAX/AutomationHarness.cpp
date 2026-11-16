@@ -19,6 +19,7 @@ namespace Tracers { void DebugLastAdded(char* out, int osize); }
 namespace GGTerrain { int GGTerrain_GetHeight( float x, float z, float* outHeight, int accurateButSlow, int includeFlatAreas ); }
 namespace GGTerrain { void GGTerrain_AddEnvProbeList( float x, float y, float z, float range, float quatx, float quaty, float quatz, float quatw, float sx, float sy, float sz, float brightness ); }
 namespace GGTrees { extern int gg_tree_local_shadows, gg_tree_local_shadow_lod; extern unsigned int gg_tree_local_shadow_counts[ 3 ]; }
+extern int g_iGunSmokePuffs, g_iGunSmokeNoKeyOn; // GUNSMOKE_STATE, SET_GUNSMOKENOKEY (G-Gun.cpp, M-Gun.cpp)
 #include <time.h>
 #include <windows.h>
 #include <string>
@@ -582,6 +583,29 @@ void AutoHarness_CheckForCommand ( void )
 		extern unsigned int gg_shadow_texel_skipped;
 		if ( arg && *arg ) gg_shadow_min_texels = (float)atof(arg);
 		_snprintf(result, sizeof(result), "OK: SET_SHADOWMINTEXELS %.2f - left out last frame %u", gg_shadow_min_texels, gg_shadow_texel_skipped);
+		result[sizeof(result) - 1] = 0;
+	}
+	else if ( _stricmp ( cmd, "SET_GUNSMOKENOKEY" ) == 0 )
+	{
+		// SET_GUNSMOKENOKEY [0|1]: a gunspec naming a smoke decal with no smoke key has smoke (1, the default) or none (0, as
+		// before, GameGuruRepo #6445); read when a gun loads, so set it before Test Level
+		if ( arg && *arg ) g_iGunSmokeNoKeyOn = atoi(arg) ? 1 : 0;
+		_snprintf(result, sizeof(result), "OK: SET_GUNSMOKENOKEY %d", g_iGunSmokeNoKeyOn);
+		result[sizeof(result) - 1] = 0;
+	}
+	else if ( _stricmp ( cmd, "GUNSMOKE_STATE" ) == 0 )
+	{
+		// GUNSMOKE_STATE: every loaded gun's smoke key, smoke decal and smoke image for both fire modes (smokeimg 0: no puffs),
+		// the current gun, and the puffs shown since the start
+		int w = _snprintf(result, sizeof(result), "OK: puffs=%d current=%d nokey=%d", g_iGunSmokePuffs, t.gunid, g_iGunSmokeNoKeyOn);
+		for ( int gi = 1; gi <= g.gunmax && w < (int)sizeof(result) - 200; gi++ )
+		{
+			if ( strlen(t.gun[gi].name_s.Get()) < 1 ) continue;
+			w += _snprintf(result + w, sizeof(result) - w, "\n%d %s", gi, t.gun[gi].name_s.Get());
+			for ( int fm = 0; fm <= 1; fm++ )
+				w += _snprintf(result + w, sizeof(result) - w, " | m%d smoke=%d decal=%s img=%d", fm, g.firemodes[gi][fm].settings.smoke,
+					g.firemodes[gi][fm].settings.smokedecal_s.Get(), g.firemodes[gi][fm].settings.smokeimg);
+		}
 		result[sizeof(result) - 1] = 0;
 	}
 	else if ( _stricmp ( cmd, "SET_TREELOCALSHADOWS" ) == 0 )
