@@ -16614,6 +16614,10 @@ void process_entity_library_v2(void)
 
 		static int iLargePreviewImageID = false;
 		static cFolderItem::sFolderFiles * pPreviewFile = NULL;
+		// GG: a folder refresh (a file saved into it, such as the LOD Generator's .fpe) deletes its files, so drop the preview's
+		extern int g_iEntityFolderRefreshes;
+		static int iPreviewFileRefreshes = 0;
+		if (pPreviewFile && iPreviewFileRefreshes != g_iEntityFolderRefreshes) pPreviewFile = NULL;
 		static bool bStartAnimation = false;
 		static int iAnimationSet = 0;
 		static bool bAnimationAll = true;
@@ -18853,6 +18857,7 @@ void process_entity_library_v2(void)
 										//Refresh with new search.
 										//Load dbo and display large preview.
 										pPreviewFile = myfiles;
+										iPreviewFileRefreshes = g_iEntityFolderRefreshes;
 										bLargePreview = true;
 										bDoBackbufferUpdate = true;
 										bIsVisible = true;
@@ -20714,6 +20719,7 @@ void process_entity_library_v2(void)
 									if (ImGui::ImgBtn(KEY_MAXIMIZE, ImVec2(iImageSize, iImageSize), ImColor(0, 0, 0, 0), ImColor(255, 255, 255, 180), ImColor(255, 255, 255, 180), ImColor(255, 255, 255, 180), 0, 0, 0, 0, false, false, false, false, true, bBoostIconColors))
 									{
 										pPreviewFile = myfiles;
+										iPreviewFileRefreshes = g_iEntityFolderRefreshes;
 										bLargePreview = true;
 										bDoBackbufferUpdate = true;
 									}
@@ -20725,6 +20731,7 @@ void process_entity_library_v2(void)
 									if (bThumbHovered && ImGui::IsMouseDoubleClicked(0))
 									{
 										pPreviewFile = myfiles;
+										iPreviewFileRefreshes = g_iEntityFolderRefreshes;
 										bLargePreview = true;
 										bDoBackbufferUpdate = true;
 										iDelayedImgClick = 0; //Cancel last btn click.
@@ -21096,7 +21103,7 @@ void process_entity_library_v2(void)
 
 							//PE: Check if we need to generate a thumb or rotate a object in the thumb view.
 							bool bForceUpdate = false;
-							if (bCheckGotoPreview && pPreviewFile == myfiles)
+							if (bCheckGotoPreview && pPreviewFile == myfiles && iPreviewFileRefreshes == g_iEntityFolderRefreshes)
 								bForceUpdate = true;
 
 							if (!bBlockBackBufferUpdating || bForceUpdate)
