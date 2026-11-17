@@ -402,6 +402,11 @@ void gun_loaddata ( void )
 					if( matched )  g.firemodes[t.gunid][0].settings.force = t.value1;
 					cmpStrConst( t_field_s, "melee force" );
 					if( matched )  g.firemodes[t.gunid][0].settings.meleeforce = t.value1;
+					// GG: a round's and a swing's push on a prop, newton-seconds (entity_pushprop)
+					cmpStrConst( t_field_s, "pushforce" );
+					if( matched )  g.firemodes[t.gunid][0].settings.pushforce = t.value1;
+					cmpStrConst( t_field_s, "melee pushforce" );
+					if( matched )  g.firemodes[t.gunid][0].settings.meleepushforce = t.value1;
 					cmpStrConst( t_field_s, "npcignorereload" );
 					if( matched )  g.firemodes[t.gunid][0].settings.npcignorereload = t.value1;
 					cmpStrConst( t_field_s, "npcaimspread" );
@@ -1123,6 +1128,11 @@ void gun_loaddata ( void )
 					if( matched )  g.firemodes[t.gunid][1].settings.force = t.value1;
 					cmpStrConst( t_field_s, "altmelee force" );
 					if( matched )  g.firemodes[t.gunid][1].settings.meleeforce = t.value1;
+					// GG: a round's and a swing's push on a prop, newton-seconds (entity_pushprop)
+					cmpStrConst( t_field_s, "altpushforce" );
+					if( matched )  g.firemodes[t.gunid][1].settings.pushforce = t.value1;
+					cmpStrConst( t_field_s, "altmelee pushforce" );
+					if( matched )  g.firemodes[t.gunid][1].settings.meleepushforce = t.value1;
 					cmpStrConst( t_field_s, "altnpcignorereload" );
 					if( matched )  g.firemodes[t.gunid][1].settings.npcignorereload = t.value1;
 					cmpStrConst( t_field_s, "altzoomhidecrosshair" );

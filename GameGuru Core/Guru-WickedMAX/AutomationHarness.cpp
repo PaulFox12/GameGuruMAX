@@ -989,6 +989,20 @@ void AutoHarness_CheckForCommand ( void )
 			g_iPhysicsPosesWritten, g_iPhysicsPosesSkipped );
 		result[sizeof(result) - 1] = 0;
 	}
+	else if ( _stricmp ( cmd, "PUSH_TEST" ) == 0 )
+	{
+		// PUSH_TEST <e> <shot|melee> <impulse> [raise]: element e pushed as a shot's or a swing's push (the gunspec pushforce or
+		// melee pushforce, newton-seconds, with SetPropPushLimits' cap) from the camera, the ray to the centre of its box raised
+		// by raise units; answers the impulse given and the body's mass (-1 no such element or object)
+		int e = 0; char kind[16] = { 0 }; float fImpulse = 0.0f, fRaise = 0.0f;
+		if (arg) sscanf(arg, "%d %15s %f %f", &e, kind, &fImpulse, &fRaise);
+		extern float entity_pushproptest(int e, bool bMelee, float fImpulse, float fRaise, float* pMassKg);
+		float fMass = 0.0f;
+		const bool bMelee = _stricmp(kind, "melee") == 0;
+		const float fGiven = entity_pushproptest(e, bMelee, fImpulse, fRaise, &fMass);
+		_snprintf(result, sizeof(result), "OK: PUSH_TEST e=%d %s asked=%.3f given=%.3f mass=%.2f", e, bMelee ? "melee" : "shot", fImpulse, fGiven, fMass);
+		result[sizeof(result) - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "SET_WALKLISTS" ) == 0 )
 	{
 		// SET_WALKLISTS [0|1]: the per-frame entity walks (the Lua loop, entity_loop, its explodables' walk, entity_loopanim)

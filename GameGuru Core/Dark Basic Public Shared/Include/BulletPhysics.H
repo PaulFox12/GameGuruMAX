@@ -129,6 +129,7 @@ DARKSDK void		ODESetLinearVelocity					( int iObjectNumber, float fX, float fY, 
 DARKSDK void		ODESetLinearVelocityXZWithGravity		( int iObjectNumber, float fX, float fZ, float fGravityForce );
 DARKSDK void		ODESetLinearVelocityUsingWorldPosTarget	( int iObject, float fWorldX, float fWorldY, float fWorldZ);
 DARKSDK void		ODEAddBodyForce							( int iObjectNumber, float fX, float fY, float fZ, float fPX, float fPY, float fPZ );
+DARKSDK float		ODEPushBodyImpulse						( int iObjectNumber, float fX, float fY, float fZ, float fImpulse, float fMaxSpeedChange, float fPX, float fPY, float fPZ );
 DARKSDK void		ODESetAngularVelocity					( int iObjectNumber, float fX, float fY, float fZ );
 DARKSDK void		ODESetAngularVelocityRadians			( int iObjectNumber, float fX, float fY, float fZ );
 DARKSDK void		ODESetAngularFactor						( int iObjectNumber );

@@ -152,6 +152,8 @@ void entity_walklists_update(void)
 
 void entity_init ( void )
 {
+	// GG: the props' push limits as at the start (SetPropPushLimits)
+	{ extern float g_fPropPushMaxSpeed[2]; g_fPropPushMaxSpeed[0] = 2.5f; g_fPropPushMaxSpeed[1] = 4.5f; }
 	entity_walklists_dirty();
 	// all entities initialised, and any old destroy list items cleared
 	g_iDestroyedEntitiesList.clear();
@@ -4010,8 +4012,48 @@ void entity_hasbulletrayhit(void)
 	playerhit_setray(iPlayerHitClass, iPlayerHitE, t.brayx2_f, t.brayy2_f, t.brayz2_f, vecRayHitNormal.x, vecRayHitNormal.y, vecRayHitNormal.z, t.tmaterialvalue, iPlayerHitHole, t.bulletraylimbhit);
 }
 
+// GG (2026-11-17, the user): a shot or a swing pushes a prop (not a character or a ragdoll) when its gunspec says how hard:
+// pushforce for a round, melee pushforce for a swing, newton-seconds, along the ray at the point it met, the prop's speed
+// change kept to g_fPropPushMaxSpeed (SetPropPushLimits: 2.5 m/s a round, 4.5 a swing at a game's start) so a light prop
+// isn't thrown far by what barely moves a heavy one. A gunspec without them pushes nothing, as before (a ray's force went
+// to characters and ragdolls only). Its health doesn't matter: a killed prop that is still a body is pushed too
+float g_fPropPushMaxSpeed[2] = { 2.5f, 4.5f };
+float entity_pushprop ( int e, bool bMelee, float fImpulse )
+{
+	if ( e <= 0 || e > g.entityelementlist || fImpulse <= 0.0f ) return 0.0f;
+	const int entid = t.entityelement[e].bankindex;
+	if ( entid <= 0 || t.entityprofile[entid].ischaracter == 1 || t.entityprofile[entid].ragdoll == 1 ) return 0.0f;
+	const int obj = t.entityelement[e].obj;
+	if ( obj <= 0 ) return 0.0f;
+	return ODEPushBodyImpulse ( obj, t.brayx2_f - t.brayx1_f, t.brayy2_f - t.brayy1_f, t.brayz2_f - t.brayz1_f, fImpulse,
+		g_fPropPushMaxSpeed[bMelee ? 1 : 0], t.brayx2_f, t.brayy2_f, t.brayz2_f );
+}
+
+// for the harness (PUSH_TEST): element e pushed as from the camera, the ray to the centre of its box raised fRaise units; the
+// impulse given, and the body's mass
+float entity_pushproptest ( int e, bool bMelee, float fImpulse, float fRaise, float* pMassKg )
+{
+	if ( pMassKg ) *pMassKg = 0.0f;
+	if ( e <= 0 || e > g.entityelementlist ) return -1.0f;
+	const int obj = t.entityelement[e].obj;
+	if ( obj <= 0 || ObjectExist ( obj ) == 0 ) return -1.0f;
+	extern float ODEGetObjectMassKg ( int iObject );
+	if ( pMassKg ) *pMassKg = ODEGetObjectMassKg ( obj );
+	t.brayx1_f = CameraPositionX ( 0 ); t.brayy1_f = CameraPositionY ( 0 ); t.brayz1_f = CameraPositionZ ( 0 );
+	t.brayx2_f = ObjectPositionX ( obj ) + GetObjectCollisionCenterX ( obj );
+	t.brayy2_f = ObjectPositionY ( obj ) + GetObjectCollisionCenterY ( obj ) + fRaise;
+	t.brayz2_f = ObjectPositionZ ( obj ) + GetObjectCollisionCenterZ ( obj );
+	return entity_pushprop ( e, bMelee, fImpulse );
+}
+
 void entity_hitentity ( int e, int obj )
 {
+	// GG: the gunspec's push on a prop (takes t.gunid, g.firemode and the ray, its end the hit point)
+	if ( t.gunid > 0 )
+	{
+		const bool bMelee = t.gun[t.gunid].settings.ismelee == 2 || g.firemodes[t.gunid][g.firemode].settings.usemeleedamageonly > 0;
+		entity_pushprop ( e, bMelee, bMelee ? g.firemodes[t.gunid][g.firemode].settings.meleepushforce : g.firemodes[t.gunid][g.firemode].settings.pushforce );
+	}
 	int iStoreE = t.ttte; t.ttte = e;
 	if ( t.entityelement[t.ttte].health > 0 ) 
 	{

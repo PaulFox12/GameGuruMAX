@@ -8460,6 +8460,24 @@ int GetObjectMass(lua_State* L)
 	lua_pushnumber(L, ODEGetObjectMassKg((int)lua_tonumber(L, 1)));
 	return 1;
 }
+// SetPropPushLimits(shot, swing): the most a shot's push (gunspec pushforce) and a swing's (melee pushforce) can change a
+// prop's speed, metres a second (2.5 and 4.5 at a game's start; 0 no limit), so a light prop isn't thrown far by what barely
+// moves a heavy one. GetPropPushLimits() returns them
+int SetPropPushLimits(lua_State* L)
+{
+	extern float g_fPropPushMaxSpeed[2];
+	if (LUA_GETTOP(L) >= 1) g_fPropPushMaxSpeed[0] = (float)lua_tonumber(L, 1) < 0.0f ? 0.0f : (float)lua_tonumber(L, 1);
+	if (LUA_GETTOP(L) >= 2) g_fPropPushMaxSpeed[1] = (float)lua_tonumber(L, 2) < 0.0f ? 0.0f : (float)lua_tonumber(L, 2);
+	return 0;
+}
+int GetPropPushLimits(lua_State* L)
+{
+	extern float g_fPropPushMaxSpeed[2];
+	lua_pushnumber(L, g_fPropPushMaxSpeed[0]);
+	lua_pushnumber(L, g_fPropPushMaxSpeed[1]);
+	return 2;
+}
+
 // SetPhysicsPushLog(obj [, steps]) - a diagnostic: each PushObject on obj logs its body before and after, then over the
 // next steps (8 at first) simulation steps; obj 0 stops it. GetPhysicsPushLog() returns the lines since, as a table
 int SetPhysicsPushLog(lua_State* L)
@@ -18295,6 +18313,8 @@ void addFunctions()
 	lua_register(lua, "GetEntityMass", GetEntityMass);
 	lua_register(lua, "GetObjectMass", GetObjectMass);
 	lua_register(lua, "SetPhysicsPushLog", SetPhysicsPushLog);
+	lua_register(lua, "SetPropPushLimits", SetPropPushLimits);
+	lua_register(lua, "GetPropPushLimits", GetPropPushLimits);
 	lua_register(lua, "GetPhysicsPushLog", GetPhysicsPushLog);
 	lua_register(lua, "GetLuaEntityCosts", GetLuaEntityCosts);
 	lua_register(lua, "GetFrameCosts", GetFrameCosts);

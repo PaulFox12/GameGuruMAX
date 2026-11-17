@@ -5094,6 +5094,41 @@ void ODEAddBodyForce ( int iObject, float fX, float fY, float fZ, float fPX, flo
 	}
 }
 
+// GG: a shot's or a swing's push on a body (entity_pushprop): an impulse of fImpulse newton-seconds along (fX, fY, fZ) at the
+// world point (fPX, fPY, fPZ), its speed change kept to fMaxSpeedChange metres a second (0 none) so a light body isn't thrown
+// far by what barely moves a heavy one; a frozen body (iResponseMode) or one with no mass is left alone. Returns the impulse
+// given (newton-seconds)
+float ODEPushBodyImpulse ( int iObject, float fX, float fY, float fZ, float fImpulse, float fMaxSpeedChange, float fPX, float fPY, float fPZ )
+{
+	sObjectList* pPhyObject = ODEFindID ( iObject );
+	if ( pPhyObject == NULL || pPhyObject->body == NULL ) return 0.0f;
+	if ( pPhyObject->iResponseMode > 0 ) return 0.0f;
+	btRigidBody* pBody = pPhyObject->body;
+	if ( pBody->getInvMass() <= 0.0f ) return 0.0f;
+	btVector3 vecDir ( fX, fY, fZ );
+	if ( vecDir.length2() < 1e-12f || fImpulse <= 0.0f ) return 0.0f;
+	vecDir.normalize();
+	btScalar fJ = fImpulse;
+	if ( fMaxSpeedChange > 0.0f && fJ * pBody->getInvMass() > fMaxSpeedChange ) fJ = fMaxSpeedChange / pBody->getInvMass();
+	const btVector3 vecRel = btVector3 ( fPX / gSc, fPY / gSc, fPZ / gSc ) - pBody->getCenterOfMassPosition();
+	const bool bLogPush = ( iObject > 0 && iObject == g_iPushLogObject );
+	if ( bLogPush )
+	{
+		char pWhen[192];
+		snprintf ( pWhen, sizeof(pWhen), "impulse %.3f N s (asked %.3f, mass %.2f kg) along %.2f %.2f %.2f, %.2f %.2f %.2f m from its centre, before",
+			(float)fJ, fImpulse, 1.0f / pBody->getInvMass(), vecDir.x(), vecDir.y(), vecDir.z(), vecRel.x(), vecRel.y(), vecRel.z() );
+		PhysicsPushLogBody ( pWhen );
+	}
+	pBody->activate ( true );
+	pBody->applyImpulse ( vecDir * fJ, vecRel );
+	if ( bLogPush )
+	{
+		PhysicsPushLogBody ( "after" );
+		g_iPushLogStepsLeft = g_iPushLogSteps;
+	}
+	return (float)fJ;
+}
+
 void ODESetAngularVelocity (int iObject, float fX, float fY, float fZ)
 {
 	// get reference object

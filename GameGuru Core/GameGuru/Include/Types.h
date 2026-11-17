@@ -7436,6 +7436,8 @@ struct gunsettingstype
 	int addtospare;
 	int force;
 	int meleeforce;
+	float pushforce; // GG: a round's push on a prop, newton-seconds (gunspec pushforce; 0 none)
+	float meleepushforce; // GG: a swing's push on a prop, newton-seconds (gunspec melee pushforce; 0 none)
 	int npcignorereload;
 	float npcaimspread;
 	int dofdistance;
@@ -7497,6 +7499,8 @@ struct gunsettingstype
 		 npcaimspread = -1.0f;
 		 meleeforce = 0;
 		 force = 0;
+		 pushforce = 0.0f;
+		 meleepushforce = 0.0f;
 		 addtospare = 0;
 		 canaddtospare = 0;
 		 hasempty = 0;
