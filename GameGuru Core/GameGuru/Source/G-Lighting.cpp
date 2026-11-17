@@ -181,6 +181,24 @@ void lighting_loop(void)
 		pLightPtr->x = vecWorld.x;
 		pLightPtr->y = vecWorld.y;
 		pLightPtr->z = vecWorld.z;
+		if ( pLightPtr->is_spot_light )
+		{
+			// a spot shines straight down, tilted towards the model's front by entitylightpitch and turned about its up by
+			// entitylightyaw, then carried by the model's own turn; UpdateLight takes the aim as 90 less its tilt from
+			// straight down (angle x) and its heading (angle y)
+			const float fPitch = GGToRadian(t.entityprofile[entid].entitylightpitch);
+			const float fYaw = GGToRadian(t.entityprofile[entid].entitylightyaw);
+			GGVECTOR3 vecDirLocal( sinf(fPitch) * sinf(fYaw), -cosf(fPitch), sinf(fPitch) * cosf(fYaw) );
+			GGVECTOR3 vecDir;
+			GGVec3TransformNormal( &vecDir, &vecDirLocal, &pObject->position.matWorld );
+			GGVec3Normalize( &vecDir, &vecDir );
+			float fDown = -vecDir.y;
+			if ( fDown > 1.0f ) fDown = 1.0f;
+			if ( fDown < -1.0f ) fDown = -1.0f;
+			pLightPtr->f_angle_x = 90.0f - GGToDegree(acosf(fDown));
+			pLightPtr->f_angle_y = (fabsf(vecDir.x) + fabsf(vecDir.z) > 0.0001f) ? GGToDegree(atan2f(vecDir.x, vecDir.z)) : 0.0f;
+			pLightPtr->f_angle_z = 0.0f;
+		}
 	}
 
 	// Wicked can host ALL the lights in the scene, so pass them to wicked

@@ -8317,6 +8317,11 @@ int WickedCall_GetSpotShadowLights(bool bDebug)
 }
 
 
+// a spot's inner cone: this Wicked's spots have none (each fades from its middle to the edge of its cone)
+void WickedCall_SetLightInnerCone(uint64_t wickedlightindex, float fInnerDegrees)
+{
+}
+
 void WickedCall_UpdateLight(uint64_t wickedlightindex, float fX, float fY, float fZ, float fAX, float fAY, float fAZ, float fRange, float fSpotRadius, int iColR, int iColG, int iColB, bool bCastShadow)
 {
 	bool bLightScapeHasChangedEnoughForEnvProbeUpdate = false;

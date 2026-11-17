@@ -1978,6 +1978,11 @@ void entity_loaddata ( void )
 		t.entityprofile[t.entid].entitylighty = 0.0f;
 		t.entityprofile[t.entid].entitylightz = 0.0f;
 		t.entityprofile[t.entid].entitylightshadows = 0;
+		t.entityprofile[t.entid].entitylightspot = 0;
+		t.entityprofile[t.entid].entitylightcone = 130.0f;
+		t.entityprofile[t.entid].entitylightinner = 0.0f;
+		t.entityprofile[t.entid].entitylightpitch = 0.0f;
+		t.entityprofile[t.entid].entitylightyaw = 0.0f;
 		t.entityprofile[t.entid].physicsmass = 0.0f;
 		t.entityprofile[t.entid].isspinetracker = 1;
 		t.entityprofile[t.entid].phyweight=100;
@@ -3036,6 +3041,16 @@ void entity_loaddata ( void )
 					if (  matched  )  t.entityprofile[t.entid].entitylightz = t.value1_f;
 					cmpStrConst( t_field_s, "entitylightshadows" );
 					if (  matched  )  t.entityprofile[t.entid].entitylightshadows = t.value1;
+					cmpStrConst( t_field_s, "entitylightspot" );
+					if (  matched  )  t.entityprofile[t.entid].entitylightspot = t.value1;
+					cmpStrConst( t_field_s, "entitylightcone" );
+					if (  matched  )  t.entityprofile[t.entid].entitylightcone = t.value1_f;
+					cmpStrConst( t_field_s, "entitylightinner" );
+					if (  matched  )  t.entityprofile[t.entid].entitylightinner = t.value1_f;
+					cmpStrConst( t_field_s, "entitylightpitch" );
+					if (  matched  )  t.entityprofile[t.entid].entitylightpitch = t.value1_f;
+					cmpStrConst( t_field_s, "entitylightyaw" );
+					if (  matched  )  t.entityprofile[t.entid].entitylightyaw = t.value1_f;
 					// GG: its physics body's mass in kilos (SetEntityMass sets one for a single entity)
 					cmpStrConst( t_field_s, "physicsmass" );
 					if (  matched  )  t.entityprofile[t.entid].physicsmass = t.value1_f;

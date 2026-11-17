@@ -104,7 +104,8 @@ void lighting_refresh ( void )
 		infinilighttype* pLightPtr = &t.infinilight[g.infinilightmax];
 		pLightPtr->used = 1;
 		pLightPtr->type = t.entityelement[t.tle].staticflag;
-		pLightPtr->is_spot_light = false;
+		// a spot when its .fpe says (entitylightspot), aimed with its entity every frame by lighting_loop
+		pLightPtr->is_spot_light = t.entityprofile[t.tlentid].entitylightspot != 0;
 		pLightPtr->bEntityLight = true;
 		pLightPtr->f_angle_x = 0;
 		pLightPtr->f_angle_y = 0;
@@ -113,7 +114,7 @@ void lighting_refresh ( void )
 		pLightPtr->y = t.entityelement[t.tle].y;
 		pLightPtr->z = t.entityelement[t.tle].z;
 		pLightPtr->range = t.entityprofile[t.tlentid].light.range;
-		pLightPtr->spotlightradius = 45.0f;
+		pLightPtr->spotlightradius = pLightPtr->is_spot_light ? t.entityprofile[t.tlentid].entitylightcone : 45.0f;
 		pLightPtr->id = 0;
 		pLightPtr->dist = 0;
 		pLightPtr->colrgb.r = RgbR(t.entityprofile[t.tlentid].light.color);
@@ -124,8 +125,17 @@ void lighting_refresh ( void )
 		pLightPtr->e = t.tle;
 		pLightPtr->fLightHasProbe = 0;
 		t.entityelement[t.tle].eleprof.light.index = g.infinilightmax;
-		point_lights_count++;
-		pLightPtr->wickedlightindex = WickedCall_AddLight(1);
+		if (pLightPtr->is_spot_light)
+		{
+			spot_lights_count++;
+			pLightPtr->wickedlightindex = WickedCall_AddLight(2);
+			WickedCall_SetLightInnerCone(pLightPtr->wickedlightindex, t.entityprofile[t.tlentid].entitylightinner);
+		}
+		else
+		{
+			point_lights_count++;
+			pLightPtr->wickedlightindex = WickedCall_AddLight(1);
+		}
 	}
 
 	// clear old infini light history

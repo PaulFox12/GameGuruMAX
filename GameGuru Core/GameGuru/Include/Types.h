@@ -5890,6 +5890,10 @@ struct entityprofiletype
 	int entitylight; // GG: each placed one carries a light of its own (.fpe entitylight), made and placed by the engine
 	float entitylightx, entitylighty, entitylightz; // where, in the model's own space (.fpe entitylightx/y/z)
 	int entitylightshadows; // it casts shadows (.fpe entitylightshadows), off by default
+	int entitylightspot; // a spot light, not a point (.fpe entitylightspot 1)
+	float entitylightcone; // a spot's full cone in degrees (.fpe entitylightcone, 130 by default, up to 170)
+	float entitylightinner; // a spot's full inner cone in degrees, inside which it is at full strength (.fpe entitylightinner, 0: it fades across the whole cone)
+	float entitylightpitch, entitylightyaw; // a spot's aim: tilted from straight down towards the model's front, then turned about its up, degrees (.fpe entitylightpitch/yaw)
 	float physicsmass; // GG: its physics body's mass in kilos (.fpe physicsmass), 0 for the mass its shape gives
 	float lifespan;
 	float throwspeed;
@@ -6094,6 +6098,11 @@ struct entityprofiletype
 		 entitylighty = 0.0f;
 		 entitylightz = 0.0f;
 		 entitylightshadows = 0;
+		 entitylightspot = 0;
+		 entitylightcone = 130.0f;
+		 entitylightinner = 0.0f;
+		 entitylightpitch = 0.0f;
+		 entitylightyaw = 0.0f;
 		 physicsmass = 0.0f;
 		 dropoff = 0;
 		 range = 0;
