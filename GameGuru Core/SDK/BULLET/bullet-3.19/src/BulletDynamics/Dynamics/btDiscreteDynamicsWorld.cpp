@@ -1142,13 +1142,16 @@ void btDiscreteDynamicsWorld::integrateTransforms(btScalar timeStep)
 	}
 }
 
+// GG: a sleeping body has no velocity (updateActivationState zeroed it), so its damping and predicted transform give
+// nothing new, and a body woken in a step is integrated afresh (integrateTransforms): left out. 0 as before
+int gGGPredictSkipSleeping = 1;
 void btDiscreteDynamicsWorld::predictUnconstraintMotion(btScalar timeStep)
 {
 	BT_PROFILE("predictUnconstraintMotion");
 	for (int i = 0; i < m_nonStaticRigidBodies.size(); i++)
 	{
 		btRigidBody* body = m_nonStaticRigidBodies[i];
-		if (!body->isStaticOrKinematicObject())
+		if (!body->isStaticOrKinematicObject() && (gGGPredictSkipSleeping == 0 || body->isActive()))
 		{
 			//don't integrate/update velocities here, it happens in the constraint solver
 

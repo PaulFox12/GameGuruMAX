@@ -1368,13 +1368,33 @@ static void physics_settledroppedweapons ( void )
 	}
 }
 
+// GG: the physics range's parts timed (harness PHYS_TIMES): tree cylinders, the player, the world's update (its step and
+// its pose sync apart, BulletPhysics), dropped weapons, then (M-Game) knocked out ragdolls, the player's control and death
+double g_dPhysPartMs[10];
+uint32_t g_uPhysPartFrames = 0;
+LONGLONG PhysPart_Ticks ( void )
+{
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	return now.QuadPart;
+}
+void PhysPart_Add ( int iPart, LONGLONG llStart )
+{
+	static LARGE_INTEGER freq = { 0 };
+	if (freq.QuadPart == 0) QueryPerformanceFrequency(&freq);
+	g_dPhysPartMs[iPart] += (double)(PhysPart_Ticks() - llStart) * 1000.0 / (double)freq.QuadPart;
+}
+
 void physics_loop ( void )
 {
 #ifdef OPTICK_ENABLE
 	OPTICK_EVENT();
 #endif
 	// shuffle virtual trees about as the player needs
+	g_uPhysPartFrames++;
+	LONGLONG llPart = PhysPart_Ticks();
 	physics_managevirtualtreecylinders();
+	PhysPart_Add(0, llPart); llPart = PhysPart_Ticks();
 
 	// Player control
 	extern int iEnterGodMode;
@@ -1383,6 +1403,7 @@ void physics_loop ( void )
 		if (g.gproducelogfiles == 2) timestampactivity(0, "calling physics_player");
 		physics_player();
 	}
+	PhysPart_Add(1, llPart); llPart = PhysPart_Ticks();
 	//  Update physics system
 	if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling timeGetSecond");
 	t.tphysicsadvance_f = timeGetSecond() - t.machineindependentphysicsupdate;
@@ -1394,7 +1415,9 @@ void physics_loop ( void )
 		if ( g.gproducelogfiles == 2 ) timestampactivity(0,"calling ODEUpdate");
 		ODEUpdate ( t.tphysicsadvance_f );
 	}
+	PhysPart_Add(2, llPart); llPart = PhysPart_Ticks();
 	physics_settledroppedweapons ( );
+	PhysPart_Add(3, llPart);
 }
 
 void physics_free ( void )

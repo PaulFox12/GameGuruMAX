@@ -193,8 +193,19 @@ struct sObjectList
 	btVector3 vecUnfrozenAngularFactor;
 	bool bCentredOnCollisionBox; // the body sits at the object's collision box centre (box, sphere, cylinder, capsule), not its origin (CreateMesh)
 	bool bPivotInBody; // the body was made turned by the object's pivot (an entity's fixnewy), so the drawn transform leaves the pivot out
+	bool bAsleepSynced; // the body was asleep when its pose was last written to its object (Update's pose sync)
+	btTransform transSynced; // the transform that write took, the position and angles it gave the object and its scale
+	GGVECTOR3 vecSyncedPosition;
+	GGVECTOR3 vecSyncedRotate;
+	GGVECTOR3 vecSyncedScale;
 };
 std::vector < sObjectList > g_PhyObjectList;
+
+// 1 skips the pose sync for a sleeping body whose pose was written since it slept, its transform and object unchanged;
+// 0 writes every dynamic body's pose every update, as before; and the last update's poses written and skipped
+int g_iPhysicsSleepSync = 1;
+int g_iPhysicsPosesWritten = 0;
+int g_iPhysicsPosesSkipped = 0;
 
 // the object number of a body, for one made before its user index was set (GGPhysicsQuery's fallback); -1 if none
 int ODEFindObjectNumberOfBody(const btCollisionObject* pObject)
@@ -222,6 +233,7 @@ void ODEAddObject ( int iID, sObject* pObject, btRigidBody* body, int iIsDynamic
 	object.iID = iID;
 	object.bCentredOnCollisionBox = bCentredOnCollisionBox;
 	object.bPivotInBody = false;
+	object.bAsleepSynced = false;
 
 	object.body = body;
 	if ( iIsDynamic==1 )
@@ -1292,8 +1304,96 @@ static void ODEObjectPoseFromBody ( sObjectList* pEntry, sObject* pObject, const
 	*pRotate = vecRotate;
 }
 
+// GG: Bullet's own profile zones (BT_PROFILE) timed while asked (harness PHYS_TIMES zones on): each zone's time with the
+// zones inside it, and its calls, on the thread that turned them on (a ray test on another thread is left out)
+struct sPhysZone { const char* pName; double dMs; uint32_t uCalls; };
+static sPhysZone g_PhysZones[96];
+static int g_iPhysZones = 0;
+static LONGLONG g_llPhysZoneStart[48];
+static int g_iPhysZoneIndex[48];
+static int g_iPhysZoneDepth = 0;
+static DWORD g_dwPhysZoneThread = 0;
+static double g_dPhysZoneTickMs = 0;
+static btEnterProfileZoneFunc* g_pPhysZoneEnterWas = NULL;
+static btLeaveProfileZoneFunc* g_pPhysZoneLeaveWas = NULL;
+static void PhysZone_Enter ( const char* pName )
+{
+	if (GetCurrentThreadId() != g_dwPhysZoneThread) return;
+	int i = 0;
+	while (i < g_iPhysZones && g_PhysZones[i].pName != pName) i++;
+	if (i == g_iPhysZones && g_iPhysZones < 96) { g_PhysZones[i].pName = pName; g_PhysZones[i].dMs = 0; g_PhysZones[i].uCalls = 0; g_iPhysZones++; }
+	if (g_iPhysZoneDepth < 48)
+	{
+		LARGE_INTEGER now;
+		QueryPerformanceCounter(&now);
+		g_llPhysZoneStart[g_iPhysZoneDepth] = now.QuadPart;
+		g_iPhysZoneIndex[g_iPhysZoneDepth] = i < 96 ? i : -1;
+	}
+	g_iPhysZoneDepth++;
+}
+static void PhysZone_Leave ( void )
+{
+	if (GetCurrentThreadId() != g_dwPhysZoneThread) return;
+	if (g_iPhysZoneDepth <= 0) return;
+	g_iPhysZoneDepth--;
+	if (g_iPhysZoneDepth < 48 && g_iPhysZoneIndex[g_iPhysZoneDepth] >= 0)
+	{
+		LARGE_INTEGER now;
+		QueryPerformanceCounter(&now);
+		sPhysZone& z = g_PhysZones[g_iPhysZoneIndex[g_iPhysZoneDepth]];
+		z.dMs += (double)(now.QuadPart - g_llPhysZoneStart[g_iPhysZoneDepth]) * g_dPhysZoneTickMs;
+		z.uCalls++;
+	}
+}
+// on (from the physics' own thread, Update's), off, or the zones so far as text (frames: the frames to divide by)
+void PhysZones_Set ( int iOn )
+{
+	if (iOn && g_pPhysZoneEnterWas == NULL)
+	{
+		LARGE_INTEGER freq;
+		QueryPerformanceFrequency(&freq);
+		g_dPhysZoneTickMs = 1000.0 / (double)freq.QuadPart;
+		g_iPhysZones = 0;
+		g_iPhysZoneDepth = 0;
+		g_pPhysZoneEnterWas = btGetCurrentEnterProfileZoneFunc();
+		g_pPhysZoneLeaveWas = btGetCurrentLeaveProfileZoneFunc();
+		btSetCustomEnterProfileZoneFunc(PhysZone_Enter);
+		btSetCustomLeaveProfileZoneFunc(PhysZone_Leave);
+	}
+	else if (!iOn && g_pPhysZoneEnterWas != NULL)
+	{
+		btSetCustomEnterProfileZoneFunc(g_pPhysZoneEnterWas);
+		btSetCustomLeaveProfileZoneFunc(g_pPhysZoneLeaveWas);
+		g_pPhysZoneEnterWas = NULL;
+		g_pPhysZoneLeaveWas = NULL;
+	}
+}
+void PhysZones_Reset ( void )
+{
+	for (int i = 0; i < g_iPhysZones; i++) { g_PhysZones[i].dMs = 0; g_PhysZones[i].uCalls = 0; }
+}
+void PhysZones_Text ( char* pOut, int iSize, double dFrames )
+{
+	int iLen = 0;
+	pOut[0] = 0;
+	bool bUsed[96] = { false };
+	for (int k = 0; k < g_iPhysZones && iLen < iSize - 96; k++)
+	{
+		int b = -1;
+		for (int i = 0; i < g_iPhysZones; i++) if (!bUsed[i] && (b < 0 || g_PhysZones[i].dMs > g_PhysZones[b].dMs)) b = i;
+		if (b < 0 || g_PhysZones[b].dMs <= 0) break;
+		bUsed[b] = true;
+		iLen += _snprintf(pOut + iLen, iSize - iLen, " %s=%.4f/%.1f", g_PhysZones[b].pName, g_PhysZones[b].dMs / dFrames, g_PhysZones[b].uCalls / dFrames);
+	}
+	pOut[iSize - 1] = 0;
+}
+
+extern LONGLONG PhysPart_Ticks ( void ); extern void PhysPart_Add ( int iPart, LONGLONG llStart ); // GG: PHYS_TIMES
+int g_iPhysZonesWant = 0; // GG: 1 turns the zones on at the next update, on the physics' thread; -1 off
 void Update(float fTimeStep)
 {
+	LONGLONG llPhysStep = PhysPart_Ticks();
+	if (g_iPhysZonesWant != 0) { g_dwPhysZoneThread = GetCurrentThreadId(); PhysZones_Set(g_iPhysZonesWant > 0 ? 1 : 0); g_iPhysZonesWant = 0; }
 	// GG: the frame's time for PhysicsApplyPush, at most the 7 steps at 120 a frame could take
 	g_fPhysicsFrameTime = fTimeStep < 7.0f / 120.0f ? fTimeStep : 7.0f / 120.0f;
 
@@ -1373,13 +1473,19 @@ void Update(float fTimeStep)
 		}
 	}
 
+	PhysPart_Add(7, llPhysStep);
+	LONGLONG llPhysSync = PhysPart_Ticks();
 	// print positions of all objects
 	physicslock.lock();
+	g_iPhysicsPosesWritten = 0;
+	g_iPhysicsPosesSkipped = 0;
 	for (int j = ((int)g_PhyObjectList.size()) - 1; j >= 0; j--)
 	{
 		// get this object
 		btRigidBody* body = g_PhyObjectList[j].body;
 		if (body == NULL) continue;
+		// GG: a body with no pose to give, no freeze and no buoyancy has nothing to do here: no lookup
+		if (g_iPhysicsSleepSync == 1 && g_PhyObjectList[j].bDynamicUpdate == false && g_PhyObjectList[j].iResponseMode != 1 && g_PhyObjectList[j].bBouyant == false) continue;
 		sObject* pObject = GetObjectData(g_PhyObjectList[j].iID);
 		if (pObject == NULL) continue;
 
@@ -1412,6 +1518,14 @@ void Update(float fTimeStep)
 				int materialindex = 0;
 				g_PhyObjectList[j].body->setUserPointer((void*)(1+materialindex));
 			}
+			else if (g_iPhysicsSleepSync == 1 && g_PhyObjectList[j].bAsleepSynced && !body->isActive() && trans == g_PhyObjectList[j].transSynced
+				&& pObject->position.bCustomWorldMatrix && pObject->position.vecPosition == g_PhyObjectList[j].vecSyncedPosition
+				&& pObject->position.vecRotate == g_PhyObjectList[j].vecSyncedRotate && pObject->position.vecScale == g_PhyObjectList[j].vecSyncedScale)
+			{
+				// asleep since its pose was written, with neither its transform nor its object moved, turned or scaled since: the
+				// same pose again, so left alone (a waking push, a move of its body or of its object writes it again)
+				g_iPhysicsPosesSkipped++;
+			}
 			else
 			{
 				// the object's world matrix and angles from its body
@@ -1432,6 +1546,14 @@ void Update(float fTimeStep)
 				pObject->position.vecRotate = vecRotate;
 				pObject->collision.bColCenterUpdated = true;
 				body->applyDamping(0.1f);
+
+				// remember the pose given, so a body still asleep next update can be left alone
+				g_PhyObjectList[j].bAsleepSynced = !body->isActive();
+				g_PhyObjectList[j].transSynced = trans;
+				g_PhyObjectList[j].vecSyncedPosition = pObject->position.vecPosition;
+				g_PhyObjectList[j].vecSyncedRotate = pObject->position.vecRotate;
+				g_PhyObjectList[j].vecSyncedScale = pObject->position.vecScale;
+				g_iPhysicsPosesWritten++;
 			}
 		}
 
@@ -1457,6 +1579,7 @@ void Update(float fTimeStep)
 		}
 	}
 	physicslock.unlock();
+	PhysPart_Add(8, llPhysSync);
 
 	// Draw the debug physics objects.
 	if (g_debugDrawer.getDebugMode() != 0)

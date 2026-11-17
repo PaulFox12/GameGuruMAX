@@ -5130,6 +5130,17 @@ void WickedCall_TextureObjectWithImagePtr(sObject* pObject, int iPutInEmissivemo
 	}
 }
 
+// GG: where the renderer draws an object: its root transform's world position (harness DRAWN_POS); false with no root
+bool WickedCall_DrawnPosition(sObject* pObject, float* pXYZ)
+{
+	if (pObject == NULL || pObject->wickedrootentityindex == 0) return false;
+	wiScene::TransformComponent* pTransform = wiScene::GetScene().transforms.GetComponent(pObject->wickedrootentityindex);
+	if (pTransform == NULL) return false;
+	XMFLOAT3 pos = pTransform->GetPosition();
+	pXYZ[0] = pos.x; pXYZ[1] = pos.y; pXYZ[2] = pos.z;
+	return true;
+}
+
 void WickedCall_UpdateObject(sObject* pObject)
 {
 	// called when pos, rot or scale updated

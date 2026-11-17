@@ -977,6 +977,53 @@ void AutoHarness_CheckForCommand ( void )
 		}
 		_snprintf ( result, sizeof(result), "OK: OBJECT_NAMES objects=%d names=%d written=%d", (int)scene.objects.GetCount(), (int)counts.size(), f ? 1 : 0 );
 	}
+	else if ( _stricmp ( cmd, "SET_PHYSSLEEPSYNC" ) == 0 )
+	{
+		// SET_PHYSSLEEPSYNC [0|1]: the physics pose sync leaves a sleeping body already written alone and Bullet's motion
+		// prediction leaves sleeping bodies out (1, the default), or both as before (0); answers with the last update's poses
+		// written and skipped
+		extern int g_iPhysicsSleepSync, g_iPhysicsPosesWritten, g_iPhysicsPosesSkipped;
+		if ( arg && *arg ) g_iPhysicsSleepSync = atoi(arg) ? 1 : 0;
+		extern int gGGPredictSkipSleeping; gGGPredictSkipSleeping = g_iPhysicsSleepSync;
+		_snprintf ( result, sizeof(result), "OK: SET_PHYSSLEEPSYNC %d written=%d skipped=%d", g_iPhysicsSleepSync,
+			g_iPhysicsPosesWritten, g_iPhysicsPosesSkipped );
+		result[sizeof(result) - 1] = 0;
+	}
+	else if ( _stricmp ( cmd, "DRAWN_POS" ) == 0 )
+	{
+		// DRAWN_POS <obj>: where the renderer draws an object (its Wicked root transform's world position) beside the
+		// object's own position, for checking a body's pose reached what is drawn
+		extern bool WickedCall_DrawnPosition ( sObject* pObject, float* pXYZ );
+		int iObj = arg ? atoi(arg) : 0;
+		sObject* pObject = (iObj > 0 && ObjectExist(iObj) == 1) ? GetObjectData(iObj) : NULL;
+		float fDrawn[3] = { 0, 0, 0 };
+		if ( pObject == NULL || !WickedCall_DrawnPosition(pObject, fDrawn) )
+			_snprintf ( result, sizeof(result), "ERROR: DRAWN_POS no drawn object %d", iObj );
+		else
+			_snprintf ( result, sizeof(result), "OK: DRAWN_POS %d drawn=%.2f,%.2f,%.2f object=%.2f,%.2f,%.2f custom=%d", iObj,
+				fDrawn[0], fDrawn[1], fDrawn[2], pObject->position.vecPosition.x, pObject->position.vecPosition.y,
+				pObject->position.vecPosition.z, pObject->position.bCustomWorldMatrix ? 1 : 0 );
+		result[sizeof(result) - 1] = 0;
+	}
+	else if ( _stricmp ( cmd, "PHYS_TIMES" ) == 0 )
+	{
+		// PHYS_TIMES [reset]: the physics range's parts per frame since the last reset: tree cylinders, the player, the world's
+		// update (its step and its pose sync within it), dropped weapons, knocked out ragdolls, the player's control and death
+		extern double g_dPhysPartMs[10]; extern uint32_t g_uPhysPartFrames;
+		const double f = g_uPhysPartFrames > 0 ? (double)g_uPhysPartFrames : 1.0;
+		_snprintf(result, sizeof(result), "OK: PHYS_TIMES frames=%u treecyl=%.4f player=%.4f world=%.4f step=%.4f sync=%.4f weapons=%.4f knockout=%.4f control=%.4f death=%.4f",
+			g_uPhysPartFrames, g_dPhysPartMs[0] / f, g_dPhysPartMs[1] / f, g_dPhysPartMs[2] / f, g_dPhysPartMs[7] / f, g_dPhysPartMs[8] / f,
+			g_dPhysPartMs[3] / f, g_dPhysPartMs[4] / f, g_dPhysPartMs[5] / f, g_dPhysPartMs[6] / f);
+		result[sizeof(result) - 1] = 0;
+		// PHYS_TIMES zones on|off: Bullet's own zones timed too, listed after the parts (zone=ms a frame/calls a frame)
+		extern int g_iPhysZonesWant; extern void PhysZones_Text ( char* pOut, int iSize, double dFrames ); extern void PhysZones_Reset ( void );
+		if (arg && _strnicmp(arg, "zones", 5) == 0) g_iPhysZonesWant = strstr(arg, "off") ? -1 : 1;
+		{
+			int iLen = (int)strlen(result);
+			if (iLen < (int)sizeof(result) - 64) PhysZones_Text(result + iLen, (int)sizeof(result) - iLen, f);
+		}
+		if (arg && _stricmp(arg, "reset") == 0) { for (int i = 0; i < 10; i++) g_dPhysPartMs[i] = 0; g_uPhysPartFrames = 0; PhysZones_Reset(); }
+	}
 	else if ( _stricmp ( cmd, "GET_PHYSRATE" ) == 0 )
 	{
 		// GET_PHYSRATE: the physics world's rate in force (what Tab Tab's Physics World At 60Hz box shows) and the level's

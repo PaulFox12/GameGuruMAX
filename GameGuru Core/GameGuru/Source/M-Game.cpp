@@ -4897,7 +4897,10 @@ void game_main_loop ( void )
 			physics_loop ( );
 
 			// a knocked out character's entity is where his ragdoll's pelvis now is
+			extern LONGLONG PhysPart_Ticks ( void ); extern void PhysPart_Add ( int iPart, LONGLONG llStart ); // GG: PHYS_TIMES
+			LONGLONG llPhysPart = PhysPart_Ticks();
 			ragdoll_knockoutloop ( );
+			PhysPart_Add(4, llPhysPart); llPhysPart = PhysPart_Ticks();
 
 			// special mode for testing
 			if (iEnterGodMode != 2)
@@ -4905,7 +4908,9 @@ void game_main_loop ( void )
 				physics_player_control (); // has LUA calls inside it
 			}
 
+			PhysPart_Add(5, llPhysPart); llPhysPart = PhysPart_Ticks();
 			physics_player_handledeath (); // handles sound, so keep in main thread
+			PhysPart_Add(6, llPhysPart);
 			wiProfiler::EndRange(range2);
 			auto rangeAttachments = wiProfiler::BeginRangeCPU("Update - Logic - Attachments");
 
