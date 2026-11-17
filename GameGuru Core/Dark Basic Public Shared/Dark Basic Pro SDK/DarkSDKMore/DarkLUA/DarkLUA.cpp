@@ -1521,6 +1521,7 @@ static int LUA_GETTOP(lua_State* L)
 							t.entityelement[iEntityIndex].y += 999999;
 							t.entityelement[iEntityIndex].z += 999999;
 							t.entityelement[iEntityIndex].eleprof.phyalways = 1;
+							{ extern void entity_walklists_touch(int); entity_walklists_touch(iEntityIndex); } // GG: the entity walks' lists see it
 							PositionObject(t.entityelement[iEntityIndex].obj, t.entityelement[iEntityIndex].x, t.entityelement[iEntityIndex].y, t.entityelement[iEntityIndex].z);
 							int store = t.e; t.e = iEntityIndex;
 							entity_lua_collisionon();
@@ -1547,6 +1548,7 @@ static int LUA_GETTOP(lua_State* L)
 				t.entityelement[iEntityIndex].y -= 999999;
 				t.entityelement[iEntityIndex].z -= 999999;
 				t.entityelement[iEntityIndex].eleprof.phyalways = 1;
+				{ extern void entity_walklists_touch(int); entity_walklists_touch(iEntityIndex); } // GG: the entity walks' lists see it
 				PositionObject(t.entityelement[iEntityIndex].obj, t.entityelement[iEntityIndex].x, t.entityelement[iEntityIndex].y, t.entityelement[iEntityIndex].z);
 			}
 		}
@@ -1596,6 +1598,7 @@ static int LUA_GETTOP(lua_State* L)
 	 {
 		 int iValue = lua_tonumber(L, 2);
 		 t.entityelement[iEntityIndex].eleprof.explodable = iValue;
+		 { extern void entity_walklists_touch(int); entity_walklists_touch(iEntityIndex); } // GG: the entity walks' lists see it
 	 }
 	 return 0;
  }
@@ -1941,7 +1944,7 @@ static int LUA_GETTOP(lua_State* L)
 				}
 				break;
 			}
-			case 22: t.entityelement[iEntityIndex].eleprof.phyalways = (int)fValue; break;
+			case 22: t.entityelement[iEntityIndex].eleprof.phyalways = (int)fValue; { extern void entity_walklists_touch(int); entity_walklists_touch(iEntityIndex); } break; // GG: the entity walks' lists see it
 			case 23: t.entityelement[iEntityIndex].iCanGoUnderwater = (int)fValue; break;
 
 			case 104: t.entityelement[iEntityIndex].eleprof.conerange = fValue; break;

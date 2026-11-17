@@ -1162,9 +1162,28 @@ void lua_loop_allentities ( void )
 	const LONGLONG llLoopStart = LuaCost_Ticks(); // GG: LUA_LOOP_STATS
 
 	bool bMarkerCount = false;
-	// Go through all entities with active LUA scripts
-	for ( t.e = 1 ; t.e <= g.entityelementlist; t.e++ )
+	// GG: the elements in use (entity_walklists_update), or every element (the editor, SET_WALKLISTS 0)
+	extern std::vector<int> g_WalkInUse;
+	extern bool entity_walklists_inuse(void);
+	extern void entity_walklists_update(void);
+	extern uint32_t g_uWalkListsRebuilds[3];
+	entity_walklists_update();
+	const bool bWalkList = entity_walklists_inuse();
+	if (bWalkList)
 	{
+		// a deleted element's last reading would otherwise stay in the performance table
+		static uint32_t uTimersZeroedAt = 0;
+		const uint32_t uRebuilds = g_uWalkListsRebuilds[0] + g_uWalkListsRebuilds[1];
+		if (uTimersZeroedAt != uRebuilds)
+		{
+			uTimersZeroedAt = uRebuilds;
+			for (int e = 1; e <= g.entityelementlist && e < TABLEOFPERFORMANCEMAX; e++) g_tableofperformancetimers[e] = 0;
+		}
+	}
+	// Go through all entities with active LUA scripts
+	for ( int iWalk = 0; bWalkList ? iWalk < (int)g_WalkInUse.size() : iWalk < g.entityelementlist; iWalk++ )
+	{
+		t.e = bWalkList ? g_WalkInUse[iWalk] : iWalk + 1;
 		extern bool bEnable30FpsAnimations;
 		if (bEnable30FpsAnimations && LuaFrameCount > 360 && t.entityelement[t.e].plrdist > SWITCHTO30FPSRANGE && t.entityelement[t.e].eleprof.phyalways == 0)
 		{

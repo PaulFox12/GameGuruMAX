@@ -989,6 +989,21 @@ void AutoHarness_CheckForCommand ( void )
 			g_iPhysicsPosesWritten, g_iPhysicsPosesSkipped );
 		result[sizeof(result) - 1] = 0;
 	}
+	else if ( _stricmp ( cmd, "SET_WALKLISTS" ) == 0 )
+	{
+		// SET_WALKLISTS [0|1]: the per-frame entity walks (the Lua loop, entity_loop, its explodables' walk, entity_loopanim)
+		// step lists of the elements in use and the dynamic ones (1, the default since 2026-11-17) or every element as before
+		// (0). Answers the lists' sizes, the element count, how many times the lists have been made (for the element count or a
+		// game's start, and on the half second) and the elements merged in between
+		extern int g_iWalkListsOn;
+		extern std::vector<int> g_WalkInUse, g_WalkDynamic;
+		extern uint32_t g_uWalkListsRebuilds[3], g_uWalkListsMerged;
+		if ( arg && *arg ) g_iWalkListsOn = atoi(arg) ? 1 : 0;
+		_snprintf ( result, sizeof(result), "OK: SET_WALKLISTS %d inuse=%d dynamic=%d elements=%d rebuilds_count=%u rebuilds_time=%u merged=%u",
+			g_iWalkListsOn, (int)g_WalkInUse.size(), (int)g_WalkDynamic.size(), g.entityelementlist, g_uWalkListsRebuilds[0],
+			g_uWalkListsRebuilds[1], g_uWalkListsMerged );
+		result[sizeof(result) - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "DRAWN_POS" ) == 0 )
 	{
 		// DRAWN_POS <obj>: where the renderer draws an object (its Wicked root transform's world position) beside the

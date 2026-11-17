@@ -777,6 +777,7 @@ void entity_lua_performlogicconnections_core ( int iMode )
 						case 10: // Object + Object
 						{
 							t.entityelement[iRelationShipEntityID].eleprof.phyalways = 1; // any logic connections are always obeyed!
+							{ extern void entity_walklists_touch(int); entity_walklists_touch(iRelationShipEntityID); } // GG: the entity walks' lists see it
 							t.entityelement[iRelationShipEntityID].whoactivated = t.e;
 							switch (iObjectRelationshipData)
 							{

@@ -1122,6 +1122,7 @@ void lua_setfreezepositionaz ( void ) { t.freezeplayeraz = t.v_f; }
 void lua_setprioritytotransporter (void)
 {
 	t.entityelement[t.e].eleprof.phyalways = t.v;
+	{ extern void entity_walklists_touch(int); entity_walklists_touch(t.e); } // GG: the entity walks' lists see it
 }
 void lua_transporttofreezeposition ( void )
 {

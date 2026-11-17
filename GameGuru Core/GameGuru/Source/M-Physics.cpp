@@ -1052,6 +1052,7 @@ void physics_setupobject ( void )
 				if (physics_playground)
 				{
 					t.entityelement[t.e].staticflag = 0;
+					{ extern void entity_walklists_touch(int); entity_walklists_touch(t.e); } // GG: the entity walks' lists see it
 					ODECreateDynamicTriangleMesh(t.tphyobj, t.tweight, t.tfriction, -1, 1); //Turn everything into convex hull.
 				}
 				else if (t.tshape >= 1000 && t.tshape < 2000)

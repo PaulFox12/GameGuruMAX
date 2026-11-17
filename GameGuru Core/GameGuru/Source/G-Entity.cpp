@@ -64,8 +64,95 @@ void entity_init_overwritefireratesettings (void)
 	}
 }
 
+// GG (2026-11-17, the CPU pass): the per-frame walks over the level's elements (the Lua loop, entity_loop and its explodables'
+// walk, entity_loopanim) step lists of the elements they can have work for, not every element: Outdoors holds 13,878 elements,
+// 8,191 of them empty slots (a deleted or spent element keeps its slot) and 2,347 of the rest static. Each walk still checks
+// every element it is given exactly as before, so a stale list can only leave out an element that has just come into use or
+// turned dynamic. An element added or made always active, explodable or dynamic at run time is merged in at the next walk's
+// start (entity_walklists_touch: a walk may be stepping the lists now); the lists are made again when the element count
+// changes, at a game's start (entity_walklists_dirty) and every GG_WALKLISTS_REBUILD_MS whatever happens, which also drops the
+// elements gone out of use. A test or standalone game only (the editor walks every element). Harness SET_WALKLISTS 0 walks
+// every element as before.
+#define GG_WALKLISTS_REBUILD_MS 500
+std::vector<int> g_WalkInUse;   // the elements in use (a bank entity), ascending
+std::vector<int> g_WalkDynamic; // of those, the dynamic or always active ones (entity_loop's walk), ascending
+int g_iWalkListsOn = 1;
+uint32_t g_uWalkListsRebuilds[3] = { 0, 0, 0 }; // made again for: the element count or a game's start, the time, (unused)
+uint32_t g_uWalkListsMerged = 0;                // elements merged in between
+static int g_iWalkListsCount = -1;
+static uint32_t g_uWalkListsGen = 1, g_uWalkListsBuiltGen = 0;
+static ULONGLONG g_ullWalkListsBuiltAt = 0;
+static std::vector<int> g_WalkPending;    // elements touched since the last walk's start
+static std::vector<uint8_t> g_WalkListed; // per element: 1 in g_WalkInUse, 2 in g_WalkDynamic
+
+void entity_walklists_dirty(void)
+{
+	g_uWalkListsGen++;
+}
+
+void entity_walklists_touch(int e)
+{
+	if (e > 0) g_WalkPending.push_back(e);
+}
+
+// this frame's walks step the lists: on, and in a test or standalone game
+bool entity_walklists_inuse(void)
+{
+	extern bool bImGuiInTestGame;
+	return g_iWalkListsOn != 0 && (t.game.gameisexe == 1 || bImGuiInTestGame);
+}
+
+static void entity_walklists_insert(std::vector<int>& list, int e)
+{
+	list.insert(std::lower_bound(list.begin(), list.end(), e), e);
+}
+
+void entity_walklists_update(void)
+{
+	if (!entity_walklists_inuse())
+	{
+		g_iWalkListsCount = -1;
+		g_WalkPending.clear();
+		return;
+	}
+	const ULONGLONG ullNow = GetTickCount64();
+	int iReason = -1;
+	if (g.entityelementlist != g_iWalkListsCount || g_uWalkListsGen != g_uWalkListsBuiltGen) iReason = 0;
+	else if (ullNow - g_ullWalkListsBuiltAt >= GG_WALKLISTS_REBUILD_MS) iReason = 1;
+	if (iReason < 0)
+	{
+		for (int e : g_WalkPending)
+		{
+			if (e > g.entityelementlist || e >= (int)g_WalkListed.size() || t.entityelement[e].bankindex <= 0) continue;
+			uint8_t& f = g_WalkListed[e];
+			if ((f & 1) == 0) { entity_walklists_insert(g_WalkInUse, e); f |= 1; g_uWalkListsMerged++; }
+			if ((f & 2) == 0 && !(t.entityelement[e].staticflag == 1 && t.entityelement[e].eleprof.phyalways == 0)) { entity_walklists_insert(g_WalkDynamic, e); f |= 2; g_uWalkListsMerged++; }
+		}
+		g_WalkPending.clear();
+		return;
+	}
+	g_iWalkListsCount = g.entityelementlist;
+	g_uWalkListsBuiltGen = g_uWalkListsGen;
+	g_ullWalkListsBuiltAt = ullNow;
+	g_uWalkListsRebuilds[iReason]++;
+	g_WalkPending.clear();
+	g_WalkInUse.clear();
+	g_WalkDynamic.clear();
+	g_WalkListed.assign(g.entityelementlist + 1, 0);
+	for (int e = 1; e <= g.entityelementlist; e++)
+	{
+		if (t.entityelement[e].bankindex <= 0) continue;
+		g_WalkInUse.push_back(e);
+		g_WalkListed[e] = 1;
+		if (t.entityelement[e].staticflag == 1 && t.entityelement[e].eleprof.phyalways == 0) continue;
+		g_WalkDynamic.push_back(e);
+		g_WalkListed[e] |= 2;
+	}
+}
+
 void entity_init ( void )
 {
+	entity_walklists_dirty();
 	// all entities initialised, and any old destroy list items cleared
 	g_iDestroyedEntitiesList.clear();
 	 
@@ -864,8 +951,11 @@ void entity_loop ( void )
 	if (g_iRagdollCreatesPerFrame > 0)
 	{
 		std::vector<std::pair<float, int>> waiting;
-		for (int e = 1; e <= g.entityelementlist; e++)
+		entity_walklists_update();
+		const bool bDeathList = entity_walklists_inuse(); // GG: the dynamic elements (characters are)
+		for (int iWalk = 0; bDeathList ? iWalk < (int)g_WalkDynamic.size() : iWalk < g.entityelementlist; iWalk++)
 		{
+			const int e = bDeathList ? g_WalkDynamic[iWalk] : iWalk + 1;
 			const int entid = t.entityelement[e].bankindex;
 			if (entid <= 0 || t.entityprofile[entid].ischaracter != 1) continue;
 			if (t.entityelement[e].ragdollplusactivate > 0 && t.entityelement[e].ragdollifiedplusphyobj == 0) waiting.push_back({ t.entityelement[e].plrdist, e });
@@ -881,8 +971,13 @@ void entity_loop ( void )
 			timestampactivity(0, pMsg);
 		}
 	}
-	for ( t.e = 1 ; t.e <= g.entityelementlist; t.e++ )
+	// GG: the walk timed apart from the explodables' walk below (the Objects range's parts)
+	auto rangeWalk = wiProfiler::BeginRangeCPU("Objects - Walk");
+	entity_walklists_update();
+	const bool bWalkList = entity_walklists_inuse(); // GG: the dynamic elements, or every element
+	for ( int iWalk = 0; bWalkList ? iWalk < (int)g_WalkDynamic.size() : iWalk < g.entityelementlist; iWalk++ )
 	{
+		t.e = bWalkList ? g_WalkDynamic[iWalk] : iWalk + 1;
 		// 011016 - scenes with LARGE number of static entities hitting perf hard
 		if ( t.entityelement[t.e].staticflag == 1 && t.entityelement[t.e].eleprof.phyalways == 0 ) continue;
 		// NOTE: Determine essential tasks static needs (i.e. plrdist??)
@@ -2010,12 +2105,16 @@ void entity_loop ( void )
 		}
 	}
 
+	wiProfiler::EndRange(rangeWalk);
+
 	//  handle explosion triggers in separate loop as they call
 	//  other subroutines that use E and other entity calls (i.e. physics_explodesphere)
 	#define PRESCANEVENTCOUNT 5
 	int iOnlySomePreScanEventPerCyce = PRESCANEVENTCOUNT;
-	for ( t.ee = 1 ; t.ee <= g.entityelementlist; t.ee++ )
+	auto rangeExplodables = wiProfiler::BeginRangeCPU("Objects - Explodables");
+	for ( int iWalk = 0; bWalkList ? iWalk < (int)g_WalkInUse.size() : iWalk < g.entityelementlist; iWalk++ )
 	{
+		t.ee = bWalkList ? g_WalkInUse[iWalk] : iWalk + 1; // GG: the elements in use
 		t.eentid = t.entityelement[t.ee].bankindex;
 		if (t.eentid > 0)
 		{
@@ -2160,6 +2259,7 @@ void entity_loop ( void )
 			}
 		}
 	}
+	wiProfiler::EndRange(rangeExplodables);
 }
 
 // Manual UV Data changes are OH SO SLOW, so add a system that only does it once per
@@ -2178,8 +2278,11 @@ void entity_loopanim ( void )
 	static int currentsynccount = 0;
 	currentsynccount++;
 
-	for ( t.e = 1 ; t.e <= g.entityelementlist; t.e++ )
+	entity_walklists_update();
+	const bool bAnimList = entity_walklists_inuse(); // GG: the elements in use, or every element (the editor)
+	for ( int iWalk = 0; bAnimList ? iWalk < (int)g_WalkInUse.size() : iWalk < g.entityelementlist; iWalk++ )
 	{
+		t.e = bAnimList ? g_WalkInUse[iWalk] : iWalk + 1;
 		t.entid = t.entityelement[t.e].bankindex;
 		if (t.entid <= 0)
 		{
@@ -2341,6 +2444,9 @@ void entity_loopanim ( void )
 			t.tobj = t.entityelement[t.e].obj;
 			if (t.tobj > 0)
 			{
+				// GG: an object with no animation sets has no step keys to cross, as the scan below would find (most dynamic
+				// entities are props), so it is left before reading its frame
+				{ sObject* pFFObject = GetObjectData(t.tobj); if (pFFObject == NULL || pFFObject->pAnimationSet == NULL) continue; }
 				float fCurrentFrame = GetFrame(t.tobj);
 				sObject* pObject = GetObjectData(t.tobj);
 				if (pObject)

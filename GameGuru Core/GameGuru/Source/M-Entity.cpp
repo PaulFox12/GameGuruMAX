@@ -8029,6 +8029,7 @@ void entity_addentitytomap_core ( void )
 	t.entityelement[t.e].editorfixed=t.gridentityeditorfixed;
 	t.entityelement[t.e].maintype=t.entitymaintype;
 	t.entityelement[t.e].bankindex=t.entitybankindex;
+	{ extern void entity_walklists_touch(int); entity_walklists_touch(t.e); } // GG: the entity walks' lists see it
 	t.entityelement[t.e].staticflag=t.gridentitystaticmode;
 	if (t.gridentityoverwritemode == 0 && bDroppedBackInSameElement == false)
 	{

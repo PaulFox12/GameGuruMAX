@@ -146,6 +146,7 @@ void game_scanfornewavatars ( bool bDynamicallyRecreateCharacters )
 					{
 						// update entity element with new character object (dynamically loaded during game)
 						t.entityelement[t.e].bankindex = t.entid;
+						{ extern void entity_walklists_touch(int); entity_walklists_touch(t.e); } // GG: the entity walks' lists see it
 
 						// update entity object itself
 						t.tupdatee = t.e; 
@@ -1396,6 +1397,7 @@ void game_masterroot_gameloop_initcode(int iUseVRTest)
 						t.mpmultiplayerstart[1].z=t.entityelement[t.e].z;
 						t.mpmultiplayerstart[1].angle=t.entityelement[t.e].ry;
 						t.entityelement[t.e].eleprof.phyalways = 1;
+						{ extern void entity_walklists_touch(int); entity_walklists_touch(t.e); } // GG: the entity walks' lists see it
 
 					}
 				}
@@ -4966,7 +4968,9 @@ void game_main_loop ( void )
 				if ( g_bGamePaused == false )
 				{
 					entity_loop ( );
+					auto rangeAnim = wiProfiler::BeginRangeCPU("Objects - Anim");
 					entity_loopanim ( );
+					wiProfiler::EndRange(rangeAnim);
 				}
 				t.game.perf.ai2 += PerformanceTimer()-g.gameperftimestamp ; g.gameperftimestamp=PerformanceTimer();
 				wiProfiler::EndRange(range2);
