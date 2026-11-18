@@ -2594,8 +2594,10 @@ void entity_updatepos ( void )
 	t.tobj=t.entityelement[t.te].obj;
 
 	//PE: If physics is diabled in setting use PositionObject.
+	// ODEFind searches the whole physics list, so only for an entity using physics
 	int ODEFind(int iID);
-	bool bPhysicsActive = ODEFind(t.tobj);
+	bool bPhysicsActive = false;
+	if (t.entityelement[t.te].usingphysicsnow == 1) bPhysicsActive = ODEFind(t.tobj);
 
 	// move entity using physics
 	if ( t.entityelement[t.te].usingphysicsnow == 1 && bPhysicsActive)
