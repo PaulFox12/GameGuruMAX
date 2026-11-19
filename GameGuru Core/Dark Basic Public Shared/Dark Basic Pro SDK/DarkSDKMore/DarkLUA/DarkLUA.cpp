@@ -8410,7 +8410,9 @@ int GetPhysicsSlowPairs(lua_State* L)
 // as an immobile one where it is now. Returns 1 when it has a moving body after, 0 when not, -1 when its drawing is merged
 // with other entities' at the game's start (the draw call optimizer: its own object is hidden), left as it was; and the
 // other entities' static bodies the freed body passes through, as it started inside them (a fence panel's neighbours at
-// their shared posts: pushed out of them it was thrown several metres)
+// their shared posts: pushed out of them it was thrown several metres); and 1 when it started sunk in the ground, which it
+// passes through until risen clear (lifted clear after 0.3 s if still in it). Freed, a collision mode 8 entity with an OBJ
+// collision mesh is that mesh's pieces, and a mode 9 one a hull with its weight at its middle
 int SetEntityImmobile(lua_State* L)
 {
 	if (LUA_GETTOP(L) < 2) return 0;
@@ -8418,6 +8420,7 @@ int SetEntityImmobile(lua_State* L)
 	int iImmobile = (int)lua_tonumber(L, 2) != 0 ? 1 : 0;
 	int iResult = 0;
 	int iPassed = 0;
+	int iInGround = 0;
 	if (iEntity > 0 && iEntity <= g.entityelementlist && t.entityelement[iEntity].bankindex > 0)
 	{
 		int iObj = t.entityelement[iEntity].obj;
@@ -8455,7 +8458,10 @@ int SetEntityImmobile(lua_State* L)
 				if (iImmobile == 0 && ODEGetBodyIsDynamic(iObj))
 				{
 					extern int ODEIgnoreStartingOverlaps(int iObjectNumber, float fMinDepth);
+					extern int ODEPullOutOfGround(int iObjectNumber);
 					iPassed = ODEIgnoreStartingOverlaps(iObj, 0.5f);
+					// sunk in the ground where it stood (a fence panel's posts): out through it, not pushed out of it
+					iInGround = ODEPullOutOfGround(iObj);
 				}
 			}
 			iResult = (t.entityelement[iEntity].usingphysicsnow != 0 && ODEGetBodyIsDynamic(iObj)) ? 1 : 0;
@@ -8463,7 +8469,8 @@ int SetEntityImmobile(lua_State* L)
 	}
 	lua_pushinteger(L, iResult);
 	lua_pushinteger(L, iPassed);
-	return 2;
+	lua_pushinteger(L, iInGround);
+	return 3;
 }
 // SetEntityMass(e, kg) - the entity's physics body weighs kg kilos (0.05 is 50 grams), kept for the entity so a body built
 // again (CollisionOn, a wreck swap) and its ragdoll take it too; its inertia follows its shape, and it isn't woken. It

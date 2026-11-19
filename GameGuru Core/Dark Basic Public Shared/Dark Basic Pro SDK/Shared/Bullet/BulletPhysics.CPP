@@ -805,6 +805,8 @@ void ODEStart ( void )
 	// clear physics system data
 	g_PhyObjectList.clear();
 	g_ProjectileContacts.clear();
+	extern void ODEPullOutClear ( void );
+	ODEPullOutClear ( );
 
 	///collision configuration contains default setup for memory, collision setup. Advanced users can create their own configuration.
 	g_collisionConfiguration = new btDefaultCollisionConfiguration();
@@ -956,6 +958,8 @@ void ODEEnd ( void )
 		// clear physics system data (no mallocs in structure, just references)
 		g_PhyObjectList.clear();
 		g_ProjectileContacts.clear();
+		extern void ODEPullOutClear ( void );
+		ODEPullOutClear ( );
 
 		// delete physics system resources
 		delete g_dynamicsWorld;
@@ -1435,6 +1439,9 @@ void Update(float fTimeStep)
 			g_fCharacterLocalTime = 0;
 		}
 		g_iPhysicsSubSteps = g_dynamicsWorld->stepSimulation(fTimeStep, 7, g_bPhysicsWorldAt60 ? btScalar(1.) / btScalar(60.) : 1.0f / 120.0f);
+		// GG: freed bodies pulling out of the ground they started in meet it again once clear (ODEPullOutOfGround)
+		extern void ODEPullOutUpdate ( float fSeconds );
+		ODEPullOutUpdate ( fTimeStep );
 		if (g_pCharacterOwnSteps)
 		{
 			// the controller's own 1/120 steps after the world's, as many as the world took at 120, at most 7 a frame as before
@@ -2723,6 +2730,7 @@ static GGMATRIX CollisionLimbMatrix ( sObject* pObject, int iFrame, const GGMATR
 	return matFinal;
 }
 
+static bool g_bCreateMeshCentred = false; // a single hull made about its box's centre (ODECreateDynamicHullCentred)
 void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrainMesh, int iCollisionScaling, int iHullReduction, float fWeight, float fFriction, float fRestitution )
 {
 	// get reference object
@@ -3390,7 +3398,22 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 				btShapeHull* hull = new btShapeHull(ch_collShape);
 				btScalar margin = ch_collShape->getMargin();
 				hull->buildHull(margin);
-				simplifiedConvexShape = new btConvexHullShape(&(hull->getVertexPointer()[0].getX()), hull->numVertices());
+				if (g_bCreateMeshCentred && hull->numVertices() >= 6)
+				{
+					// about its box's centre (ODECreateDynamicHullCentred): a fence panel's weight at the panel's middle, not at
+					// its foot (its model's origin), where it stood on it and pivoted about it
+					btVector3 lo = hull->getVertexPointer()[0], hi = lo;
+					for (int v = 1; v < hull->numVertices(); v++) { lo.setMin(hull->getVertexPointer()[v]); hi.setMax(hull->getVertexPointer()[v]); }
+					vPiecesCentre = (lo + hi) * btScalar(0.5);
+					bPiecesCentred = true;
+					simplifiedConvexShape = new btConvexHullShape();
+					for (int v = 0; v < hull->numVertices(); v++) simplifiedConvexShape->addPoint(hull->getVertexPointer()[v] - vPiecesCentre, false);
+					simplifiedConvexShape->recalcLocalAabb();
+				}
+				else
+				{
+					simplifiedConvexShape = new btConvexHullShape(&(hull->getVertexPointer()[0].getX()), hull->numVertices());
+				}
 				SAFE_DELETE(ch_collShape);
 
 				// only use CH if large enough
@@ -3681,6 +3704,15 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 void ODECreateDynamicPieces ( int iObjectNumber, float fWeight, float fFriction )
 {
 	CreateMesh ( iObjectNumber, 1, -1, 0, 100, 4, fWeight, fFriction, -1 );
+}
+
+// GG: a moving convex hull of the mesh made about its box's centre, its weight there (a collision mode 9 entity freed from
+// immobile: a fence panel, whose model's origin is the middle of its foot)
+void ODECreateDynamicHullCentred ( int iObjectNumber, float fWeight, float fFriction )
+{
+	g_bCreateMeshCentred = true;
+	CreateMesh ( iObjectNumber, 1, -1, 0, 100, 1, fWeight, fFriction, -1 );
+	g_bCreateMeshCentred = false;
 }
 
 // GG: 1 when an entity file has an OBJ collision mesh (its .obj, else its _COL.obj), as CreateMesh finds it
@@ -5879,16 +5911,121 @@ struct GGOverlapCallback : public btCollisionWorld::ContactResultCallback
 	const btCollisionObject* pSelf;
 	btScalar fDepth;
 	btAlignedObjectArray<const btCollisionObject*> others;
+	btScalar fDeepest = 0, fDeepestUp = 1; // the deepest overlap and how upright its normal is
 	btScalar addSingleResult(btManifoldPoint& cp, const btCollisionObjectWrapper* colObj0Wrap, int partId0, int index0, const btCollisionObjectWrapper* colObj1Wrap, int partId1, int index1)
 	{
 		if (cp.getDistance() < -fDepth)
 		{
+			if (-cp.getDistance() > fDeepest) { fDeepest = -cp.getDistance(); fDeepestUp = btFabs(cp.m_normalWorldOnB.getY()); }
 			const btCollisionObject* pOther = colObj0Wrap->getCollisionObject() == pSelf ? colObj1Wrap->getCollisionObject() : colObj0Wrap->getCollisionObject();
 			if (others.findLinearSearch(pOther) == others.size()) others.push_back(pOther);
 		}
 		return 0;
 	}
 };
+
+// a moving body made where an entity stood (Lua SetEntityImmobile) can start sunk in the ground (a fence panel's posts, 9 to
+// 34 units deep): pushed out of it, the push it was given went in friction. Thrown (100 units a second or more), it passes
+// through the ground until it has risen clear of it (the push lifts it out, as posts pulled up), then meets it again,
+// lifted clear if still in it after 0.3 s (pushed down); slower, it is raised out a few units a step as it falls (2 s at
+// most), then meets it. Returns 1 when it started in the ground
+struct sGGPullOut
+{
+	int iID;
+	btRigidBody* body;
+	float fSeconds;
+};
+static std::vector<sGGPullOut> g_PullOut;
+void ODEPullOutClear ( void ) { g_PullOut.clear(); }
+static btRigidBody* ODETerrainBody ( void )
+{
+	for (int i = 0; i < (int)g_PhyObjectList.size(); i++) if (g_PhyObjectList[i].iID == 7000) return g_PhyObjectList[i].body;
+	return NULL;
+}
+// whether two bodies overlap by more than fMinDepth units (a contact test, which an ignored pair still answers), and the
+// deepest overlap with how upright its normal is
+bool ODEContactDeepest ( btCollisionObject* pA, btCollisionObject* pB, float fMinDepth, btScalar* pDeepest, btScalar* pUp )
+{
+	if (!g_dynamicsWorld || !pA || !pB || !pA->getBroadphaseHandle()) return false;
+	GGOverlapCallback cb;
+	cb.pSelf = pA;
+	cb.fDepth = fMinDepth / gSc;
+	cb.m_collisionFilterGroup = pA->getBroadphaseHandle()->m_collisionFilterGroup;
+	cb.m_collisionFilterMask = pA->getBroadphaseHandle()->m_collisionFilterMask;
+	g_dynamicsWorld->contactPairTest(pA, pB, cb);
+	if (pDeepest) *pDeepest = cb.fDeepest;
+	if (pUp) *pUp = cb.fDeepestUp;
+	return cb.others.size() > 0;
+}
+int ODEPullOutOfGround ( int iObjectNumber )
+{
+	int iStarted = 0;
+	physicslock.lock();
+	btRigidBody* pBody = NULL;
+	for (int i = 0; i < (int)g_PhyObjectList.size(); i++)
+	{
+		if (g_PhyObjectList[i].iID == iObjectNumber && g_PhyObjectList[i].body) { pBody = g_PhyObjectList[i].body; break; }
+	}
+	btRigidBody* pTerrain = ODETerrainBody();
+	if (pBody && pTerrain && g_dynamicsWorld && !pBody->isStaticObject())
+	{
+		extern bool ODEContactDeepest ( btCollisionObject* pA, btCollisionObject* pB, float fMinDepth, btScalar* pDeepest, btScalar* pUp );
+		btScalar fDeepest = 0, fUp = 1;
+		if (ODEContactDeepest(pBody, pTerrain, 0.5f, &fDeepest, &fUp))
+		{
+			pBody->setIgnoreCollisionCheck(pTerrain, true);
+			sGGPullOut pull = { iObjectNumber, pBody, 0.0f };
+			g_PullOut.push_back(pull);
+			iStarted = 1;
+		}
+	}
+	physicslock.unlock();
+	return iStarted;
+}
+void ODEPullOutUpdate ( float fSeconds )
+{
+	if (g_PullOut.empty()) return;
+	btRigidBody* pTerrain = ODETerrainBody();
+	extern bool ODEContactDeepest ( btCollisionObject* pA, btCollisionObject* pB, float fMinDepth, btScalar* pDeepest, btScalar* pUp );
+	for (size_t k = 0; k < g_PullOut.size(); )
+	{
+		sGGPullOut& pull = g_PullOut[k];
+		bool bLive = false;
+		for (int i = 0; i < (int)g_PhyObjectList.size() && !bLive; i++) bLive = g_PhyObjectList[i].iID == pull.iID && g_PhyObjectList[i].body == pull.body;
+		if (!bLive || !pTerrain) { g_PullOut.erase(g_PullOut.begin() + k); continue; }
+		pull.fSeconds += fSeconds;
+		btScalar fDeepest = 0, fUp = 1;
+		const bool bIn = ODEContactDeepest(pull.body, pTerrain, 0.5f, &fDeepest, &fUp);
+		// slower than 100 units a second (not thrown: left to fall, or barely nudged), raised out of the ground a little each
+		// step (3 units at most) as it falls, kept from sinking; let sink and lifted after, a still panel hopped up out of it,
+		// and given the ground back at once it could lie half buried, which a later push could not move
+		const bool bSlow = pull.body->getLinearVelocity().length() * gSc < 100.0f;
+		if (bIn && bSlow && pull.fSeconds < 2.0f)
+		{
+			btTransform trans = pull.body->getWorldTransform();
+			trans.setOrigin(trans.getOrigin() + btVector3(0, btMin(fDeepest / btMax(fUp, btScalar(0.3)) + 0.5f / gSc, 3.0f / gSc), 0));
+			pull.body->setWorldTransform(trans);
+			if (pull.body->getMotionState()) pull.body->getMotionState()->setWorldTransform(trans);
+			btVector3 v = pull.body->getLinearVelocity();
+			if (v.getY() < 0) { v.setY(0); pull.body->setLinearVelocity(v); }
+			pull.body->activate();
+			k++;
+			continue;
+		}
+		if (bIn && !bSlow && pull.fSeconds < 0.3f) { k++; continue; }
+		if (bIn)
+		{
+			// still in the ground: lifted clear of it, as deep as it is along the ground's slope
+			btTransform trans = pull.body->getWorldTransform();
+			trans.setOrigin(trans.getOrigin() + btVector3(0, fDeepest / btMax(fUp, btScalar(0.3)) + 0.5f / gSc, 0));
+			pull.body->setWorldTransform(trans);
+			if (pull.body->getMotionState()) pull.body->getMotionState()->setWorldTransform(trans);
+		}
+		pull.body->setIgnoreCollisionCheck(pTerrain, false);
+		pull.body->activate();
+		g_PullOut.erase(g_PullOut.begin() + k);
+	}
+}
 
 // a moving body made where an entity stood (Lua SetEntityImmobile) can start inside other entities' static bodies it was
 // placed against (a fence panel's hull through its neighbours' shared posts), and Bullet's push out of that overlap threw

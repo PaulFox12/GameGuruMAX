@@ -1148,8 +1148,12 @@ void physics_setupobject ( void )
 				}
 				else if (t.tshape == 9)
 				{
-					// Dynamic convex hull
-					ODECreateDynamicTriangleMesh(t.tphyobj, t.tweight, t.tfriction, -1, 1);
+					// Dynamic convex hull; freed from immobile (Lua SetEntityImmobile), about its box's centre: a fence panel's
+					// weight at its middle, not at its foot
+					extern bool g_bPhysicsFreeingBody;
+					extern void ODECreateDynamicHullCentred ( int iObjectNumber, float fWeight, float fFriction );
+					if (g_bPhysicsFreeingBody) ODECreateDynamicHullCentred(t.tphyobj, t.tweight, t.tfriction);
+					else ODECreateDynamicTriangleMesh(t.tphyobj, t.tweight, t.tfriction, -1, 1);
 				}
 				else if (t.tshape == 10)
 				{
