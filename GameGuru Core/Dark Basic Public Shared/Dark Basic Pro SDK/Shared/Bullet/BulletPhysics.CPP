@@ -5752,6 +5752,62 @@ bool ODEGetBodyIsDynamic(int iObjectNumber)
 	return false;
 }
 
+// the bodies another body overlaps by more than a depth, from a contact test
+struct GGOverlapCallback : public btCollisionWorld::ContactResultCallback
+{
+	const btCollisionObject* pSelf;
+	btScalar fDepth;
+	btAlignedObjectArray<const btCollisionObject*> others;
+	btScalar addSingleResult(btManifoldPoint& cp, const btCollisionObjectWrapper* colObj0Wrap, int partId0, int index0, const btCollisionObjectWrapper* colObj1Wrap, int partId1, int index1)
+	{
+		if (cp.getDistance() < -fDepth)
+		{
+			const btCollisionObject* pOther = colObj0Wrap->getCollisionObject() == pSelf ? colObj1Wrap->getCollisionObject() : colObj0Wrap->getCollisionObject();
+			if (others.findLinearSearch(pOther) == others.size()) others.push_back(pOther);
+		}
+		return 0;
+	}
+};
+
+// a moving body made where an entity stood (Lua SetEntityImmobile) can start inside other entities' static bodies it was
+// placed against (a fence panel's hull through its neighbours' shared posts), and Bullet's push out of that overlap threw
+// it several metres; it passes through those it overlaps by more than fMinDepth units now (the terrain, and anything it
+// meets after, still collide). Returns how many
+int ODEIgnoreStartingOverlaps(int iObjectNumber, float fMinDepth)
+{
+	int iCount = 0;
+	physicslock.lock();
+	btRigidBody* pBody = NULL;
+	for (int i = 0; i < (int)g_PhyObjectList.size(); i++)
+	{
+		if (g_PhyObjectList[i].iID == iObjectNumber && g_PhyObjectList[i].body) { pBody = g_PhyObjectList[i].body; break; }
+	}
+	if (pBody && g_dynamicsWorld && pBody->getBroadphaseHandle())
+	{
+		GGOverlapCallback cb;
+		cb.pSelf = pBody;
+		cb.fDepth = fMinDepth / gSc;
+		cb.m_collisionFilterGroup = pBody->getBroadphaseHandle()->m_collisionFilterGroup;
+		cb.m_collisionFilterMask = pBody->getBroadphaseHandle()->m_collisionFilterMask;
+		g_dynamicsWorld->contactTest(pBody, cb);
+		for (int o = 0; o < cb.others.size(); o++)
+		{
+			for (int i = 0; i < (int)g_PhyObjectList.size(); i++)
+			{
+				// another entity's static body only (7000 is the terrain)
+				if (g_PhyObjectList[i].body == cb.others[o] && g_PhyObjectList[i].iID != 7000 && g_PhyObjectList[i].iID != iObjectNumber && cb.others[o]->isStaticObject())
+				{
+					pBody->setIgnoreCollisionCheck(cb.others[o], true);
+					iCount++;
+					break;
+				}
+			}
+		}
+	}
+	physicslock.unlock();
+	return iCount;
+}
+
 // where an object's physics body is, as the pose it would give the object (the world position and angles in degrees,
 // as Update sets them for a moving body; a static body never moves its object, so this shows the collider against the
 // drawn object), and how many bodies the physics list holds for the object; the pose is the first body's, the one

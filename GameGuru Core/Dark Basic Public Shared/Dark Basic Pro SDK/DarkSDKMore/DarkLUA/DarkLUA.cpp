@@ -8404,6 +8404,63 @@ int GetPhysicsSlowPairs(lua_State* L)
 // (the object has its own body in the physics' list), shape (the physics shape's name), mass, x, y, z, speed, spin, state,
 // still, island (as GetPhysicsStatsTop's), points (contact points in the last step), layer, mask (collision bits) }, then
 // how many bodies are awake and how many of them touch nothing
+// SetEntityImmobile(e, flag) - flag 0: an immobile or static entity's body made again as a moving one where it stands (its
+// immobile and static flags cleared, the body built as for a placed physics entity: its .fpe collision shape where it has
+// a moving one, else a box of its bounds, its SetEntityMass kilos or .fpe physicsmass, awake); flag 1: its body made again
+// as an immobile one where it is now. Returns 1 when it has a moving body after, 0 when not, -1 when its drawing is merged
+// with other entities' at the game's start (the draw call optimizer: its own object is hidden), left as it was; and the
+// other entities' static bodies the freed body passes through, as it started inside them (a fence panel's neighbours at
+// their shared posts: pushed out of them it was thrown several metres)
+int SetEntityImmobile(lua_State* L)
+{
+	if (LUA_GETTOP(L) < 2) return 0;
+	int iEntity = (int)lua_tonumber(L, 1);
+	int iImmobile = (int)lua_tonumber(L, 2) != 0 ? 1 : 0;
+	int iResult = 0;
+	int iPassed = 0;
+	if (iEntity > 0 && iEntity <= g.entityelementlist && t.entityelement[iEntity].bankindex > 0)
+	{
+		int iObj = t.entityelement[iEntity].obj;
+		if (t.entityelement[iEntity].dc_merged || t.entityelement[iEntity].draw_call_obj > 0)
+		{
+			iResult = -1;
+		}
+		else if (iObj > 0 && ObjectExist(iObj) == 1)
+		{
+			bool bDynamic = t.entityelement[iEntity].usingphysicsnow != 0 && ODEGetBodyIsDynamic(iObj);
+			if (bDynamic != (iImmobile == 0))
+			{
+				t.entityelement[iEntity].eleprof.isimmobile = iImmobile;
+				if (iImmobile == 0)
+				{
+					// a static placement's object skips its culling centre's update (SetObjectStatic at the game's start)
+					t.entityelement[iEntity].staticflag = 0;
+					SetObjectStatic(iObj, false);
+				}
+				{ extern void entity_walklists_touch(int); entity_walklists_touch(iEntity); } // GG: the entity walks' lists see it
+				int storee = t.e;
+				int storeentid = t.entid;
+				int storeobj = t.obj;
+				t.e = iEntity;
+				entity_lua_collisionoff();
+				t.e = iEntity;
+				entity_lua_collisionon();
+				t.e = storee;
+				t.entid = storeentid;
+				t.obj = storeobj;
+				if (iImmobile == 0 && ODEGetBodyIsDynamic(iObj))
+				{
+					extern int ODEIgnoreStartingOverlaps(int iObjectNumber, float fMinDepth);
+					iPassed = ODEIgnoreStartingOverlaps(iObj, 0.5f);
+				}
+			}
+			iResult = (t.entityelement[iEntity].usingphysicsnow != 0 && ODEGetBodyIsDynamic(iObj)) ? 1 : 0;
+		}
+	}
+	lua_pushinteger(L, iResult);
+	lua_pushinteger(L, iPassed);
+	return 2;
+}
 // SetEntityMass(e, kg) - the entity's physics body weighs kg kilos (0.05 is 50 grams), kept for the entity so a body built
 // again (CollisionOn, a wreck swap) and its ragdoll take it too; its inertia follows its shape, and it isn't woken. It
 // comes before the .fpe's physicsmass. Returns 1 set now, 0 kept for when it has a body, -1 its body is static (kept
@@ -18309,6 +18366,7 @@ void addFunctions()
 	lua_register(lua, "GetPhysicsAwakeBodies", GetPhysicsAwakeBodies);
 	lua_register(lua, "SetPhysicsWorldRate", SetPhysicsWorldRate);
 	lua_register(lua, "GetPhysicsWorldRate", GetPhysicsWorldRate);
+	lua_register(lua, "SetEntityImmobile", SetEntityImmobile);
 	lua_register(lua, "SetEntityMass", SetEntityMass);
 	lua_register(lua, "GetEntityMass", GetEntityMass);
 	lua_register(lua, "GetObjectMass", GetObjectMass);
