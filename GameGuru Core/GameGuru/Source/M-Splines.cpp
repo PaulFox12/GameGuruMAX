@@ -3325,6 +3325,10 @@ static bool g_bSplinePaveBodies = false; // bodies were made in this physics ses
 static std::unordered_map<std::string, uint64_t> g_SplinePaveMaterials; // made once for each set of textures
 static uint64_t g_SplinePaveApplied = 0, g_SplinePavePending = 0;
 static int g_iSplinePaveStill = 0;
+// harness SPLINE_PAVEDUMP: every pavement built again, each top triangle within a rectangle written to a file (its road,
+// material, corners and tile coordinates)
+static FILE* g_pSplinePaveDump = nullptr;
+static float g_fSplinePaveDumpRect[4] = { 0, 0, 0, 0 };
 
 // a road's length along its samples, its normals and kerbs. The normals are its direction averaged along it over a few
 // metres (a Gaussian, the road carried on straight past an open end), so the lines across it from samples either side
@@ -3978,6 +3982,9 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 	std::vector<float> fd( (size_t)C * N * N ), flat( (size_t)C * N * N ), falong( (size_t)C * N * N ), fsweep( (size_t)C * N * N );
 	std::vector<float> fk0( (size_t)C * N * N ), fk1( (size_t)C * N * N ), fu0( (size_t)C * N * N ), fu1( (size_t)C * N * N );
 	std::vector<uint8_t> fsides( (size_t)C * N * N ); // the sides paved where each road's swept line is
+	std::vector<float> fnx( (size_t)C * N * N ), fnz( (size_t)C * N * N ); // each road's normal at its nearest piece
+	std::vector<float> fnose( (size_t)C * N * N, 0.0f ); // within a fork's nose: its corner's alongside, and the other road
+	std::vector<int> fnoseWith( (size_t)C * N * N, -1 );
 	std::vector<float> fD( (size_t)N * N, FLT_MAX ), fH( (size_t)N * N, 0 ), fK( (size_t)N * N, 0 );
 	std::vector<float> hRoad( C );
 	std::vector<sSplinePaveNear> nears;
@@ -3996,6 +4003,7 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 			const sSplinePaveNear& p = nears[c];
 			const size_t at = (size_t)c * N * N + v;
 			fd[ at ] = p.d; flat[ at ] = p.lateral;
+			fnx[ at ] = p.k >= 0 ? pr.nx[ p.k ] : 0.0f; fnz[ at ] = p.k >= 0 ? pr.nz[ p.k ] : 0.0f;
 			falong[ at ] = p.along;
 			fsweep[ at ] = 0; fk0[ at ] = 0; fk1[ at ] = 0; fsides[ at ] = 0;
 			if ( p.k >= 0 )
@@ -4074,6 +4082,11 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 					const float g = bTo ? f + keep * (1.0f - f) : f * (1.0f - keep);
 					u = (1.0f - g) * uFrom + g * (uTo + pCorner->offset);
 					if ( bTo ) u -= pCorner->offset;
+					if ( pCorner->alongside > fnose[ at ] )
+					{
+						fnose[ at ] = pCorner->alongside;
+						fnoseWith[ at ] = bTo ? pCorner->from : pCorner->to;
+					}
 				}
 				(side ? fu1 : fu0)[ at ] = u;
 			}
@@ -4213,6 +4226,57 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 								if ( run.size() >= 3 ) pieces.push_back( run );
 							}
 						}
+						// between two paved roads side by side (the strip between them, the two running within 35 degrees of each
+						// other, out to the rule as before by 50: a narrow wedge where two roads close fanned its tiles round the
+						// corner; none past either road's open end, where a point's side is taken
+						// from the line carried on straight, which the inside of a bend crosses where two roads join end to end) the
+						// strip takes the wider pavement's tiles and texture (the longer road's when they are as wide) kerb to kerb:
+						// each road kept its own half, their rows meeting out of line in a seam down the middle, and fanned round a
+						// fork's nose. The halves stay as they are; only their tiles change
+						int stripOwner = -1, ownedWith = -1;
+						float wStrip[3] = { 0, 0, 0 }, wOwned[3] = { 0, 0, 0 };
+						for ( int ck = 0; ck < C; ck++ )
+						{
+							if ( ck == ci ) continue;
+							const sSplinePaveRoad& other = roads[ nearRoads[ck] ];
+							if ( !other.sides || other.material < 0 || own.width <= 0 || other.width <= 0 ) continue;
+							const float ownLength = own.s.empty() ? 0.0f : own.s.back(), otherLength = other.s.empty() ? 0.0f : other.s.back();
+							const bool bOtherOwns = other.width > own.width || (other.width == own.width && (otherLength > ownLength || (otherLength == ownLength && other.si < own.si)));
+							const size_t ok = (size_t)ck * N * N;
+							const float facing = flat[ ok + tv[0] ] + flat[ ok + tv[1] ] + flat[ ok + tv[2] ];
+							const uint8_t facingBit = (uint8_t)(facing >= 0 ? SPLINE_PAVE_RIGHT : SPLINE_PAVE_LEFT);
+							if ( !((fsides[ ok + tv[0] ] | fsides[ ok + tv[1] ] | fsides[ ok + tv[2] ]) & facingBit) ) continue;
+							const bool bOwnLoop = own.period[0] > 0 || own.period[1] > 0, bOtherLoop = other.period[0] > 0 || other.period[1] > 0;
+							float w[3];
+							for ( int j = 0; j < 3; j++ )
+							{
+								const float sOwn = flat[ oi + tv[j] ] >= 0 ? 1.0f : -1.0f, sOther = flat[ ok + tv[j] ] >= 0 ? 1.0f : -1.0f;
+								const float q = -sOwn * sOther * (fnx[ oi + tv[j] ] * fnx[ ok + tv[j] ] + fnz[ oi + tv[j] ] * fnz[ ok + tv[j] ]);
+								w[j] = std::min( 1.0f, std::max( 0.0f, (q - 0.64279f) / (0.81915f - 0.64279f) ) );
+								const float aOwn = falong[ oi + tv[j] ], aOther = falong[ ok + tv[j] ];
+								if ( !bOwnLoop ) w[j] *= std::min( 1.0f, std::max( 0.0f, 1.0f + std::min( aOwn, ownLength - aOwn ) / SPLINE_PAVE_STEP ) );
+								if ( !bOtherLoop ) w[j] *= std::min( 1.0f, std::max( 0.0f, 1.0f + std::min( aOther, otherLength - aOther ) / SPLINE_PAVE_STEP ) );
+								// a fork's nose between the two is side by side right round its tip, where the roads part at more than
+								// the angle: its tiles had turned round the curve, fanned and crowded
+								const int vj = (int)tv[j];
+								if ( fnoseWith[ oi + vj ] == nearRoads[ck] ) w[j] = std::max( w[j], fnose[ oi + vj ] );
+								if ( fnoseWith[ ok + vj ] == nearRoads[ci] ) w[j] = std::max( w[j], fnose[ ok + vj ] );
+								// only where the two pavements meet (the gap between the carriageways no wider than both), not a block away
+								if ( fd[ oi + tv[j] ] + fd[ ok + tv[j] ] > own.width + other.width + SPLINE_PAVE_STEP * 2.0f ) w[j] = 0;
+							}
+							if ( !bOtherOwns )
+							{
+								// this one's strip: its own tiles out from its kerb as the other half takes them (the plain distance from
+								// its carriageway, not the outline's, which a meeting rounds)
+								if ( std::max( std::max( w[0], w[1] ), w[2] ) > std::max( std::max( wOwned[0], wOwned[1] ), wOwned[2] ) ) ownedWith = other.si;
+								for ( int j = 0; j < 3; j++ ) wOwned[j] = std::max( wOwned[j], w[j] );
+							}
+							else if ( std::max( std::max( w[0], w[1] ), w[2] ) > std::max( std::max( wStrip[0], wStrip[1] ), wStrip[2] ) )
+							{
+								stripOwner = ck;
+								for ( int j = 0; j < 3; j++ ) wStrip[j] = w[j];
+							}
+						}
 						// nearer this road than any other with a pavement facing it, and behind a narrower one as far as its own
 						// width from its kerb (the corner filled); beside a road without one that it meets, as far as the
 						// corner's curve (within the radius of its own carriageway)
@@ -4256,28 +4320,69 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 						const float* pU = side ? fu1.data() : fu0.data();
 						float uTri[3] = { pU[ oi + tv[0] ], pU[ oi + tv[1] ], pU[ oi + tv[2] ] };
 						for ( int j = 1; j < 3; j++ ) uTri[j] = spline_pavewrap( uTri[j], uTri[0], own.period[side] );
-						for ( const std::vector<sSplinePaveCut>& poly : pieces )
+						// the tiles at the triangle's corners: this road's own, and in a strip the strip owner's straight along its
+						// kerb (its kerb's length on the side facing them, not turned round a corner as a junction's are) and out
+						// from its carriageway (not the outline, which a meeting rounds). A piece takes the strip's tiles where its
+						// weight is past a half, cut there: the two roads' tiles can run opposite ways (round a fork's nose), and
+						// blended they crowded into a smear
+						const sSplinePaveRoad* pOwner = stripOwner >= 0 ? &roads[ nearRoads[ stripOwner ] ] : nullptr;
+						const bool bOwnStrip = !pOwner && std::max( std::max( wOwned[0], wOwned[1] ), wOwned[2] ) >= 0.5f;
+						float ownU[3], ownV[3], ownerU[3] = { 0, 0, 0 }, ownerV[3] = { 0, 0, 0 };
+						for ( int j = 0; j < 3; j++ ) { ownU[j] = uTri[j] / own.tile; ownV[j] = Dv[j] / own.tile; }
+						if ( pOwner || bOwnStrip )
+						{
+							const int sk = pOwner ? stripOwner : ci;
+							const sSplinePaveRoad& sr = roads[ nearRoads[ sk ] ];
+							const size_t ow = (size_t)sk * N * N;
+							const int ownerSide = pOwner ? (flat[ ow + tv[0] ] + flat[ ow + tv[1] ] + flat[ ow + tv[2] ] >= 0 ? 1 : 0) : side;
+							const float* pKerb = ownerSide ? fk1.data() : fk0.data();
+							float uOwner[3];
+							for ( int j = 0; j < 3; j++ ) uOwner[j] = SPLINE_PAVE_WALK( ownerSide ) * pKerb[ ow + tv[j] ];
+							for ( int j = 1; j < 3; j++ ) uOwner[j] = spline_pavewrap( uOwner[j], uOwner[0], sr.period[ ownerSide ] );
+							for ( int j = 0; j < 3; j++ ) { ownerU[j] = uOwner[j] / sr.tile; ownerV[j] = fd[ ow + tv[j] ] / sr.tile; }
+							const float* pW = pOwner ? wStrip : wOwned;
+							const float half[3] = { pW[0] - 0.5f, pW[1] - 0.5f, pW[2] - 0.5f };
+							const float notHalf[3] = { -half[0], -half[1], -half[2] };
+							if ( std::max( std::max( half[0], half[1] ), half[2] ) >= 0 )
+							{
+								const size_t had = pieces.size();
+								for ( size_t pi = 0; pi < had; pi++ )
+								{
+									std::vector<sSplinePaveCut> taken = pieces[ pi ];
+									spline_paveclip( taken, half, SPLINE_PAVE_SEAM, scratch );
+									spline_paveclip( pieces[ pi ], notHalf, SPLINE_PAVE_SEAM, scratch );
+									if ( taken.size() >= 3 ) { taken[0].edge |= 0x100; pieces.push_back( taken ); }
+								}
+								pieces.erase( std::remove_if( pieces.begin(), pieces.end(), []( const std::vector<sSplinePaveCut>& p ) { return p.size() < 3; } ), pieces.end() );
+							}
+						}
+						for ( std::vector<sSplinePaveCut>& poly : pieces )
 						{
 							// the piece's corners: on the pavement's top, its tiles along the kerb and out from it
-							const int m = own.material;
+							const bool bOwnerTiles = (pOwner || bOwnStrip) && (poly[0].edge & 0x100);
+							poly[0].edge &= ~0x100;
+							const int m = bOwnerTiles && pOwner ? pOwner->material : own.material;
+							const float* tileU = bOwnerTiles ? ownerU : ownU;
+							const float* tileV = bOwnerTiles ? ownerV : ownV;
 							const size_t count = poly.size();
 							std::vector<float> P( count * 3 ), UV( count * 2 ), H( count ), S( count );
 							float mx = 0, mz = 0;
 							for ( size_t k = 0; k < count; k++ )
 							{
 								const float* b = poly[k].b;
-								float x = 0, z = 0, D = 0, Hk = 0, K = 0, ks = 0;
+								float x = 0, z = 0, D = 0, Hk = 0, K = 0, ks = 0, tu = 0, tvv = 0;
 								for ( int j = 0; j < 3; j++ )
 								{
 									x += b[j] * tx[j]; z += b[j] * tz[j];
 									D += b[j] * Dv[j]; Hk += b[j] * fH[ tv[j] ]; K += b[j] * fK[ tv[j] ];
 									ks += b[j] * uTri[j];
+									tu += b[j] * tileU[j]; tvv += b[j] * tileV[j];
 								}
 								P[ k * 3 + 0 ] = x;
 								P[ k * 3 + 1 ] = Hk + K + SPLINE_PAVE_FALL * std::max( 0.0f, D );
 								P[ k * 3 + 2 ] = z;
-								UV[ k * 2 + 0 ] = ks / own.tile;
-								UV[ k * 2 + 1 ] = D / own.tile;
+								UV[ k * 2 + 0 ] = tu;
+								UV[ k * 2 + 1 ] = tvv;
 								H[k] = Hk;
 								S[k] = ks;
 								mx += x; mz += z;
@@ -4285,6 +4390,18 @@ static uint64_t spline_buildpavechunk( int cx, int cz, const std::vector<sSpline
 							mx /= count; mz /= count;
 							const float up[3] = { 0, 1, 0 };
 							for ( size_t k = 1; k + 1 < count; k++ ) emitTriangle( m, &P[0], &P[ k * 3 ], &P[ (k + 1) * 3 ], &UV[0], &UV[ k * 2 ], &UV[ (k + 1) * 2 ], up );
+							if ( g_pSplinePaveDump && mx >= g_fSplinePaveDumpRect[0] && mx <= g_fSplinePaveDumpRect[2] && mz >= g_fSplinePaveDumpRect[1] && mz <= g_fSplinePaveDumpRect[3] )
+							{
+								for ( size_t k = 1; k + 1 < count; k++ )
+								{
+									const size_t c3[3] = { 0, k, k + 1 };
+									fprintf( g_pSplinePaveDump, "T %d %d %d", own.si, m, side );
+									for ( int j = 0; j < 3; j++ ) fprintf( g_pSplinePaveDump, " %.2f %.2f %.4f %.4f", P[ c3[j] * 3 ], P[ c3[j] * 3 + 2 ], UV[ c3[j] * 2 ], UV[ c3[j] * 2 + 1 ] );
+									// the side by side weights at the grid triangle: its own strip's, and the strip it takes tiles from (and whose)
+									fprintf( g_pSplinePaveDump, " %.2f %.2f %d %d\n", std::max( std::max( wOwned[0], wOwned[1] ), wOwned[2] ),
+										std::max( std::max( wStrip[0], wStrip[1] ), wStrip[2] ), pOwner ? pOwner->si : -1, ownedWith );
+								}
+							}
 
 							// its faces: the kerb's down to the road, the back's and a stop's down to the ground
 							for ( size_t k = 0; k < count; k++ )
@@ -4659,6 +4776,13 @@ void spline_updatepavements( void )
 	spline_pavemeets( roads, meets );
 	std::vector<sSplinePaveCorner> corners;
 	spline_pavejoins( roads, meets, corners );
+	if ( g_pSplinePaveDump )
+	{
+		for ( const sSplinePaveRoad& pr : roads )
+		{
+			if ( pr.sides ) fprintf( g_pSplinePaveDump, "R %d %d %d %.2f %.2f %.2f %s\n", pr.si, pr.material, pr.sides, pr.width, pr.tile, pr.halfWidth, g_Splines[ pr.si ].name );
+		}
+	}
 	for ( const auto& chunk : chunkList )
 	{
 		const int64_t key = spline_pavechunkkey( chunk.first, chunk.second );
@@ -4672,6 +4796,12 @@ void spline_updatepavements( void )
 		sSplinePaveChunk built;
 		built.object = spline_buildpavechunk( chunk.first, chunk.second, roads, meets, corners, materials, reach, built.triangles );
 		if ( built.object ) g_SplinePaveChunks[ key ] = std::move( built );
+	}
+	if ( g_pSplinePaveDump )
+	{
+		fprintf( g_pSplinePaveDump, "DONE %d\n", (int)chunkList.size() );
+		fclose( g_pSplinePaveDump );
+		g_pSplinePaveDump = nullptr;
 	}
 	g_SplinePaveApplied = total;
 	// bodies for the chunks built now, while a game's physics runs
@@ -9585,6 +9715,33 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		fclose( fp );
 		sprintf_s( pResult, resultSize, "OK: FLATAREAS_DUMP %d areas, %d owned (%d by more than one element), %d unowned, %d elements naming no live area -> %s",
 			n, owned, shared, n - owned, stale, pArg );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_PAVEDUMP" ) == 0 )
+	{
+		// SPLINE_PAVEDUMP x0 z0 x1 z1 file: every pavement built again on the next update, its roads ("R si material sides
+		// width tile halfwidth name") and each top triangle with its middle in the rectangle ("T si material side", x z u v at
+		// each corner, then its grid triangle's side by side weights: its own strip's and the strip it takes tiles from, that
+		// strip's owner and its own strip's other road, -1 none) written to the file, which ends "DONE chunks"
+		float r[4] = { 0, 0, 0, 0 };
+		char file[512] = "";
+		if ( !pArg || sscanf_s( pArg, "%f %f %f %f %511s", &r[0], &r[1], &r[2], &r[3], file, (unsigned)sizeof(file) ) != 5 )
+		{
+			sprintf_s( pResult, resultSize, "ERROR: SPLINE_PAVEDUMP x0 z0 x1 z1 file" );
+			return true;
+		}
+		if ( g_pSplinePaveDump ) fclose( g_pSplinePaveDump );
+		g_pSplinePaveDump = nullptr;
+		fopen_s( &g_pSplinePaveDump, file, "w" );
+		if ( !g_pSplinePaveDump )
+		{
+			sprintf_s( pResult, resultSize, "ERROR: SPLINE_PAVEDUMP cannot write %s", file );
+			return true;
+		}
+		memcpy( g_fSplinePaveDumpRect, r, sizeof(r) );
+		spline_deletepavements();
+		g_SplinePaveApplied = 0;
+		sprintf_s( pResult, resultSize, "OK: SPLINE_PAVEDUMP %.0f %.0f %.0f %.0f %s (written on the next update)", r[0], r[1], r[2], r[3], file );
 		return true;
 	}
 	if ( _stricmp( pCmd, "SPLINE_LIST" ) == 0 )
