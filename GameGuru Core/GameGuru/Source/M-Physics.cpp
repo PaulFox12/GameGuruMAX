@@ -1362,6 +1362,8 @@ void physics_resumephysics ( void )
 // drawn where it lies
 struct sDroppedWeapon { int iObject; float fDropped; };
 static std::vector<sDroppedWeapon> g_DroppedWeapons;
+static std::vector<int> g_SettledWeapons; // dropped guns whose body went once they lay still
+int g_iDroppedWeaponsRescued = 0; // dropped guns found under the ground and put back on it (harness PHYS_WAKES)
 static float g_fDroppedWeaponsChecked = 0;
 
 void physics_trackdroppedweapon ( int iObject )
@@ -1377,6 +1379,22 @@ static void physics_settledroppedweapons ( void )
 	const float fNow = timeGetSecond();
 	if ( fNow - g_fDroppedWeaponsChecked < 0.5f ) return;
 	g_fDroppedWeaponsChecked = fNow;
+	// one found under the ground (pressed through it by a ragdoll landing on it, seen once in a roof's collapse) is put
+	// back on it and left there
+	for ( int i = (int)g_DroppedWeapons.size() - 1; i >= 0; i-- )
+	{
+		const int iWeapon = g_DroppedWeapons[i].iObject;
+		if ( ObjectExist ( iWeapon ) != 1 ) continue;
+		const float fX = ObjectPositionX ( iWeapon ), fZ = ObjectPositionZ ( iWeapon );
+		const float fGround = BT_GetGroundHeight ( t.terrain.TerrainID, fX, fZ );
+		if ( ObjectPositionY ( iWeapon ) >= fGround - 30.0f ) continue;
+		ODEDestroyObject ( iWeapon );
+		PositionObject ( iWeapon, fX, fGround + 5.0f, fZ );
+		if ( std::find ( g_SettledWeapons.begin(), g_SettledWeapons.end(), iWeapon ) == g_SettledWeapons.end() ) g_SettledWeapons.push_back ( iWeapon );
+		g_DroppedWeapons.erase ( g_DroppedWeapons.begin() + i );
+		g_iDroppedWeaponsRescued++;
+	}
+	if ( g_DroppedWeapons.empty() ) return;
 	std::vector<int> objects, states ( g_DroppedWeapons.size() );
 	for ( const sDroppedWeapon& weapon : g_DroppedWeapons ) objects.push_back ( weapon.iObject );
 	PhysicsQuery_BodiesAtRest ( objects.data(), (int)objects.size(), 0.5f, 200.0f, states.data() );
@@ -1388,8 +1406,76 @@ static void physics_settledroppedweapons ( void )
 		if ( !bDone && ( ( fAge >= 15.0f && states[i] != 3 ) || fAge >= 60.0f ) ) bDone = true;
 		if ( !bDone ) continue;
 		if ( states[i] != 0 ) ODEDestroyObject ( g_DroppedWeapons[i].iObject );
+		// kept, so a body it lies on going can give it a body again (physics_wakeaboveobject)
+		const int iSettled = g_DroppedWeapons[i].iObject;
+		if ( std::find ( g_SettledWeapons.begin(), g_SettledWeapons.end(), iSettled ) == g_SettledWeapons.end() ) g_SettledWeapons.push_back ( iSettled );
 		g_DroppedWeapons.erase ( g_DroppedWeapons.begin() + i );
 	}
+}
+
+// GG: what rests on a static body woken before Lua's CollisionOff removes it (a building brought down: a wreck put to
+// sleep, still ragdolls and settled dropped guns floated where its roof had been, the Lua session's run 1810): the moving
+// bodies and ragdolls in its box raised a little (ODEWakeAboveStaticBody), and the settled dropped guns lying there given
+// a moving box again, as when they were dropped, and watched until they settle again. Timed for harness PHYS_WAKES
+int g_iPhysWakeOn = 1, g_iPhysWakeCalls = 0, g_iPhysWakeLast[4] = { 0 };
+double g_dPhysWakeMsTotal = 0, g_dPhysWakeMsMax = 0, g_dPhysWakeMsLast = 0;
+
+// the dropped guns watched and the settled ones, "object:x,y,z" each (harness PHYS_WAKES list)
+void physics_describedroppedweapons ( char* pOut, int iMax )
+{
+	int n = _snprintf ( pOut, iMax, "rescued=%d watched=%d", g_iDroppedWeaponsRescued, (int)g_DroppedWeapons.size() );
+	for ( const sDroppedWeapon& weapon : g_DroppedWeapons )
+	{
+		if ( n < 0 || n > iMax - 64 ) break;
+		if ( ObjectExist ( weapon.iObject ) == 1 ) n += _snprintf ( pOut + n, iMax - n, " %d:%.0f,%.0f,%.0f", weapon.iObject, ObjectPositionX ( weapon.iObject ), ObjectPositionY ( weapon.iObject ), ObjectPositionZ ( weapon.iObject ) );
+	}
+	if ( n >= 0 && n < iMax - 32 ) n += _snprintf ( pOut + n, iMax - n, " | settled=%d", (int)g_SettledWeapons.size() );
+	for ( int iWeapon : g_SettledWeapons )
+	{
+		if ( n < 0 || n > iMax - 64 ) break;
+		if ( ObjectExist ( iWeapon ) == 1 ) n += _snprintf ( pOut + n, iMax - n, " %d:%.0f,%.0f,%.0f", iWeapon, ObjectPositionX ( iWeapon ), ObjectPositionY ( iWeapon ), ObjectPositionZ ( iWeapon ) );
+	}
+}
+
+void physics_wakeaboveobject ( int iObject )
+{
+	if ( g_iPhysWakeOn == 0 ) return;
+	if ( iObject <= 0 || ODEFind ( iObject ) != 1 || ODEGetBodyIsDynamic ( iObject ) ) return;
+	LARGE_INTEGER llFreq, llA, llB;
+	QueryPerformanceFrequency ( &llFreq );
+	QueryPerformanceCounter ( &llA );
+	extern int ODEWakeAboveStaticBody ( int iObjectNumber, float fLift, float fPad, float* pMin, float* pMax, int* pRagdolls, int* pCandidates );
+	float fMin[3], fMax[3];
+	int iRagdolls = 0, iCandidates = 0, iWeapons = 0;
+	const int iBodies = ODEWakeAboveStaticBody ( iObject, 60.0f, 10.0f, fMin, fMax, &iRagdolls, &iCandidates );
+	if ( iBodies < 0 ) return;
+	for ( int i = (int)g_SettledWeapons.size() - 1; i >= 0; i-- )
+	{
+		const int iWeapon = g_SettledWeapons[i];
+		sObject* pWeapon = ObjectExist ( iWeapon ) == 1 ? GetObjectData ( iWeapon ) : NULL;
+		// gone, picked up (glued to a hand again or hidden) or given a body since: no longer a settled dropped gun
+		if ( pWeapon == NULL || pWeapon->position.iGluedToObj != 0 || GetVisible ( iWeapon ) == 0 || ODEFind ( iWeapon ) == 1 )
+		{
+			g_SettledWeapons.erase ( g_SettledWeapons.begin() + i );
+			continue;
+		}
+		const float fX = ObjectPositionX ( iWeapon ), fY = ObjectPositionY ( iWeapon ), fZ = ObjectPositionZ ( iWeapon );
+		if ( fX < fMin[0] || fX > fMax[0] || fY < fMin[1] || fY > fMax[1] || fZ < fMin[2] || fZ > fMax[2] ) continue;
+		ODECreateDynamicBox ( iWeapon, -1, 1 );
+		g_SettledWeapons.erase ( g_SettledWeapons.begin() + i );
+		physics_trackdroppedweapon ( iWeapon );
+		iWeapons++;
+	}
+	QueryPerformanceCounter ( &llB );
+	const double dMs = (double)( llB.QuadPart - llA.QuadPart ) * 1000.0 / (double)llFreq.QuadPart;
+	g_iPhysWakeCalls++;
+	g_dPhysWakeMsTotal += dMs;
+	g_dPhysWakeMsLast = dMs;
+	if ( dMs > g_dPhysWakeMsMax ) g_dPhysWakeMsMax = dMs;
+	g_iPhysWakeLast[0] = iBodies;
+	g_iPhysWakeLast[1] = iRagdolls;
+	g_iPhysWakeLast[2] = iWeapons;
+	g_iPhysWakeLast[3] = iCandidates;
 }
 
 // GG: the physics range's parts timed (harness PHYS_TIMES): tree cylinders, the player, the world's update (its step and
@@ -1447,6 +1533,7 @@ void physics_loop ( void )
 void physics_free ( void )
 {
 	g_DroppedWeapons.clear();
+	g_SettledWeapons.clear();
 	// special hybrid collision mode can hide static limbs, so reshow them when physics done
 	for (t.e = 1; t.e <= g.entityelementlist; t.e++)
 	{

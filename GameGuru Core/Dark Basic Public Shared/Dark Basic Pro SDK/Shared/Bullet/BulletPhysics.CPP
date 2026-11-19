@@ -4692,6 +4692,59 @@ void ODEDestroyObject ( int iObjectNumber )
 	physicslock.unlock();
 }
 
+// GG: what rests on or in a static body woken before the body goes (Lua CollisionOff): removing a body wakes nothing, so a
+// building's roof brought down left a wreck put to sleep, the still ragdolls lying there (static: their bones' mass 0) and
+// their dropped guns floating where the roof had been (the Lua session's run 1810). Every moving body whose box meets the
+// static body's box, raised fLift units and widened fPad, is woken, and every ragdoll with a bone in it (static ones given
+// their mass back). Returns the bodies woken, -1 when the object has no static body; the box in pMin/pMax (world units),
+// the ragdolls woken and the broadphase's candidates in pRagdolls/pCandidates
+struct GGWakeAabbCallback : public btBroadphaseAabbCallback
+{
+	btAlignedObjectArray<btCollisionObject*> candidates;
+	virtual bool process(const btBroadphaseProxy* pProxy)
+	{
+		candidates.push_back((btCollisionObject*)pProxy->m_clientObject);
+		return true;
+	}
+};
+int ODEWakeAboveStaticBody ( int iObjectNumber, float fLift, float fPad, float* pMin, float* pMax, int* pRagdolls, int* pCandidates )
+{
+	if ( pRagdolls ) *pRagdolls = 0;
+	if ( pCandidates ) *pCandidates = 0;
+	if ( g_dynamicsWorld == NULL ) return -1;
+	physicslock.lock();
+	sObjectList* pPhyObject = ODEFindID ( iObjectNumber );
+	if ( pPhyObject == NULL || pPhyObject->body == NULL || !pPhyObject->body->isStaticObject() )
+	{
+		physicslock.unlock();
+		return -1;
+	}
+	btVector3 aabbMin, aabbMax;
+	pPhyObject->body->getAabb ( aabbMin, aabbMax );
+	aabbMin -= btVector3 ( fPad, fPad, fPad ) / gSc;
+	aabbMax += btVector3 ( fPad, fPad + fLift, fPad ) / gSc;
+	GGWakeAabbCallback bodies;
+	g_dynamicsWorld->getBroadphase()->aabbTest ( aabbMin, aabbMax, bodies );
+	int iWoken = 0;
+	for ( int i = 0; i < bodies.candidates.size(); i++ )
+	{
+		btRigidBody* pBody = btRigidBody::upcast ( bodies.candidates[i] );
+		if ( pBody == NULL || pBody == pPhyObject->body || pBody->isStaticOrKinematicObject() ) continue;
+		pBody->activate ( true );
+		iWoken++;
+	}
+	if ( pRagdolls && ragdollManager ) *pRagdolls = ragdollManager->WakeInAabb ( aabbMin, aabbMax );
+	else if ( ragdollManager ) ragdollManager->WakeInAabb ( aabbMin, aabbMax );
+	if ( pCandidates ) *pCandidates = bodies.candidates.size();
+	for ( int a = 0; a < 3; a++ )
+	{
+		if ( pMin ) pMin[a] = aabbMin[a] * gSc;
+		if ( pMax ) pMax[a] = aabbMax[a] * gSc;
+	}
+	physicslock.unlock();
+	return iWoken;
+}
+
 // GG: the object's collision limbs' hulls (ODESetCollisionLimbs) moved to where its limbs are now, after a script turned or
 // moved one; nothing for an object without them
 void ODEUpdateCollisionLimbs ( int iObjectNumber )

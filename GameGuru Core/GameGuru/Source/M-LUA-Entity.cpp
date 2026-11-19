@@ -132,8 +132,11 @@ void entity_lua_collisionoff ( void )
 		if (  ObjectExist(t.tobj) == 1 ) 
 		{
 			t.entid=t.entityelement[t.e].bankindex;
-			if (  t.entityelement[t.e].usingphysicsnow != 0 ) 
+			if (  t.entityelement[t.e].usingphysicsnow != 0 )
 			{
+				// what rests on a static body woken before it goes (a building brought down: nothing left floating)
+				extern void physics_wakeaboveobject ( int iObject );
+				physics_wakeaboveobject ( t.tobj );
 				t.tphyobj=t.tobj ; physics_disableobject ( );
 				t.entityelement[t.e].usingphysicsnow=0;
 			}

@@ -856,6 +856,26 @@ void AutoHarness_CheckForCommand ( void )
 		_snprintf ( result, sizeof(result), "OK: %s ragdolls=%d static=%d awake=%d awake_slow=%d bodies_awake=%d fastest=%.1f units/s %.2f rad/s | rule=%d distance=%.2f seconds=%.2f settled_by_place=%d settled_by_speed=%d",
 			cmd, total, stat, total - stat, slow, bodies, lin, ang, g_iRagdollSettleRule, g_fRagdollSettleDistance, g_fRagdollSettleSeconds, g_iRagdollSettledByPlace, g_iRagdollSettledBySpeed );
 	}
+	else if ( _stricmp ( cmd, "PHYS_WAKES" ) == 0 )
+	{
+		// PHYS_WAKES [reset | 0 | 1 | list]: the wakes of what rests on a static body Lua's CollisionOff removes
+		// (physics_wakeaboveobject): on or off (0 removes the body as before), calls, their time (total, largest, last), and
+		// the last one's bodies, ragdolls and dropped guns woken and the broadphase's candidates in its box; list adds the
+		// dropped guns watched and settled, with where each lies
+		extern int g_iPhysWakeOn, g_iPhysWakeCalls, g_iPhysWakeLast[4];
+		extern double g_dPhysWakeMsTotal, g_dPhysWakeMsMax, g_dPhysWakeMsLast;
+		extern void physics_describedroppedweapons ( char* pOut, int iMax );
+		if ( arg && _stricmp ( arg, "reset" ) == 0 )
+		{
+			g_iPhysWakeCalls = 0; g_dPhysWakeMsTotal = 0; g_dPhysWakeMsMax = 0; g_dPhysWakeMsLast = 0;
+			for ( int i = 0; i < 4; i++ ) g_iPhysWakeLast[i] = 0;
+		}
+		else if ( arg && ( strcmp ( arg, "0" ) == 0 || strcmp ( arg, "1" ) == 0 ) ) g_iPhysWakeOn = atoi ( arg );
+		char weapons[2048] = "";
+		if ( arg && _stricmp ( arg, "list" ) == 0 ) physics_describedroppedweapons ( weapons, sizeof(weapons) );
+		_snprintf ( result, sizeof(result), "OK: PHYS_WAKES on=%d calls=%d ms_total=%.3f ms_max=%.3f ms_last=%.3f last_bodies=%d last_ragdolls=%d last_weapons=%d last_candidates=%d %s",
+			g_iPhysWakeOn, g_iPhysWakeCalls, g_dPhysWakeMsTotal, g_dPhysWakeMsMax, g_dPhysWakeMsLast, g_iPhysWakeLast[0], g_iPhysWakeLast[1], g_iPhysWakeLast[2], g_iPhysWakeLast[3], weapons );
+	}
 	else if ( _stricmp ( cmd, "NPCHOLE_LOG" ) == 0 )
 	{
 		// NPCHOLE_LOG [0|1]: 1 logs each NPC round's bullet hole ("NPC HOLE", 300 a session); 0, the default, doesn't

@@ -18,6 +18,9 @@ public:
 	void HoldFrame(float frameTime);
 	void HoldStep(float timeStep);
 	int GetIDFromBoneObject(int objectID);
+	// GG: every ragdoll with a bone inside the box woken, a static one (all its bones' mass 0 once it lay still) given its
+	// bones' mass back first, as a push does (BPhys_RagDollApplyForce): the ragdolls left lying on a body about to go
+	int WakeInAabb(const btVector3& aabbMin, const btVector3& aabbMax);
 	// GG: how many ragdolls there are, how many are static, how many awake ones are all but still (every body under 4
 	// world units a second and 1 radian a second), the bodies awake, and the fastest awake body's speeds
 	void Counts(int* pTotal, int* pStatic, int* pAwakeSlow, int* pBodiesAwake, float* pMaxLinear, float* pMaxAngular);

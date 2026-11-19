@@ -57,6 +57,30 @@ int DBProRagdollManager::GetIDFromBoneObject(int objectID)
 	return -1;
 }
 
+int DBProRagdollManager::WakeInAabb(const btVector3& aabbMin, const btVector3& aabbMax)
+{
+	int iWoken = 0;
+	for (int i = 0; i < m_data.size(); i++)
+	{
+		DBProRagDoll* ragdoll = (DBProRagDoll*)m_data[i];
+		btAlignedObjectArray<DBProRagDollBone*> bones = ragdoll->GetRagdollBones();
+		bool bInside = false;
+		for (int b = 0; b < bones.size() && !bInside; b++)
+		{
+			btRigidBody* pBody = bones[b] ? bones[b]->GetRigidBody() : NULL;
+			if (pBody == NULL) continue;
+			btVector3 boneMin, boneMax;
+			pBody->getAabb(boneMin, boneMax);
+			bInside = TestAabbAgainstAabb2(aabbMin, aabbMax, boneMin, boneMax);
+		}
+		if (!bInside) continue;
+		if (ragdoll->IsStatic()) ragdoll->SetStatic(false);
+		ragdoll->Activate();
+		iWoken++;
+	}
+	return iWoken;
+}
+
 void DBProRagdollManager::Counts(int* pTotal, int* pStatic, int* pAwakeSlow, int* pBodiesAwake, float* pMaxLinear, float* pMaxAngular)
 {
 	int iStatic = 0, iAwakeSlow = 0, iBodies = 0;
