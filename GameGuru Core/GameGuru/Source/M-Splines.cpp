@@ -3383,6 +3383,7 @@ struct sSplinePaveNear
 	float d = FLT_MAX, lateral = 0, h = 0;
 	float along = 0; // along the centre line
 	int k = -1; // the nearest piece
+	float gx = 0, gz = 0; // the way its distance grows: away from the nearest point of the centre line
 };
 
 // a corner where two roads' kerbs meet, walked from one road's kerb round its curve onto the other's. A kerb is walked
@@ -3642,6 +3643,12 @@ static void spline_pavenear( const sSplinePaveRoad& pr, const std::vector<int>& 
 	const float cross = dx * (pz - pr.z[bk]) - dz * (px - pr.x[bk]);
 	const float sign = cross >= 0 ? 1.0f : -1.0f;
 	out.d = sqrtf( best2 ) - pr.halfWidth;
+	if ( best2 > 0.0001f )
+	{
+		const float dist = sqrtf( best2 );
+		out.gx = (px - (pr.x[bk] + dx * tc)) / dist;
+		out.gz = (pz - (pr.z[bk] + dz * tc)) / dist;
+	}
 	out.lateral = sign * sqrtf( best2 );
 	const bool bBefore = !pr.bClosed && bk == 0 && bt < 0;
 	const bool bAfter = !pr.bClosed && bk == n - 2 && bt > 1;
@@ -3740,12 +3747,26 @@ static float spline_pavewrap( float u, float target, float period )
 	return u - period * roundf( (u - target) / period );
 }
 
-// two distances joined with a rounded edge of radius r (where both are within r of the outline), else the nearer
-static float spline_paveround( float a, float b, float r )
+// two distances joined with a rounded edge of radius r (where both are within r of the outline), else the nearer; ga and
+// gb the ways they grow. Where the two kerbs meet at a wider angle than square (the inside of a bend) the edge is a true
+// circle of radius r tangent to both, so the pavement keeps its width round it: the square corner's formula, which takes
+// the two distances as if at right angles, thinned it there (by about a quarter at a 140 degree corner) and widened it
+// again past the corner. A sharper corner (a fork's nose) keeps the square corner's formula, which its tiles are fitted to
+static float spline_paveround( float a, float b, float r, float gax = 0, float gaz = 0, float gbx = 0, float gbz = 0 )
 {
 	if ( r <= 0 ) return std::min( a, b );
-	const float ua = std::max( r - a, 0.0f ), ub = std::max( r - b, 0.0f );
-	return std::max( r, std::min( a, b ) ) - sqrtf( ua * ua + ub * ub );
+	const float ua = r - a, ub = r - b;
+	const float c = gax * gbx + gaz * gbz, s2 = 1.0f - c * c;
+	if ( c > 0 && s2 > 0.01f )
+	{
+		// the point from the circle's centre as a mix of the two growth ways: inside the circle's corner where both go
+		// against them
+		const float alpha = (-ua + ub * c) / s2, beta = (-ub + ua * c) / s2;
+		if ( alpha <= 0 && beta <= 0 ) return std::min( std::min( a, b ), r - sqrtf( std::max( 0.0f, (ua * ua + ub * ub - 2.0f * ua * ub * c) / s2 ) ) );
+		return std::min( a, b );
+	}
+	const float pa = std::max( ua, 0.0f ), pb = std::max( ub, 0.0f );
+	return std::max( r, std::min( a, b ) ) - sqrtf( pa * pa + pb * pb );
 }
 
 // the piece of a cut that the field f (at the triangle's corners) is not below 0 on; the new edge marked
@@ -4076,7 +4097,7 @@ static float spline_paveoutlineat( const std::vector<sSplinePaveRoad>& roads, co
 		}
 		if ( arg < 0 ) D = p.d;
 		else if ( !pRound || !pRound->bRound ) D = std::min( D, p.d );
-		else D = spline_paveround( D, p.d, std::max( roads[ nearRoads[ arg ] ].radius, roads[ nearRoads[c] ].radius ) );
+		else D = spline_paveround( D, p.d, std::max( roads[ nearRoads[ arg ] ].radius, roads[ nearRoads[c] ].radius ), nears[ arg ].gx, nears[ arg ].gz, p.gx, p.gz );
 		if ( p.d < dMin ) { dMin = p.d; arg = c; }
 	}
 	*pArg = arg;
