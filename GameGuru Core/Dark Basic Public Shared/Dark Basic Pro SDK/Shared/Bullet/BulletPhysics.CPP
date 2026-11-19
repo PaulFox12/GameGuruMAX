@@ -192,6 +192,8 @@ struct sObjectList
 	btVector3 vecUnfrozenLinearFactor; // the factors a freeze (ODESetBodyResponse) replaced, put back on unfreeze
 	btVector3 vecUnfrozenAngularFactor;
 	bool bCentredOnCollisionBox; // the body sits at the object's collision box centre (box, sphere, cylinder, capsule), not its origin (CreateMesh)
+	bool bBodyOffset; // the body sits this far from the object's origin, in the object's scaled space (a mesh's pieces about their centre)
+	GGVECTOR3 vecBodyOffset;
 	bool bPivotInBody; // the body was made turned by the object's pivot (an entity's fixnewy), so the drawn transform leaves the pivot out
 	bool bAsleepSynced; // the body was asleep when its pose was last written to its object (Update's pose sync)
 	btTransform transSynced; // the transform that write took, the position and angles it gave the object and its scale
@@ -232,6 +234,8 @@ void ODEAddObject ( int iID, sObject* pObject, btRigidBody* body, int iIsDynamic
 	sObjectList object;
 	object.iID = iID;
 	object.bCentredOnCollisionBox = bCentredOnCollisionBox;
+	object.bBodyOffset = false;
+	object.vecBodyOffset = GGVECTOR3( 0, 0, 0 );
 	object.bPivotInBody = false;
 	object.bAsleepSynced = false;
 
@@ -1262,6 +1266,13 @@ static void ODEObjectPoseFromBody ( sObjectList* pEntry, sObject* pObject, const
 		fXOffset = 0.0f;
 		fYOffset = 0.0f;
 		fZOffset = 0.0f;
+	}
+	// a body of a mesh's pieces sits at their centre
+	if (pEntry->bBodyOffset)
+	{
+		fXOffset = pEntry->vecBodyOffset.x;
+		fYOffset = pEntry->vecBodyOffset.y;
+		fZOffset = pEntry->vecBodyOffset.z;
 	}
 
 	if (pObject->pFrame)
@@ -2718,6 +2729,10 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 	sObject* pObject = GetObjectData ( iObjectNumber );
 	if ( pObject==NULL ) return;
 
+	// a body of the mesh's pieces (iHullReduction 4) is made about their centre
+	bool bPiecesCentred = false;
+	btVector3 vPiecesCentre( 0, 0, 0 );
+
 	// real object for mesh data
 	sObject* pRealObject = pObject;
 	if ( pObject->pInstanceOfObject ) pRealObject = pObject->pInstanceOfObject;                 
@@ -3203,6 +3218,75 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 				g_importers.push_back(importer); //PE: Free mem when ending ODE.
 			}
 		}
+		// iHullReduction 4: a hull for each separate piece of the mesh (a lamp's _COL.obj: its pole and its arm, as two boxes),
+		// joined in one compound about the pieces' centre (each weighed by its box's volume), so a moving body falls as its
+		// shape does; one piece, or too many, a single hull as 1
+		if (bLoadedAndCreatedOkay == false && iHullReduction == 4)
+		{
+			const int nv = (int)ch_vertexBuffer.size();
+			std::vector<int> parent(nv);
+			for (int v = 0; v < nv; v++) parent[v] = v;
+			auto findRoot = [&parent](int v) { while (parent[v] != v) { parent[v] = parent[parent[v]]; v = parent[v]; } return v; };
+			auto unite = [&](int a, int b) { a = findRoot(a); b = findRoot(b); if (a != b) parent[b] = a; };
+			// corners welded where they meet (within about 0.02 units), the triangles joined by their corners
+			std::unordered_map<uint64_t, int> welded;
+			const float fWeld = 0.0005f;
+			for (int v = 0; v < nv; v++)
+			{
+				const uint64_t kx = (uint64_t)(int64_t)llroundf(ch_vertexBuffer[v].getX() / fWeld) & 0x1FFFFF;
+				const uint64_t ky = (uint64_t)(int64_t)llroundf(ch_vertexBuffer[v].getY() / fWeld) & 0x1FFFFF;
+				const uint64_t kz = (uint64_t)(int64_t)llroundf(ch_vertexBuffer[v].getZ() / fWeld) & 0x1FFFFF;
+				const uint64_t key = (kx << 42) | (ky << 21) | kz;
+				auto it = welded.find(key);
+				if (it == welded.end()) welded[key] = v; else unite(it->second, v);
+			}
+			for (int v = 0; v + 2 < nv; v += 3) { unite(v, v + 1); unite(v, v + 2); }
+			std::unordered_map<int, int> pieceOf;
+			std::vector<std::vector<btVector3>> pieces;
+			for (int v = 0; v < nv; v++)
+			{
+				const int root = findRoot(v);
+				auto it = pieceOf.find(root);
+				if (it == pieceOf.end()) { pieceOf[root] = (int)pieces.size(); pieces.push_back(std::vector<btVector3>()); it = pieceOf.find(root); }
+				pieces[it->second].push_back(ch_vertexBuffer[v]);
+			}
+			if (pieces.size() >= 2 && pieces.size() <= 32)
+			{
+				// the pieces' centre, each by its box's volume
+				btVector3 centre(0, 0, 0);
+				btScalar total = 0;
+				for (const std::vector<btVector3>& piece : pieces)
+				{
+					btVector3 lo = piece[0], hi = piece[0];
+					for (const btVector3& p : piece) { lo.setMin(p); hi.setMax(p); }
+					const btVector3 size = hi - lo;
+					const btScalar volume = btMax(size.x(), btScalar(0.001)) * btMax(size.y(), btScalar(0.001)) * btMax(size.z(), btScalar(0.001));
+					centre += (lo + hi) * btScalar(0.5) * volume;
+					total += volume;
+				}
+				centre /= total;
+				compoundShape = new btCompoundShape();
+				btTransform identity;
+				identity.setIdentity();
+				for (const std::vector<btVector3>& piece : pieces)
+				{
+					btConvexHullShape* pPieceHull = new btConvexHullShape();
+					for (const btVector3& p : piece) pPieceHull->addPoint(p - centre, false);
+					pPieceHull->recalcLocalAabb();
+					compoundShape->addChildShape(identity, pPieceHull);
+					g_collisionShapes.push_back(pPieceHull);
+				}
+				g_collisionShapes.push_back(compoundShape);
+				iShapeUsed = 2;
+				bLoadedAndCreatedOkay = true;
+				bPiecesCentred = true;
+				vPiecesCentre = centre;
+			}
+			else
+			{
+				iHullReduction = 1;
+			}
+		}
 		if (bLoadedAndCreatedOkay == false)
 		{
 			// iHullReduction : 1-single hull, 2-hull decomposition (multiple hulls)
@@ -3513,6 +3597,9 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 	// get real scale of object
 	btVector3 vLocalShapeScale = btVector3(pObject->position.vecScale.x, pObject->position.vecScale.y, pObject->position.vecScale.z);
 
+	// a body of the mesh's pieces sits at their centre, turned and scaled with the object
+	if ( bPiecesCentred ) startTransform.setOrigin( startTransform.getOrigin() + startTransform.getBasis() * (vPiecesCentre * vLocalShapeScale) );
+
 	// create rigid body
 	btRigidBody* body = NULL;
 	btDefaultMotionState* myMotionState = new btDefaultMotionState( startTransform );
@@ -3576,6 +3663,40 @@ void CreateMesh ( int iObjectNumber, int isDynamic, int iLimbNumber, int iTerrai
 
 	// add physics object details to pbject list
 	ODEAddObject ( iObjectNumber, pObject, body, isDynamic, myMotionState, false, bBouyant, gVertices, gIndices, 1, 1, fFriction, mass, false ); // placed at the object's origin, not centred
+	if ( bPiecesCentred )
+	{
+		sObjectList* pAdded = ODEFindID ( iObjectNumber );
+		if ( pAdded )
+		{
+			const btVector3 offset = vPiecesCentre * vLocalShapeScale * gSc;
+			pAdded->bBodyOffset = true;
+			pAdded->vecBodyOffset = GGVECTOR3( offset.x(), offset.y(), offset.z() );
+		}
+	}
+}
+
+// GG: a moving body of a mesh's separate pieces, a convex hull each, joined about their centre: a collision mode 8 entity
+// freed from immobile (Lua SetEntityImmobile) is made of its OBJ collision mesh's pieces (ODESetOBJLoadingFilename names
+// it), a streetlamp's pole and arm, where it was a box of its bounds
+void ODECreateDynamicPieces ( int iObjectNumber, float fWeight, float fFriction )
+{
+	CreateMesh ( iObjectNumber, 1, -1, 0, 100, 4, fWeight, fFriction, -1 );
+}
+
+// GG: 1 when an entity file has an OBJ collision mesh (its .obj, else its _COL.obj), as CreateMesh finds it
+int ODEHasOBJCollisionMesh ( LPSTR pFullFPEFilename )
+{
+	if ( !pFullFPEFilename || strlen ( pFullFPEFilename ) <= 4 ) return 0;
+	char pNoFPE[MAX_PATH];
+	strcpy ( pNoFPE, pFullFPEFilename );
+	pNoFPE[strlen ( pNoFPE ) - 4] = 0;
+	char pMesh[MAX_PATH];
+	sprintf ( pMesh, "%s.obj", pNoFPE );
+	GG_GetRealPath ( pMesh, 0 );
+	if ( FileExist ( pMesh ) != 0 ) return 1;
+	sprintf ( pMesh, "%s_COL.obj", pNoFPE );
+	GG_GetRealPath ( pMesh, 0 );
+	return FileExist ( pMesh ) != 0 ? 1 : 0;
 }
 
 void DeleteallImporters()

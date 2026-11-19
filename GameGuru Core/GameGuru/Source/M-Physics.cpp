@@ -23,6 +23,7 @@ bool g_bMapMatIDToMatIndexAvailable = false;
 int g_iMapMatIDToMatIndex[32];
 int g_iSuccessfullyBlockedAtTime = 0;
 bool g_bSpawningThisOneNow = false;
+bool g_bPhysicsFreeingBody = false; // the body made now is an entity freed from immobile (Lua SetEntityImmobile)
 
 #ifdef OPTICK_ENABLE
 #include "optick.h"
@@ -1157,8 +1158,26 @@ void physics_setupobject ( void )
 				}
 				else
 				{
-					// box
-					ODECreateDynamicBox(t.tphyobj, -1, 0, t.tweight, t.tfriction, -1);
+					// a collision mode 8 entity freed from immobile (Lua SetEntityImmobile) with an OBJ collision mesh: its pieces,
+					// a hull each (a streetlamp's pole and arm), where it was a box of its bounds
+					extern bool g_bPhysicsFreeingBody;
+					extern int ODEHasOBJCollisionMesh ( LPSTR pFullFPEFilename );
+					extern void ODECreateDynamicPieces ( int iObjectNumber, float fWeight, float fFriction );
+					char pFullFPEFilename[MAX_PATH] = "";
+					if (t.tshape == 8 && g_bPhysicsFreeingBody)
+					{
+						sprintf(pFullFPEFilename, "%s\\Files\\entitybank\\%s", g.fpscrootdir_s.Get(), t.entitybank_s[t.entid].Get());
+					}
+					if (pFullFPEFilename[0] && ODEHasOBJCollisionMesh(pFullFPEFilename))
+					{
+						ODESetOBJLoadingFilename(pFullFPEFilename);
+						ODECreateDynamicPieces(t.tphyobj, t.tweight, t.tfriction);
+					}
+					else
+					{
+						// box
+						ODECreateDynamicBox(t.tphyobj, -1, 0, t.tweight, t.tfriction, -1);
+					}
 				}
 
 				// restore object before leaving, its body keeping the FIXNEWY turn

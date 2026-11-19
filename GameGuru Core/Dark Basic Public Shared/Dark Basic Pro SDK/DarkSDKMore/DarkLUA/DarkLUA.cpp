@@ -8444,7 +8444,11 @@ int SetEntityImmobile(lua_State* L)
 				t.e = iEntity;
 				entity_lua_collisionoff();
 				t.e = iEntity;
+				// freed, a collision mode 8 entity's body is made of its OBJ collision mesh's pieces (physics_setupobject)
+				extern bool g_bPhysicsFreeingBody;
+				g_bPhysicsFreeingBody = iImmobile == 0;
 				entity_lua_collisionon();
+				g_bPhysicsFreeingBody = false;
 				t.e = storee;
 				t.entid = storeentid;
 				t.obj = storeobj;
