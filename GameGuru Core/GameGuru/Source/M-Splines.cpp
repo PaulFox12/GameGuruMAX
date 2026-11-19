@@ -921,8 +921,10 @@ struct sRoadFoot
 };
 
 // the centre line about spacing apart with the ground along it (an earlier road's surface included), and the sample at
-// each node; false when there is no line
-static bool spline_centreline( const sSpline& sp, float spacing, std::vector<sRoadSample>& c, std::vector<int>& nodeSample )
+// each node; false when there is no line. With maxTurn (radians), a bend gets a sample at least each maxTurn of its turn
+// (the control polygon's turning, which bounds the curve's): lines offset from it on a tight bend's outside were drawn as
+// long chords cutting in from the kerb
+static bool spline_centreline( const sSpline& sp, float spacing, std::vector<sRoadSample>& c, std::vector<int>& nodeSample, float maxTurn = 0.0f )
 {
 	c.clear();
 	nodeSample.assign( sp.nodes.size(), -1 );
@@ -935,6 +937,18 @@ static bool spline_centreline( const sSpline& sp, float spacing, std::vector<sRo
 		float polygon = 0;
 		for ( int k = 0; k < 3; k++ ) polygon += sqrtf( (ctl[k*2+2] - ctl[k*2]) * (ctl[k*2+2] - ctl[k*2]) + (ctl[k*2+3] - ctl[k*2+1]) * (ctl[k*2+3] - ctl[k*2+1]) );
 		int steps = (int)(polygon / spacing) + 1;
+		if ( maxTurn > 0 )
+		{
+			float turn = 0;
+			for ( int k = 0; k < 2; k++ )
+			{
+				const float ax = ctl[k*2+2] - ctl[k*2], az = ctl[k*2+3] - ctl[k*2+1];
+				const float bx = ctl[k*2+4] - ctl[k*2+2], bz = ctl[k*2+5] - ctl[k*2+3];
+				const float la = sqrtf( ax * ax + az * az ), lb = sqrtf( bx * bx + bz * bz );
+				if ( la > 0.001f && lb > 0.001f ) turn += acosf( std::min( 1.0f, std::max( -1.0f, (ax * bx + az * bz) / (la * lb) ) ) );
+			}
+			steps = std::max( steps, (int)ceilf( turn / maxTurn ) );
+		}
 		if ( steps > 8192 ) steps = 8192;
 		nodeSample[ seg ] = (int)c.size();
 		for ( int k = 0; k < steps; k++ )
@@ -2697,6 +2711,7 @@ struct sSplineMarkings
 	int lanes = 0;
 	float dash = 0, gap = 0;
 	std::vector<float> startPhase, length; // by line (two centre, the lanes' each side, two edges)
+	std::vector<signed char> side; // each piece's edge line: -1 its left, 1 its right; 0 another line
 };
 static std::unordered_map<int, sSplineMarkings> g_SplineMarkings;
 
@@ -2733,13 +2748,76 @@ static void spline_markings( int si, sSplineMarkings& marks )
 	marks.lanes = 0;
 	marks.startPhase.clear();
 	marks.length.clear();
+	marks.side.clear();
 	const sSpline& s = g_Splines[ si ];
 	const sSplineRoad& r = s.road;
 	const int lanes = std::max( 1, std::min( 4, r.markLanes ) );
 	if ( s.kind != SPLINE_KIND_ROAD || (r.markCentre == SPLINE_MARK_NONE && lanes < 2 && !r.markEdges) ) return;
 	std::vector<sRoadSample> c;
 	std::vector<int> nodeSample;
-	if ( !spline_centreline( s, 118.0f, c, nodeSample ) ) return;
+	// a sample each 4 degrees of a bend's turn at least: the edge lines follow the kerb round it
+	if ( !spline_centreline( s, 118.0f, c, nodeSample, 0.0698f ) ) return;
+	// a node where the line turns sharply (a straight spline's corner): its sample made several at the node, their normals
+	// turned from the piece before's to the piece after's a few degrees at a time, so a line on the corner's outside goes
+	// round it on an arc as the kerb does; on its inside a line goes to where the two pieces' offsets cross, as the kerb's
+	// corner does. One sample with the normals averaged drew the outside's lines as chords cutting in from the kerb
+	std::vector<float> cornerNx( c.size(), 0.0f ), cornerNz( c.size(), 0.0f ), miterX( c.size(), 0.0f ), miterZ( c.size(), 0.0f ), cornerTurn( c.size(), 0.0f );
+	std::vector<float> cornerIn( c.size() * 2, 0.0f ), cornerOut( c.size() * 2, 0.0f ); // the pieces' directions into and out of it
+	{
+		std::vector<sRoadSample> grown;
+		std::vector<float> gnx, gnz, gmx, gmz, gturn, gin, gout;
+		std::vector<int> grownNode( nodeSample.size(), -1 );
+		std::vector<int> nodeAt( c.size(), -1 );
+		for ( size_t k = 0; k < nodeSample.size(); k++ ) if ( nodeSample[k] >= 0 && nodeSample[k] < (int)c.size() ) nodeAt[ nodeSample[k] ] = (int)k;
+		// a closed road's last sample is its first node again (or an open road's ends meet, a block drawn round as one line):
+		// the corner there turns from its last piece to its first, its copies at the end and its last copy's normal at the start
+		const int count = (int)c.size();
+		const bool bClosed = s.nodes.size() > 2 && count > 3 && (s.closed || ((c[0].x - c[ count - 1 ].x) * (c[0].x - c[ count - 1 ].x) + (c[0].z - c[ count - 1 ].z) * (c[0].z - c[ count - 1 ].z) < 4.0f));
+		for ( int i = 0; i < count; i++ )
+		{
+			if ( nodeAt[i] >= 0 ) grownNode[ nodeAt[i] ] = (int)grown.size();
+			int copies = 1;
+			bool bLoopStart = false;
+			float inX = 0, inZ = 0, outX = 0, outZ = 0, turn = 0;
+			const bool bLoopEnd = bClosed && count > 3 && (i == 0 || i == count - 1);
+			if ( (nodeAt[i] >= 0 && i > 0 && i + 1 < count) || bLoopEnd )
+			{
+				const sRoadSample& before = i > 0 ? c[ i - 1 ] : c[ count - 2 ];
+				const sRoadSample& after = i + 1 < count ? c[ i + 1 ] : c[ 1 ];
+				inX = c[i].x - before.x; inZ = c[i].z - before.z;
+				outX = after.x - c[i].x; outZ = after.z - c[i].z;
+				const float li = sqrtf( inX * inX + inZ * inZ ), lo = sqrtf( outX * outX + outZ * outZ );
+				if ( li > 0.001f && lo > 0.001f )
+				{
+					inX /= li; inZ /= li; outX /= lo; outZ /= lo;
+					turn = acosf( std::min( 1.0f, std::max( -1.0f, inX * outX + inZ * outZ ) ) );
+					if ( turn > 0.0524f ) copies = (int)ceilf( turn / 0.0698f ) + 1;
+					bLoopStart = copies > 1 && bLoopEnd && i == 0;
+				}
+			}
+			for ( int q = bLoopStart ? copies - 1 : 0; q < copies; q++ )
+			{
+				grown.push_back( c[i] );
+				gin.push_back( inX ); gin.push_back( inZ ); gout.push_back( outX ); gout.push_back( outZ );
+				if ( copies == 1 ) { gnx.push_back( 0 ); gnz.push_back( 0 ); gmx.push_back( 0 ); gmz.push_back( 0 ); gturn.push_back( 0 ); continue; }
+				// the normal turned q steps of the corner from the piece before's to the piece after's (left normals)
+				const float n0x = -inZ, n0z = inX, n1x = -outZ, n1z = outX;
+				const float side = (outX * n0x + outZ * n0z) >= 0 ? 1.0f : -1.0f; // turning to the left normal's side
+				const float a = side * turn * (float)q / (float)(copies - 1);
+				const float ca = cosf( a ), sa = sinf( a );
+				gnx.push_back( n0x * ca - n0z * sa );
+				gnz.push_back( n0x * sa + n0z * ca );
+				const float m = 1.0f + (n0x * n1x + n0z * n1z);
+				gmx.push_back( m > 0.05f ? (n0x + n1x) / m : 0.0f );
+				gmz.push_back( m > 0.05f ? (n0z + n1z) / m : 0.0f );
+				gturn.push_back( side );
+			}
+		}
+		c.swap( grown );
+		cornerNx.swap( gnx ); cornerNz.swap( gnz ); miterX.swap( gmx ); miterZ.swap( gmz ); cornerTurn.swap( gturn );
+		cornerIn.swap( gin ); cornerOut.swap( gout );
+		for ( size_t k = 0; k < nodeSample.size(); k++ ) nodeSample[k] = grownNode[k];
+	}
 	const int n = (int)c.size();
 
 	// each sample's segment and its left normal
@@ -2754,14 +2832,54 @@ static void spline_markings( int si, sSplineMarkings& marks )
 	std::vector<float> nx( n ), nz( n );
 	for ( int i = 0; i < n; i++ )
 	{
-		const sRoadSample& a = c[ std::max( 0, i - 1 ) ];
-		const sRoadSample& b = c[ std::min( n - 1, i + 1 ) ];
+		if ( cornerTurn[i] != 0 ) { nx[i] = cornerNx[i]; nz[i] = cornerNz[i]; continue; }
+		// beside a corner's samples the normal is its own piece's, not turned toward the corner
+		const sRoadSample& a = c[ (i > 0 && cornerTurn[ i - 1 ] == 0) ? i - 1 : i ];
+		const sRoadSample& b = c[ (i + 1 < n && cornerTurn[ i + 1 ] == 0) ? i + 1 : i ];
 		float tx = b.x - a.x, tz = b.z - a.z;
-		const float len = sqrtf( tx * tx + tz * tz );
+		float len = sqrtf( tx * tx + tz * tz );
+		if ( len <= 0 )
+		{
+			const sRoadSample& a2 = c[ std::max( 0, i - 1 ) ];
+			const sRoadSample& b2 = c[ std::min( n - 1, i + 1 ) ];
+			tx = b2.x - a2.x; tz = b2.z - a2.z;
+			len = sqrtf( tx * tx + tz * tz );
+		}
 		if ( len > 0 ) { tx /= len; tz /= len; }
 		nx[ i ] = -tz;
 		nz[ i ] = tx;
 	}
+	// the corner nearest each sample along its pieces (within twice the road's width): on a corner's inside a line stops where
+	// the two pieces' offsets cross, else it ran on past it and doubled back
+	std::vector<int> nearCorner( n, -1 );
+	std::vector<float> nearDist( n, 0.0f );
+	for ( int g0 = 0; g0 < n; g0++ )
+	{
+		if ( cornerTurn[ g0 ] == 0 || (g0 > 0 && cornerTurn[ g0 - 1 ] != 0) ) continue;
+		int g1 = g0;
+		while ( g1 + 1 < n && cornerTurn[ g1 + 1 ] != 0 ) g1++;
+		for ( int i = g0 - 1; i >= 0 && cornerTurn[i] == 0 && c[ g0 ].s - c[i].s < r.width * 2.0f; i-- )
+		{
+			if ( nearCorner[i] < 0 || c[ g0 ].s - c[i].s < nearDist[i] ) { nearCorner[i] = g0; nearDist[i] = c[ g0 ].s - c[i].s; }
+		}
+		for ( int i = g1 + 1; i < n && cornerTurn[i] == 0 && c[i].s - c[ g1 ].s < r.width * 2.0f; i++ )
+		{
+			if ( nearCorner[i] < 0 || c[i].s - c[ g1 ].s < nearDist[i] ) { nearCorner[i] = g0; nearDist[i] = c[i].s - c[ g1 ].s; }
+		}
+		g0 = g1;
+	}
+	// a line's point at a sample: offset along its normal; on a corner's inside, the crossing of the two pieces' offsets once
+	// the point is past it along the road (a curve running into the corner included)
+	auto lineXZ = [&]( int i, float offset, float* px, float* pz )
+	{
+		*px = c[i].x + nx[i] * offset; *pz = c[i].z + nz[i] * offset;
+		const int k = cornerTurn[i] != 0 ? i : nearCorner[i];
+		if ( k < 0 || offset * cornerTurn[k] <= 0 ) return;
+		const float mx = c[k].x + miterX[k] * offset, mz = c[k].z + miterZ[k] * offset;
+		if ( k == i ) { *px = mx; *pz = mz; return; }
+		const float past = i < k ? (*px - mx) * cornerIn[ k * 2 ] + (*pz - mz) * cornerIn[ k * 2 + 1 ] : (mx - *px) * cornerOut[ k * 2 ] + (mz - *pz) * cornerOut[ k * 2 + 1 ];
+		if ( past > 0 ) { *px = mx; *pz = mz; }
+	};
 
 	// the centre line's style at each sample: a segment's own markings, then a bend tighter than Solid on Bends (and 15 m
 	// either side) solid; the dashed stretches within three dash lengths of a solid one forced so are warning lines
@@ -2956,8 +3074,8 @@ static void spline_markings( int si, sSplineMarkings& marks )
 				float width, dash, gap;
 				const float* colour;
 				lineAt( i, slot, off[i], width, dash, gap, colour );
-				ax[i] = c[i].x + nx[i] * off[i]; az[i] = c[i].z + nz[i] * off[i];
-				bx[i] = c[i+1].x + nx[i+1] * off[i]; bz[i] = c[i+1].z + nz[i+1] * off[i];
+				lineXZ( i, off[i], &ax[i], &az[i] );
+				lineXZ( i + 1, off[i], &bx[i], &bz[i] );
 			}
 			for ( int i = 1; i < n - 1; i++ )
 			{
@@ -3011,8 +3129,10 @@ static void spline_markings( int si, sSplineMarkings& marks )
 			float offset, width, dash, gap;
 			const float* colour;
 			lineAt( i, slot, offset, width, dash, gap, colour );
-			const float ax = c[i].x + nx[i] * offset, az = c[i].z + nz[i] * offset;
-			const float bx = c[i+1].x + nx[i+1] * offset, bz = c[i+1].z + nz[i+1] * offset;
+			float ax, az;
+			lineXZ( i, offset, &ax, &az );
+			float bx, bz;
+			lineXZ( i + 1, offset, &bx, &bz );
 			const float kept = keepTo[ (size_t)slot * n + i ] - keepFrom[ (size_t)slot * n + i ];
 			lineLength[ slot ] += sqrtf( (bx - ax) * (bx - ax) + (bz - az) * (bz - az) ) * std::max( 0.0f, kept );
 		}
@@ -3072,8 +3192,10 @@ static void spline_markings( int si, sSplineMarkings& marks )
 			float offset, width, dash, gap;
 			const float* colour;
 			bool bLine = lineAt( i, slot, offset, width, dash, gap, colour );
-			const float ax = c[i].x + nx[i] * offset, az = c[i].z + nz[i] * offset;
-			const float bx = c[i+1].x + nx[i+1] * offset, bz = c[i+1].z + nz[i+1] * offset;
+			float ax, az;
+			lineXZ( i, offset, &ax, &az );
+			float bx, bz;
+			lineXZ( i + 1, offset, &bx, &bz );
 			const float length = sqrtf( (bx - ax) * (bx - ax) + (bz - az) * (bz - az) );
 			const float k0 = keepFrom[ (size_t)slot * n + i ], k1 = keepTo[ (size_t)slot * n + i ];
 			if ( bLine && k1 > k0 )
@@ -3119,6 +3241,7 @@ static void spline_markings( int si, sSplineMarkings& marks )
 					piece.r = colour[0]; piece.g = colour[1]; piece.b = colour[2];
 					piece.wear = r.markWear;
 					out.push_back( piece );
+					marks.side.push_back( (signed char)(bEdge ? (slot == slots - 2 ? -1 : 1) : 0) );
 					pBounds[0] = std::min( pBounds[0], std::min( px0, px1 ) - width );
 					pBounds[1] = std::min( pBounds[1], std::min( pz0, pz1 ) - width );
 					pBounds[2] = std::max( pBounds[2], std::max( px0, px1 ) + width );
@@ -4799,6 +4922,39 @@ void spline_updatepavements( void )
 	}
 	if ( g_pSplinePaveDump )
 	{
+		// and the roads' edge lines ("E si side ax az bx bz halfwidth dash", then the kerb's outline distance at its start, middle
+		// and end and the distance it should be: in from the carriageway's edge by the edge inset, the kerb in by Kerb Offset
+		// on a side with a pavement; -1 its left, 1 its right)
+		std::vector<int> nearRoads, nearIndex;
+		std::vector<std::vector<int>> nearSegs;
+		std::vector<const sSplinePaveCorner*> nearCorners;
+		std::vector<sSplinePaveNear> nears;
+		auto outlineAt = [&]( float px, float pz ) -> float
+		{
+			const float rect[4] = { px - 1.0f, pz - 1.0f, px + 1.0f, pz + 1.0f };
+			float maxWidth = 0;
+			spline_paveroadsnear( roads, corners, rect, reach, nearRoads, nearIndex, nearSegs, nearCorners, &maxWidth );
+			if ( nearRoads.empty() ) return FLT_MAX;
+			int arg = -1;
+			return spline_paveoutlineat( roads, nearRoads, nearSegs, meets, nearCorners.data(), nearCorners.size(), reach, px, pz, nears, &arg );
+		};
+		for ( int si = 0; si < (int)g_Splines.size(); si++ )
+		{
+			const sSplineRoad& r = g_Splines[ si ].road;
+			if ( g_Splines[ si ].kind != SPLINE_KIND_ROAD || !r.markEdges ) continue;
+			sSplineMarkings lines;
+			spline_markings( si, lines );
+			const int paveSides = spline_pavesides( g_Splines[ si ] );
+			for ( size_t k = 0; k < lines.pieces.size() && k < lines.side.size(); k++ )
+			{
+				if ( !lines.side[k] ) continue;
+				const GGTerrain::GGTerrainMarking& p = lines.pieces[k];
+				const bool bKerb = (paveSides & (lines.side[k] < 0 ? SPLINE_PAVE_LEFT : SPLINE_PAVE_RIGHT)) != 0;
+				const float want = -(r.markEdgeInset - (bKerb ? r.paveInset : 0.0f));
+				fprintf( g_pSplinePaveDump, "E %d %d %.2f %.2f %.2f %.2f %.2f %.1f %.2f %.2f %.2f %.2f\n", si, (int)lines.side[k], p.ax, p.az, p.bx, p.bz, p.halfWidth, p.dash,
+					outlineAt( p.ax, p.az ), outlineAt( (p.ax + p.bx) * 0.5f, (p.az + p.bz) * 0.5f ), outlineAt( p.bx, p.bz ), want );
+			}
+		}
 		fprintf( g_pSplinePaveDump, "DONE %d\n", (int)chunkList.size() );
 		fclose( g_pSplinePaveDump );
 		g_pSplinePaveDump = nullptr;
