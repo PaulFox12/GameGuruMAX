@@ -1534,6 +1534,8 @@ void physics_free ( void )
 {
 	g_DroppedWeapons.clear();
 	g_SettledWeapons.clear();
+	extern void entity_clearlastdamage ( void );
+	entity_clearlastdamage ( );
 	// special hybrid collision mode can hide static limbs, so reshow them when physics done
 	for (t.e = 1; t.e <= g.entityelementlist; t.e++)
 	{
@@ -1779,6 +1781,12 @@ void physics_explodesphere ( void )
 					// explosion (time delayed explosion), except when a grenade/missile vs exploder, instead make it instant :)
 					t.tdamagesource = 2;
 					if (t.texplodesourceEntity == 0) t.tdamagesource = 3;
+					// who caused the blast, for Lua's GetEntityLastDamage (weapon_projectileresult_make)
+					extern int g_iDamageBy, g_iDamageVia, g_iBlastBy, g_iBlastVia;
+					extern std::string g_sDamageWeapon, g_sBlastWeapon;
+					g_iDamageBy = g_iBlastBy;
+					g_iDamageVia = g_iBlastVia;
+					g_sDamageWeapon = g_sBlastWeapon;
 					t.ttte = t.e ; entity_applydamage( ); t.e = t.ttte;
 
 					//  inform darkAI of the explosion
@@ -2878,6 +2886,9 @@ void physics_player_takedamage ( void )
 					t.twhox_f = t.brayx1_f;
 					t.twhoz_f = t.brayz1_f;
 					t.tdamagesource = 1;
+					// the player's, for Lua's GetEntityLastDamage
+					extern int g_iDamageBy;
+					g_iDamageBy = -1;
 					entity_applydamage ();
 				}
 

@@ -2568,6 +2568,9 @@ void entity_lua_setentityhealth_core ( int iSilentOrDamage )
 			t.brayz1_f=t.entityelement[t.e].z;
 			t.brayz2_f=t.entityelement[t.e].z;
 			t.tallowanykindofdamage=1;
+			// a script's own change, not kept as the entity's last hit (GetEntityLastDamage)
+			extern bool g_bDamageFromScript;
+			g_bDamageFromScript = true;
 			entity_applydamage ( );
 			t.tallowanykindofdamage=0;
 		}
@@ -2601,6 +2604,8 @@ void entity_lua_setentityhealth_core ( int iSilentOrDamage )
 					t.brayz1_f = t.entityelement[t.e].z;
 					t.brayz2_f = t.entityelement[t.e].z;
 					t.tallowanykindofdamage = 1;
+					extern bool g_bDamageFromScript;
+					g_bDamageFromScript = true;
 					entity_applydamage ();
 					entity_applydecalfordamage(t.e, -1, -1, -1);
 					t.tallowanykindofdamage = 0;

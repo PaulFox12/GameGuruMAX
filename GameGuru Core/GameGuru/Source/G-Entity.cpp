@@ -2256,6 +2256,9 @@ void entity_loop ( void )
 							}
 						}
 					}
+					// its blast credited to whoever last damaged it (weapon_projectileresult_make)
+					extern int g_iExplodingEntity;
+					g_iExplodingEntity = t.ee;
 					weapon_projectileresult_make ( );
 				}
 			}
@@ -2735,9 +2738,78 @@ void entity_adddestroyevent(int e)
 	}
 }
 
+// GG: who dealt the damage entity_applydamage is about to apply, set by its callers just before: -1 the player, an
+// entity's index, 0 not known (a script's damage, drowning); the gun or projectile's name; and the entity whose explosion
+// dealt it (an explodable going off, its blast then credited to whoever last damaged it). Taken and cleared by
+// entity_applydamage, which keeps the last hit on each entity for Lua's GetEntityLastDamage
+int g_iDamageBy = 0;
+bool g_bDamageFromScript = false; // a script's own SetEntityHealth: not kept as a hit
+int g_iDamageVia = 0;
+std::string g_sDamageWeapon;
+struct sEntityLastDamage
+{
+	int iBy;
+	int iKind;
+	int iAmount;
+	DWORD dwTime;
+	int iVia;
+	std::string sWeapon;
+};
+static std::vector<sEntityLastDamage> g_EntityLastDamage;
+
+// the last hit on entity e: false when it has taken none since the level started
+bool entity_getlastdamage ( int e, int* pBy, int* pKind, int* pAmount, DWORD* pTime, int* pVia, const char** ppWeapon )
+{
+	if ( e <= 0 || e >= (int)g_EntityLastDamage.size() || g_EntityLastDamage[e].dwTime == 0 ) return false;
+	const sEntityLastDamage& last = g_EntityLastDamage[e];
+	if ( pBy ) *pBy = last.iBy;
+	if ( pKind ) *pKind = last.iKind;
+	if ( pAmount ) *pAmount = last.iAmount;
+	if ( pTime ) *pTime = last.dwTime;
+	if ( pVia ) *pVia = last.iVia;
+	if ( ppWeapon ) *ppWeapon = last.sWeapon.c_str();
+	return true;
+}
+
+// who last damaged entity e (-1 the player), 0 when not known: the credit for its own explosion
+int entity_lastdamageby ( int e )
+{
+	if ( e <= 0 || e >= (int)g_EntityLastDamage.size() ) return 0;
+	return g_EntityLastDamage[e].iBy;
+}
+
+// every entity's last hit forgotten (a level's start)
+void entity_clearlastdamage ( void )
+{
+	g_EntityLastDamage.clear();
+	g_iDamageBy = 0;
+	g_iDamageVia = 0;
+	g_sDamageWeapon.clear();
+}
+
 void entity_applydamage ( void )
 {
-	if ( t.entityelement[t.ttte].obj <= 0 ) return;
+	// the hit kept for Lua (GetEntityLastDamage), a script's own SetEntityHealth aside, even when the rules below give no
+	// damage: kind 1 a bullet or blow, 2 an explosion (a projectile's own hit, or its blast: source 3 the player's), 0
+	// anything else
+	if ( t.ttte > 0 && t.ttte <= g.entityelementlist && !g_bDamageFromScript )
+	{
+		if ( (int)g_EntityLastDamage.size() <= t.ttte ) g_EntityLastDamage.resize ( t.ttte + 64, { 0, 0, 0, 0, 0, std::string() } );
+		sEntityLastDamage& last = g_EntityLastDamage[t.ttte];
+		last.iBy = g_iDamageBy;
+		last.iKind = t.tdamagesource == 1 ? 1 : ( t.tdamagesource == 2 || t.tdamagesource == 3 ) ? 2 : 0;
+		last.iAmount = (int)t.tdamage;
+		last.dwTime = Timer();
+		if ( last.dwTime == 0 ) last.dwTime = 1;
+		last.iVia = g_iDamageVia;
+		last.sWeapon = g_sDamageWeapon;
+	}
+	g_iDamageBy = 0;
+	g_iDamageVia = 0;
+	g_sDamageWeapon.clear();
+	g_bDamageFromScript = false;
+
+	if ( t.ttte <= 0 || t.entityelement[t.ttte].obj <= 0 ) return;
 	if ( ObjectExist ( t.entityelement[t.ttte].obj ) == 0 ) return;
 
 	int iHealthBefore = t.entityelement[t.ttte].health;
@@ -4077,7 +4149,9 @@ void entity_hitentity ( int e, int obj )
 			t.tdamageforce=0;
 		}
 
-		// apply the damage
+		// apply the damage (the player's round or blow)
+		g_iDamageBy = -1;
+		if ( t.gunid > 0 && t.gunid < (int)t.gun.size() ) g_sDamageWeapon = t.gun[t.gunid].name_s.Get();
 		entity_applydamage ( );
 
 		// check if we hit an organic or custom character (animal, zombie, etc)

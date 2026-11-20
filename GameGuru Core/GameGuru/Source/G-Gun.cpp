@@ -2538,6 +2538,10 @@ void gun_control ( void )
 					t.twhox_f = t.brayx1_f;
 					t.twhoz_f = t.brayz1_f;
 					t.tdamagesource = 1;
+					extern int g_iDamageBy;
+					extern std::string g_sDamageWeapon;
+					g_iDamageBy = -1;
+					if ( t.gunid > 0 && t.gunid < (int)t.gun.size() ) g_sDamageWeapon = t.gun[t.gunid].name_s.Get();
 					entity_applydamage();
 
 					// do this once

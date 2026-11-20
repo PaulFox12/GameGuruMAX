@@ -435,6 +435,14 @@ static bool g_bProjectileResultOnNormal = false;
 // GG: the projectile event's surface normal and limb, g_projectileevent_nx/ny/nz and g_projectileevent_limb (M-LUA.cpp)
 float g_fProjectileEventNormal[3] = { 0, 0, 0 };
 int g_iProjectileEventLimb = -1;
+
+// GG: who caused the projectile result being made (weapon_projectileresult_make): -1 the player, an entity's index, 0 not
+// known; the explodable entity it came through (0 none); the projectile's name. Its hit and its blast's damage are
+// credited to them (entity_applydamage, physics_explodesphere), and the event to Lua (g_projectileevent_source, _via).
+// g_iExplodingEntity is the explodable going off, set by G-Entity's fuse just before it makes its explosion
+int g_iBlastBy = 0, g_iBlastVia = 0, g_iExplodingEntity = 0;
+std::string g_sBlastWeapon;
+int g_iProjectileEventSource = 0, g_iProjectileEventVia = 0;
 static void weapon_projectile_setresultnormal ( GGVECTOR3 vecNormal, GGVECTOR3 vecTravel, int iLimb )
 {
 	g_iProjectileResultLimb = iLimb;
@@ -2012,6 +2020,23 @@ void weapon_projectileresult_make (int customdecal )
 	g_iProjectileResultLimb = -1;
 	g_bProjectileResultOnNormal = false;
 
+	// GG: who caused it, for its hit and its blast (Lua's GetEntityLastDamage and g_projectileevent_source): a projectile's
+	// firer (its source entity, 0 being the player), or for an explodable entity going off (G-Entity's fuse) whoever last
+	// damaged it, the entity itself kept as the one it came through
+	if ( g_iExplodingEntity > 0 && g_iExplodingEntity == t.tSourceEntity )
+	{
+		extern int entity_lastdamageby ( int e );
+		g_iBlastVia = t.tSourceEntity;
+		g_iBlastBy = entity_lastdamageby ( t.tSourceEntity );
+	}
+	else
+	{
+		g_iBlastVia = 0;
+		g_iBlastBy = t.tSourceEntity > 0 ? t.tSourceEntity : -1;
+	}
+	g_sBlastWeapon = t.tProjectileName_s.Get();
+	g_iExplodingEntity = 0;
+
 	// the player's hit record: an entry for each entity a player projectile's hit or blast damages
 	if ( t.tSourceEntity == 0 && t.tProj > 0 && t.tProj <= g.weaponSystem.numProjectiles )
 		playerhit_openblast ( t.WeaponProjectile[t.tProj].iPlayerShot, t.WeaponProjectile[t.tProj].iPlayerGunID, t.tx_f, t.ty_f, t.tz_f );
@@ -2040,6 +2065,9 @@ void weapon_projectileresult_make (int customdecal )
 							t.brayy1_f=CameraPositionY(t.terrain.gameplaycamera);
 							t.brayz1_f=CameraPositionZ(t.terrain.gameplaycamera);
 							t.brayx2_f=t.tx_f ; t.brayy2_f=t.ty_f ; t.brayz2_f=t.tz_f;
+							extern int g_iDamageBy, g_iDamageVia;
+							extern std::string g_sDamageWeapon;
+							g_iDamageBy = g_iBlastBy ; g_iDamageVia = g_iBlastVia ; g_sDamageWeapon = g_sBlastWeapon;
 							entity_applydamage ( );
 							break;
 						}
@@ -2160,6 +2188,8 @@ void weapon_projectileresult_make (int customdecal )
 				g_fProjectileEventNormal[1] = vecResultNormal.y;
 				g_fProjectileEventNormal[2] = vecResultNormal.z;
 				g_iProjectileEventLimb = -1;
+				g_iProjectileEventSource = g_iBlastBy;
+				g_iProjectileEventVia = g_iBlastVia;
 			}
 
 			// trigger direct damage if hit an entity
@@ -2179,6 +2209,9 @@ void weapon_projectileresult_make (int customdecal )
 							t.brayy1_f=CameraPositionY(t.terrain.gameplaycamera);
 							t.brayz1_f=CameraPositionZ(t.terrain.gameplaycamera);
 							t.brayx2_f=t.tx_f ; t.brayy2_f=t.ty_f ; t.brayz2_f=t.tz_f;
+							extern int g_iDamageBy, g_iDamageVia;
+							extern std::string g_sDamageWeapon;
+							g_iDamageBy = g_iBlastBy ; g_iDamageVia = g_iBlastVia ; g_sDamageWeapon = g_sBlastWeapon;
 							entity_applydamage ( );
 							if ( strlen ( t.tProjectileName_s.Get() ) > 0 )
 							{

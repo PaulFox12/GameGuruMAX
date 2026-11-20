@@ -2539,6 +2539,11 @@ void darkai_shooteffect (void)
 			t.ttte = ee;
 			t.tdamageforce = 0;
 			t.tdamagesource = 1;
+			// the shooter, for Lua's GetEntityLastDamage
+			extern int g_iDamageBy;
+			extern std::string g_sDamageWeapon;
+			g_iDamageBy = t.te;
+			if ( t.tgunid > 0 && t.tgunid < (int)t.gun.size() ) g_sDamageWeapon = t.gun[t.tgunid].name_s.Get();
 			entity_applydamage ();
 
 			// create either material decal specified in FPE or blood decal
@@ -2756,6 +2761,11 @@ void darkai_shootcharacter (void)
 		}
 		t.tdamage = t.tdamage * t.bulletfinalstrengthmod;
 		t.tdamagesource = 1;
+		// the player's round, for Lua's GetEntityLastDamage
+		extern int g_iDamageBy;
+		extern std::string g_sDamageWeapon;
+		g_iDamageBy = -1;
+		if ( t.gunid > 0 && t.gunid < (int)t.gun.size() ) g_sDamageWeapon = t.gun[t.gunid].name_s.Get();
 		entity_applydamage ();
 
 		// and for extra viceral effect, play some thumps

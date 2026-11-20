@@ -80,6 +80,9 @@ void lua_init ( void )
 	g_fProjectileEventNormal[0] = g_fProjectileEventNormal[1] = g_fProjectileEventNormal[2] = 0.0f;
 	extern int g_iProjectileEventLimb;
 	g_iProjectileEventLimb = -1;
+	extern int g_iProjectileEventSource, g_iProjectileEventVia;
+	g_iProjectileEventSource = 0;
+	g_iProjectileEventVia = 0;
 
 	//LB: more clearances
 	t.plrkeyForceKeystate = 0;
@@ -724,6 +727,11 @@ void lua_loop_begin ( void )
 	// GG: the limb of g_projectileevent_entityhit's model it ended on, when that model was tested; -1 when not known
 	extern int g_iProjectileEventLimb;
 	LuaSetInt("g_projectileevent_limb", g_iProjectileEventLimb);
+	// GG: who caused it: -1 the player, the firing entity, 0 not known; and the explodable it came through (a barrel set off
+	// by a shot, its source then whoever last damaged the barrel), 0 none
+	extern int g_iProjectileEventSource, g_iProjectileEventVia;
+	LuaSetInt("g_projectileevent_source", g_iProjectileEventSource);
+	LuaSetInt("g_projectileevent_via", g_iProjectileEventVia);
 
 	// at new LUA loop start, can activate any newly created spawned entities currently in limbo
 	bool bBringNewOnesToLife = false;

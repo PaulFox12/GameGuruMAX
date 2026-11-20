@@ -856,6 +856,44 @@ void AutoHarness_CheckForCommand ( void )
 		_snprintf ( result, sizeof(result), "OK: %s ragdolls=%d static=%d awake=%d awake_slow=%d bodies_awake=%d fastest=%.1f units/s %.2f rad/s | rule=%d distance=%.2f seconds=%.2f settled_by_place=%d settled_by_speed=%d",
 			cmd, total, stat, total - stat, slow, bodies, lin, ang, g_iRagdollSettleRule, g_fRagdollSettleDistance, g_fRagdollSettleSeconds, g_iRagdollSettledByPlace, g_iRagdollSettledBySpeed );
 	}
+	else if ( _stricmp ( cmd, "TEST_PROJECTILE" ) == 0 )
+	{
+		// TEST_PROJECTILE <gun> <source> <x> <y> <z> <pitch> <yaw>: a test launch of a gun's projectile as its firer launches
+		// it (weapon_projectile_make): source 0 the player, else the firing entity, from a point at an angle (pitch down
+		// positive); for shooter_credit_check.py
+		char gun[256] = ""; int source = 0; float x = 0, y = 0, z = 0, pitch = 0, yaw = 0;
+		if ( !arg || sscanf ( arg, "%255s %d %f %f %f %f %f", gun, &source, &x, &y, &z, &pitch, &yaw ) < 7 )
+		{
+			_snprintf ( result, sizeof(result), "ERROR: TEST_PROJECTILE <gun> <source> <x> <y> <z> <pitch> <yaw>" );
+		}
+		else
+		{
+			int gunid = 0;
+			for ( int g2 = 1; g2 < (int)t.gun.size(); g2++ ) if ( _stricmp ( t.gun[g2].name_s.Get(), gun ) == 0 ) { gunid = g2; break; }
+			if ( gunid == 0 )
+			{
+				_snprintf ( result, sizeof(result), "ERROR: TEST_PROJECTILE no gun %s", gun );
+			}
+			else
+			{
+				extern void weapon_getprojectileid ( void );
+				extern void weapon_projectile_make ( bool bUsingVRForAngle, bool bDoNotAdvanceToAvoidPenetration );
+				int iStoreGunID = t.gunid;
+				t.gunid = gunid;
+				t.tProjectileType_s = t.gun[gunid].projectile_s; weapon_getprojectileid ( );
+				int type = t.tProjectileType;
+				if ( type > 0 )
+				{
+					t.tSourceEntity = source; t.tTracerFlag = 0;
+					t.tStartX_f = x; t.tStartY_f = y; t.tStartZ_f = z;
+					t.tAngX_f = pitch; t.tAngY_f = yaw; t.tAngZ_f = 0;
+					weapon_projectile_make ( false, false );
+				}
+				t.gunid = iStoreGunID;
+				_snprintf ( result, sizeof(result), "OK: TEST_PROJECTILE gun=%d projectile=%s type=%d source=%d", gunid, t.gun[gunid].projectile_s.Get(), type, source );
+			}
+		}
+	}
 	else if ( _stricmp ( cmd, "PHYS_WAKES" ) == 0 )
 	{
 		// PHYS_WAKES [reset | 0 | 1 | list]: the wakes of what rests on a static body Lua's CollisionOff removes
