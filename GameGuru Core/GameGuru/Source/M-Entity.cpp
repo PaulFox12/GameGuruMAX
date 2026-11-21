@@ -8444,6 +8444,15 @@ void entity_performtheundoaction (eUndoEventType eventtype, void* pEventData)
 			//PE: Before adding to map , make sure to fillout all informations from master to t.grideleprof.
 			entity_fillgrideleproffromprofile();
 
+			// its own properties as they were when it was deleted (its name, script, behaviour settings...), not the bank's
+			// defaults; its logic links were cut both ways at the delete, and its particle emitter went with it
+			if ( pEvent->pEleprof )
+			{
+				t.grideleprof = *(entityeleproftype*)pEvent->pEleprof;
+				entity_cleargrideleprofrelationshipdata();
+				t.grideleprof.newparticle.emitterid = -1;
+			}
+
 			t.grideleprof.trigger.waypointzoneindex = pEvent->grideleprof_trigger_waypointzoneindex;
 			t.entitybankindex = t.entid;
 			t.gridentityeditorfixed = pEvent->gridentityeditorfixed;
@@ -8522,7 +8531,7 @@ void entity_performtheundoaction (eUndoEventType eventtype, void* pEventData)
 		}
 
 		// and delete the event data (the action consumes the memory created to store the event data)
-		delete pEventData;
+		undosys_object_freeevent ( eventtype, pEventData );
 		pEventData = NULL;
 	}
 }

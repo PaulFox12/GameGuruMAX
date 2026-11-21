@@ -68,8 +68,26 @@ void undosys_object_delete (int te, int waypointzoneindex, int editorfixed, int 
 	pEvent->gridentityscaley_f = scaley;
 	pEvent->gridentityscalez_f = scalez;
 
+	// its own properties (its name, script, behaviour settings, light...), so undo brings it back as it was, not as the
+	// bank's defaults
+	pEvent->pEleprof = NULL;
+	if ( te > 0 && te < (int)t.entityelement.size() ) pEvent->pEleprof = new entityeleproftype ( t.entityelement[te].eleprof );
+
 	// add to undo stack
 	undosys_addevent(eUndoSys_Object, eUndoSys_Object_Delete, pEvent);
+}
+
+void undosys_object_freeevent ( eUndoEventType event, void* pEventData )
+{
+	if ( pEventData == NULL ) return;
+	if ( event == eUndoSys_Object_Delete )
+	{
+		sUndoSysEventObjectDelete* pEvent = (sUndoSysEventObjectDelete*)pEventData;
+		if ( pEvent->pEleprof ) delete (entityeleproftype*)pEvent->pEleprof;
+		delete pEvent;
+		return;
+	}
+	delete pEventData;
 }
 
 void undosys_object_deletewaypoint(int waypointindex, int e)

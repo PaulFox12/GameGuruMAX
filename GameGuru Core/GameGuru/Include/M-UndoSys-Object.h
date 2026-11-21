@@ -62,7 +62,10 @@ struct sUndoSysEventObjectDelete
 	float gridentityscalex_f;
 	float gridentityscaley_f;
 	float gridentityscalez_f;
+	void* pEleprof; // its own properties (an entityeleproftype: the name and everything the user set), restored by undo
 };
+// frees an object event's data with its own type (a deleted entity's properties with it)
+void undosys_object_freeevent (eUndoEventType event, void* pEventData);
 void undosys_object_delete (int e, int waypointzoneindex, int editorfixed, int maintype, int bankindex, int staticflag, int iHasParentIndex, float x, float y, float z, float rx, float ry, float rz, int quatmode, float quatx, float quaty, float quatz, float quatw, float scalex, float scaley, float scalez);
 void undosys_object_deletewaypoint(int waypointindex, int e);
 

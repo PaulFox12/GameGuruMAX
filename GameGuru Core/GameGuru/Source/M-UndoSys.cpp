@@ -314,7 +314,7 @@ void undosys_clearall(void)
 	for (int n = 0; n < undostacksize; n++)
 	{
 		sUndoStackItem eventitem = g_UndoSysObjectStack[eUndoSys_UndoList].top();
-		if (eventitem.pEventData) delete eventitem.pEventData;
+		if (eventitem.pEventData) undosys_object_freeevent(eventitem.event, eventitem.pEventData);
 		g_UndoSysObjectStack[eUndoSys_UndoList].pop();
 	}
 	undostacksize = g_UndoSysTerrainStack[eUndoSys_UndoList].size();
@@ -345,7 +345,7 @@ void undosys_clearredostack (void)
 	for (int n = 0; n < redostacksize; n++)
 	{
 		sUndoStackItem eventitem = g_UndoSysObjectStack[eUndoSys_RedoList].top();
-		if (eventitem.pEventData) delete eventitem.pEventData;
+		if (eventitem.pEventData) undosys_object_freeevent(eventitem.event, eventitem.pEventData);
 		g_UndoSysObjectStack[eUndoSys_RedoList].pop();
 	}
 	redostacksize = g_UndoSysTerrainStack[eUndoSys_RedoList].size();

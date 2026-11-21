@@ -870,7 +870,23 @@ void AutoHarness_CheckForCommand ( void )
 		{
 			int gunid = 0;
 			for ( int g2 = 1; g2 < (int)t.gun.size(); g2++ ) if ( _stricmp ( t.gun[g2].name_s.Get(), gun ) == 0 ) { gunid = g2; break; }
-			if ( gunid == 0 )
+			if ( _strnicmp ( gun, "proj:", 5 ) == 0 )
+			{
+				// a projectile type by its own name (as a thrown beacon's), with no gun
+				extern void weapon_getprojectileid ( void );
+				extern void weapon_projectile_make ( bool bUsingVRForAngle, bool bDoNotAdvanceToAvoidPenetration );
+				t.tProjectileType_s = Lower ( gun + 5 ); weapon_getprojectileid ( );
+				int type = t.tProjectileType;
+				if ( type > 0 )
+				{
+					t.tSourceEntity = source; t.tTracerFlag = 0;
+					t.tStartX_f = x; t.tStartY_f = y; t.tStartZ_f = z;
+					t.tAngX_f = pitch; t.tAngY_f = yaw; t.tAngZ_f = 0;
+					weapon_projectile_make ( false, false );
+				}
+				_snprintf ( result, sizeof(result), "OK: TEST_PROJECTILE projectile=%s type=%d source=%d", gun + 5, type, source );
+			}
+			else if ( gunid == 0 )
 			{
 				_snprintf ( result, sizeof(result), "ERROR: TEST_PROJECTILE no gun %s", gun );
 			}
@@ -1166,6 +1182,42 @@ void AutoHarness_CheckForCommand ( void )
 		{
 			const int e = g.entityrubberbandlist[i].e;
 			sl += _snprintf(result + sl, resultSize - sl, " %d %s;", e, (e > 0 && e < (int)t.entityelement.size()) ? t.entityelement[e].eleprof.name_s.Get() : "?");
+		}
+	}
+	else if ( _stricmp ( cmd, "TEST_DELETE_UNDO" ) == 0 )
+	{
+		// TEST_DELETE_UNDO <e>: entity e renamed, deleted as the Delete key deletes it (DeleteEntityFromLists, then
+		// gridedit_deleteentityfrommap and its undo event), then undone, redone and undone again, its name and script read
+		// after each; its own name put back at the end; for undo_name_check.py
+		extern bool DeleteEntityFromLists ( int e );
+		extern void editor_undo ( void );
+		extern void editor_redo ( void );
+		extern bool g_UndoSysObjectIsBeingMoved;
+		int e = arg ? atoi ( arg ) : 0;
+		if ( strcmp ( AutoHarness_GetAppState(), "editor" ) != 0 ) _snprintf ( result, sizeof(result), "ERROR: TEST_DELETE_UNDO only works in the level editor" );
+		else if ( e <= 0 || e > g.entityelementlist || t.entityelement[e].bankindex <= 0 ) _snprintf ( result, sizeof(result), "ERROR: TEST_DELETE_UNDO no entity %d", e );
+		else
+		{
+			cstr old_s = t.entityelement[e].eleprof.name_s;
+			cstr script_s = t.entityelement[e].eleprof.aimain_s;
+			t.entityelement[e].eleprof.name_s = "UndoNameTest";
+			DeleteEntityFromLists ( e );
+			t.tentitytoselect = e;
+			g_UndoSysObjectIsBeingMoved = false;
+			gridedit_deleteentityfrommap ( );
+			int bankDeleted = t.entityelement[e].bankindex;
+			editor_undo ( );
+			cstr undo1_s = t.entityelement[e].eleprof.name_s;
+			cstr script1_s = t.entityelement[e].eleprof.aimain_s;
+			int bankUndo1 = t.entityelement[e].bankindex;
+			editor_redo ( );
+			int bankRedo = t.entityelement[e].bankindex;
+			editor_undo ( );
+			cstr undo2_s = t.entityelement[e].eleprof.name_s;
+			int bankUndo2 = t.entityelement[e].bankindex;
+			if ( t.entityelement[e].bankindex > 0 ) t.entityelement[e].eleprof.name_s = old_s;
+			_snprintf ( result, sizeof(result), "OK: TEST_DELETE_UNDO e=%d was=%s script=%s | deleted bank=%d | undo bank=%d name=%s script=%s | redo bank=%d | undo again bank=%d name=%s",
+				e, old_s.Get(), script_s.Get(), bankDeleted, bankUndo1, undo1_s.Get(), script1_s.Get(), bankRedo, bankUndo2, undo2_s.Get() );
 		}
 	}
 	else if ( _stricmp ( cmd, "UNDO" ) == 0 || _stricmp ( cmd, "REDO" ) == 0 )
