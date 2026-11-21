@@ -55,6 +55,7 @@
 #include "GGTerrain\GGTerrain.h"
 #include "GGTerrain\GGTrees.h"
 #include "GGTerrain\GGGrass.h"
+#include ".\\..\..\\Guru-WickedMAX\\GPUParticles.h"
 
 #include <vector>
 #include <algorithm>
@@ -9381,6 +9382,96 @@ static bool spline_harnesswrite( const char* pPath, const void* p, size_t bytes 
 bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resultSize )
 {
 	char info[ 512 ];
+	static int s_iTestParticleMarker = 0;
+	if ( _stricmp( pCmd, "TEST_PARTICLEMARKER" ) == 0 )
+	{
+		// TEST_PARTICLEMARKER x z effect showatstart preview [height]: a Particles marker (_markers\Particles.fpe) placed as
+		// the editor places one, a legacy effect (particlesbank\<effect>, looping) picked as its effect panel picks it, with
+		// Show at start of level and Preview Particle Effect as given, its emitter made as the editor makes it (GameGuruRepo
+		// #6456); answers the entity, which PARTICLE_STATE reads with no argument
+		// [orphan] 1 makes its emitter again as a settings change can, the first left running with no entity owning it
+		float x = 0, z = 0, height = 60; char effect[128] = ""; int showAtStart = 0, preview = 1, orphan = 0;
+		if ( !pArg || sscanf_s( pArg, "%f %f %127s %d %d %f %d", &x, &z, effect, (unsigned)sizeof(effect), &showAtStart, &preview, &height, &orphan ) < 5 )
+		{
+			sprintf_s( pResult, resultSize, "ERROR: TEST_PARTICLEMARKER x z effect showatstart preview [height [orphan]]" );
+			return true;
+		}
+		const float y = BT_GetGroundHeight( 0, x, z ) + height;
+		const int e = spline_addelement( "_markers\\Particles.fpe", x, y, z, 0.0f, 100.0f );
+		if ( e <= 0 )
+		{
+			sprintf_s( pResult, resultSize, "ERROR: TEST_PARTICLEMARKER could not place _markers\\Particles.fpe" );
+			return true;
+		}
+		newparticletype& np = t.entityelement[ e ].eleprof.newparticle;
+		if ( np.emitterid != -1 ) GPUParticles::gpup_deleteEffect( np.emitterid );
+		np.emitterid = -1;
+		np.emittername = cstr( "particlesbank\\" ) + effect;
+		np.bParticle_Preview = preview != 0;
+		np.bParticle_Show_At_Start = showAtStart != 0;
+		np.bParticle_Looping_Animation = true;
+		t.entityelement[ e ].eleprof.aimain_s = "markers\\particle.lua";
+		extern void entity_updateparticleemitter( int e );
+		entity_updateparticleemitter( e );
+		if ( np.emitterid != -1 )
+		{
+			GPUParticles::gpup_setParticleScale( np.emitterid, np.bParticle_Size );
+			GPUParticles::gpup_setEffectAnimationSpeed( np.emitterid, np.fParticle_Speed );
+			GPUParticles::gpup_setEffectOpacity( np.emitterid, np.fParticle_Opacity );
+		}
+		int iOrphan = -1;
+		if ( orphan && np.emitterid != -1 )
+		{
+			iOrphan = np.emitterid;
+			np.emitterid = -1;
+			entity_updateparticleemitter( e );
+		}
+		s_iTestParticleMarker = e;
+		sprintf_s( pResult, resultSize, "OK: TEST_PARTICLEMARKER e=%d at %.0f,%.0f,%.0f emitter=%d active=%d showatstart=%d preview=%d orphan=%d", e, x, y, z,
+			np.emitterid, GPUParticles::gpup_getEmitterActive( np.emitterid ), (int)np.bParticle_Show_At_Start, (int)np.bParticle_Preview, iOrphan );
+		return true;
+	}
+	if ( _stricmp( pCmd, "PARTICLE_STATE" ) == 0 )
+	{
+		// PARTICLE_STATE [e]: a Particles marker's emitter (its id, -1 none), whether it spawns, whether it is drawn, and its
+		// Show at start, Preview and activated; with no e the last TEST_PARTICLEMARKER
+		int e = s_iTestParticleMarker;
+		if ( pArg && pArg[0] ) e = atoi( pArg );
+		if ( e <= 0 || e > g.entityelementlist )
+		{
+			sprintf_s( pResult, resultSize, "ERROR: PARTICLE_STATE no entity %d", e );
+			return true;
+		}
+		const newparticletype& np = t.entityelement[ e ].eleprof.newparticle;
+		extern bool bImGuiInTestGame;
+		// and every loaded legacy effect: how many, how many spawning, how many spawning and drawn
+		int iLoaded = 0, iSpawning = 0, iShowing = 0;
+		for ( int iID = 0; iID < GPUParticles::gpup_getMaxEffects(); iID++ )
+		{
+			if ( GPUParticles::gpup_getEffectLoaded( iID ) == 0 ) continue;
+			iLoaded++;
+			if ( GPUParticles::gpup_getEmitterActive( iID ) == 1 )
+			{
+				iSpawning++;
+				if ( GPUParticles::gpup_getEffectVisible( iID ) ) iShowing++;
+			}
+		}
+		sprintf_s( pResult, resultSize, "OK: PARTICLE_STATE e=%d emitter=%d active=%d visible=%d showatstart=%d preview=%d activated=%d active_ent=%d ingame=%d effects=%d spawning=%d showing=%d",
+			e, np.emitterid, GPUParticles::gpup_getEmitterActive( np.emitterid ),
+			np.emitterid != -1 ? GPUParticles::gpup_getEffectVisible( np.emitterid ) : -1,
+			(int)np.bParticle_Show_At_Start, (int)np.bParticle_Preview, t.entityelement[ e ].activated, t.entityelement[ e ].active, bImGuiInTestGame ? 1 : 0,
+			iLoaded, iSpawning, iShowing );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SET_PARTICLETESTFIX" ) == 0 )
+	{
+		// SET_PARTICLETESTFIX [0|1]: a test game's start switches the editor's legacy particle effects off and hidden, then sets
+		// each particle entity as the game wants it (1, the default), or starts as before (0), for a comparison
+		extern bool g_bParticleTestGameFix;
+		if ( pArg && (pArg[0] == '0' || pArg[0] == '1') ) g_bParticleTestGameFix = pArg[0] == '1';
+		sprintf_s( pResult, resultSize, "OK: SET_PARTICLETESTFIX %d", g_bParticleTestGameFix ? 1 : 0 );
+		return true;
+	}
 	if ( _stricmp( pCmd, "SPLINE_INFO" ) == 0 )
 	{
 		spline_harnessinfo( info, sizeof(info) );
