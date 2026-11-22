@@ -19854,6 +19854,7 @@ void editor_mainfunctionality ( void )
 	extern void editor_hidefilters_update ( void ); // GG: Hide Filters, M-GridEditB_part17
 	editor_hidefilters_update ( );
 	spline_updatepavements ( );
+	spline_editorliftplaced ( ); // GG: the road layers' entities set on pavements built again
 	spline_editorupdate ( );
 
 	//  Rotation of entity

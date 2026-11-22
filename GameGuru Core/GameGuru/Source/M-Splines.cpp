@@ -3568,6 +3568,8 @@ static bool g_bSplinePaveBodies = false; // bodies were made in this physics ses
 static std::unordered_map<std::string, uint64_t> g_SplinePaveMaterials; // made once for each set of textures
 static uint64_t g_SplinePaveApplied = 0, g_SplinePavePending = 0;
 static int g_iSplinePaveStill = 0;
+// the pavement chunks built again since the road layers' entities were last set on them (spline_editorliftplaced)
+static std::unordered_set<int64_t> g_SplinePaveLift;
 // harness SPLINE_PAVEDUMP: every pavement built again, each top triangle within a rectangle written to a file (its road,
 // material, corners and tile coordinates)
 static FILE* g_pSplinePaveDump = nullptr;
@@ -5598,6 +5600,7 @@ void spline_updatepavements( void )
 	for ( const auto& chunk : chunkList )
 	{
 		const int64_t key = spline_pavechunkkey( chunk.first, chunk.second );
+		g_SplinePaveLift.insert( key );
 		auto it = g_SplinePaveChunks.find( key );
 		if ( it != g_SplinePaveChunks.end() )
 		{
@@ -5864,6 +5867,8 @@ void spline_detachentity( int e )
 	}
 }
 
+static int spline_liftplaced( const std::unordered_set<int64_t>* pChunks, int splineID );
+
 static void spline_placechanged( void )
 {
 	if ( iDragNode >= 0 || ImGui::IsAnyItemActive() ) return;
@@ -5885,9 +5890,54 @@ static void spline_placechanged( void )
 		if ( s.kind == SPLINE_KIND_RIVER && !s.baked.empty() && s.waterShape != spline_watershape( s ) ) continue;
 		if ( !bHeld ) { lighting_holdrefresh( true ); bHeld = true; }
 		spline_place( si );
+		spline_liftplaced( nullptr, s.id );
 		s.placedSignature = spline_layersignature( si );
 	}
 	if ( bHeld ) lighting_holdrefresh( false );
+}
+
+// a road layer's entities stand on the floor under them (the terrain, or a pavement or fill on it: spline_floorheight)
+// at their layer's height: those in the pavement chunks given (built again since), or one spline's (its id), or all; a
+// layer places on the terrain, and the pavements are built a moment after the road's bake
+static int spline_liftplaced( const std::unordered_set<int64_t>* pChunks, int splineID )
+{
+	const float size = SPLINE_PAVE_STEP * SPLINE_PAVE_CELLS;
+	int moved = 0;
+	for ( int e = 1; e <= g.entityelementlist && e < (int)t.entityelement.size(); e++ )
+	{
+		entitytype& ee = t.entityelement[ e ];
+		if ( ee.bankindex <= 0 || ee.eleprof.iObjectReserved1 != SPLINE_ENTITY_TAG ) continue;
+		if ( splineID >= 0 && ee.eleprof.iObjectReserved2 != splineID ) continue;
+		if ( pChunks && !pChunks->count( spline_pavechunkkey( (int)floorf( ee.x / size ), (int)floorf( ee.z / size ) ) ) ) continue;
+		sSpline* pS = nullptr;
+		for ( sSpline& s : g_Splines ) if ( s.id == ee.eleprof.iObjectReserved2 ) { pS = &s; break; }
+		const int li = ee.eleprof.iObjectReserved3;
+		if ( !pS || pS->kind != SPLINE_KIND_ROAD || li < 0 || li >= (int)pS->layers.size() || pS->layers[ li ].frozen ) continue;
+		const float y = spline_floorheight( ee.x, ee.z ) + pS->layers[ li ].height;
+		if ( fabsf( ee.y - y ) < 0.05f ) continue;
+		for ( sSplinePlaced& p : pS->placed )
+		{
+			if ( p.layer == li && fabsf( p.x - ee.x ) < 0.5f && fabsf( p.z - ee.z ) < 0.5f && fabsf( p.y - ee.y ) < 0.5f ) { p.y = y; break; }
+		}
+		ee.y = y;
+		if ( ee.obj > 0 && ObjectExist( ee.obj ) == 1 ) PositionObject( ee.obj, ee.x, ee.y, ee.z );
+		moved++;
+	}
+	if ( moved )
+	{
+		extern void lighting_refreshorhold( void );
+		lighting_refreshorhold();
+		spline_modified();
+	}
+	return moved;
+}
+
+// the editor, after the pavements are built again: the road layers' entities in those chunks set on them
+void spline_editorliftplaced( void )
+{
+	if ( g_SplinePaveLift.empty() ) return;
+	spline_liftplaced( &g_SplinePaveLift, -1 );
+	g_SplinePaveLift.clear();
 }
 
 // a new layer, empty until an entity is chosen, its placing set for the spline's kind: along a road both sides 30.8 m
@@ -10534,6 +10584,44 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		}
 		return true;
 	}
+	if ( _stricmp( pCmd, "SPLINE_FILLDUMP" ) == 0 )
+	{
+		// SPLINE_FILLDUMP id file: a fill's grid, a line a cell (x z in D W H K Y: inside, the kerb outline's distance, the
+		// nearest pavement's width, the pavements' surface and kerb there, the paving's top)
+		int id = 0;
+		char file[ 512 ] = "";
+		if ( !pArg || sscanf_s( pArg, "%d %511[^\n]", &id, file, (unsigned)sizeof(file) ) != 2 )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: SPLINE_FILLDUMP id file" );
+			return true;
+		}
+		spline_fillregions( false );
+		for ( const sSplineFill& f : g_SplineFills )
+		{
+			if ( g_Splines[ f.si ].id != id ) continue;
+			FILE* fp = nullptr;
+			if ( fopen_s( &fp, file, "w" ) != 0 || !fp )
+			{
+				sprintf_s( pResult, resultSize, "FAIL: SPLINE_FILLDUMP cannot write %s", file );
+				return true;
+			}
+			for ( int iz = 0; iz < f.nz; iz++ )
+			{
+				for ( int ix = 0; ix < f.nx; ix++ )
+				{
+					const size_t c = (size_t)iz * f.nx + ix;
+					if ( c >= f.Y.size() ) continue;
+					fprintf( fp, "%.0f %.0f %d %.1f %.1f %.2f %.2f %.2f\n", f.x0 + ix * SPLINE_FILL_STEP, f.z0 + iz * SPLINE_FILL_STEP, (int)f.in[c],
+						f.D[c] == FLT_MAX ? -1.0f : f.D[c], f.W[c], f.H[c], f.K[c], f.Y[c] );
+				}
+			}
+			fclose( fp );
+			sprintf_s( pResult, resultSize, "OK: SPLINE_FILLDUMP %d cells %d by %d", f.cells, f.nx, f.nz );
+			return true;
+		}
+		sprintf_s( pResult, resultSize, "FAIL: SPLINE_FILLDUMP no fill for spline %d", id );
+		return true;
+	}
 	if ( _stricmp( pCmd, "SPLINE_GRADEFIX" ) == 0 )
 	{
 		// SPLINE_GRADEFIX [0|1]: two pins a road's Max Grade can't climb between met by the grade they need (1, the default),
@@ -10892,6 +10980,88 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		spline_deletepavements();
 		g_SplinePaveApplied = 0;
 		sprintf_s( pResult, resultSize, "OK: SPLINE_PAVEDUMP %.0f %.0f %.0f %.0f %s (written on the next update)", r[0], r[1], r[2], r[3], file );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_HOLDNODE" ) == 0 )
+	{
+		// SPLINE_HOLDNODE si ni y [hold]: Hold Height on a road's node at y, as the node panel's checkbox and Height set it (at
+		// a junction on every node there), hold 0 lets it follow the ground again; baked on the next editor frame
+		int si = -1, ni = -1, hold = 1;
+		float y = 0;
+		if ( !pArg || sscanf_s( pArg, "%d %d %f %d", &si, &ni, &y, &hold ) < 3 || si < 0 || si >= (int)g_Splines.size() || g_Splines[ si ].kind != SPLINE_KIND_ROAD
+			|| ni < 0 || ni >= (int)g_Splines[ si ].nodes.size() )
+		{
+			sprintf_s( pResult, resultSize, "ERROR: SPLINE_HOLDNODE si ni y [hold]" );
+			return true;
+		}
+		sSplineNode& node = g_Splines[ si ].nodes[ ni ];
+		const float before = node.y;
+		const int junction = node.junction;
+		for ( sSpline& other : g_Splines )
+		{
+			for ( sSplineNode& n : other.nodes )
+			{
+				if ( &n != &node && (junction == 0 || n.junction != junction) ) continue;
+				if ( hold ) n.flags |= SPLINE_NODE_HOLDHEIGHT;
+				else n.flags &= ~SPLINE_NODE_HOLDHEIGHT;
+				n.y = hold ? y : spline_groundy( n.x, n.z );
+			}
+		}
+		g_SplineForceBake.insert( g_Splines[ si ].id );
+		spline_modified();
+		sprintf_s( pResult, resultSize, "OK: SPLINE_HOLDNODE spline %d (%s) node %d at %.0f,%.0f y %.1f -> %.1f hold %d junction %d", si, g_Splines[ si ].name, ni, node.x, node.z, before, node.y, hold, junction );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_FLATTEN" ) == 0 )
+	{
+		// SPLINE_FLATTEN si n0 n1 y0 y1 pieces: a road held on a straight ramp from y0 at node n0 to y1 at node n1, whatever
+		// the ground: each segment between them split into pieces on its own curve (spline_insertnode, as a click on it does)
+		// and every node from n0 to n1 given Hold Height at its share of the way; a held node corrects the road only near it,
+		// over the ground averaged between, so a hill between two held nodes stays under the road without the nodes between
+		int si = -1, n0 = -1, n1 = -1, pieces = 1;
+		float y0 = 0, y1 = 0;
+		if ( !pArg || sscanf_s( pArg, "%d %d %d %f %f %d", &si, &n0, &n1, &y0, &y1, &pieces ) != 6 || si < 0 || si >= (int)g_Splines.size()
+			|| g_Splines[ si ].kind != SPLINE_KIND_ROAD || n0 < 0 || n1 <= n0 || n1 >= (int)g_Splines[ si ].nodes.size() || pieces < 1 || pieces > 32 )
+		{
+			sprintf_s( pResult, resultSize, "ERROR: SPLINE_FLATTEN si n0 n1 y0 y1 pieces" );
+			return true;
+		}
+		int last = n1;
+		for ( int seg = n1 - 1; seg >= n0; seg-- )
+		{
+			// from the segment's end backwards, so the earlier split points keep their share of the curve
+			for ( int k = pieces - 1; k >= 1; k-- )
+			{
+				if ( spline_insertnode( si, seg, (float)k / (float)( k + 1 ) ) < 0 ) break;
+				last++;
+			}
+		}
+		sSpline& s = g_Splines[ si ];
+		std::vector<float> along( last - n0 + 1, 0.0f );
+		for ( int i = n0 + 1; i <= last; i++ )
+		{
+			const float dx = s.nodes[ i ].x - s.nodes[ i - 1 ].x, dz = s.nodes[ i ].z - s.nodes[ i - 1 ].z;
+			along[ i - n0 ] = along[ i - 1 - n0 ] + sqrtf( dx * dx + dz * dz );
+		}
+		const float total = along.back() > 0 ? along.back() : 1.0f;
+		for ( int i = n0; i <= last; i++ )
+		{
+			sSplineNode& node = s.nodes[ i ];
+			const float y = y0 + (y1 - y0) * along[ i - n0 ] / total;
+			const int junction = node.junction;
+			for ( sSpline& other : g_Splines )
+			{
+				for ( sSplineNode& n : other.nodes )
+				{
+					if ( &n != &node && (junction == 0 || n.junction != junction) ) continue;
+					n.flags |= SPLINE_NODE_HOLDHEIGHT;
+					n.y = y;
+				}
+			}
+		}
+		g_SplineForceBake.insert( s.id );
+		spline_modified();
+		sprintf_s( pResult, resultSize, "OK: SPLINE_FLATTEN spline %d (%s) nodes %d to %d held from %.1f to %.1f over %.0f, nodes now %d", si, s.name, n0, last, y0, y1, total, (int)s.nodes.size() );
 		return true;
 	}
 	if ( _stricmp( pCmd, "SPLINE_FLOORAT" ) == 0 )

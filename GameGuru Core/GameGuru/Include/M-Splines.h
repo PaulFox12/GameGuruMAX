@@ -29,6 +29,7 @@ bool spline_entityowner ( int e, char* pName, int nameSize );
 void spline_detachentity ( int e );
 float spline_waterheightat ( float x, float z, int* pIsRiver );
 float spline_floorheight ( float x, float z );
+void spline_editorliftplaced ( void );
 float spline_riverturbulenceat ( float x, float z );
 void spline_waterflowat ( float x, float z, float* pFlowX, float* pFlowZ );
 float spline_riverwaterlevel ( float x, float z );
