@@ -4993,6 +4993,43 @@ static int64_t spline_pavechunkkey( int cx, int cz )
 	return ((int64_t)cx << 32) | (uint32_t)cz;
 }
 
+// the top of the pavements' surface (theirs and the fills', the spline tool's own meshes) straight down at x z: the highest
+// below yFrom and above yTo
+static bool spline_pavetopat( float x, float z, float yFrom, float yTo, float* pY )
+{
+	const float size = SPLINE_PAVE_STEP * SPLINE_PAVE_CELLS;
+	auto it = g_SplinePaveChunks.find( spline_pavechunkkey( (int)floorf( x / size ), (int)floorf( z / size ) ) );
+	if ( it == g_SplinePaveChunks.end() ) return false;
+	const std::vector<float>& v = it->second.triangles;
+	bool bHit = false;
+	float best = yTo;
+	for ( size_t i = 0; i + 8 < v.size(); i += 9 )
+	{
+		const float ax = v[i], az = v[i+2], bx = v[i+3], bz = v[i+5], cx = v[i+6], cz = v[i+8];
+		if ( x < std::min( ax, std::min( bx, cx ) ) || x > std::max( ax, std::max( bx, cx ) ) ) continue;
+		if ( z < std::min( az, std::min( bz, cz ) ) || z > std::max( az, std::max( bz, cz ) ) ) continue;
+		const float d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+		if ( fabsf( d ) < 0.001f ) continue; // upright: a kerb's face
+		const float u = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d;
+		const float w = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d;
+		if ( u < 0 || w < 0 || u + w > 1 ) continue;
+		const float y = u * v[i+1] + w * v[i+4] + (1 - u - w) * v[i+7];
+		if ( y <= yFrom && y > best ) { best = y; bHit = true; }
+	}
+	if ( bHit ) *pY = best;
+	return bHit;
+}
+
+// the floor at x z for the editor's find floor (Enter, and an entity dropped to the ground): the terrain, or a pavement or
+// fill on it (no entity's mesh, so the entity scan doesn't meet it)
+float spline_floorheight( float x, float z )
+{
+	const float ground = BT_GetGroundHeight( 0, x, z );
+	float top = 0;
+	if ( spline_pavetopat( x, z, ground + 500.0f, ground - 1.0f, &top ) && top > ground ) return top;
+	return ground;
+}
+
 // the roads a fill's grid is measured from (all of them, with their meetings and corners), and the roads near each
 // pavement chunk's rectangle, gathered once
 struct sSplineFillNear
@@ -10855,6 +10892,57 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		spline_deletepavements();
 		g_SplinePaveApplied = 0;
 		sprintf_s( pResult, resultSize, "OK: SPLINE_PAVEDUMP %.0f %.0f %.0f %.0f %s (written on the next update)", r[0], r[1], r[2], r[3], file );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_FLOORAT" ) == 0 )
+	{
+		// SPLINE_FLOORAT x z: the terrain and the editor's floor there (a pavement or fill on the terrain, as Enter finds it)
+		float x = 0, z = 0;
+		if ( !pArg || sscanf_s( pArg, "%f %f", &x, &z ) != 2 ) { sprintf_s( pResult, resultSize, "ERROR: SPLINE_FLOORAT x z" ); return true; }
+		const float ground = BT_GetGroundHeight( 0, x, z ), floor = spline_floorheight( x, z );
+		sprintf_s( pResult, resultSize, "OK: SPLINE_FLOORAT %.0f %.0f terrain=%.2f floor=%.2f pave=%d", x, z, ground, floor, floor != ground ? 1 : 0 );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_ENTITIESIN" ) == 0 )
+	{
+		// SPLINE_ENTITIESIN x0 z0 x1 z1: the live entities with an object whose position is in the rectangle, a line each: index,
+		// position, the terrain and the floor under it (a pavement or fill), placed by a spline's layer, locked, its name
+		float r[4] = { 0, 0, 0, 0 };
+		if ( !pArg || sscanf_s( pArg, "%f %f %f %f", &r[0], &r[1], &r[2], &r[3] ) != 4 ) { sprintf_s( pResult, resultSize, "ERROR: SPLINE_ENTITIESIN x0 z0 x1 z1" ); return true; }
+		int len = sprintf_s( pResult, resultSize, "OK: SPLINE_ENTITIESIN" ), count = 0;
+		for ( int e = 1; e <= g.entityelementlist && e < (int)t.entityelement.size(); e++ )
+		{
+			entitytype& ee = t.entityelement[ e ];
+			if ( ee.bankindex <= 0 || ee.obj <= 0 ) continue;
+			if ( ee.x < r[0] || ee.x > r[2] || ee.z < r[1] || ee.z > r[3] ) continue;
+			count++;
+			if ( len > resultSize - 200 ) continue;
+			char owner[ 64 ] = "";
+			const int owned = spline_entityowner( e, owner, 64 ) ? 1 : 0;
+			const int n = sprintf_s( pResult + len, resultSize - len, "\n%d %.1f %.1f %.1f terrain=%.1f floor=%.1f own=%d lock=%d %.40s", e, ee.x, ee.y, ee.z,
+				BT_GetGroundHeight( 0, ee.x, ee.z ), spline_floorheight( ee.x, ee.z ), owned, ee.editorlock, ee.eleprof.name_s.Get() );
+			if ( n > 0 ) len += n;
+		}
+		if ( len < resultSize - 40 ) sprintf_s( pResult + len, resultSize - len, "\ncount=%d", count );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_ENTERSNAP" ) == 0 )
+	{
+		// SPLINE_ENTERSNAP e: what Enter does to a picked entity (the editor's find floor), its height before and after and the
+		// floor under it
+		const int e = pArg ? atoi( pArg ) : 0;
+		if ( e <= 0 || e > g.entityelementlist || e >= (int)t.entityelement.size() ) { sprintf_s( pResult, resultSize, "ERROR: SPLINE_ENTERSNAP e" ); return true; }
+		const float before = t.entityelement[ e ].y;
+		const int keyreturn = t.inputsys.keyreturn;
+		t.inputsys.keyreturn = 1;
+		t.tforceentityfindfloor = e;
+		t.tforcepguppgdnkeys = 1;
+		extern float editor_forceentityfindfloor( bool bPredictMode );
+		editor_forceentityfindfloor( false );
+		t.inputsys.keyreturn = keyreturn;
+		entitytype& ee = t.entityelement[ e ];
+		sprintf_s( pResult, resultSize, "OK: SPLINE_ENTERSNAP e=%d before=%.2f after=%.2f terrain=%.2f floor=%.2f at %.0f,%.0f %.40s", e, before, ee.y,
+			BT_GetGroundHeight( 0, ee.x, ee.z ), spline_floorheight( ee.x, ee.z ), ee.x, ee.z, ee.eleprof.name_s.Get() );
 		return true;
 	}
 	if ( _stricmp( pCmd, "SPLINE_LIST" ) == 0 )
