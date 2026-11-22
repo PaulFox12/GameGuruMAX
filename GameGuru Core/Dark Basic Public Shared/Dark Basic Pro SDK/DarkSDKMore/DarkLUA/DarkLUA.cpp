@@ -8404,27 +8404,31 @@ int GetPhysicsSlowPairs(lua_State* L)
 // (the object has its own body in the physics' list), shape (the physics shape's name), mass, x, y, z, speed, spin, state,
 // still, island (as GetPhysicsStatsTop's), points (contact points in the last step), layer, mask (collision bits) }, then
 // how many bodies are awake and how many of them touch nothing
-// GetEntityLastDamage(e) - the last hit the engine dealt entity e, even one its rules gave no damage (a script's own
-// SetEntityHealth is not kept): by (-1 the player, an entity's index, 0 not known: drowning), kind (1 a bullet or blow, 2 an explosion: a projectile's hit
-// or its blast, 0 anything else), amount, time (Timer(), milliseconds), weapon (the gun or projectile's name, "" when not
-// known) and via (the explodable entity whose blast dealt it, by then being whoever last damaged that one; 0 none);
-// nothing when it has taken no hit since the level started
+// GetEntityLastDamage(e [, n]) - the n-th newest hit the engine dealt entity e (1, the default, the newest; up to 8
+// back), even one its rules gave no damage (a script's own SetEntityHealth is not kept): by (-1 the player, an entity's
+// index, 0 not known: drowning, or an explodable's blast when a script set it off), kind (1 a round, 3 a blow, 2 an
+// explosion: a projectile's hit or its blast, on a static with amount 0, 0 anything else), amount, time (Timer(),
+// milliseconds), weapon (the gun or projectile's name, "" when not known), via (the explodable entity whose blast dealt
+// it, by then being whoever last damaged that one; 0 none) and count (its hits since the level started); nothing when
+// there is no such hit
 int GetEntityLastDamage(lua_State* L)
 {
 	if (lua_gettop(L) < 1) return 0;
 	int iEntity = (int)lua_tonumber(L, 1);
-	int iBy = 0, iKind = 0, iAmount = 0, iVia = 0;
+	int n = lua_gettop(L) >= 2 ? (int)lua_tonumber(L, 2) : 1;
+	int iBy = 0, iKind = 0, iAmount = 0, iVia = 0, iCount = 0;
 	DWORD dwTime = 0;
 	const char* pWeapon = "";
-	extern bool entity_getlastdamage(int e, int* pBy, int* pKind, int* pAmount, DWORD* pTime, int* pVia, const char** ppWeapon);
-	if (!entity_getlastdamage(iEntity, &iBy, &iKind, &iAmount, &dwTime, &iVia, &pWeapon)) return 0;
+	extern bool entity_getlastdamage(int e, int n, int* pBy, int* pKind, int* pAmount, DWORD* pTime, int* pVia, const char** ppWeapon, int* pCount);
+	if (!entity_getlastdamage(iEntity, n, &iBy, &iKind, &iAmount, &dwTime, &iVia, &pWeapon, &iCount)) return 0;
 	lua_pushinteger(L, iBy);
 	lua_pushinteger(L, iKind);
 	lua_pushinteger(L, iAmount);
 	lua_pushinteger(L, (lua_Integer)dwTime);
 	lua_pushstring(L, pWeapon ? pWeapon : "");
 	lua_pushinteger(L, iVia);
-	return 6;
+	lua_pushinteger(L, iCount);
+	return 7;
 }
 
 // SetEntityImmobile(e, flag) - flag 0: an immobile or static entity's body made again as a moving one where it stands (its

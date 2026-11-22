@@ -450,6 +450,7 @@ void AutoHarness_CheckForCommand ( void )
 	}
 
 	static char result[32768];
+	const int resultSize = (int)sizeof(result); // GG: the size the verbs ported from the DX12 build's harness write to
 	result[0] = 0;
 	if ( _stricmp ( cmd, "GET_STATE" ) == 0 ) Cmd_GetState ( result, sizeof(result) );
 	else if ( _stricmp ( cmd, "NAVIGATE" ) == 0 ) Cmd_Navigate ( arg, result, sizeof(result) );
@@ -1183,6 +1184,33 @@ void AutoHarness_CheckForCommand ( void )
 			const int e = g.entityrubberbandlist[i].e;
 			sl += _snprintf(result + sl, resultSize - sl, " %d %s;", e, (e > 0 && e < (int)t.entityelement.size()) ? t.entityelement[e].eleprof.name_s.Get() : "?");
 		}
+	}
+	else if ( _stricmp ( cmd, "ENTITY_FIND" ) == 0 )
+	{
+		// ENTITY_FIND <static|explodable> <x> <z> <radius>: the nearest live entities (up to 8) with that flag within the radius
+		// of a point, nearest first: index, distance, name (static: staticflag set; explodable: eleprof.explodable set and
+		// health above 0); for shooter_credit_check.py
+		char kind[32] = ""; float x = 0, z = 0, radius = 0;
+		if (!arg || sscanf(arg, "%31s %f %f %f", kind, &x, &z, &radius) < 4) _snprintf(result, resultSize, "ERROR: ENTITY_FIND <static|explodable> <x> <z> <radius>");
+		else
+		{
+			std::vector<std::pair<float, int>> found;
+			bool bStatic = _stricmp(kind, "static") == 0;
+			for (int e = 1; e <= g.entityelementlist; e++)
+			{
+				if (t.entityelement[e].bankindex <= 0 || t.entityelement[e].obj <= 0) continue;
+				if (bStatic ? t.entityelement[e].staticflag != 1 : (t.entityelement[e].eleprof.explodable == 0 || t.entityelement[e].health <= 0)) continue;
+				float dx = t.entityelement[e].x - x, dz = t.entityelement[e].z - z;
+				float d = sqrtf(dx * dx + dz * dz);
+				if (d <= radius) found.push_back(std::make_pair(d, e));
+			}
+			std::sort(found.begin(), found.end());
+			int n = _snprintf(result, resultSize, "OK: ENTITY_FIND %s found=%d", kind, (int)found.size());
+			for (int i = 0; i < (int)found.size() && i < 8 && n > 0 && n < (int)resultSize - 160; i++)
+				n += _snprintf(result + n, resultSize - n, " | %d %.0f %.0f %.0f %s", found[i].second, found[i].first,
+					t.entityelement[found[i].second].x, t.entityelement[found[i].second].z, t.entityelement[found[i].second].eleprof.name_s.Get());
+		}
+		result[resultSize - 1] = 0;
 	}
 	else if ( _stricmp ( cmd, "TEST_DELETE_UNDO" ) == 0 )
 	{

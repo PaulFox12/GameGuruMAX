@@ -1713,7 +1713,24 @@ void physics_explodesphere ( void )
 			// early rejects
 			if (t.entityprofile[t.entid].ismarker != 0) continue;
 			if (t.entityelement[t.e].active == 0) continue;
-			if (t.entityelement[t.e].staticflag == 1) continue;
+			if (t.entityelement[t.e].staticflag == 1)
+			{
+				// GG: a static takes no damage from the blast, but the blast is kept as its last hit (GetEntityLastDamage: kind
+				// 2, amount 0, its shooter) where its collision sphere reaches into the blast's radius, with no line of sight test
+				int iObj = t.entityelement[t.e].obj;
+				float fDX = ObjectPositionX(iObj) + GetObjectCollisionCenterX(iObj) - t.texplodex_f;
+				float fDY = ObjectPositionY(iObj) + GetObjectCollisionCenterY(iObj) - t.texplodey_f;
+				float fDZ = ObjectPositionZ(iObj) + GetObjectCollisionCenterZ(iObj) - t.texplodez_f;
+				float fReach = t.texploderadius_f + GetObjectCollisionRadius(iObj);
+				if ( fDX*fDX + fDY*fDY + fDZ*fDZ < fReach*fReach )
+				{
+					extern int g_iBlastBy, g_iBlastVia;
+					extern std::string g_sBlastWeapon;
+					extern void entity_recordhit ( int e, int iBy, int iKind, int iAmount, int iVia, const std::string& sWeapon );
+					entity_recordhit ( t.e, g_iBlastBy, 2, 0, g_iBlastVia, g_sBlastWeapon );
+				}
+				continue;
+			}
 			if (t.entityelement[t.e].y <= -899999) continue;
 
 			// 220618 - use center of object, not coordinate of entity XYZ

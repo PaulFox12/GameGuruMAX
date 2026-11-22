@@ -2739,14 +2739,15 @@ void entity_adddestroyevent(int e)
 }
 
 // GG: who dealt the damage entity_applydamage is about to apply, set by its callers just before: -1 the player, an
-// entity's index, 0 not known (a script's damage, drowning); the gun or projectile's name; and the entity whose explosion
-// dealt it (an explodable going off, its blast then credited to whoever last damaged it). Taken and cleared by
-// entity_applydamage, which keeps the last hit on each entity for Lua's GetEntityLastDamage
+// entity's index, 0 not known (drowning); the gun or projectile's name; the entity whose explosion dealt it (an
+// explodable going off, its blast then credited to whoever last damaged it); and whether it is a blow, not a round.
+// Taken and cleared by entity_applydamage, which keeps each entity's last hits for Lua's GetEntityLastDamage
 int g_iDamageBy = 0;
-bool g_bDamageFromScript = false; // a script's own SetEntityHealth: not kept as a hit
+bool g_bDamageFromScript = false; // a script's own SetEntityHealth: not kept as a hit, but marks the entity
+bool g_bDamageMelee = false; // a blow (the player's fist or melee weapon): kind 3
 int g_iDamageVia = 0;
 std::string g_sDamageWeapon;
-struct sEntityLastDamage
+struct sEntityHit
 {
 	int iBy;
 	int iKind;
@@ -2755,59 +2756,103 @@ struct sEntityLastDamage
 	int iVia;
 	std::string sWeapon;
 };
-static std::vector<sEntityLastDamage> g_EntityLastDamage;
-
-// the last hit on entity e: false when it has taken none since the level started
-bool entity_getlastdamage ( int e, int* pBy, int* pKind, int* pAmount, DWORD* pTime, int* pVia, const char** ppWeapon )
+#define ENTITYHITHISTORY 8
+struct sEntityHits
 {
-	if ( e <= 0 || e >= (int)g_EntityLastDamage.size() || g_EntityLastDamage[e].dwTime == 0 ) return false;
-	const sEntityLastDamage& last = g_EntityLastDamage[e];
-	if ( pBy ) *pBy = last.iBy;
-	if ( pKind ) *pKind = last.iKind;
-	if ( pAmount ) *pAmount = last.iAmount;
-	if ( pTime ) *pTime = last.dwTime;
-	if ( pVia ) *pVia = last.iVia;
-	if ( ppWeapon ) *ppWeapon = last.sWeapon.c_str();
+	sEntityHit hits[ ENTITYHITHISTORY ]; // a ring, the newest at iNewest
+	int iNewest = -1;
+	int iCount = 0; // the engine's hits since the level started
+	bool bScriptLast = false; // a script's SetEntityHealth changed it after its last engine hit
+};
+static std::vector<sEntityHits> g_EntityHits;
+
+static sEntityHits* entity_hits ( int e )
+{
+	if ( e <= 0 || e > g.entityelementlist ) return NULL;
+	if ( (int)g_EntityHits.size() <= e ) g_EntityHits.resize ( e + 64 );
+	return &g_EntityHits[ e ];
+}
+
+// keeps a hit on entity e: by (-1 the player, an entity, 0 not known), kind (1 a round, 2 an explosion, 3 a blow, 0 other)
+void entity_recordhit ( int e, int iBy, int iKind, int iAmount, int iVia, const std::string& sWeapon )
+{
+	sEntityHits* pHits = entity_hits ( e );
+	if ( pHits == NULL ) return;
+	pHits->iNewest = ( pHits->iNewest + 1 ) % ENTITYHITHISTORY;
+	sEntityHit& hit = pHits->hits[ pHits->iNewest ];
+	hit.iBy = iBy;
+	hit.iKind = iKind;
+	hit.iAmount = iAmount;
+	hit.dwTime = Timer();
+	if ( hit.dwTime == 0 ) hit.dwTime = 1;
+	hit.iVia = iVia;
+	hit.sWeapon = sWeapon;
+	pHits->iCount++;
+	pHits->bScriptLast = false;
+}
+
+// the n-th newest hit on entity e (1 the newest, up to ENTITYHITHISTORY back) and its count of hits since the level
+// started: false when there is no such hit
+bool entity_getlastdamage ( int e, int n, int* pBy, int* pKind, int* pAmount, DWORD* pTime, int* pVia, const char** ppWeapon, int* pCount )
+{
+	if ( e <= 0 || e >= (int)g_EntityHits.size() ) return false;
+	const sEntityHits& h = g_EntityHits[ e ];
+	if ( n < 1 ) n = 1;
+	if ( n > ENTITYHITHISTORY || n > h.iCount ) return false;
+	const sEntityHit& hit = h.hits[ ( h.iNewest - ( n - 1 ) + ENTITYHITHISTORY ) % ENTITYHITHISTORY ];
+	if ( pBy ) *pBy = hit.iBy;
+	if ( pKind ) *pKind = hit.iKind;
+	if ( pAmount ) *pAmount = hit.iAmount;
+	if ( pTime ) *pTime = hit.dwTime;
+	if ( pVia ) *pVia = hit.iVia;
+	if ( ppWeapon ) *ppWeapon = hit.sWeapon.c_str();
+	if ( pCount ) *pCount = h.iCount;
 	return true;
 }
 
-// who last damaged entity e (-1 the player), 0 when not known: the credit for its own explosion
+// who last damaged entity e (-1 the player): the credit for its own explosion; 0 when not known, or when a script's
+// SetEntityHealth changed it after its last engine hit (a script set it off)
 int entity_lastdamageby ( int e )
 {
-	if ( e <= 0 || e >= (int)g_EntityLastDamage.size() ) return 0;
-	return g_EntityLastDamage[e].iBy;
+	if ( e <= 0 || e >= (int)g_EntityHits.size() ) return 0;
+	const sEntityHits& h = g_EntityHits[ e ];
+	if ( h.iCount == 0 || h.bScriptLast ) return 0;
+	return h.hits[ h.iNewest ].iBy;
 }
 
-// every entity's last hit forgotten (a level's start)
+// every entity's hits forgotten (a level's start)
 void entity_clearlastdamage ( void )
 {
-	g_EntityLastDamage.clear();
+	g_EntityHits.clear();
 	g_iDamageBy = 0;
 	g_iDamageVia = 0;
 	g_sDamageWeapon.clear();
+	g_bDamageMelee = false;
 }
 
 void entity_applydamage ( void )
 {
-	// the hit kept for Lua (GetEntityLastDamage), a script's own SetEntityHealth aside, even when the rules below give no
-	// damage: kind 1 a bullet or blow, 2 an explosion (a projectile's own hit, or its blast: source 3 the player's), 0
-	// anything else
-	if ( t.ttte > 0 && t.ttte <= g.entityelementlist && !g_bDamageFromScript )
+	// the hit kept for Lua (GetEntityLastDamage), even when the rules below give no damage: kind 1 a round, 3 a blow, 2 an
+	// explosion (a projectile's own hit, or its blast: source 3 the player's), 0 anything else; a script's own
+	// SetEntityHealth isn't kept, but marks the entity so its own explosion isn't credited to an older hit
+	if ( t.ttte > 0 && t.ttte <= g.entityelementlist )
 	{
-		if ( (int)g_EntityLastDamage.size() <= t.ttte ) g_EntityLastDamage.resize ( t.ttte + 64, { 0, 0, 0, 0, 0, std::string() } );
-		sEntityLastDamage& last = g_EntityLastDamage[t.ttte];
-		last.iBy = g_iDamageBy;
-		last.iKind = t.tdamagesource == 1 ? 1 : ( t.tdamagesource == 2 || t.tdamagesource == 3 ) ? 2 : 0;
-		last.iAmount = (int)t.tdamage;
-		last.dwTime = Timer();
-		if ( last.dwTime == 0 ) last.dwTime = 1;
-		last.iVia = g_iDamageVia;
-		last.sWeapon = g_sDamageWeapon;
+		if ( g_bDamageFromScript )
+		{
+			sEntityHits* pHits = entity_hits ( t.ttte );
+			if ( pHits ) pHits->bScriptLast = true;
+		}
+		else
+		{
+			int iKind = t.tdamagesource == 1 ? ( g_bDamageMelee ? 3 : 1 ) : ( t.tdamagesource == 2 || t.tdamagesource == 3 ) ? 2 : 0;
+			entity_recordhit ( t.ttte, g_iDamageBy, iKind, (int)t.tdamage, g_iDamageVia, g_sDamageWeapon );
+		}
 	}
 	g_iDamageBy = 0;
 	g_iDamageVia = 0;
 	g_sDamageWeapon.clear();
 	g_bDamageFromScript = false;
+	g_bDamageMelee = false;
 
 	if ( t.ttte <= 0 || t.entityelement[t.ttte].obj <= 0 ) return;
 	if ( ObjectExist ( t.entityelement[t.ttte].obj ) == 0 ) return;
@@ -4179,6 +4224,7 @@ void entity_hitentity ( int e, int obj )
 		}
 	}
 	t.ttte = iStoreE;
+	g_bDamageMelee = false; // a blow's mark, when no damage was applied
 }
 
 void entity_triggerdecalatimpact ( float fX, float fY, float fZ )

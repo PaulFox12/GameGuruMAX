@@ -632,6 +632,8 @@ void gun_manager ( void )
 											t.tdamagesource = 1;
 											int iDamageRange = t.entityprofile[iEntID].meleedamagefn - t.entityprofile[iEntID].meleedamagest;
 											t.tdamage = t.entityprofile[iEntID].meleedamagest + (rand()%iDamageRange);
+											extern bool g_bDamageMelee;
+											g_bDamageMelee = true; // a blow, for Lua's GetEntityLastDamage
 											entity_hitentity ( iEE, t.entityelement[iEE].obj );
 											entity_triggerdecalatimpact ( t.entityelement[iEE].x, t.entityelement[iEE].y+50.0f, t.entityelement[iEE].z );
 											t.playercontrol.thirdperson.meleestruck = 1;
@@ -2541,6 +2543,8 @@ void gun_control ( void )
 					extern int g_iDamageBy;
 					extern std::string g_sDamageWeapon;
 					g_iDamageBy = -1;
+					extern bool g_bDamageMelee;
+					g_bDamageMelee = true; // the fist's blow
 					if ( t.gunid > 0 && t.gunid < (int)t.gun.size() ) g_sDamageWeapon = t.gun[t.gunid].name_s.Get();
 					entity_applydamage();
 

@@ -2761,10 +2761,12 @@ void darkai_shootcharacter (void)
 		}
 		t.tdamage = t.tdamage * t.bulletfinalstrengthmod;
 		t.tdamagesource = 1;
-		// the player's round, for Lua's GetEntityLastDamage
+		// the player's round or blow, for Lua's GetEntityLastDamage
 		extern int g_iDamageBy;
+		extern bool g_bDamageMelee;
 		extern std::string g_sDamageWeapon;
 		g_iDamageBy = -1;
+		g_bDamageMelee = t.gun[t.gunid].settings.ismelee == 2 || g.firemodes[t.gunid][g.firemode].settings.usemeleedamageonly > 0;
 		if ( t.gunid > 0 && t.gunid < (int)t.gun.size() ) g_sDamageWeapon = t.gun[t.gunid].name_s.Get();
 		entity_applydamage ();
 
