@@ -838,6 +838,21 @@ void AutoHarness_CheckForCommand ( void )
 			_snprintf ( result, sizeof(result), "OK: SAVE_LEVEL completed without crashing" );
 		}
 	}
+	else if ( _stricmp ( cmd, "RAGDOLL_LIFT" ) == 0 )
+	{
+		// RAGDOLL_LIFT [0|1 [reset]]: the lift of a ragdoll out of the terrain it is made in (BPhys_RagDollEnd) off or on, and
+		// its counts: ragdolls checked, lifted, the last lift and the largest (world units); `reset` zeroes the counts
+		extern bool g_bRagdollLift;
+		extern int g_iRagdollLiftChecked, g_iRagdollLifted;
+		extern float g_fRagdollLiftLast, g_fRagdollLiftMax;
+		int iOn = -1; char reset[16] = "";
+		if (arg) sscanf(arg, "%d %15s", &iOn, reset);
+		if (iOn == 0 || iOn == 1) g_bRagdollLift = iOn == 1;
+		if (_stricmp(reset, "reset") == 0) { g_iRagdollLiftChecked = 0; g_iRagdollLifted = 0; g_fRagdollLiftLast = 0; g_fRagdollLiftMax = 0; }
+		_snprintf(result, resultSize, "OK: RAGDOLL_LIFT on=%d checked=%d lifted=%d last=%.2f max=%.2f", g_bRagdollLift ? 1 : 0,
+			g_iRagdollLiftChecked, g_iRagdollLifted, g_fRagdollLiftLast, g_fRagdollLiftMax);
+		result[resultSize - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "RAGDOLL_COUNTS" ) == 0 || _stricmp ( cmd, "RAGDOLL_SETTLE" ) == 0 )
 	{
 		// RAGDOLL_COUNTS / RAGDOLL_SETTLE [0|1 [distance [seconds]]]: as the DX12 build's verbs

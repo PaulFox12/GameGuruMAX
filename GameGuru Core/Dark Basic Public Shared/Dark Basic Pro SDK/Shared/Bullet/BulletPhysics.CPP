@@ -4938,8 +4938,24 @@ int BPhys_RagdollGetBoneObjID(int ragdollID, int boneIndex)
 	return ragdoll ? ragdoll->GetBoneObjID(boneIndex) : -1;
 }
 
+// GG: the ragdoll lift (DBProRagDoll::LiftOutOfGround), on unless harness RAGDOLL_LIFT 0, and its counts since the start
+bool g_bRagdollLift = true;
+int g_iRagdollLiftChecked = 0;
+int g_iRagdollLifted = 0;
+float g_fRagdollLiftLast = 0;
+float g_fRagdollLiftMax = 0;
+
 void BPhys_RagDollEnd()
 {
+	// lifted out of the ground it is made in, by up to 60 units, 1 clear of it
+	if (g_bRagdollLift)
+	{
+		btScalar fLift = currentDBProRagDoll->LiftOutOfGround(60.0f, 1.0f);
+		g_iRagdollLiftChecked++;
+		g_fRagdollLiftLast = fLift;
+		if (fLift > 0) g_iRagdollLifted++;
+		if (fLift > g_fRagdollLiftMax) g_fRagdollLiftMax = fLift;
+	}
 	ragdollManager->AddRagdoll(currentDBProRagDoll);
 	currentDBProRagDoll->Finalize();
 	currentDBProRagDoll->Activate();
@@ -5994,6 +6010,23 @@ static btRigidBody* ODETerrainBody ( void )
 {
 	for (int i = 0; i < (int)g_PhyObjectList.size(); i++) if (g_PhyObjectList[i].iID == 7000) return g_PhyObjectList[i].body;
 	return NULL;
+}
+// GG: the physics terrain met by a ray (physics units) and the height it was met at: false when it isn't (no terrain,
+// or the ray starts under it)
+bool ODETerrainRayDown ( const btVector3& from, const btVector3& to, btScalar* pHitY )
+{
+	btRigidBody* pTerrain = ODETerrainBody();
+	if (!pTerrain) return false;
+	btTransform fromTrans, toTrans;
+	fromTrans.setIdentity();
+	fromTrans.setOrigin(from);
+	toTrans.setIdentity();
+	toTrans.setOrigin(to);
+	btCollisionWorld::ClosestRayResultCallback cb(from, to);
+	btCollisionWorld::rayTestSingle(fromTrans, toTrans, pTerrain, pTerrain->getCollisionShape(), pTerrain->getWorldTransform(), cb);
+	if (!cb.hasHit()) return false;
+	if (pHitY) *pHitY = cb.m_hitPointWorld.getY();
+	return true;
 }
 // whether two bodies overlap by more than fMinDepth units (a contact test, which an ignored pair still answers), and the
 // deepest overlap with how upright its normal is

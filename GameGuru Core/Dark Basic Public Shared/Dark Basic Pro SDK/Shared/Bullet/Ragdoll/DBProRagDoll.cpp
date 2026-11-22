@@ -881,6 +881,49 @@ int DBProRagDoll::FindBone(int limbID)
 	return -1;
 }
 
+// GG: the whole ragdoll lifted out of the physics terrain it is made in, before its first step: each capsule's two end
+// spheres and its middle checked by a ray down, and every bone raised by the deepest part below the ground plus fMargin
+// (world units). A character dying kneeling or prone on a slope, its capsules made a further 5 units down (the bone's
+// visual offset), started with bones under the ground, which the solver pushed further in, and the body sank through.
+// Ground more than fMaxDepth above a bone isn't seen (a character under the terrain is left where it is). Returns the
+// lift in world units, 0 none
+extern bool ODETerrainRayDown ( const btVector3& from, const btVector3& to, btScalar* pHitY );
+btScalar DBProRagDoll::LiftOutOfGround(btScalar fMaxDepth, btScalar fMargin)
+{
+	btScalar scaleFactor = 40.0f;
+	btScalar fDeepest = 0;
+	for (int i = 0; i < m_ragDollBoneArray.size(); i++)
+	{
+		btRigidBody* pBody = m_ragDollBoneArray[i]->GetRigidBody();
+		if (!pBody || pBody->getCollisionShape()->getShapeType() != CAPSULE_SHAPE_PROXYTYPE) continue;
+		const btCapsuleShape* pCapsule = (const btCapsuleShape*)pBody->getCollisionShape();
+		const btTransform& trans = pBody->getWorldTransform();
+		btVector3 axis = trans.getBasis().getColumn(pCapsule->getUpAxis());
+		btScalar fHalf = pCapsule->getHalfHeight();
+		btScalar fRadius = pCapsule->getRadius();
+		btVector3 points[3] = { trans.getOrigin() + axis * fHalf, trans.getOrigin(), trans.getOrigin() - axis * fHalf };
+		for (int p = 0; p < 3; p++)
+		{
+			btScalar fBottom = points[p].getY() - fRadius;
+			btScalar fHitY = 0;
+			btVector3 from(points[p].getX(), fBottom + fMaxDepth / scaleFactor, points[p].getZ());
+			btVector3 to(points[p].getX(), fBottom - 1.0f / scaleFactor, points[p].getZ());
+			if (ODETerrainRayDown(from, to, &fHitY)) fDeepest = btMax(fDeepest, fHitY - fBottom);
+		}
+	}
+	if (fDeepest <= 0) return 0;
+	btVector3 lift(0, fDeepest + fMargin / scaleFactor, 0);
+	for (int i = 0; i < m_ragDollBoneArray.size(); i++)
+	{
+		btRigidBody* pBody = m_ragDollBoneArray[i]->GetRigidBody();
+		if (!pBody) continue;
+		btTransform trans = pBody->getWorldTransform();
+		trans.setOrigin(trans.getOrigin() + lift);
+		pBody->setCenterOfMassTransform(trans);
+	}
+	return lift.getY() * scaleFactor;
+}
+
 // GG: a body's centre in world units
 btVector3 DBProRagDoll::GetBonePosition(int boneIndex)
 {

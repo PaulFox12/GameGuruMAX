@@ -49,6 +49,7 @@ public:
 	// GG: a body held at a point (BPhys_RagDollHold), the bodies' turn as if standing facing angle 0, and the body the object follows
 	int FindBone(int limbID);
 	btVector3 GetBonePosition(int boneIndex);
+	btScalar LiftOutOfGround(btScalar fMaxDepth, btScalar fMargin);
 	void SetRestYaw(btScalar yawDegrees);
 	void SetFollowBone(int boneIndex);
 	void Hold(int boneIndex, const btVector3& position, const btMatrix3x3& rotation, btScalar fYawDegrees, unsigned int uNowMs);
