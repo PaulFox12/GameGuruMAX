@@ -9450,6 +9450,8 @@ static bool spline_harnesswrite( const char* pPath, const void* p, size_t bytes 
 // it is handled). Returns false for any other verb
 bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resultSize )
 {
+	extern bool editor_hidefilters_harness( const char* pCmd, const char* pArg, char* pResult, int resultSize ); // GG: M-GridEditB_part17
+	if ( editor_hidefilters_harness( pCmd, pArg, pResult, resultSize ) ) return true;
 	char info[ 512 ];
 	static int s_iTestParticleMarker = 0;
 	if ( _stricmp( pCmd, "TEST_PARTICLEMARKER" ) == 0 )

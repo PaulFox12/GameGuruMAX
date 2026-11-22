@@ -12054,7 +12054,9 @@ void DrawLogicNodes(bool bVisible)
 								iConnectionsCount++;
 							}
 						}
-						ShowObject(iEntityObject + DOTOBJECTIDADD);
+						extern bool editor_hidefilters_ishidden(int e); // GG: none for an object a Hide Filter hid
+						if (editor_hidefilters_ishidden(iEntityID)) HideObject(iEntityObject + DOTOBJECTIDADD);
+						else ShowObject(iEntityObject + DOTOBJECTIDADD);
 					}
 					else
 					{
@@ -36985,6 +36987,424 @@ void SaveExtraSettingsFile(void)
 	sLine = cstr("defaultclearvegetation=") + Str(g_iDefaultClearVegetation);
 	WriteString(1, sLine.Get());
 	CloseFile(1);
+}
+
+// GG: Hide Filters. Rules of words in an entity's name hide the entities that match in the editor only: not drawn and not
+// picked (the pick skips a hidden object), shown again for a test game and hidden again after it, never saved with a level.
+// A rule's words must all be in the name (All Of) or one of them (Any Of), and the words after "not" must not be; a rule
+// can be limited to static or dynamic entities, markers or lights, and an entity bank folder. The rules are the user's,
+// kept in gamegurumax_hidefilters.ini beside the preferences (whose layout cannot change), and apply to every level
+struct sEditorHideRule
+{
+	bool bOn = true;
+	int iMode = 0; // 0 every word, 1 any word
+	int iKind = 0; // 0 any entity, 1 static, 2 dynamic, 3 markers, 4 lights
+	char pWords[256] = "";
+	char pFolder[256] = ""; // in the entity's bank file, if given
+	int iCount = 0; // the entities it matches now
+};
+std::vector<sEditorHideRule> g_EditorHideRules;
+std::vector<char> g_EditorHidden; // per entity: 1 its object hidden by a rule, 2 matched but hidden already
+bool g_bEditorHideDirty = true;
+bool g_bEditorHideSuspended = false;
+bool g_bEditorHideLoaded = false;
+bool g_bEditorHideNoSave = false; // the harness's rules are never written
+bool g_bEditorHideWindow = false;
+int g_iEditorHideTick = 0;
+int g_iEditorHideCount = 0;
+
+static void editor_hidefilters_words(const char* pWords, std::vector<std::string>& in, std::vector<std::string>& out)
+{
+	in.clear();
+	out.clear();
+	bool bNot = false;
+	std::string sWord;
+	for (const char* p = pWords; ; p++)
+	{
+		if (*p == 0 || *p == ' ' || *p == ',')
+		{
+			if (!sWord.empty())
+			{
+				if (sWord == "not") bNot = true;
+				else (bNot ? out : in).push_back(sWord);
+				sWord.clear();
+			}
+			if (*p == 0) break;
+		}
+		else
+		{
+			sWord += (char)tolower((unsigned char)*p);
+		}
+	}
+}
+
+static void editor_hidefilters_lower(const char* pText, std::string& sOut)
+{
+	sOut = pText ? pText : "";
+	for (char& c : sOut) c = (char)tolower((unsigned char)c);
+}
+
+void editor_hidefilters_save(void)
+{
+	if (g_bEditorHideNoSave) return;
+	std::ofstream out(std::string(defaultWriteFolder) + "gamegurumax_hidefilters.ini", std::ios::trunc);
+	for (const sEditorHideRule& r : g_EditorHideRules)
+	{
+		out << "rule=" << (r.bOn ? 1 : 0) << "|" << r.iMode << "|" << r.iKind << "|" << r.pFolder << "|" << r.pWords << "\n";
+	}
+}
+
+static void editor_hidefilters_load(void)
+{
+	g_bEditorHideLoaded = true;
+	g_EditorHideRules.clear();
+	std::ifstream in(std::string(defaultWriteFolder) + "gamegurumax_hidefilters.ini");
+	std::string sLine;
+	while (std::getline(in, sLine))
+	{
+		if (!sLine.empty() && sLine.back() == '\r') sLine.pop_back();
+		if (_strnicmp(sLine.c_str(), "rule=", 5) != 0) continue;
+		std::vector<std::string> fields;
+		size_t start = 5;
+		for (int f = 0; f < 4; f++)
+		{
+			size_t bar = sLine.find('|', start);
+			if (bar == std::string::npos) break;
+			fields.push_back(sLine.substr(start, bar - start));
+			start = bar + 1;
+		}
+		if (fields.size() < 4) continue;
+		sEditorHideRule r;
+		r.bOn = atoi(fields[0].c_str()) != 0;
+		r.iMode = atoi(fields[1].c_str()) ? 1 : 0;
+		r.iKind = std::max(0, std::min(4, atoi(fields[2].c_str())));
+		strncpy(r.pFolder, fields[3].c_str(), sizeof(r.pFolder) - 1);
+		strncpy(r.pWords, sLine.c_str() + start, sizeof(r.pWords) - 1);
+		g_EditorHideRules.push_back(r);
+	}
+	g_bEditorHideDirty = true;
+}
+
+// each entity's object hidden or shown by the rules; every one a rule hid is shown while suspended (a test game)
+void editor_hidefilters_apply(void)
+{
+	if (!g_bEditorHideLoaded) editor_hidefilters_load();
+	g_bEditorHideDirty = false;
+	struct sWords { std::vector<std::string> in, out; std::string folder; };
+	std::vector<sWords> words(g_EditorHideRules.size());
+	bool bAnyFolder = false;
+	for (size_t i = 0; i < g_EditorHideRules.size(); i++)
+	{
+		editor_hidefilters_words(g_EditorHideRules[i].pWords, words[i].in, words[i].out);
+		editor_hidefilters_lower(g_EditorHideRules[i].pFolder, words[i].folder);
+		if (!words[i].folder.empty()) bAnyFolder = true;
+		g_EditorHideRules[i].iCount = 0;
+	}
+	const int iLast = std::min(g.entityelementlist, (int)t.entityelement.size() - 1);
+	if ((int)g_EditorHidden.size() < iLast + 1) g_EditorHidden.resize(iLast + 1, 0);
+	g_iEditorHideCount = 0;
+	std::string sName, sFile;
+	for (int e = 1; e <= iLast; e++)
+	{
+		const int iObj = t.entityelement[e].obj;
+		const int iBank = t.entityelement[e].bankindex;
+		bool bHide = false;
+		if (iObj > 0 && iBank > 0 && !g_EditorHideRules.empty())
+		{
+			const char* pName = t.entityelement[e].eleprof.name_s.Get();
+			if (!pName || !pName[0]) pName = t.entityprofileheader[iBank].desc_s.Get();
+			editor_hidefilters_lower(pName, sName);
+			if (bAnyFolder) editor_hidefilters_lower(t.entitybank_s[iBank].Get(), sFile);
+			const int iMarker = t.entityprofile[iBank].ismarker;
+			const bool bStatic = t.entityelement[e].staticflag != 0;
+			for (size_t i = 0; i < g_EditorHideRules.size(); i++)
+			{
+				const sEditorHideRule& r = g_EditorHideRules[i];
+				const sWords& w = words[i];
+				if (w.in.empty()) continue;
+				if (r.iKind == 1 && (iMarker != 0 || !bStatic)) continue;
+				if (r.iKind == 2 && (iMarker != 0 || bStatic)) continue;
+				if (r.iKind == 3 && iMarker == 0) continue;
+				if (r.iKind == 4 && iMarker != 2) continue;
+				if (!w.folder.empty() && sFile.find(w.folder) == std::string::npos) continue;
+				int iFound = 0;
+				for (const std::string& sWord : w.in) if (sName.find(sWord) != std::string::npos) iFound++;
+				if (r.iMode == 0 ? iFound < (int)w.in.size() : iFound == 0) continue;
+				bool bExcluded = false;
+				for (const std::string& sWord : w.out) if (sName.find(sWord) != std::string::npos) bExcluded = true;
+				if (bExcluded) continue;
+				g_EditorHideRules[i].iCount++;
+				if (r.bOn) bHide = true;
+			}
+		}
+		if (g_bEditorHideSuspended) bHide = false;
+		if (iObj > 0 && ObjectExist(iObj) == 1)
+		{
+			if (bHide)
+			{
+				if (GetVisible(iObj)) { HideObject(iObj); g_EditorHidden[e] = 1; }
+				else if (g_EditorHidden[e] == 0) g_EditorHidden[e] = 2;
+				g_iEditorHideCount++;
+			}
+			else if (g_EditorHidden[e])
+			{
+				// shown again only if a rule hid it, and a marker only while the editor shows game elements
+				const bool bMarker = iBank > 0 && t.entityprofile[iBank].ismarker != 0;
+				if (g_EditorHidden[e] == 1 && (!bMarker || t.showeditorelements)) ShowObject(iObj);
+				g_EditorHidden[e] = 0;
+			}
+		}
+		else
+		{
+			g_EditorHidden[e] = 0;
+		}
+	}
+}
+
+bool editor_hidefilters_ishidden(int e)
+{
+	return e > 0 && e < (int)g_EditorHidden.size() && g_EditorHidden[e] != 0;
+}
+
+// a test game shows everything the rules hid, and they hide it again after
+void editor_hidefilters_suspend(bool bSuspend)
+{
+	g_bEditorHideSuspended = bSuspend;
+	editor_hidefilters_apply();
+}
+
+// a level loaded: every object new, none hidden by a rule yet
+void editor_hidefilters_levelloaded(void)
+{
+	g_EditorHidden.clear();
+	g_bEditorHideDirty = true;
+}
+
+// every frame in the editor: applied at once after a change, and every half second so new, renamed and re-shown
+// entities follow the rules
+void editor_hidefilters_update(void)
+{
+	if (!g_bEditorHideLoaded) editor_hidefilters_load();
+	if (g_bEditorHideSuspended) return;
+	bool bActive = g_bEditorHideWindow;
+	for (const sEditorHideRule& r : g_EditorHideRules) if (r.bOn) bActive = true;
+	if (!bActive && g_iEditorHideCount == 0 && !g_bEditorHideDirty) return;
+	if (g_bEditorHideDirty || ++g_iEditorHideTick >= 30)
+	{
+		g_iEditorHideTick = 0;
+		editor_hidefilters_apply();
+	}
+}
+
+// a rule made from an entity's name, its words split at spaces, underscores and the like, numbers left out
+int editor_hidefilters_addfromentity(int e)
+{
+	if (e <= 0 || e >= (int)t.entityelement.size() || t.entityelement[e].bankindex <= 0) return -1;
+	const char* pName = t.entityelement[e].eleprof.name_s.Get();
+	if (!pName || !pName[0]) pName = t.entityprofileheader[t.entityelement[e].bankindex].desc_s.Get();
+	if (!pName) return -1;
+	std::string sWords, sWord;
+	for (const char* p = pName; ; p++)
+	{
+		if (*p && isalnum((unsigned char)*p)) { sWord += (char)tolower((unsigned char)*p); continue; }
+		bool bNumber = !sWord.empty();
+		for (char c : sWord) if (!isdigit((unsigned char)c)) bNumber = false;
+		if (!sWord.empty() && !bNumber && sWord != "not" && sWords.size() + sWord.size() + 1 < 250)
+		{
+			if (!sWords.empty()) sWords += " ";
+			sWords += sWord;
+		}
+		sWord.clear();
+		if (!*p) break;
+	}
+	if (sWords.empty()) return -1;
+	if (!g_bEditorHideLoaded) editor_hidefilters_load();
+	sEditorHideRule r;
+	strcpy(r.pWords, sWords.c_str());
+	g_EditorHideRules.push_back(r);
+	g_bEditorHideDirty = true;
+	g_bEditorHideWindow = true;
+	editor_hidefilters_save();
+	return (int)g_EditorHideRules.size() - 1;
+}
+
+void editor_hidefilters_window(void)
+{
+	if (!g_bEditorHideWindow || bImGuiInTestGame) return;
+	if (!g_bEditorHideLoaded) editor_hidefilters_load();
+	ImGui::SetNextWindowSize(ImVec2(640, 320), ImGuiCond_FirstUseEver);
+	if (ImGui::Begin("Hide Filters##editorhidefilters", &g_bEditorHideWindow))
+	{
+		ImGui::TextWrapped("Objects whose names match a ticked rule are hidden in the editor and cannot be picked. Test Level and exports show them as usual. All Of needs every word in the name, Any Of one of them; words after 'not' must be absent (bld not dest).");
+		ImGui::Separator();
+		bool bChanged = false, bSave = false;
+		const char* pModes[] = { "All Of", "Any Of" };
+		const char* pKinds[] = { "Any Entity", "Static", "Dynamic", "Markers", "Lights" };
+		int iDelete = -1;
+		for (int i = 0; i < (int)g_EditorHideRules.size(); i++)
+		{
+			sEditorHideRule& r = g_EditorHideRules[i];
+			ImGui::PushID(i);
+			if (ImGui::Checkbox("##on", &r.bOn)) bChanged = bSave = true;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Tick to hide the objects this rule matches");
+			ImGui::SameLine();
+			ImGui::PushItemWidth(190);
+			if (ImGui::InputText("##words", r.pWords, sizeof(r.pWords))) bChanged = true;
+			if (ImGui::IsItemDeactivatedAfterEdit()) bSave = true;
+			if (ImGui::IsItemActive()) bImGuiGotFocus = true;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Words to find in the object's name, split by spaces");
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			ImGui::PushItemWidth(80);
+			if (ImGui::Combo("##mode", &r.iMode, pModes, IM_ARRAYSIZE(pModes))) bChanged = bSave = true;
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			ImGui::PushItemWidth(100);
+			if (ImGui::Combo("##kind", &r.iKind, pKinds, IM_ARRAYSIZE(pKinds))) bChanged = bSave = true;
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			ImGui::PushItemWidth(100);
+			if (ImGui::InputText("##folder", r.pFolder, sizeof(r.pFolder))) bChanged = true;
+			if (ImGui::IsItemDeactivatedAfterEdit()) bSave = true;
+			if (ImGui::IsItemActive()) bImGuiGotFocus = true;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Only objects from an entity bank folder containing this (blank for any)");
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			ImGui::Text("%6d", r.iCount);
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Objects this rule matches now");
+			ImGui::SameLine();
+			if (ImGui::Button("Delete")) iDelete = i;
+			ImGui::PopID();
+		}
+		if (iDelete >= 0)
+		{
+			g_EditorHideRules.erase(g_EditorHideRules.begin() + iDelete);
+			bChanged = bSave = true;
+		}
+		if (ImGui::Button("Add Rule"))
+		{
+			g_EditorHideRules.push_back(sEditorHideRule());
+			bChanged = bSave = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Untick All"))
+		{
+			for (sEditorHideRule& r : g_EditorHideRules) r.bOn = false;
+			bChanged = bSave = true;
+		}
+		ImGui::SameLine();
+		ImGui::Text("%d objects hidden", g_iEditorHideCount);
+		if (bChanged) g_bEditorHideDirty = true;
+		if (bSave) editor_hidefilters_save();
+	}
+	ImGui::End();
+}
+
+// harness: HIDEFILTER_CLEAR (every rule gone, none saved from now on), HIDEFILTER_ADD on|mode|kind|folder|words,
+// HIDEFILTER_SET index on, HIDEFILTER_QUICK e, HIDEFILTER_STATE [e], HIDEFILTER_PICK (the entity under the mouse),
+// HIDEFILTER_FIND words (entities whose names hold them); hide_filter_check.py
+bool editor_hidefilters_harness(const char* pCmd, const char* pArg, char* pResult, int resultSize)
+{
+	if (_strnicmp(pCmd, "HIDEFILTER_", 11) != 0) return false;
+	const char* pVerb = pCmd + 11;
+	g_bEditorHideNoSave = true;
+	if (!g_bEditorHideLoaded) editor_hidefilters_load();
+	if (_stricmp(pVerb, "CLEAR") == 0)
+	{
+		g_EditorHideRules.clear();
+		editor_hidefilters_apply();
+	}
+	else if (_stricmp(pVerb, "ADD") == 0)
+	{
+		sEditorHideRule r;
+		std::string sArg = pArg ? pArg : "";
+		std::vector<std::string> fields;
+		size_t start = 0;
+		for (int f = 0; f < 4; f++)
+		{
+			size_t bar = sArg.find('|', start);
+			if (bar == std::string::npos) break;
+			fields.push_back(sArg.substr(start, bar - start));
+			start = bar + 1;
+		}
+		if (fields.size() == 4)
+		{
+			r.bOn = atoi(fields[0].c_str()) != 0;
+			r.iMode = atoi(fields[1].c_str()) ? 1 : 0;
+			r.iKind = std::max(0, std::min(4, atoi(fields[2].c_str())));
+			strncpy(r.pFolder, fields[3].c_str(), sizeof(r.pFolder) - 1);
+			strncpy(r.pWords, sArg.c_str() + start, sizeof(r.pWords) - 1);
+		}
+		else
+		{
+			strncpy(r.pWords, sArg.c_str(), sizeof(r.pWords) - 1);
+		}
+		g_EditorHideRules.push_back(r);
+		editor_hidefilters_apply();
+	}
+	else if (_stricmp(pVerb, "SET") == 0)
+	{
+		int i = -1, on = 1;
+		sscanf(pArg ? pArg : "", "%d %d", &i, &on);
+		if (i >= 0 && i < (int)g_EditorHideRules.size()) g_EditorHideRules[i].bOn = on != 0;
+		editor_hidefilters_apply();
+	}
+	else if (_stricmp(pVerb, "QUICK") == 0)
+	{
+		const int i = editor_hidefilters_addfromentity(atoi(pArg ? pArg : "0"));
+		editor_hidefilters_apply();
+		snprintf(pResult, resultSize, "rule=%d words=%s", i, i >= 0 ? g_EditorHideRules[i].pWords : "");
+		return true;
+	}
+	else if (_stricmp(pVerb, "PICK") == 0)
+	{
+		extern int iReusePickObjectID;
+		iReusePickObjectID = -1;
+		const int e = findentitycursorobj(-1);
+		snprintf(pResult, resultSize, "e=%d obj=%d hidden=%d", e, e > 0 ? t.entityelement[e].obj : 0, editor_hidefilters_ishidden(e) ? 1 : 0);
+		return true;
+	}
+	else if (_stricmp(pVerb, "FIND") == 0)
+	{
+		// HIDEFILTER_FIND words: up to 6 entities with an object whose name holds every word (case aside), and how many in all
+		std::vector<std::string> in, out;
+		editor_hidefilters_words(pArg ? pArg : "", in, out);
+		int iFound = 0, n = snprintf(pResult, resultSize, "OK: HIDEFILTER_FIND");
+		std::string sName;
+		for (int e = 1; e <= g.entityelementlist && e < (int)t.entityelement.size(); e++)
+		{
+			const int iObj = t.entityelement[e].obj;
+			if (iObj <= 0 || ObjectExist(iObj) != 1 || in.empty()) continue;
+			editor_hidefilters_lower(t.entityelement[e].eleprof.name_s.Get(), sName);
+			bool bAll = true;
+			for (const std::string& sWord : in) if (sName.find(sWord) == std::string::npos) bAll = false;
+			for (const std::string& sWord : out) if (sName.find(sWord) != std::string::npos) bAll = false;
+			if (!bAll) continue;
+			if (iFound++ < 6 && n < resultSize - 160)
+				n += snprintf(pResult + n, resultSize - n, " | %d %.0f %.0f %.0f %d %s", e, t.entityelement[e].x, t.entityelement[e].y, t.entityelement[e].z, GetVisible(iObj), sName.c_str());
+		}
+		if (n < resultSize - 24) snprintf(pResult + n, resultSize - n, " | found=%d", iFound);
+		return true;
+	}
+	else if (_stricmp(pVerb, "STATE") != 0)
+	{
+		snprintf(pResult, resultSize, "ERROR unknown verb");
+		return true;
+	}
+	int n = snprintf(pResult, resultSize, "rules=%d hidden=%d suspended=%d", (int)g_EditorHideRules.size(), g_iEditorHideCount, g_bEditorHideSuspended ? 1 : 0);
+	for (size_t i = 0; i < g_EditorHideRules.size() && n < resultSize - 64; i++)
+	{
+		const sEditorHideRule& r = g_EditorHideRules[i];
+		n += snprintf(pResult + n, resultSize - n, " | %d on=%d mode=%d kind=%d count=%d words=%s", (int)i, r.bOn ? 1 : 0, r.iMode, r.iKind, r.iCount, r.pWords);
+	}
+	const int e = pArg && pArg[0] ? atoi(pArg) : 0;
+	if (e > 0 && e < (int)t.entityelement.size() && n < resultSize - 64)
+	{
+		const int iObj = t.entityelement[e].obj;
+		snprintf(pResult + n, resultSize - n, " | e=%d obj=%d visible=%d flag=%d name=%s", e, iObj, iObj > 0 && ObjectExist(iObj) ? GetVisible(iObj) : -1,
+			e < (int)g_EditorHidden.size() ? g_EditorHidden[e] : 0, t.entityelement[e].eleprof.name_s.Get());
+	}
+	return true;
 }
 
 void loadMarketplaceData(int* ggMaxDlc, cstr* ggMaxLink, int* sketchfabDlc, cstr* sketchfabLink, int* shockwaveDlc, cstr* shockwaveLink, int* communityDlc, cstr* communityLink, int* gcStoreDlc, cstr* gcStoreImageURL, cstr* gcStoreLink)

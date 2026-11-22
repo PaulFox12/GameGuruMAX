@@ -3656,6 +3656,10 @@ void mapeditorexecutable_loop(void)
 				ImGui::Separator();
 				if (ImGui::MenuItem("Lock All Objects", "")) editor_lockallobjects(true); // GG
 				if (ImGui::MenuItem("Unlock All Objects", "", false, vEntityLockedList.size() > 0)) editor_lockallobjects(false); // GG
+				extern bool g_bEditorHideWindow; // GG: Hide Filters, M-GridEditB_part17
+				extern int editor_hidefilters_addfromentity(int e);
+				if (ImGui::MenuItem("Hide Filters...", "")) g_bEditorHideWindow = true; // GG
+				if (ImGui::MenuItem("Hide Objects Named Like This", "", false, t.widget.pickedEntityIndex > 0)) editor_hidefilters_addfromentity(t.widget.pickedEntityIndex); // GG
 
 
 
@@ -12462,7 +12466,12 @@ void mapeditorexecutable_loop(void)
 						t.gamevisuals.bEndableTerrainDrawing = t.visuals.bEndableTerrainDrawing;
 				}
 				ImGui::Columns(1);
+				extern bool g_bEditorHideWindow; // GG: Hide Filters, M-GridEditB_part17
+				if (ImGui::StyleButton("Hide Filters...##viewoptions", ImVec2(ImGui::GetContentRegionAvailWidth(), 0.0f))) g_bEditorHideWindow = true;
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Hide objects in the editor by words in their names");
 			}
+			extern void editor_hidefilters_window(void); // GG
+			editor_hidefilters_window();
 
 			int iGridObj = g.ebeobjectbankoffset + 1000;
 			if (!bImGuiInTestGame && bEmptyLevelGrid)
@@ -15127,6 +15136,10 @@ void editor_previewmapormultiplayer_initcode ( int iUseVRTest )
 	// switch off any rubber band entity highlighting
 	gridedit_clearentityrubberbandlist();
 
+	// GG: the objects the editor's Hide Filters hid are shown for the game
+	extern void editor_hidefilters_suspend(bool bSuspend);
+	editor_hidefilters_suspend(true);
+
 	// 210917 - refresh HLSL shaders (flagged as doing shader work)
 	if ( g.gforceloadtestgameshaders == 1 )
 	{
@@ -16007,6 +16020,8 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 
 	// restore object visibilities
 	editor_refresheditmarkers ( );
+	extern void editor_hidefilters_suspend(bool bSuspend); // GG: and the Hide Filters' hidden again
+	editor_hidefilters_suspend(false);
 
 	// 130320 - ensure water height change is not saved out to root (messes up when reload software; underwater)
 	float fStoreWaterLevel = g.gdefaultwaterheight;
@@ -19830,6 +19845,8 @@ void editor_mainfunctionality ( void )
 	// and pavements with the roads, and an undo of a spline is baked and placed with the Roads and Rivers panel closed
 	spline_updatewater ( );
 	spline_updatemarkings ( );
+	extern void editor_hidefilters_update ( void ); // GG: Hide Filters, M-GridEditB_part17
+	editor_hidefilters_update ( );
 	spline_updatepavements ( );
 	spline_editorupdate ( );
 
@@ -22099,7 +22116,8 @@ void gridedit_mapediting ( void )
 								}
 
 								// only if not locked
-								if ( t.entityelement[e].editorlock==false )
+								extern bool editor_hidefilters_ishidden(int e); // GG: nor hidden by a Hide Filter
+								if ( t.entityelement[e].editorlock==false && !editor_hidefilters_ishidden(e) )
 								{
 									int tobj = t.entityelement[e].obj;
 									if ( tobj > 0 )
@@ -25511,6 +25529,8 @@ void gridedit_load_map ( void )
 		if(e < t.entityelement.size())
 			t.entityelement[e].editorlock = 1;
 	}
+	extern void editor_hidefilters_levelloaded(void); // GG: the Hide Filters start again on the new objects
+	editor_hidefilters_levelloaded();
 	bForceRefreshLightCount = true;
 
 	// Level has finished loading, so no longer need to store the smart object dummy OBJs
