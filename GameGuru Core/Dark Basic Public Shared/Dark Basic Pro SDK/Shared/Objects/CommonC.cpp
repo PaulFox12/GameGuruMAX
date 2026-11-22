@@ -12,6 +12,9 @@ DBPRO_GLOBAL int*							g_ObjectListRef					= NULL;				// short list of valid ob
 DBPRO_GLOBAL int							g_iObjectListRefCount			= 0;
 DBPRO_GLOBAL sObject**						g_ObjectList					= NULL;				// a list of pointers to pointers - we're going to create a dynamic array
 DBPRO_GLOBAL int							g_iObjectListCount				= 0;				// number of objects currently in list
+// GG: each object number's place in g_ObjectListRef plus one (0 not in it): an add scanned the whole live list for a
+// duplicate and a remove scanned it for its place and shifted the rest down, both quadratic for a level of many entities
+DBPRO_GLOBAL int*							g_ObjectListRefPos				= NULL;
 DBPRO_GLOBAL bool							g_bGlobalVBIBUsageFlag			= true;				// true means objects created use their own VB buffers
 DBPRO_GLOBAL bool							g_bGlobalSortByTextureUsageFlag	= true;				// true means will sort by texture (preU71 behaviour)
 DBPRO_GLOBAL bool							g_bGlobalSortByObjectNumberFlag = false;			// true means will sort by objectnumber if not sorted by texture
@@ -117,6 +120,8 @@ DARKSDK_DLL void Basic3DPassCoreData ( LPVOID pGlobPtr )
 	g_iObjectListRefCount=0;
 	g_ObjectListRef = new int [ g_iObjectListCount ];
 	g_ObjectList = new sObject* [ g_iObjectListCount ];
+	g_ObjectListRefPos = new int [ g_iObjectListCount + 1 ];
+	for ( int iTemp = 0; iTemp <= g_iObjectListCount; iTemp++ ) g_ObjectListRefPos [ iTemp ] = 0;
 
 	if ( !g_ObjectList )
 		RunTimeError ( RUNTIMEERROR_OBJECTMANAGERFAILED );
@@ -596,13 +601,26 @@ DARKSDK_DLL void ResizeObjectList ( int iSize )
 
 	// size
 	int iOriginalCount = g_iObjectListCount;
-	g_iObjectListCount += 50;
+	// GG: by half its size (at least 50), not by 50: each growth copies the whole list, and entity objects from 2,000,001
+	// made one at a time copied it every 50 entities
+	int iGrowBy = iOriginalCount / 2;
+	if ( iGrowBy < 50 ) iGrowBy = 50;
+	g_iObjectListCount += iGrowBy;
 	if ( g_iObjectListCount <= iSize )
-		g_iObjectListCount = iSize + 5;
+		g_iObjectListCount = iSize + 5 + iSize / 8;
 
 	// create
 	pNewObjectListRef = new int [ g_iObjectListCount ];
 	pNewObjectList = new sObject* [ g_iObjectListCount ];
+	int* pNewObjectListRefPos = new int [ g_iObjectListCount + 1 ];
+	if ( pNewObjectListRefPos )
+	{
+		for ( int iTemp = 0; iTemp <= g_iObjectListCount; iTemp++ ) pNewObjectListRefPos [ iTemp ] = 0;
+		if ( g_ObjectListRefPos ) for ( int iTemp = 0; iTemp < iOriginalCount; iTemp++ ) pNewObjectListRefPos [ iTemp ] = g_ObjectListRefPos [ iTemp ];
+		int* free3 = g_ObjectListRefPos;
+		g_ObjectListRefPos = pNewObjectListRefPos;
+		SAFE_DELETE_ARRAY ( free3 );
+	}
 
 	// lee - 200306 - u6b4 - if not created (super large size), do not crash!
 	if ( pNewObjectListRef && pNewObjectList )
@@ -631,14 +649,22 @@ DARKSDK_DLL void ResizeObjectList ( int iSize )
 
 DARKSDK_DLL void AddObjectToObjectListRef ( int iID )
 {
-	// check if already in list
-	for ( int iIndex = 0; iIndex < g_iObjectListRefCount; iIndex++ )
-		if ( g_ObjectListRef [ iIndex ]==iID )
-			return;
+	// check if already in list (by its place, GG)
+	if ( g_ObjectListRefPos && iID >= 0 && iID < g_iObjectListCount )
+	{
+		if ( g_ObjectListRefPos [ iID ] > 0 ) return;
+	}
+	else
+	{
+		for ( int iIndex = 0; iIndex < g_iObjectListRefCount; iIndex++ )
+			if ( g_ObjectListRef [ iIndex ]==iID )
+				return;
+	}
 
 	// add new entry
 	g_ObjectListRef [ g_iObjectListRefCount ] = iID;
 	g_iObjectListRefCount++;
+	if ( g_ObjectListRefPos && iID >= 0 && iID < g_iObjectListCount ) g_ObjectListRefPos [ iID ] = g_iObjectListRefCount;
 
 	// update global arrays for shortlist entry expansion
 	m_ObjectManager.UpdateObjectListSize ( g_iObjectListRefCount );
@@ -646,6 +672,19 @@ DARKSDK_DLL void AddObjectToObjectListRef ( int iID )
 
 DARKSDK_DLL void  RemoveObjectFromObjectListRef ( int iID )
 {
+	// GG: found by its place, and the last entry moved into it (the list's order doesn't matter to its users: each loop
+	// over it takes every object); the scan and the shift of everything after it made removing many objects quadratic
+	if ( g_ObjectListRefPos && iID >= 0 && iID < g_iObjectListCount )
+	{
+		int iIndex = g_ObjectListRefPos [ iID ] - 1;
+		if ( iIndex < 0 || iIndex >= g_iObjectListRefCount || g_ObjectListRef [ iIndex ] != iID ) return;
+		int iLast = g_ObjectListRef [ g_iObjectListRefCount - 1 ];
+		g_ObjectListRef [ iIndex ] = iLast;
+		if ( iLast >= 0 && iLast < g_iObjectListCount ) g_ObjectListRefPos [ iLast ] = iIndex + 1;
+		g_ObjectListRefPos [ iID ] = 0;
+		g_iObjectListRefCount--;
+		return;
+	}
 	// check if in list
 	for ( int iIndex = 0; iIndex < g_iObjectListRefCount; iIndex++ )
 	{

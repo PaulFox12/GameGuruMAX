@@ -9687,6 +9687,38 @@ struct smoothanimtype
 
 };
 
+// GG: the object number layout's entity range (entity headroom, 2026-11-21): entities' objects from ENTITYOBJECTBASE, above
+// every fixed range of other objects (weapons from 90000, the editor's dots and markers, effects, physics secondaries, the
+// dot arcs below 1,000,000), so a level can hold any number of entities without one taking another system's number; the
+// editor's dot for an entity's object is that number less 1,000,000 (ENTITYDOTOBJECTFIRST on)
+#define ENTITYOBJECTBASE 2000001
+#define ENTITYOBJECTLAST 2999999
+#define ENTITYDOTOBJECTFIRST 1000001
+#define ENTITYDOTOBJECTLAST 1999999
+
+// GG: smoothanim by object number: the low numbers in one list from 0, the entities' range (from ENTITYOBJECTBASE) in
+// another from its start, so entity objects past 2,000,000 don't need a list that long. A number past either list's end
+// grows it, so a reference taken before another number is asked for may move
+struct smoothanimlist
+{
+	std::vector<smoothanimtype> low;
+	std::vector<smoothanimtype> high;
+	void resize ( size_t n ) { low.clear(); low.resize ( n ); high.clear(); }
+	void clearhigh ( void ) { high.clear(); }
+	smoothanimtype& operator[] ( int iObj )
+	{
+		if ( iObj >= ENTITYOBJECTBASE )
+		{
+			size_t i = (size_t)( iObj - ENTITYOBJECTBASE );
+			if ( i >= high.size() ) high.resize ( i + 1 + i / 2 + 1024 );
+			return high[ i ];
+		}
+		if ( iObj < 0 ) iObj = 0;
+		if ( (size_t)iObj >= low.size() ) low.resize ( iObj + 1 );
+		return low[ iObj ];
+	}
+};
+
 
 //  Character Sequence Datatype
 struct charseqtype

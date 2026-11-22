@@ -4739,7 +4739,7 @@ bool CObjectManager::DrawObject ( sObject* pObject, bool bFrustrumCullMeshes, bo
 	bool bOcclusionRenderHappened = false;
 	//PE: Checkup
 	//PE: pObject->dwObjectNumber > 70000 ?
-	if ( g_Occlusion.d3dQuery[pObject->dwObjectNumber]!=NULL )
+	if ( pObject->dwObjectNumber < 70000 && g_Occlusion.d3dQuery[pObject->dwObjectNumber]!=NULL ) // GG: entity objects from 2,000,001 have no query
 	{
 		if ( g_Occlusion.GetOcclusionMode()==1 )
 		{
@@ -5240,7 +5240,7 @@ bool CObjectManager::DrawObject ( sObject* pObject, bool bFrustrumCullMeshes, bo
 	}
 
 	// calculate object visibility based on hardware occlusion
-	if ( g_Occlusion.d3dQuery[pObject->dwObjectNumber]!=NULL )
+	if ( pObject->dwObjectNumber < 70000 && g_Occlusion.d3dQuery[pObject->dwObjectNumber]!=NULL ) // GG: entity objects from 2,000,001 have no query
 	{
 		if ( g_Occlusion.GetOcclusionMode()==1 )
 		{

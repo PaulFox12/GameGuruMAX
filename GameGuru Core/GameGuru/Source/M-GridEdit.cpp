@@ -162,14 +162,16 @@ sObject* g_selected_middle_dot_pobject = NULL;
 bool bDotMiddleWindow = false;
 ImVec2 vDotMiddleWindowPos;
 #define MAXDOTMIDDLE 1000
-#define DOTOBJECTIDADD 40000
+// GG: an entity's dot is its object number less 1,000,000 (ENTITYDOTOBJECTFIRST on), out of the fixed ranges, and the arcs
+// moved under 1,000,000 out of the dots' way (were entity + 40000 and 1131002 on, inside the entity range from 70001)
+#define DOTOBJECTIDADD (ENTITYDOTOBJECTFIRST - ENTITYOBJECTBASE)
 #define DOTCURSOROBJECTID (70001+40000+20000)
 #define DOTMIDDLEOBJECTID (70001+40000+20001)
 #define MAXDOTARCSOBJECTS 20000
-#define DOTARCSOBJECTID (70001+40000+20001+MAXDOTMIDDLE+1000000)
+#define DOTARCSOBJECTID 950001
 #define RELATIONOBJECTID (70001+40000+20001+MAXDOTMIDDLE)
 #define RELATIONOBJECTMAX 1000
-int iLargestDotObjectID = 70001;
+int iLargestDotObjectID = ENTITYOBJECTBASE;
 int iLargestDotCount = 999999;
 bool bDotObjectDragging = false;
 int iDotMiddleInfoSource[MAXDOTMIDDLE];
@@ -14955,13 +14957,17 @@ void editor_showparentalcontrolpage ( void )
 	}
 }
 
+static int g_iStoreObjAnimSpeedsCount = 0;
 void editor_freezeanimations ( void )
 {
 	// go through all objects and freeze their animations
 	if ( t.fStoreObjAnimSpeeds==NULL )
 	{
-		t.fStoreObjAnimSpeeds = new float[210000];
-		for ( int iObj = 1; iObj < 210000; iObj++ )
+		// GG: every object (the entity range is from 2,000,001), not those under 210000
+		extern int g_iObjectListCount;
+		g_iStoreObjAnimSpeedsCount = g_iObjectListCount;
+		t.fStoreObjAnimSpeeds = new float[g_iStoreObjAnimSpeedsCount + 1];
+		for ( int iObj = 1; iObj < g_iStoreObjAnimSpeedsCount; iObj++ )
 		{
 			if ( ObjectExist ( iObj )==1 )
 			{
@@ -14978,7 +14984,7 @@ void editor_unfreezeanimations ( void )
 	// go through all objects and restore all animation speeds from freeze step above
 	if ( t.fStoreObjAnimSpeeds )
 	{
-		for ( int iObj = 1; iObj < 210000; iObj++ )
+		for ( int iObj = 1; iObj < g_iStoreObjAnimSpeedsCount; iObj++ )
 		{
 			if ( ObjectExist ( iObj )==1 )
 			{

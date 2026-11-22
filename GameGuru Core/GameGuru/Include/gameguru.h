@@ -3993,7 +3993,7 @@ struct Stemps
 	std::vector <cstr> meshbank_s;
 	std::vector <musictracktype> musictrack;
 	std::vector <cstr> setuparr_s;
-	std::vector <smoothanimtype> smoothanim;
+	smoothanimlist smoothanim;
 	std::vector< std::vector<float> > snapPosX_f;
 	std::vector< std::vector<float> > snapPosY_f;
 	std::vector< std::vector<float> > snapPosZ_f;

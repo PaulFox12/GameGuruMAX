@@ -202,6 +202,9 @@ struct sObjectList
 	GGVECTOR3 vecSyncedScale;
 };
 std::vector < sObjectList > g_PhyObjectList;
+// GG: each object number's first place in g_PhyObjectList, so ODEFindID needn't walk every body (each pose write and body
+// call did, every body in the level); kept by ODEAddObject, ODERemoveObject and the clears, its only writers
+static std::unordered_map < int, int > g_PhyObjectIndex;
 
 // 1 skips the pose sync for a sleeping body whose pose was written since it slept, its transform and object unchanged;
 // 0 writes every dynamic body's pose every update, as before; and the last update's poses written and skipped
@@ -254,6 +257,7 @@ void ODEAddObject ( int iID, sObject* pObject, btRigidBody* body, int iIsDynamic
 	object.fMass = fMass;
 	object.iResponseMode = 0;
 	g_PhyObjectList.push_back ( object );
+	if ( g_PhyObjectIndex.find ( object.iID ) == g_PhyObjectIndex.end() ) g_PhyObjectIndex [ object.iID ] = (int)g_PhyObjectList.size() - 1;
 
 	// body settings
 	if ( body )
@@ -339,11 +343,26 @@ void ODERemoveObject ( int iID )
 		}
 	}
 	if ( iDeleteIndex > -1 )
+	{
 		g_PhyObjectList.erase ( g_PhyObjectList.begin() + iDeleteIndex );
+		// the index: the removed number's entry gone, each entry after it one place down (a second body of the same number
+		// takes the entry)
+		g_PhyObjectIndex.erase ( iID );
+		for ( int i = iDeleteIndex; i < (int)g_PhyObjectList.size(); i++ )
+		{
+			auto it = g_PhyObjectIndex.find ( g_PhyObjectList [ i ].iID );
+			if ( it == g_PhyObjectIndex.end() ) g_PhyObjectIndex [ g_PhyObjectList [ i ].iID ] = i;
+			else if ( it->second == i + 1 ) it->second = i;
+		}
+	}
 }
 
 sObjectList* ODEFindID ( int iID )
 {
+	auto it = g_PhyObjectIndex.find ( iID );
+	if ( it == g_PhyObjectIndex.end() ) return NULL;
+	if ( it->second >= 0 && it->second < (int)g_PhyObjectList.size() && g_PhyObjectList [ it->second ].iID == iID ) return &g_PhyObjectList [ it->second ];
+	// out of step (never expected): walk the list as before
 	for ( int i = 0; i < (int)g_PhyObjectList.size ( ); i++ )
 	{
 		if ( g_PhyObjectList [ i ].iID == iID )
@@ -804,6 +823,7 @@ void ODEStart ( void )
 
 	// clear physics system data
 	g_PhyObjectList.clear();
+	g_PhyObjectIndex.clear();
 	g_ProjectileContacts.clear();
 	extern void ODEPullOutClear ( void );
 	ODEPullOutClear ( );
@@ -957,6 +977,7 @@ void ODEEnd ( void )
 
 		// clear physics system data (no mallocs in structure, just references)
 		g_PhyObjectList.clear();
+		g_PhyObjectIndex.clear();
 		g_ProjectileContacts.clear();
 		extern void ODEPullOutClear ( void );
 		ODEPullOutClear ( );

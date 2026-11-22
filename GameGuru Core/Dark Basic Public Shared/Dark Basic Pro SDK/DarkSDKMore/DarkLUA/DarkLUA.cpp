@@ -3431,6 +3431,8 @@ int SpawnCloneSound(int iTemplateSound, char* pFile)
  
  std::vector<int> vSpawnList;
 
+ // GG: no log line per spawn while set (harness SPAWN_QUIET: a stress test's thousands of spawns, each line about 4 ms)
+ bool g_bSpawnQuiet = false;
  int SpawnNewEntity(lua_State* L)
  {
 	 lua = L;
@@ -3458,7 +3460,7 @@ int SpawnCloneSound(int iTemplateSound, char* pFile)
 			 // a deleted spawn's slot has no entity bank entry to copy
 			 sprintf(pMsg, "SpawnNewEntity ignored %d: no entity in that slot", iEntityIndex);
 		 }
-		 timestampactivity(0, pMsg);
+		 if (!g_bSpawnQuiet) timestampactivity(0, pMsg);
 	 }
 	 lua_pushinteger (L, iNewE);
 	 return 1;

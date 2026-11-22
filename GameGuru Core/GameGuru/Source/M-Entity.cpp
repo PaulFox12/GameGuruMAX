@@ -6011,6 +6011,8 @@ void c_entity_loadelementsdata ( void )
 
 void entity_loadelementsdata(void)
 {
+	extern int g_iEntityElementFreeHint;
+	g_iEntityElementFreeHint = 1; // GG: a new list
 	// fast loading of ELE file
 	char pLoadEntityData[MAX_PATH];
 	sprintf(pLoadEntityData, "c_entity_loadelementsdata: %s", t.elementsfilename_s.Get());
@@ -6340,6 +6342,8 @@ void entity_loadelementsdata(void)
 								{
 									t.entityelement[e].maintype = 0;
 									t.entityelement[e].bankindex = 0;
+									extern void entity_markelementfree ( int e );
+									entity_markelementfree ( e );
 									bAlreadyExistsSoSkip = true;
 									break;
 								}
@@ -6546,6 +6550,8 @@ void entity_loadelementsdata(void)
 													// if not preferred element, remove duplicate from element list
 													t.entityelement[eee].maintype = 0;
 													t.entityelement[eee].bankindex = 0;
+													extern void entity_markelementfree ( int e );
+													entity_markelementfree ( eee );
 												}
 											}
 										}
@@ -7936,6 +7942,16 @@ void entity_assignentityparticletodecalelement ( void )
 	}
 }
 
+// GG: the lowest entity element that may be free: an add searched every element from the first for a free one, which a
+// level of many entities paid on every spawn. A freed slot lowers it (entity_markelementfree), a list cut or loaded anew
+// resets it; a slot freed some other way is only found again after a reset (the list grows by one meanwhile)
+int g_iEntityElementFreeHint = 1;
+static int g_iEntityElementFreeHintList = 0;
+void entity_markelementfree ( int e )
+{
+	if ( e > 0 && e < g_iEntityElementFreeHint ) g_iEntityElementFreeHint = e;
+}
+
 void entity_addentitytomap_core ( void )
 {
 	// called from _entity_addentitytomap and also _game_masterroot
@@ -7957,11 +7973,14 @@ void entity_addentitytomap_core ( void )
 		// Create new or use free entity element
 		if (t.tokay == 0 && g.entityelementlist > 0)
 		{
-			for (t.e = 1; t.e <= g.entityelementlist; t.e++)
+			if (g.entityelementlist < g_iEntityElementFreeHintList || g_iEntityElementFreeHint < 1) g_iEntityElementFreeHint = 1;
+			g_iEntityElementFreeHintList = g.entityelementlist;
+			for (t.e = g_iEntityElementFreeHint; t.e <= g.entityelementlist; t.e++)
 			{
 				if (t.entityelement[t.e].maintype == 0)
 				{
 					t.tokay = t.e;
+					g_iEntityElementFreeHint = t.e + 1;
 					//PE: If old object was part of group remove it, or if will get deleted on next load.
 					t.entityelement[t.e].creationOfGroupID = -1;
 					break;
@@ -7973,6 +7992,8 @@ void entity_addentitytomap_core ( void )
 		{
 			++g.entityelementlist;
 			t.e=g.entityelementlist;
+			g_iEntityElementFreeHint = g.entityelementlist + 1;
+			g_iEntityElementFreeHintList = g.entityelementlist;
 			if ( g.entityelementlist>g.entityelementmax ) 
 			{
 				// grown by half its size (at least 10), not by 10: every growth copies the whole array out and back
@@ -8324,6 +8345,7 @@ void entity_deleteentityfrommap ( void )
 	//  blank from entity element list
 	t.entityelement[t.tupdatee].bankindex=0;
 	t.entityelement[t.tupdatee].maintype=0;
+	entity_markelementfree(t.tupdatee);
 	t.entityelement[t.tupdatee].iHasParentIndex = 0;
 	deleteinternalsound(t.entityelement[t.tupdatee].soundset) ; t.entityelement[t.tupdatee].soundset = 0;
 	deleteinternalsound(t.entityelement[t.tupdatee].soundset1) ; t.entityelement[t.tupdatee].soundset1 = 0;

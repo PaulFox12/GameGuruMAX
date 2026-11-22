@@ -1948,6 +1948,7 @@ void darkai_resetsmoothanims (void)
 		t.smoothanim[n].startat = 0;
 		t.smoothanim[n].usefulTimer = 0;
 	}
+	t.smoothanim.clearhigh(); // GG: the entity range (smoothanimlist)
 }
 
 void smoothanimtriggerrev (int obj, float st, float fn, int speedoftransition, int rev, int playflag, float fStartFromPercentage)

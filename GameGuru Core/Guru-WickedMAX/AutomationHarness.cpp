@@ -838,6 +838,56 @@ void AutoHarness_CheckForCommand ( void )
 			_snprintf ( result, sizeof(result), "OK: SAVE_LEVEL completed without crashing" );
 		}
 	}
+	else if ( _stricmp ( cmd, "SPAWN_QUIET" ) == 0 )
+	{
+		// SPAWN_QUIET [0|1]: Lua's SpawnNewEntity without its log line per spawn (a stress test's thousands of spawns)
+		extern bool g_bSpawnQuiet;
+		int iOn = -1;
+		if (arg) sscanf(arg, "%d", &iOn);
+		if (iOn == 0 || iOn == 1) g_bSpawnQuiet = iOn == 1;
+		_snprintf(result, resultSize, "OK: SPAWN_QUIET on=%d", g_bSpawnQuiet ? 1 : 0);
+		result[resultSize - 1] = 0;
+	}
+	else if ( _stricmp ( cmd, "ENTITY_BANDS" ) == 0 )
+	{
+		// ENTITY_BANDS: where the entities' objects lie against the fixed object number ranges (entity headroom): live
+		// entity objects, the lowest and highest, the entity range's start and end, how many sit in each fixed range, and the
+		// object list's size and live count
+		struct sBand { const char* name; int from; int to; int n; };
+		sBand bands[] = {
+			{ "batch85000", 85000, 89999, 0 }, { "weapons90000", 90000, 90999, 0 }, { "widget91000", 91000, 91999, 0 },
+			{ "lightmapped92000", 92000, 110000, 0 }, { "dots110001", 110001, 130000, 0 }, { "dotcursor130001", 130001, 150000, 0 },
+			{ "postprocess150001", 150001, 170000, 0 }, { "explosions170001", 170001, 180000, 0 }, { "ravey180001", 180001, 189900, 0 },
+			{ "ebe189901", 189901, 190000, 0 }, { "occlusion190001", 190001, 199999, 0 }, { "models200000", 200000, 209999, 0 },
+			{ "prompts210000", 210000, 219999, 0 }, { "secondaries220000", 220000, 299999, 0 }, { "debugdraw300000", 300000, 999999, 0 },
+			{ "dotarcs1131002", 1131002, 1999999, 0 } };
+		int nBands = sizeof(bands) / sizeof(bands[0]);
+		int iLive = 0, iLow = 0x7fffffff, iHigh = 0, iInBands = 0;
+		for (int e = 1; e <= g.entityelementlist && e < (int)t.entityelement.size(); e++)
+		{
+			int o = t.entityelement[e].obj;
+			if (o <= 0 || ObjectExist(o) == 0) continue;
+			iLive++;
+			if (o < iLow) iLow = o;
+			if (o > iHigh) iHigh = o;
+			for (int b = 0; b < nBands; b++) if (o >= bands[b].from && o <= bands[b].to) { bands[b].n++; iInBands++; break; }
+		}
+		extern int g_iObjectListCount, g_iObjectListRefCount;
+		// the editor's entity dots that exist: in their range from 1,000,001, and in the old one (110001 to 130000)
+		extern int* g_ObjectListRef;
+		int iDots = 0, iOldDots = 0;
+		for (int s = 0; s < g_iObjectListRefCount; s++)
+		{
+			int o = g_ObjectListRef[s];
+			if (o >= 1000001 && o <= 1999999) iDots++;
+			else if (o >= 110001 && o <= 130000) iOldDots++;
+		}
+		int n = _snprintf(result, resultSize, "OK: ENTITY_BANDS live=%d low=%d high=%d start=%d end=%d inbands=%d list=%d listlive=%d elements=%d dots=%d olddots=%d",
+			iLive, iLive ? iLow : 0, iHigh, g.entityviewstartobj, g.entityviewendobj, iInBands, g_iObjectListCount, g_iObjectListRefCount, g.entityelementlist, iDots, iOldDots);
+		for (int b = 0; b < nBands && n > 0 && n < (int)resultSize - 64; b++)
+			if (bands[b].n) n += _snprintf(result + n, resultSize - n, " %s=%d", bands[b].name, bands[b].n);
+		result[resultSize - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "RAGDOLL_LIFT" ) == 0 )
 	{
 		// RAGDOLL_LIFT [0|1 [reset]]: the lift of a ragdoll out of the terrain it is made in (BPhys_RagDollEnd) off or on, and

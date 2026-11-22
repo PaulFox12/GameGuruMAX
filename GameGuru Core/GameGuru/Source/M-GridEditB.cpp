@@ -128,11 +128,13 @@ extern sObject* g_selected_middle_dot_pobject;
 extern bool bDotMiddleWindow;
 extern ImVec2 vDotMiddleWindowPos;
 #define MAXDOTMIDDLE 1000
-#define DOTOBJECTIDADD 40000
+// GG: an entity's dot is its object number less 1,000,000 (ENTITYDOTOBJECTFIRST on), out of the fixed ranges, and the arcs
+// moved under 1,000,000 out of the dots' way (were entity + 40000 and 1131002 on, inside the entity range from 70001)
+#define DOTOBJECTIDADD (ENTITYDOTOBJECTFIRST - ENTITYOBJECTBASE)
 #define DOTCURSOROBJECTID (70001+40000+20000)
 #define DOTMIDDLEOBJECTID (70001+40000+20001)
 #define MAXDOTARCSOBJECTS 20000
-#define DOTARCSOBJECTID (70001+40000+20001+MAXDOTMIDDLE+1000000)
+#define DOTARCSOBJECTID 950001
 #define RELATIONOBJECTID (70001+40000+20001+MAXDOTMIDDLE)
 #define RELATIONOBJECTMAX 1000
 extern int iLargestDotObjectID;
@@ -11950,8 +11952,10 @@ void DrawLogicNodes(bool bVisible)
 		//Something has changed, cleanup.
 		iLargestDotCount = iCurrentDotCount;
 		int iKeepInMem = 1000; //PE: Always keep upto 1000, delete the rest.
-		int iStartObj = 70001;
-		for (int i = iStartObj; i < iStartObj + MAXDOTARCSOBJECTS; i++)
+		int iStartObj = ENTITYOBJECTBASE;
+		int iEndObj = iStartObj + MAXDOTARCSOBJECTS;
+		if (iLargestDotObjectID + 1 > iEndObj) iEndObj = iLargestDotObjectID + 1;
+		for (int i = iStartObj; i < iEndObj; i++)
 		{
 			if (ObjectExist(i + DOTOBJECTIDADD))
 			{
@@ -11963,7 +11967,7 @@ void DrawLogicNodes(bool bVisible)
 		}
 	}
 
-	int iCurrentLargestDotObjectID = 70001;
+	int iCurrentLargestDotObjectID = ENTITYOBJECTBASE;
 	iCurrentDotCount = 0;
 
 	for (int iEntityID = 1; iEntityID <= g.entityelementlist; iEntityID++)
@@ -12072,7 +12076,7 @@ void DrawLogicNodes(bool bVisible)
 		//PE: We got a deleted object, make sure to release all not used dots.
 		for (int i = iCurrentLargestDotObjectID; i < iLargestDotObjectID; i++)
 		{
-			if (i >= 70001 && i <= 90000) //Secure range.
+			if (i >= ENTITYOBJECTBASE && i <= ENTITYOBJECTLAST) //Secure range.
 			{
 				if (ObjectExist(i + DOTOBJECTIDADD))
 				{
@@ -12726,7 +12730,7 @@ void AddDotObjectRelation(int sobj,int dobj)
 {
 	sobj -= DOTOBJECTIDADD;
 	dobj -= DOTOBJECTIDADD;
-	if (sobj < 70000 || dobj < 70000 || sobj > 90000 || dobj > 90000)
+	if (sobj < ENTITYOBJECTBASE || dobj < ENTITYOBJECTBASE || sobj > ENTITYOBJECTLAST || dobj > ENTITYOBJECTLAST)
 		return;
 
 	//PE: Find real entity.
@@ -12922,7 +12926,7 @@ void AddDotObjectRelation(int sobj,int dobj)
 
 void GetMiddleEntityIdAndRelationshipId(int sobj, int dobj, int &Entid, int &ReleationshipId, int& NodeConnectionId, int* NodeConnectionIndex)
 {
-	if (sobj < 70000 || sobj > 90000 || dobj < 70000 || dobj > 90000)
+	if (sobj < ENTITYOBJECTBASE || sobj > ENTITYOBJECTLAST || dobj < ENTITYOBJECTBASE || dobj > ENTITYOBJECTLAST)
 		return;
 
 	Entid = 0;
@@ -12971,7 +12975,7 @@ void FindDotObjectRelation(int sobj, int dobj,int middle_index)
 	sobj -= DOTOBJECTIDADD;
 	dobj -= DOTOBJECTIDADD;
 
-	if (sobj < 70000 || dobj < 70000 || sobj > 90000 || dobj > 90000)
+	if (sobj < ENTITYOBJECTBASE || dobj < ENTITYOBJECTBASE || sobj > ENTITYOBJECTLAST || dobj > ENTITYOBJECTLAST)
 		return;
 
 	//PE: Find real entity.
@@ -55356,6 +55360,8 @@ bool Global_Behaviors_Settings(float fTabColumnWidth, bool bVisualUpdated)
 			t.entityelement[iDeleteIfFound].obj = 0;
 			t.entityelement[iDeleteIfFound].maintype = 0;
 			t.entityelement[iDeleteIfFound].bankindex = 0;
+			extern void entity_markelementfree ( int e );
+			entity_markelementfree ( iDeleteIfFound );
 			fpe_current_loaded_script = -1; //Reload image and DLUA.
 			iSelectecElement = -1;
 		}

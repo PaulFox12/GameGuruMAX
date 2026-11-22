@@ -5998,7 +5998,7 @@ bool WickedCall_GetPick2_BVH(float fMouseX, float fMouseY, float* pOutX, float* 
 					else
 					{
 						//#define DOTARCSOBJECTID 70001+40000+21001
-						if (pHitObject->dwObjectNumber > 110000 && pHitObject->dwObjectNumber < 131002)
+						if ((pHitObject->dwObjectNumber >= ENTITYDOTOBJECTFIRST && pHitObject->dwObjectNumber <= ENTITYDOTOBJECTLAST) || (pHitObject->dwObjectNumber > 130000 && pHitObject->dwObjectNumber < 131002))
 						{
 							if (iLayerMask & GGRENDERLAYERS_NORMAL)
 							{
@@ -6150,7 +6150,7 @@ bool WickedCall_GetPick2_Thread(float fMouseX, float fMouseY, float* pOutX, floa
 					else
 					{
 						//#define DOTARCSOBJECTID 70001+40000+21001
-						if (pHitObject->dwObjectNumber > 110000 && pHitObject->dwObjectNumber < 131002)
+						if ((pHitObject->dwObjectNumber >= ENTITYDOTOBJECTFIRST && pHitObject->dwObjectNumber <= ENTITYDOTOBJECTLAST) || (pHitObject->dwObjectNumber > 130000 && pHitObject->dwObjectNumber < 131002))
 						{
 							if (iLayerMask & GGRENDERLAYERS_NORMAL)
 							{
@@ -6309,7 +6309,7 @@ bool WickedCall_GetPick2(float fMouseX, float fMouseY, float* pOutX, float* pOut
 					else
 					{
 						//#define DOTARCSOBJECTID 70001+40000+21001
-						if (pHitObject->dwObjectNumber > 110000 && pHitObject->dwObjectNumber < 131002)
+						if ((pHitObject->dwObjectNumber >= ENTITYDOTOBJECTFIRST && pHitObject->dwObjectNumber <= ENTITYDOTOBJECTLAST) || (pHitObject->dwObjectNumber > 130000 && pHitObject->dwObjectNumber < 131002))
 						{
 							if (iLayerMask & GGRENDERLAYERS_NORMAL)
 							{
@@ -6460,7 +6460,7 @@ bool WickedCall_GetPick2_OLD(float fMouseX, float fMouseY, float* pOutX, float* 
 					else
 					{
 						//#define DOTARCSOBJECTID 70001+40000+21001
-						if (pHitObject->dwObjectNumber > 110000 && pHitObject->dwObjectNumber < 131002)
+						if ((pHitObject->dwObjectNumber >= ENTITYDOTOBJECTFIRST && pHitObject->dwObjectNumber <= ENTITYDOTOBJECTLAST) || (pHitObject->dwObjectNumber > 130000 && pHitObject->dwObjectNumber < 131002))
 						{
 							if (iLayerMask & GGRENDERLAYERS_NORMAL)
 							{
@@ -6691,7 +6691,7 @@ bool WickedCall_SentRay2(float originx, float originy, float originz, float dire
 					else
 					{
 						//#define DOTARCSOBJECTID 70001+40000+21001
-						if (pHitObject->dwObjectNumber > 110000 && pHitObject->dwObjectNumber < 131002)
+						if ((pHitObject->dwObjectNumber >= ENTITYDOTOBJECTFIRST && pHitObject->dwObjectNumber <= ENTITYDOTOBJECTLAST) || (pHitObject->dwObjectNumber > 130000 && pHitObject->dwObjectNumber < 131002))
 						{
 							if (iLayerMask & GGRENDERLAYERS_NORMAL)
 							{
@@ -8197,7 +8197,7 @@ void WickedCall_RenderEditorFunctions( void )
 			if (ObjectExist(g_selected_editor_objectID))
 			{
 				int iObjNo = g_selected_editor_object->dwObjectNumber;
-				if (iObjNo > 0 && iObjNo <= 300000)
+				if ((iObjNo > 0 && iObjNo <= 300000) || iObjNo >= ENTITYOBJECTBASE)
 				{
 					WickedCall_DrawObjctBox(g_selected_editor_object, g_selected_editor_color);
 					WickedCall_DrawObjctBox(g_selected_editor_object, g_selected_editor_color, true, true);

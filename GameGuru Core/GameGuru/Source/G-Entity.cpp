@@ -810,6 +810,8 @@ void entity_reset_defaults(void)
 	t.entityelement[t.e].profileobj = 0;
 	t.entityelement[t.e].bankindex = 0;
 	t.entityelement[t.e].maintype = 0;
+	extern void entity_markelementfree ( int e );
+	entity_markelementfree ( t.e );
 	t.entityelement[t.e].active = 0;
 	t.entityelement[t.e].editorfixed = 0;
 	t.entityelement[t.e].etimer = 0;

@@ -75,6 +75,7 @@ void darkai_resetsmoothanims ( void )
 		t.smoothanim[n].st = 0;
 		t.smoothanim[n].transition = 0;
 	}
+	t.smoothanim.clearhigh(); // GG: the entity range (smoothanimlist)
 }
 
 void darkai_free ( void )
@@ -2544,7 +2545,7 @@ void char_init ( void )
 {
 	//  Create array to hold transition information for per-object
 	t.tmaxobjectnumber=90000; // allows 20,000 entities in each level
-	Dim (  t.smoothanim,t.tmaxobjectnumber );
+	Dim (  t.smoothanim,t.tmaxobjectnumber ); // GG: the entity range kept apart (smoothanimlist)
 
 	//  Create arrays for object animation engine used only for characters
 	t.tmaxcharacterstateengineentities=10;

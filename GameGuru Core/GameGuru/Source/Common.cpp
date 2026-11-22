@@ -1034,7 +1034,7 @@ void common_init_globals ( void )
 	g.darkaiobsboxobject = 69992;
 	g.tempimporterlistobject = 69993;
 	g.entityviewcursorobj = 70000;
-	g.entityviewstartobj = 70001;
+	g.entityviewstartobj = ENTITYOBJECTBASE; // GG: was 70001, under the fixed ranges from 85000 (Types.h)
 	g.entityviewendobj = 0;
 	g.entityviewcurrentobj = g.entityviewstartobj;
 	//PE: 87000 is used for draw call optimizer.
