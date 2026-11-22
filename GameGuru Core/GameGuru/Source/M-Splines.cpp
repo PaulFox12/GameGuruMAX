@@ -993,6 +993,9 @@ static void spline_smoothprofile( std::vector<sRoadSample>& c, float length )
 // 1 a road's pins correct its profile only near them (spline_pinprofile's fallLength); 0 the linear correction between pins
 // as before 2026-11-05, for the harness's A/B (SPLINE_PROFILEMODE)
 static int g_iSplineProfileMode = 1;
+// between two of a road's pins further apart in height than its Max Grade climbs over the length between them, the road
+// climbs evenly at the grade they need (SPLINE_GRADEFIX 0: the grade pass as before, which stepped the road at a pin)
+static bool g_bSplineGradeFix = true;
 
 // the profile held at the pins (sample, height). With fallLength 0 (rivers) each pin's correction is shifted linearly to the
 // next pin's. Else (roads) a pin's correction fades out over fallLength from it (a smooth step), or over the stretch to the
@@ -1530,20 +1533,46 @@ static void spline_bakeroad( sSpline& sp, std::unordered_set<uint32_t>& protecte
 	std::vector<char> pinned;
 	spline_pinprofile( c, pins, pinned, std::max( 0.0f, r.smoothing ), &held );
 
-	// no steeper than the maximum grade, both ways, pins kept
+	// no steeper than the maximum grade, both ways, pins kept. Between two pins further apart in height than the grade
+	// climbs over the length between them (a road joined to another at a junction the grade can't reach from its next
+	// pin), as steep as they need, evenly: the grade pass could meet neither, and left the road stepped by the difference
+	// at one of them (Quoc Lo 1A, 2026-11-22: joined to the ring road 134 m from its junction with Kim Ma, 9.4 m higher
+	// than its 6% allows, a 1.3 m drop at the Kim Ma junction and a bump at the join)
 	const float grade = std::max( 0.001f, r.maxGrade / 100.0f );
+	std::vector<float> stepGrade( n, grade ); // the grade allowed from the sample before
+	if ( g_bSplineGradeFix )
+	{
+		int last = -1;
+		for ( int i = 0; i < n; i++ )
+		{
+			if ( !pinned[i] ) continue;
+			if ( last >= 0 && i > last + 1 && c[i].s > c[ last ].s )
+			{
+				const float need = fabsf( c[i].h - c[ last ].h ) / (c[i].s - c[ last ].s) * 1.001f;
+				if ( need > grade )
+				{
+					for ( int k = last + 1; k <= i; k++ ) stepGrade[k] = need;
+					char trace[ 300 ];
+					_snprintf_s( trace, sizeof(trace), _TRUNCATE, "spline grade: road %d '%s' climbs %.1f%% between samples %d and %d (%.0f m, its pins %.0f apart), past its Max Grade %.1f%%",
+						sp.id, sp.name, need * 100.0f, last, i, (c[i].s - c[ last ].s) / SPLINE_UNITS_PER_M, fabsf( c[i].h - c[ last ].h ), r.maxGrade );
+					timestampactivity( 0, trace );
+				}
+			}
+			last = i;
+		}
+	}
 	for ( int pass = 0; pass < 2; pass++ )
 	{
 		for ( int i = 1; i < n; i++ )
 		{
 			if ( pinned[i] ) continue;
-			const float rise = grade * (c[i].s - c[i-1].s);
+			const float rise = stepGrade[i] * (c[i].s - c[i-1].s);
 			c[i].h = std::min( std::max( c[i].h, c[i-1].h - rise ), c[i-1].h + rise );
 		}
 		for ( int i = n - 2; i >= 0; i-- )
 		{
 			if ( pinned[i] ) continue;
-			const float rise = grade * (c[i+1].s - c[i].s);
+			const float rise = stepGrade[ i + 1 ] * (c[i+1].s - c[i].s);
 			c[i].h = std::min( std::max( c[i].h, c[i+1].h - rise ), c[i+1].h + rise );
 		}
 	}
@@ -9741,6 +9770,41 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		spline_place( si );
 		g_Splines[ si ].placedSignature = spline_layersignature( si );
 		sprintf_s( pResult, resultSize, "OK: SPLINE_PLACE %d placed %d", si, (int)g_Splines[ si ].placed.size() );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_GRADEFIX" ) == 0 )
+	{
+		// SPLINE_GRADEFIX [0|1]: two pins a road's Max Grade can't climb between met by the grade they need (1, the default),
+		// or the grade pass as before (0), for the bakes from now; no argument answers
+		if ( pArg && *pArg ) g_bSplineGradeFix = atoi( pArg ) != 0;
+		sprintf_s( pResult, resultSize, "OK: SPLINE_GRADEFIX %d", g_bSplineGradeFix ? 1 : 0 );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_LINEDUMP" ) == 0 )
+	{
+		// SPLINE_LINEDUMP id file: a road's centre line as baked, a line a sample (x z height)
+		int id = 0;
+		char file[ 512 ] = "";
+		if ( !pArg || sscanf_s( pArg, "%d %511[^\n]", &id, file, (unsigned)sizeof(file) ) != 2 )
+		{
+			sprintf_s( pResult, resultSize, "FAIL: SPLINE_LINEDUMP id file" );
+			return true;
+		}
+		for ( const sSpline& s : g_Splines )
+		{
+			if ( s.id != id ) continue;
+			FILE* fp = nullptr;
+			if ( fopen_s( &fp, file, "w" ) != 0 || !fp )
+			{
+				sprintf_s( pResult, resultSize, "FAIL: SPLINE_LINEDUMP cannot write %s", file );
+				return true;
+			}
+			for ( const sSplineBakeSample& b : s.bakedLine ) fprintf( fp, "%.2f %.2f %.3f\n", b.x, b.z, b.h );
+			fclose( fp );
+			sprintf_s( pResult, resultSize, "OK: SPLINE_LINEDUMP %d samples bakes %d", (int)s.bakedLine.size(), s.bakeCount );
+			return true;
+		}
+		sprintf_s( pResult, resultSize, "FAIL: SPLINE_LINEDUMP no spline %d", id );
 		return true;
 	}
 	if ( _stricmp( pCmd, "SPLINE_PROFILEMODE" ) == 0 )
