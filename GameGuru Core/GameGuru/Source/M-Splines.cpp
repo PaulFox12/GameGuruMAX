@@ -2667,15 +2667,42 @@ struct sSplineAvoid
 	int si = -1; // the road, for its kerbs (spline_nearcorner)
 };
 
+// whether a point lies past one of a road's ends (less endTrim), within its half width and reach of that end: off the road,
+// which ends square there. The round joints between its line's pieces otherwise reached past the end by up to half its
+// width less the last piece's length, so a road joining another at a T, as wide as the other or wider, took in the other's
+// far side too, and the other's edge line went missing along it. A loop (its ends at one point) has no ends
+static bool spline_pastend( const sSplineAvoid& road, float x, float z, float endTrim, float reach )
+{
+	const size_t n = road.line.size();
+	if ( n < 2 ) return false;
+	const sSplinePoint& first = road.line[ 0 ];
+	const sSplinePoint& last = road.line[ n - 1 ];
+	if ( fabsf( first.x - last.x ) < 1.0f && fabsf( first.z - last.z ) < 1.0f ) return false;
+	const float limit = road.halfWidth + reach + 200.0f;
+	for ( int end = 0; end < 2; end++ )
+	{
+		const sSplinePoint& e = end ? last : first;
+		const sSplinePoint& p = end ? road.line[ n - 2 ] : road.line[ 1 ];
+		float dx = e.x - p.x, dz = e.z - p.z;
+		const float len = sqrtf( dx * dx + dz * dz );
+		if ( len <= 0 ) continue;
+		dx /= len; dz /= len;
+		const float ox = x - e.x, oz = z - e.z;
+		if ( ox * dx + oz * dz > -endTrim && ox * ox + oz * oz < limit * limit ) return true;
+	}
+	return false;
+}
+
 // whether a point is on one of these carriageways: within half its width of its line, which ends square at its first and
 // last points (another road joined end to end runs on up to the junction, rather than stopping half a width short of a
 // round end) and is round at its bends (so a point outside a bend isn't missed between two pieces); endTrim ends each
 // road that far short of its ends
-static bool spline_oncarriageway( const std::vector<sSplineAvoid>& roads, float x, float z, float endTrim = 0.0f )
+static bool spline_oncarriageway( const std::vector<sSplineAvoid>& roads, float x, float z, float endTrim = 0.0f, int* pWhich = nullptr )
 {
 	for ( const sSplineAvoid& road : roads )
 	{
 		if ( x < road.bounds[0] || x > road.bounds[2] || z < road.bounds[1] || z > road.bounds[3] ) continue;
+		if ( spline_pastend( road, x, z, endTrim, 0.0f ) ) continue;
 		const size_t last = road.line.size() - 1;
 		for ( size_t k = 1; k < road.line.size(); k++ )
 		{
@@ -2688,7 +2715,7 @@ static bool spline_oncarriageway( const std::vector<sSplineAvoid>& roads, float 
 			if ( (k == 1 && tt < trim) || (k == last && tt > 1 - trim) ) continue;
 			tt = std::min( 1.0f, std::max( 0.0f, tt ) );
 			const float px = a.x + dx * tt - x, pz = a.z + dz * tt - z;
-			if ( px * px + pz * pz < road.halfWidth * road.halfWidth ) return true;
+			if ( px * px + pz * pz < road.halfWidth * road.halfWidth ) { if ( pWhich ) *pWhich = road.si; return true; }
 		}
 	}
 	return false;
@@ -2698,7 +2725,7 @@ static bool spline_oncarriageway( const std::vector<sSplineAvoid>& roads, float 
 // corner's radius of its line (ends square, as spline_oncarriageway). The radius is the larger of ownRadius (the road
 // whose line is tested, where it has a kerb on that side) and the other road's Corner Radius where it has a kerb on the
 // point's side, as the pavements' outline rounds the corner (spline_paveround); 0 where neither has a kerb there
-static bool spline_nearcorner( const std::vector<sSplineAvoid>& roads, float x, float z, float ownRadius, float endTrim )
+static bool spline_nearcorner( const std::vector<sSplineAvoid>& roads, float x, float z, float ownRadius, float endTrim, int* pWhich = nullptr )
 {
 	for ( const sSplineAvoid& road : roads )
 	{
@@ -2708,6 +2735,7 @@ static bool spline_nearcorner( const std::vector<sSplineAvoid>& roads, float x, 
 		const float reach = std::max( ownRadius, otherRadius );
 		if ( reach <= 0 ) continue;
 		if ( x < road.bounds[0] - reach || x > road.bounds[2] + reach || z < road.bounds[1] - reach || z > road.bounds[3] + reach ) continue;
+		if ( spline_pastend( road, x, z, endTrim, reach ) ) continue;
 		const size_t last = road.line.size() - 1;
 		for ( size_t k = 1; k < road.line.size(); k++ )
 		{
@@ -2725,7 +2753,7 @@ static bool spline_nearcorner( const std::vector<sSplineAvoid>& roads, float x, 
 			const float r = std::max( ownRadius, (spline_segpave( o, a.seg ) & side) ? otherRadius : 0.0f );
 			if ( r <= 0 ) continue;
 			const float d = road.halfWidth + r;
-			if ( px * px + pz * pz < d * d ) return true;
+			if ( px * px + pz * pz < d * d ) { if ( pWhich ) *pWhich = road.si; return true; }
 		}
 	}
 	return false;
@@ -2769,6 +2797,7 @@ static uint64_t spline_markingshape( const sSpline& s )
 // Junctions: run on, stop, or the centre and edge lines cross as guide dashes; the other road taken as ending half a metre
 // short of its ends, so a road joined at a T breaks the edge line across its mouth and leaves the centre line. An edge
 // line at a kerbed corner ends where the kerb starts to turn (the Corner Radius from the other carriageway)
+static FILE* g_pSplineMarkWhy = nullptr; // SPLINE_MARKDUMP's file while it makes the markings again: each edge line part dropped or dashed, and why
 static void spline_markings( int si, sSplineMarkings& marks )
 {
 	std::vector<GGTerrain::GGTerrainMarking>& out = marks.pieces;
@@ -3238,12 +3267,15 @@ static void spline_markings( int si, sSplineMarkings& marks )
 				const bool bEdge = slot >= slots - 2;
 				const int edgeSide = slot == slots - 2 ? SPLINE_PAVE_LEFT : SPLINE_PAVE_RIGHT;
 				const float ownRadius = bEdge && (spline_segpave( s, seg[ i ] ) & edgeSide) ? std::max( 0.0f, r.paveRadius ) : 0.0f;
+				int iWhy = 0, iWhich = -1; // the last place's rule (1 on an earlier road, 2 on another road, 3 at an earlier road's
+				// kerbed corner, 4 at another's) and road, for SPLINE_MARKDUMP
 				auto place = [&]( float x, float z )
 				{
-					if ( onEarlierRoad( x, z ) ) return 2;
-					if ( !others.empty() && spline_oncarriageway( others, x, z, 20.0f ) ) return 1;
-					if ( bEdge && spline_nearcorner( avoid, x, z, ownRadius, 0.0f ) ) return 2;
-					if ( bEdge && !others.empty() && spline_nearcorner( others, x, z, ownRadius, 20.0f ) ) return 1;
+					iWhy = 0; iWhich = -1;
+					if ( spline_oncarriageway( avoid, x, z, 0.0f, &iWhich ) ) { iWhy = 1; return 2; }
+					if ( !others.empty() && spline_oncarriageway( others, x, z, 20.0f, &iWhich ) ) { iWhy = 2; return 1; }
+					if ( bEdge && spline_nearcorner( avoid, x, z, ownRadius, 0.0f, &iWhich ) ) { iWhy = 3; return 2; }
+					if ( bEdge && !others.empty() && spline_nearcorner( others, x, z, ownRadius, 20.0f, &iWhich ) ) { iWhy = 4; return 1; }
 					return 0;
 				};
 				const int parts = place( ax + (bx - ax) * k0, az + (bz - az) * k0 ) == place( ax + (bx - ax) * k1, az + (bz - az) * k1 ) ? 1 : 8;
@@ -3254,6 +3286,8 @@ static void spline_markings( int si, sSplineMarkings& marks )
 					const float px1 = ax + (bx - ax) * t1, pz1 = az + (bz - az) * t1;
 					const int at = place( (px0 + px1) * 0.5f, (pz0 + pz1) * 0.5f );
 					float partDash = dash, partGap = gap;
+					if ( at != 0 && bEdge && g_pSplineMarkWhy )
+						fprintf( g_pSplineMarkWhy, "X %d %d %.1f %.1f %.1f %.1f %d %d %d\n", si, slot == slots - 2 ? -1 : 1, px0, pz0, px1, pz1, at, iWhy, iWhich );
 					if ( at == 2 ) continue;
 					if ( at == 1 )
 					{
@@ -10047,6 +10081,54 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		fclose( fp );
 		sprintf_s( pResult, resultSize, "OK: FLATAREAS_DUMP %d areas, %d owned (%d by more than one element), %d unowned, %d elements naming no live area -> %s",
 			n, owned, shared, n - owned, stale, pArg );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_MARKDUMP" ) == 0 )
+	{
+		// SPLINE_MARKDUMP file: every road's markings made again and written to the file: its roads ("R si width edges
+		// junctions paveradius name"), the nodes at a junction ("N si node junction x z") and each painted piece ("P si side
+		// ax az bx bz dash gap", side -1 the left edge line, 1 the right, 0 another line), and each edge line part dropped or
+		// dashed ("X si side ax az bx bz at why road": at 2 dropped, 1 at a junction; why 1 on an earlier road's carriageway,
+		// 2 on another's, 3 at an earlier road's kerbed corner, 4 at another's; the road that answered); ends "DONE pieces"
+		char file[512] = "";
+		if ( !pArg || sscanf_s( pArg, "%511s", file, (unsigned)sizeof(file) ) != 1 )
+		{
+			sprintf_s( pResult, resultSize, "ERROR: SPLINE_MARKDUMP file" );
+			return true;
+		}
+		FILE* pFile = nullptr;
+		fopen_s( &pFile, file, "w" );
+		if ( !pFile )
+		{
+			sprintf_s( pResult, resultSize, "ERROR: SPLINE_MARKDUMP cannot write %s", file );
+			return true;
+		}
+		int iPieces = 0;
+		for ( int si = 0; si < (int)g_Splines.size(); si++ )
+		{
+			const sSpline& s = g_Splines[ si ];
+			if ( s.kind != SPLINE_KIND_ROAD ) continue;
+			fprintf( pFile, "R %d %.1f %d %d %.1f %s\n", si, s.road.width, s.road.markEdges, s.road.markJunctions, s.road.paveRadius, s.name );
+			for ( int k = 0; k < (int)s.nodes.size(); k++ )
+			{
+				fprintf( pFile, "M %d %d %d %.1f %.1f\n", si, k, (int)s.nodes.size(), s.nodes[ k ].x, s.nodes[ k ].z );
+				if ( s.nodes[ k ].junction ) fprintf( pFile, "N %d %d %d %.1f %.1f\n", si, k, s.nodes[ k ].junction, s.nodes[ k ].x, s.nodes[ k ].z );
+			}
+			sSplineMarkings marks;
+			g_pSplineMarkWhy = pFile;
+			spline_markings( si, marks );
+			g_pSplineMarkWhy = nullptr;
+			for ( size_t p = 0; p < marks.pieces.size(); p++ )
+			{
+				const GGTerrain::GGTerrainMarking& piece = marks.pieces[ p ];
+				fprintf( pFile, "P %d %d %.1f %.1f %.1f %.1f %.1f %.1f\n", si, p < marks.side.size() ? (int)marks.side[ p ] : 0,
+					piece.ax, piece.az, piece.bx, piece.bz, piece.dash, piece.gap );
+				iPieces++;
+			}
+		}
+		fprintf( pFile, "DONE %d\n", iPieces );
+		fclose( pFile );
+		sprintf_s( pResult, resultSize, "OK: SPLINE_MARKDUMP %d pieces to %s", iPieces, file );
 		return true;
 	}
 	if ( _stricmp( pCmd, "SPLINE_PAVEDUMP" ) == 0 )
