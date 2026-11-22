@@ -1205,8 +1205,13 @@ static void spline_bakeshape( sSpline& sp, const std::vector<sRoadSample>& c, co
 			pT[ hIndex ] = 1;
 			b.flags |= SPLINE_TEXEL_HEIGHT;
 		}
-		// paint and grass by the texel's centre
-		const bool bPaintCore = f.dc <= halfW;
+		// paint and grass by the texel's centre. Beside a pavement the road's own paint runs on under it past the kerb (a texel,
+		// or half the pavement where it is narrower than two), so the terrain's blend from it to the edge material lies under
+		// the pavement rather than along the foot of the kerb, and a kerbed corner's rounding shows the road, not the edge
+		// (not over an earlier road's carriageway; harness SPLINE_PAVEPAINT 0 paints as before, for a comparison)
+		extern bool g_bSplinePaintUnderPavement;
+		const float underPavement = f.pad > 0 && g_bSplinePaintUnderPavement ? std::min( texel, f.pad * 0.5f ) : 0.0f;
+		const bool bPaintCore = f.dc <= halfW || (f.dc <= halfW + underPavement && protectedTexels.count( key ) == 0);
 		const bool bPaintProtected = !bPaintCore && protectedTexels.count( key ) > 0;
 		if ( pM )
 		{
@@ -2797,6 +2802,7 @@ static uint64_t spline_markingshape( const sSpline& s )
 // Junctions: run on, stop, or the centre and edge lines cross as guide dashes; the other road taken as ending half a metre
 // short of its ends, so a road joined at a T breaks the edge line across its mouth and leaves the centre line. An edge
 // line at a kerbed corner ends where the kerb starts to turn (the Corner Radius from the other carriageway)
+bool g_bSplinePaintUnderPavement = true; // the road's paint runs on under its pavements (SPLINE_PAVEPAINT)
 static FILE* g_pSplineMarkWhy = nullptr; // SPLINE_MARKDUMP's file while it makes the markings again: each edge line part dropped or dashed, and why
 static void spline_markings( int si, sSplineMarkings& marks )
 {
@@ -10081,6 +10087,14 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		fclose( fp );
 		sprintf_s( pResult, resultSize, "OK: FLATAREAS_DUMP %d areas, %d owned (%d by more than one element), %d unowned, %d elements naming no live area -> %s",
 			n, owned, shared, n - owned, stale, pArg );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_PAVEPAINT" ) == 0 )
+	{
+		// SPLINE_PAVEPAINT [0|1]: the road's paint run on under its pavements past the kerb (1, the default) or stopped at the
+		// kerb as before (0); takes effect at the next bake (SPLINE_REBAKE)
+		if ( pArg && (pArg[0] == '0' || pArg[0] == '1') ) g_bSplinePaintUnderPavement = pArg[0] == '1';
+		sprintf_s( pResult, resultSize, "OK: SPLINE_PAVEPAINT %d", g_bSplinePaintUnderPavement ? 1 : 0 );
 		return true;
 	}
 	if ( _stricmp( pCmd, "SPLINE_MARKDUMP" ) == 0 )
