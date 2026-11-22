@@ -3652,13 +3652,13 @@ static void spline_paveroadkerbs( sSplinePaveRoad& pr )
 			if ( i > 0 ) pr.kerbS[side][i] = pr.kerbS[side][i-1] + sqrtf( (ex - kx) * (ex - kx) + (ez - kz) * (ez - kz) );
 			kx = ex;
 			kz = ez;
-			// the carriageway's surface a little in from its edge (its bake is flat across there)
-			const float in = std::max( 0.0f, pr.halfWidth - 12.0f );
-			const float hx = pr.x[i] + pr.nx[i] * sign * in, hz = pr.z[i] + pr.nz[i] * sign * in;
+			// the carriageway's surface a little in from its edge (its bake is flat across there); with no carriageway the ground
+			// its bake flattened under this side's pavement, a little out from the line (the ground at the line is no road's
+			// surface, and the baked line isn't kept with the level: after a load the paving read it rebuilt from the nodes)
+			const float across = pr.halfWidth > 0 ? std::max( 0.0f, pr.halfWidth - 12.0f ) : std::min( 60.0f, std::max( 0.0f, g_Splines[ pr.si ].road.paveWidth ) * 0.5f );
+			const float hx = pr.x[i] + pr.nx[i] * sign * across, hz = pr.z[i] + pr.nz[i] * sign * across;
 			float h = 0;
-			// a road with no carriageway: its line as baked (the ground at the line is no road's surface)
-			if ( pr.halfWidth <= 0 && spline_bakedheightat( g_Splines[ pr.si ], pr.x[i], pr.z[i], &h ) ) {}
-			else if ( !GGTerrain::GGTerrain_GetHeight( hx, hz, &h, 1, 1 ) || h != h ) h = spline_groundy( hx, hz );
+			if ( !GGTerrain::GGTerrain_GetHeight( hx, hz, &h, 1, 1 ) || h != h ) h = spline_groundy( hx, hz );
 			pr.kerbH[side][i] = h;
 		}
 		const float length = pr.kerbS[side][ n - 1 ];
