@@ -1585,6 +1585,8 @@ void Update(float fTimeStep)
 				pObject->position.vecRotate = vecRotate;
 				pObject->collision.bColCenterUpdated = true;
 				body->applyDamping(0.1f);
+				// GG: a body turned in place moves no position: its parked entity woken by the turn too
+				{ extern void (*g_pfnObjectMovedHook)(int iID); if (g_pfnObjectMovedHook) g_pfnObjectMovedHook(g_PhyObjectList[j].iID); }
 
 				// remember the pose given, so a body still asleep next update can be left alone
 				g_PhyObjectList[j].bAsleepSynced = !body->isActive();

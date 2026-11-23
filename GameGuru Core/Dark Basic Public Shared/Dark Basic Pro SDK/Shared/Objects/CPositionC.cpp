@@ -8,6 +8,10 @@
 //////////////////////////////////////////////////////////////////////////////////
 #include ".\..\Objects\CommonC.h"
 
+// GG: called with an object's number when its position, rotation or scale is set, so the Lua entity walk can wake the parked
+// entity it belongs to (NULL when nothing is parked)
+void (*g_pfnObjectMovedHook)(int iID) = NULL;
+
 //////////////////////////////////////////////////////////////////////////////////
 // INTERNAL MANAGEMENT FUNCTIONS /////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////
@@ -213,6 +217,7 @@ DARKSDK void ScaleObject ( int iID, float fX, float fY, float fZ )
 	// also triggers move-response-flag
 	pObject->collision.bHasBeenMovedForResponse=true;
 	pObject->collision.bColCenterUpdated=false;
+	if ( g_pfnObjectMovedHook ) g_pfnObjectMovedHook ( iID );
 
 	// leefix - 011103 - proper world recalc (with glue)
 	CalcObjectWorld ( pObject );
@@ -246,6 +251,7 @@ DARKSDK void PositionObject ( int iID, float fX, float fY, float fZ )
 
 				// also triggers move-response-flag
 				pObject->collision.bHasBeenMovedForResponse = true;
+				if ( g_pfnObjectMovedHook ) g_pfnObjectMovedHook ( iID );
 
 				// leefix - 011103 - proper world recalc (with glue)
 				CalcObjectWorld(pObject);
@@ -256,6 +262,7 @@ DARKSDK void PositionObject ( int iID, float fX, float fY, float fZ )
 
 			// also triggers move-response-flag
 			pObject->collision.bHasBeenMovedForResponse=true;
+			if ( g_pfnObjectMovedHook ) g_pfnObjectMovedHook ( iID );
 
 			// leefix - 011103 - proper world recalc (with glue)
 			CalcObjectWorld ( pObject );
@@ -337,6 +344,7 @@ DARKSDK void RotateObjectQuat(int iID, float fX, float fY, float fZ, float fW)
 		// also triggers move-response-flag
 		pObject->collision.bHasBeenMovedForResponse = true;
 		pObject->collision.bColCenterUpdated = false;
+		if ( g_pfnObjectMovedHook ) g_pfnObjectMovedHook ( iID );
 
 		// leefix - 011103 - proper world recalc (with glue)
 		CalcObjectWorld(pObject);
@@ -367,6 +375,7 @@ DARKSDK void RotateObject ( int iID, float fX, float fY, float fZ )
 			// also triggers move-response-flag
 			pObject->collision.bHasBeenMovedForResponse=true;
 			pObject->collision.bColCenterUpdated=false;
+			if ( g_pfnObjectMovedHook ) g_pfnObjectMovedHook ( iID );
 
 			// leefix - 011103 - proper world recalc (with glue)
 			CalcObjectWorld ( pObject );

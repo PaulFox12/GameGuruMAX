@@ -20,7 +20,7 @@ namespace GGTerrain { int GGTerrain_GetHeight( float x, float z, float* outHeigh
 namespace GGTerrain { void GGTerrain_AddEnvProbeList( float x, float y, float z, float range, float quatx, float quaty, float quatz, float quatw, float sx, float sy, float sz, float brightness ); }
 namespace GGTrees { extern int gg_tree_local_shadows, gg_tree_local_shadow_lod; extern unsigned int gg_tree_local_shadow_counts[ 3 ]; }
 extern int g_iGunSmokePuffs, g_iGunSmokeNoKeyOn; // GUNSMOKE_STATE, SET_GUNSMOKENOKEY (G-Gun.cpp, M-Gun.cpp)
-extern int g_iLuaQuietSkip; extern int g_iLuaFarRows; void lua_loopstats_text ( char* pOut, int iSize, bool bReset ); // SET_LUAQUIET, LUA_LOOP_STATS (M-LUA.cpp)
+extern int g_iLuaQuietSkip; extern int g_iLuaFarRows; extern int g_iLuaWalkSplit; void lua_loopstats_text ( char* pOut, int iSize, bool bReset ); // SET_LUAQUIET, LUA_LOOP_STATS (M-LUA.cpp)
 void lua_row_text ( int e, char* pOut, int iSize ); // LUA_ROW (M-LUA.cpp)
 #include <time.h>
 #include <windows.h>
@@ -640,8 +640,23 @@ void AutoHarness_CheckForCommand ( void )
 	else if ( _stricmp ( cmd, "LUA_LOOP_STATS" ) == 0 )
 	{
 		// LUA_LOOP_STATS [reset]: the entity walk per frame since the last reset: its time (mean, max), turns taken, statics and
-		// quiet entities skipped, rows given (UpdateEntityRT) and main calls; reset starts a new window
+		// quiet entities skipped, rows given (UpdateEntityRT) and main calls; reset starts a new window. LUA_LOOP_STATS split 0|1:
+		// each element's visit timed by how it ended (left at the gate, a static skipped, a quiet turn skipped, a turn taken),
+		// off by default
+		if ( arg && _strnicmp ( arg, "split", 5 ) == 0 ) g_iLuaWalkSplit = atoi ( arg + 5 ) ? 1 : 0;
 		lua_loopstats_text(result, sizeof(result), arg && _stricmp(arg, "reset") == 0);
+	}
+	else if ( _stricmp ( cmd, "SET_LUAPARK" ) == 0 || _stricmp ( cmd, "LUA_PARK" ) == 0 )
+	{
+		// GG: SET_LUAPARK [0|1|2]: the Lua walk parks nothing (0), the statics (1) or the statics and the quiet entities (2, the
+		// default), passing them by until woken; answers with LUA_LOOP_STATS. LUA_PARK <e>: an element's parked state and last wake
+		extern int g_iLuaWalkPark; void lua_park_text ( int e, char* pOut, int iSize );
+		if ( _stricmp ( cmd, "LUA_PARK" ) == 0 ) lua_park_text ( arg ? atoi ( arg ) : 0, result, sizeof(result) );
+		else
+		{
+			if ( arg && *arg ) g_iLuaWalkPark = atoi ( arg ) < 0 ? 0 : ( atoi ( arg ) > 2 ? 2 : atoi ( arg ) );
+			lua_loopstats_text ( result, sizeof(result), false );
+		}
 	}
 	else if ( _stricmp ( cmd, "SET_GUNSMOKENOKEY" ) == 0 )
 	{

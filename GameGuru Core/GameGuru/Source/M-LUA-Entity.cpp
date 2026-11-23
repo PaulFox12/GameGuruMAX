@@ -898,6 +898,7 @@ void entity_lua_performlogicconnections_core ( int iMode )
 				}
 				// trigger LUA data to update for this element
 				t.entityelement[iRelationShipEntityID].lua.flagschanged = 1;
+				{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( iRelationShipEntityID, 1 ); } // GG: LWW_LUA
 			}
 		}
 		if (iMode == 2)
@@ -1052,6 +1053,7 @@ void entity_lua_refreshentity ( void )
 				// this fires up the entity!
 				t.entityelement[iNewE].active = 0;
 				t.entityelement[iNewE].lua.flagschanged = 123;
+				{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( iNewE, 0 ); } // GG: LWW_TOUCH
 				bWeRestoredACloneSoRefresh = true;
 			}
 		}

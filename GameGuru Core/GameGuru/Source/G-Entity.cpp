@@ -93,6 +93,9 @@ void entity_walklists_dirty(void)
 void entity_walklists_touch(int e)
 {
 	if (e > 0) g_WalkPending.push_back(e);
+	// and the Lua walk's turns: a parked element walked again (M-LUA.cpp, LWW_TOUCH)
+	extern void lua_walk_wake(int e, int iWhy);
+	lua_walk_wake(e, 0);
 }
 
 // this frame's walks step the lists: on, and in a test or standalone game
@@ -1563,6 +1566,7 @@ void entity_loop ( void )
 							t.entityelement[t.e].active = 0;
 							t.entityelement[t.e].health = 0;
 							t.entityelement[t.e].lua.flagschanged = 2;
+							{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( t.e, 5 ); } // GG: LWW_FLAGS
 
 							// remove pivot and readjust char object (undo this when restore from test level)
 							RotateLimb(t.tobj, 0, 0, 180, 0);
@@ -1604,6 +1608,7 @@ void entity_loop ( void )
 								t.entityelement[t.e].ragdollplusweapontypeused = 0;
 								//PE: Make sure to update lua health ... sometimes npc keep shooting ragdolls
 								t.entityelement[t.e].lua.flagschanged = 2;
+								{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( t.e, 5 ); } // GG: LWW_FLAGS
 								bGoToRagdollNow = true;
 							}
 							else
@@ -1801,6 +1806,11 @@ void entity_loop ( void )
 				}
 			}
 			t.entityelement[t.e].plrdist=t.dist_f;
+			// GG: a parked entity in the Lua walk woken when its new distance or a flag would end its quiet turn (M-LUA.cpp)
+			{
+				extern std::vector<uint8_t> g_LuaWalkParked; extern void lua_walk_distcheck(int e);
+				if ( t.e < (int)g_LuaWalkParked.size() && g_LuaWalkParked[t.e] != 0 ) lua_walk_distcheck ( t.e );
+			}
 
 			// control immunity for entities
 			if ( t.entityelement[t.e].briefimmunity > 0 )
@@ -2050,6 +2060,7 @@ void entity_loop ( void )
 				t.entityelement[t.e].health = 0;
 				t.entityelement[t.e].eleprof.lootpercentage = 0;
 				t.entityelement[t.e].lua.flagschanged = 2;
+				{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( t.e, 5 ); } // GG: LWW_FLAGS
 				if ( t.game.runasmultiplayer == 1 ) 
 				{
 					mp_addDestroyedObject ( );
@@ -2839,6 +2850,9 @@ void entity_applydamage ( void )
 	// SetEntityHealth isn't kept, but marks the entity so its own explosion isn't credited to an older hit
 	if ( t.ttte > 0 && t.ttte <= g.entityelementlist )
 	{
+		// GG: and a parked entity walked again in the Lua walk (M-LUA.cpp, LWW_DAMAGE)
+		extern void lua_walk_wake(int e, int iWhy);
+		lua_walk_wake ( t.ttte, 2 );
 		if ( g_bDamageFromScript )
 		{
 			sEntityHits* pHits = entity_hits ( t.ttte );
@@ -3890,6 +3904,7 @@ void entity_hasbulletrayhit(void)
 			{
 				t.entityelement[t.tfoundentityindexhit].detectedlimbhit = 0;
 				t.entityelement[t.tfoundentityindexhit].lua.flagschanged = 1;
+				{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( t.tfoundentityindexhit, 2 ); } // GG: LWW_DAMAGE
 			}
 			if (  t.tlimbhit>0 ) 
 			{
@@ -3905,6 +3920,7 @@ void entity_hasbulletrayhit(void)
 						{
 							t.entityelement[t.tfoundentityindexhit].detectedlimbhit = t.tlimbhit;
 							t.entityelement[t.tfoundentityindexhit].lua.flagschanged = 1;
+							{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( t.tfoundentityindexhit, 2 ); } // GG: LWW_DAMAGE
 						}
 					}
 				}
@@ -4609,6 +4625,7 @@ void entity_monitorattachments (void)
 							t.entityelement[iNewEntID].eleprof.isimmobile = 0; // and free to fall
 							t.entityelement[iNewEntID].active = 0;
 							t.entityelement[iNewEntID].lua.flagschanged = 123; // cause to call init before normal running
+							{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( iNewEntID, 0 ); } // GG: LWW_TOUCH
 							t.te = iNewEntID; t.tv_f = 0;// t.v_f;
 							g.charanimindex = 0;
 							entity_updatepos ();

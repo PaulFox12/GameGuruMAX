@@ -1234,6 +1234,7 @@ static int LUA_GETTOP(lua_State* L)
 	int iSetThisValue = lua_tonumber(L, 2);
 	if ( !LuaEntityIDValid ( L, iIndex, 1 ) ) return 0;
 	t.entityelement[iIndex].active = iSetThisValue;
+	{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( iIndex, 1 ); } // GG: LWW_LUA
 	return 0;
  }
  int SetEntityActivated(lua_State *L)
@@ -1244,6 +1245,7 @@ static int LUA_GETTOP(lua_State* L)
 	int iIndex = lua_tonumber(L, 1);
 	if ( !LuaEntityIDValid ( L, iIndex, 1 ) ) return 0;
 	t.entityelement[iIndex].activated = lua_tonumber(L, 2);
+	{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( iIndex, 1 ); } // GG: LWW_LUA
 	return 0;
  }
  int SetEntityHasKey(lua_State* L)
@@ -1515,6 +1517,7 @@ static int LUA_GETTOP(lua_State* L)
 						if (t.entityelement[iEntityIndex].collected != 0)
 						{
 							t.entityelement[iEntityIndex].collected = 0;
+							{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( iEntityIndex, 1 ); } // GG: LWW_LUA
 							extern void darklua_refreshhaskeystatefor(LPSTR);
 							darklua_refreshhaskeystatefor(t.entityelement[iEntityIndex].eleprof.name_s.Get());
 							t.entityelement[iEntityIndex].x += 999999;
@@ -1542,6 +1545,7 @@ static int LUA_GETTOP(lua_State* L)
 				entity_lua_collisionoff();
 				t.e = store;
 				t.entityelement[iEntityIndex].collected = (int)fabs(iCollectState);
+				{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( iEntityIndex, 1 ); } // GG: LWW_LUA
 				extern void darklua_refreshhaskeystatefor(LPSTR);
 				darklua_refreshhaskeystatefor(t.entityelement[iEntityIndex].eleprof.name_s.Get());
 				t.entityelement[iEntityIndex].x -= 999999;
@@ -3420,6 +3424,7 @@ int SpawnCloneSound(int iTemplateSound, char* pFile)
 	// special limbo mode to skip activating this entity until next lua_begin cycle
 	t.entityelement[iNewE].active = 0;
 	t.entityelement[iNewE].lua.flagschanged = 123;
+	{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( iNewE, 0 ); } // GG: LWW_TOUCH
 	t.entityelement[iNewE].iWasSpawnedInGame = iEntityIndex;
 	t.e = storee;
 	t.entid = storeentid;
@@ -11254,6 +11259,7 @@ int MoveInventoryItem (lua_State* L)
 						{
 							if (bothplayercontainersto == 0 || bothplayercontainersto == 1)
 							{
+								{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( item.e, 1 ); } // GG: LWW_LUA
 								if (bothplayercontainersto == 0) t.entityelement[item.e].collected = 1;
 								if (bothplayercontainersto == 1) t.entityelement[item.e].collected = 2;
 								darklua_refreshhaskeystatefor(t.entityelement[item.e].eleprof.name_s.Get());
@@ -11261,6 +11267,7 @@ int MoveInventoryItem (lua_State* L)
 							}
 							else
 							{
+								{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( item.e, 1 ); } // GG: LWW_LUA
 								t.entityelement[item.e].active = 0;
 								t.entityelement[item.e].collected = 0;
 								darklua_refreshhaskeystatefor(t.entityelement[item.e].eleprof.name_s.Get());
@@ -11342,6 +11349,7 @@ int AddInventoryItem (lua_State* L)
 		item.slot = slotindex;
 		t.inventoryContainer[bothplayercontainersto].push_back(item);
 		// ensure activate and deactivate entity as it passes from player/hotkeys to shop/chest/etc
+		{ extern void lua_walk_wake(int e, int iWhy); lua_walk_wake ( item.e, 1 ); } // GG: LWW_LUA
 		if (bothplayercontainersto == 0 || bothplayercontainersto == 1)
 			t.entityelement[item.e].active = 1;
 		else
@@ -16879,7 +16887,12 @@ bool LuaEntityCommandValid ( lua_State* L, eInternalCommandNames eInternalComman
 {
 	int iMinID = LuaEntityCommandMinID ( eInternalCommandValue );
 	if ( iMinID == LUAENTITY_NOTENTITYCOMMAND ) return true;
-	return LuaEntityIDValid ( L, t.e, iMinID );
+	if ( !LuaEntityIDValid ( L, t.e, iMinID ) ) return false;
+	// GG: an entity command (Hide, Show, SetPosition, CollisionOff, SetEntityHealth, ...) walks the entity again in the Lua
+	// walk if it was parked (M-LUA.cpp, LWW_LUA)
+	extern void lua_walk_wake(int e, int iWhy);
+	lua_walk_wake ( t.e, 1 );
+	return true;
 }
 
 int int_core_sendmessagenone(lua_State* L, eInternalCommandNames eInternalCommandValue)

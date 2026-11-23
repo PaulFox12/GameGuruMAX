@@ -891,9 +891,121 @@ int g_iLuaQuietSkip = 1;
 // still not called (as flagschanged 2 does); 0 leaves it as before, given only by a hit or a kill (harness SET_LUAFARROWS)
 int g_iLuaFarRows = 1;
 // GG: the entity walk measured (harness LUA_LOOP_STATS): frames, its time, turns taken, statics and quiet entities skipped,
-// rows given and main calls made
-struct sLuaLoopStats { uint32_t uFrames = 0, uTurns = 0, uStaticSkips = 0, uQuietSkips = 0, uRows = 0, uMains = 0, uFarRows = 0; double dMs = 0, dMaxMs = 0, dMainMs = 0, dRowMs = 0; };
+// rows given and main calls made; with the split on, the walk's time by how each element's visit ended (LWS_*)
+enum { LWS_GATE, LWS_STATIC, LWS_QUIET, LWS_TURN, LWS_PARKED, LWS_COUNT };
+// the wakes of a parked element by source (lua_walk_wake)
+enum { LWW_TOUCH, LWW_LUA, LWW_DAMAGE, LWW_MOVED, LWW_DIST, LWW_FLAGS, LWW_COUNT };
+static const char* g_pLuaWakeWhy[LWW_COUNT] = { "touch", "lua", "damage", "moved", "dist", "flags" };
+struct sLuaLoopStats { uint32_t uFrames = 0, uTurns = 0, uStaticSkips = 0, uQuietSkips = 0, uRows = 0, uMains = 0, uFarRows = 0; double dMs = 0, dMaxMs = 0, dMainMs = 0, dRowMs = 0; uint32_t uSplitFrames = 0; uint32_t uSplitN[LWS_COUNT] = {}; LONGLONG llSplitTicks[LWS_COUNT] = {}; double dSplitWalkMs = 0;
+	uint32_t uParks = 0, uParkedSkips = 0, uParkChecks = 0, uMisses = 0; uint32_t uWakes[LWW_COUNT] = {}; };
+// GG: 1 times every element's visit in the walk by how it ended: left at the gate (not active, spawning, frozen, dormant,
+// the 30 fps halving), a static skipped, a quiet turn skipped, a turn taken (its row and main call within it, timed apart
+// too), a parked element passed; one clock read per element, so 0 unless measuring (harness LUA_LOOP_STATS split 1)
+int g_iLuaWalkSplit = 0;
 sLuaLoopStats g_LuaLoopStats;
+
+// GG: the walk's parked elements. A static, or an entity whose turn was quiet, is parked (1 near, 2 beyond its 750 unit logic
+// range, 3 static) and the walk passes it by its flag alone, without reading its element, until something that could end its
+// quiet turn wakes it (lua_walk_wake: the walk lists' touch, a Lua entity command, damage, its object moved, entity_loop's
+// distance and flags). A parked element is still given its full visit every LUA_PARK_CHECK frames: a turn taken there is a
+// missed wake, counted and named. g_iLuaWalkPark: 0 off, 1 the statics, 2 the statics and the quiet entities (harness
+// SET_LUAPARK, LUA_PARK)
+#define LUA_PARK_CHECK 30
+int g_iLuaWalkPark = 2;
+std::vector<uint8_t> g_LuaWalkParked;           // per element: 0 walked, 1 parked near, 2 parked far, 3 parked static
+static std::vector<int> g_LuaWalkParkedObj;     // per element: its object when parked (its owner entry)
+static std::vector<uint8_t> g_LuaWalkLastWake;  // per element: its last wake's source + 1
+static std::vector<uint16_t> g_LuaWalkWakeCount; // per element: its wakes since the game's start (LUA_PARK)
+static std::vector<int> g_LuaWalkObjOwner;      // per entity object (from ENTITYOBJECTBASE): the parked element it is
+static uint32_t g_uLuaWalkParkedNow = 0;
+static int g_iLuaWalkMissLast[8][2];            // the last missed wakes: element, why its check visit took a turn
+static int g_iLuaWalkMissNext = 0;
+
+static void lua_walk_unpark ( int e )
+{
+	g_LuaWalkParked[e] = 0;
+	if (g_uLuaWalkParkedNow > 0) g_uLuaWalkParkedNow--;
+	const int i = g_LuaWalkParkedObj[e] - ENTITYOBJECTBASE;
+	if (i >= 0 && i < (int)g_LuaWalkObjOwner.size() && g_LuaWalkObjOwner[i] == e) g_LuaWalkObjOwner[i] = 0;
+}
+
+void lua_walk_wake ( int e, int iWhy )
+{
+	if (e <= 0 || e >= (int)g_LuaWalkParked.size() || g_LuaWalkParked[e] == 0) return;
+	lua_walk_unpark(e);
+	g_LuaWalkLastWake[e] = (uint8_t)(iWhy + 1);
+	g_LuaWalkWakeCount[e]++;
+	g_LuaLoopStats.uWakes[iWhy]++;
+}
+
+// the objects' position, rotation and scale setters (g_pfnObjectMovedHook): the parked entity an object belongs to woken
+void lua_walk_objectmoved ( int iID )
+{
+	const int i = iID - ENTITYOBJECTBASE;
+	if (i >= 0 && i < (int)g_LuaWalkObjOwner.size() && g_LuaWalkObjOwner[i] > 0) lua_walk_wake(g_LuaWalkObjOwner[i], LWW_MOVED);
+}
+
+static void lua_walk_park ( int e, int iKind )
+{
+	if (g_LuaWalkParked[e] != 0)
+	{
+		// a check visit: still parked, as what it is now
+		if (g_LuaWalkParked[e] == iKind) return;
+		lua_walk_unpark(e);
+	}
+	const int obj = t.entityelement[e].obj;
+	const int i = obj - ENTITYOBJECTBASE;
+	if (iKind != 3)
+	{
+		// a quiet entity is woken by its object moving: one with no entity object of its own isn't parked; nor one near with
+		// animations (its frame is part of its row)
+		if (obj <= 0 || i < 0 || i >= 8000000) return;
+		if (iKind == 1 && ObjectExist(obj) == 1) { sObject* pObject = GetObjectData(obj); if (pObject && pObject->pAnimationSet) return; }
+		if ((int)g_LuaWalkObjOwner.size() <= i) g_LuaWalkObjOwner.resize(i + 4096, 0);
+		g_LuaWalkObjOwner[i] = e;
+	}
+	g_LuaWalkParked[e] = (uint8_t)iKind;
+	g_LuaWalkParkedObj[e] = obj;
+	g_uLuaWalkParkedNow++;
+	g_LuaLoopStats.uParks++;
+}
+
+static void lua_walk_unparkall ( void )
+{
+	std::fill(g_LuaWalkParked.begin(), g_LuaWalkParked.end(), (uint8_t)0);
+	std::fill(g_LuaWalkObjOwner.begin(), g_LuaWalkObjOwner.end(), 0);
+	g_uLuaWalkParkedNow = 0;
+}
+
+// entity_loop, after it gave a parked entity its player distance and flags: woken when its quiet turn would end there (a flag
+// it takes a turn for, its logic range crossed, near: its distance moved past what its row shows, as lua_turn_isquiet tests)
+void lua_walk_distcheck ( int e )
+{
+	const uint8_t k = g_LuaWalkParked[e];
+	if (k == 0 || k == 3) return;
+	const entitytype& el = t.entityelement[e];
+	const int iFlags = el.lua.flagschanged;
+	if (iFlags == 2 || iFlags == 3 || iFlags == 123 || (iFlags != 0 && el.plrdist < 750.0f)) { lua_walk_wake(e, LWW_FLAGS); return; }
+	if ((k == 2) != (el.plrdist >= 750.0f)) { lua_walk_wake(e, LWW_DIST); return; }
+	if (k == 1 && e < (int)g_LuaRowSnap.size())
+	{
+		const float fSnap = g_LuaRowSnap[e].plrdist;
+		const float fDist = fabs(el.plrdist - fSnap);
+		if (fDist > 25.0f && fDist > fSnap * 0.05f) lua_walk_wake(e, LWW_DIST);
+	}
+}
+
+// harness LUA_PARK e: an element's parked state and its last wake
+void lua_park_text ( int e, char* pOut, int iSize )
+{
+	static const char* pKind[4] = { "walked", "near", "far", "static" };
+	const int k = (e > 0 && e < (int)g_LuaWalkParked.size()) ? g_LuaWalkParked[e] : 0;
+	const int w = (e > 0 && e < (int)g_LuaWalkLastWake.size()) ? g_LuaWalkLastWake[e] : 0;
+	const int n = (e > 0 && e < (int)g_LuaWalkWakeCount.size()) ? g_LuaWalkWakeCount[e] : 0;
+	_snprintf(pOut, iSize, "OK: LUA_PARK %d parked=%d kind=%s lastwake=%s wakes=%d park=%d parkednow=%u misses=%u", e, k != 0 ? 1 : 0, pKind[k & 3],
+		w > 0 && w <= LWW_COUNT ? g_pLuaWakeWhy[w - 1] : "none", n, g_iLuaWalkPark, g_uLuaWalkParkedNow, g_LuaLoopStats.uMisses);
+	pOut[iSize - 1] = 0;
+}
 
 static void LuaRow_Remember ( int e, int tobj, int frm )
 {
@@ -1101,6 +1213,39 @@ void lua_loopstats_text ( char* pOut, int iSize, bool bReset )
 		st.dMainMs / f, st.dRowMs / f,
 		(int)g.entityelementlist);
 	int iLen = (int)strlen(pOut);
+	if (st.uSplitFrames > 0 && iLen > 0 && iLen < iSize - 256)
+	{
+		// the split's frames: the walk's time over them, each kind of visit's time and count a frame, and one clock
+		// read's cost (each visit carries one)
+		static double dClockNs = 0;
+		if (dClockNs == 0)
+		{
+			const LONGLONG llA = LuaCost_Ticks();
+			for (int i = 0; i < 100000; i++) LuaCost_Ticks();
+			dClockNs = LuaCost_Ms(llA, LuaCost_Ticks()) * 1000000.0 / 100001.0;
+		}
+		const double fs = (double)st.uSplitFrames;
+		iLen += _snprintf(pOut + iLen, iSize - iLen, " split=%d split_frames=%u split_walkms=%.4f split_gate=%.4f/%.1f split_static=%.4f/%.1f split_quiet=%.4f/%.1f split_turn=%.4f/%.1f split_parked=%.4f/%.1f split_clockns=%.1f",
+			g_iLuaWalkSplit, st.uSplitFrames, st.dSplitWalkMs / fs,
+			LuaCost_Ms(0, st.llSplitTicks[LWS_GATE]) / fs, st.uSplitN[LWS_GATE] / fs, LuaCost_Ms(0, st.llSplitTicks[LWS_STATIC]) / fs, st.uSplitN[LWS_STATIC] / fs,
+			LuaCost_Ms(0, st.llSplitTicks[LWS_QUIET]) / fs, st.uSplitN[LWS_QUIET] / fs, LuaCost_Ms(0, st.llSplitTicks[LWS_TURN]) / fs, st.uSplitN[LWS_TURN] / fs,
+			LuaCost_Ms(0, st.llSplitTicks[LWS_PARKED]) / fs, st.uSplitN[LWS_PARKED] / fs, dClockNs);
+	}
+	if (iLen > 0 && iLen < iSize - 256)
+	{
+		// the parked elements: now, parked and passed a frame, check visits a frame, missed wakes, wakes by source
+		iLen += _snprintf(pOut + iLen, iSize - iLen, " park=%d parkednow=%u parks=%.2f parkskips=%.1f parkchecks=%.1f misses=%u wakes=",
+			g_iLuaWalkPark, g_uLuaWalkParkedNow, st.uParks / f, st.uParkedSkips / f, st.uParkChecks / f, st.uMisses);
+		for (int i = 0; i < LWW_COUNT && iLen > 0 && iLen < iSize - 32; i++) iLen += _snprintf(pOut + iLen, iSize - iLen, "%s:%u,", g_pLuaWakeWhy[i], st.uWakes[i]);
+		if (iLen > 0 && iLen < iSize - 32) iLen += _snprintf(pOut + iLen, iSize - iLen, " missedlast=");
+		for (int i = 0; i < 8 && iLen > 0 && iLen < iSize - 48; i++)
+		{
+			const int k = (g_iLuaWalkMissNext + 7 - i) % 8;
+			if (g_iLuaWalkMissLast[k][0] <= 0) continue;
+			const int w = g_iLuaWalkMissLast[k][1];
+			iLen += _snprintf(pOut + iLen, iSize - iLen, "%d:%s,", g_iLuaWalkMissLast[k][0], w >= 0 && w < LQ_COUNT ? g_pLuaQuietWhy[w] : "turn");
+		}
+	}
 	iLen += _snprintf(pOut + iLen, iSize - iLen, " why=");
 	for (int i = 0; i < LQ_COUNT && iLen > 0 && iLen < iSize - 32; i++)
 		if (g_uLuaQuietWhy[i] > 0) iLen += _snprintf(pOut + iLen, iSize - iLen, "%s:%.0f,", g_pLuaQuietWhy[i], g_uLuaQuietWhy[i] / f);
@@ -1188,10 +1333,53 @@ void lua_loop_allentities ( void )
 			for (int e = 1; e <= g.entityelementlist && e < TABLEOFPERFORMANCEMAX; e++) g_tableofperformancetimers[e] = 0;
 		}
 	}
+	// GG: LUA_LOOP_STATS split: each element's visit timed by how it ended, read at the next visit's start
+	const bool bWalkSplit = g_iLuaWalkSplit != 0;
+	LONGLONG llSplitMark = bWalkSplit ? LuaCost_Ticks() : 0;
+	int iSplitWhat = -1;
+	// GG: the parked elements, in a test or standalone game with the quiet skip on; all walked again when the mode changes or
+	// a game starts
+	const int iParkMode = (bWalkList && g_iLuaQuietSkip == 1) ? g_iLuaWalkPark : 0;
+	{
+		static int iParkModeWas = -1;
+		static uint32_t uParkFrameWas = 0;
+		if (iParkMode != iParkModeWas || LuaFrameCount < uParkFrameWas) lua_walk_unparkall();
+		iParkModeWas = iParkMode;
+		uParkFrameWas = LuaFrameCount;
+		if ((int)g_LuaWalkParked.size() <= g.entityelementlist)
+		{
+			g_LuaWalkParked.resize(g.entityelementlist + 1024, 0);
+			g_LuaWalkParkedObj.resize(g.entityelementlist + 1024, 0);
+			g_LuaWalkLastWake.resize(g.entityelementlist + 1024, 0);
+			g_LuaWalkWakeCount.resize(g.entityelementlist + 1024, 0);
+		}
+		extern void (*g_pfnObjectMovedHook)(int iID);
+		g_pfnObjectMovedHook = iParkMode >= 2 ? lua_walk_objectmoved : NULL;
+	}
 	// Go through all entities with active LUA scripts
 	for ( int iWalk = 0; bWalkList ? iWalk < (int)g_WalkInUse.size() : iWalk < g.entityelementlist; iWalk++ )
 	{
+		if (bWalkSplit)
+		{
+			const LONGLONG llNow = LuaCost_Ticks();
+			if (iSplitWhat >= 0) { g_LuaLoopStats.llSplitTicks[iSplitWhat] += llNow - llSplitMark; g_LuaLoopStats.uSplitN[iSplitWhat]++; }
+			llSplitMark = llNow;
+			iSplitWhat = LWS_GATE;
+		}
 		t.e = bWalkList ? g_WalkInUse[iWalk] : iWalk + 1;
+		// GG: a parked element passed by its flag alone, but for its check visit every LUA_PARK_CHECK frames
+		bool bParkCheck = false;
+		if (iParkMode != 0 && g_LuaWalkParked[t.e] != 0)
+		{
+			if (((uint32_t)t.e + LuaFrameCount) % LUA_PARK_CHECK != 0)
+			{
+				g_LuaLoopStats.uParkedSkips++;
+				iSplitWhat = LWS_PARKED;
+				continue;
+			}
+			bParkCheck = true;
+			g_LuaLoopStats.uParkChecks++;
+		}
 		extern bool bEnable30FpsAnimations;
 		if (bEnable30FpsAnimations && LuaFrameCount > 360 && t.entityelement[t.e].plrdist > SWITCHTO30FPSRANGE && t.entityelement[t.e].eleprof.phyalways == 0)
 		{
@@ -1224,18 +1412,33 @@ void lua_loop_allentities ( void )
 				continue;
 			}
 
-			// GG: a turn with nothing to do is skipped whole (lua_turn_isquiet)
+			// GG: a turn with nothing to do is skipped whole (lua_turn_isquiet), and parked
+			int iQuietWhy = -1;
 			if (g_iLuaQuietSkip == 1)
 			{
 				const int iWhy = lua_turn_isquiet(t.e, thisentid);
+				iQuietWhy = iWhy;
 				if (iWhy < 0)
 				{
 					if (t.entityelement[t.e].staticflag == 1) g_LuaLoopStats.uStaticSkips++; else g_LuaLoopStats.uQuietSkips++;
+					iSplitWhat = t.entityelement[t.e].staticflag == 1 ? LWS_STATIC : LWS_QUIET;
+					if (t.entityelement[t.e].staticflag == 1) { if (iParkMode >= 1) lua_walk_park(t.e, 3); }
+					else if (iParkMode >= 2) lua_walk_park(t.e, t.entityelement[t.e].plrdist >= 750.0f ? 2 : 1);
 					continue;
 				}
 				g_uLuaQuietWhy[iWhy]++;
 			}
+			// a parked element's check visit taking a turn: a wake was missed
+			if (bParkCheck)
+			{
+				lua_walk_unpark(t.e);
+				g_LuaLoopStats.uMisses++;
+				g_iLuaWalkMissLast[g_iLuaWalkMissNext][0] = t.e;
+				g_iLuaWalkMissLast[g_iLuaWalkMissNext][1] = iQuietWhy;
+				g_iLuaWalkMissNext = (g_iLuaWalkMissNext + 1) % 8;
+			}
 			g_LuaLoopStats.uTurns++;
+			iSplitWhat = LWS_TURN;
 			if (t.entityprofile[thisentid].ischaracter == 1 )
 			{
 				t.ttte = t.e; entity_find_charanimindex_fromttte(); // small optimization if we can replace this with storing in entityelement!
@@ -1684,11 +1887,13 @@ void lua_loop_allentities ( void )
 			LuaCost_EndTurn(t.e, llCostStart, iCostHeapStartKB, dCostRow, dCostMain, dCostKey);
 		}
 	}
+	if (bWalkSplit && iSplitWhat >= 0) { g_LuaLoopStats.llSplitTicks[iSplitWhat] += LuaCost_Ticks() - llSplitMark; g_LuaLoopStats.uSplitN[iSplitWhat]++; }
 	LuaCost_EndFrame();
 	{
 		const double dLoopMs = LuaCost_Ms(llLoopStart, LuaCost_Ticks()); // GG: LUA_LOOP_STATS
 		g_LuaLoopStats.uFrames++;
 		g_LuaLoopStats.dMs += dLoopMs;
+		if (bWalkSplit) { g_LuaLoopStats.uSplitFrames++; g_LuaLoopStats.dSplitWalkMs += dLoopMs; }
 		if (dLoopMs > g_LuaLoopStats.dMaxMs) g_LuaLoopStats.dMaxMs = dLoopMs;
 	}
 
