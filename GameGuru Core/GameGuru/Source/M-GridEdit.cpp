@@ -15339,6 +15339,10 @@ void editor_previewmapormultiplayer_initcode ( int iUseVRTest )
 	t.gamevisuals.fsetBloomCap = t.visuals.fsetBloomCap;
 	t.gamevisuals.fLensFlareSunHue = t.visuals.fLensFlareSunHue;
 	t.gamevisuals.fLensFlareSunBrightness = t.visuals.fLensFlareSunBrightness;
+	t.gamevisuals.fSunDiscGain = t.visuals.fSunDiscGain;
+	t.gamevisuals.fSunDiscRed = t.visuals.fSunDiscRed;
+	t.gamevisuals.fSunDiscGreen = t.visuals.fSunDiscGreen;
+	t.gamevisuals.fSunDiscBlue = t.visuals.fSunDiscBlue;
 	t.gamevisuals.bScreenLensFlare = t.visuals.bScreenLensFlare;
 	t.gamevisuals.fScreenLensFlareIntensity = t.visuals.fScreenLensFlareIntensity;
 	t.gamevisuals.fScreenLensFlareThreshold = t.visuals.fScreenLensFlareThreshold;
@@ -16048,6 +16052,10 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.SunRed_f = t.gamevisuals.SunRed_f;
 	t.visuals.SunGreen_f = t.gamevisuals.SunGreen_f;
 	t.visuals.SunBlue_f = t.gamevisuals.SunBlue_f;
+	t.visuals.fSunDiscGain = t.gamevisuals.fSunDiscGain; // GG: SetSunDisc writes only t.visuals too
+	t.visuals.fSunDiscRed = t.gamevisuals.fSunDiscRed;
+	t.visuals.fSunDiscGreen = t.gamevisuals.fSunDiscGreen;
+	t.visuals.fSunDiscBlue = t.gamevisuals.fSunDiscBlue;
 	t.visuals.SunAngleX = t.gamevisuals.SunAngleX;
 	t.visuals.SunAngleY = t.gamevisuals.SunAngleY;
 	t.visuals.SunAngleZ = t.gamevisuals.SunAngleZ;
@@ -16115,6 +16123,10 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.SunRed_f = t.gamevisuals.SunRed_f;
 	t.visuals.SunGreen_f = t.gamevisuals.SunGreen_f;
 	t.visuals.SunBlue_f = t.gamevisuals.SunBlue_f;
+	t.visuals.fSunDiscGain = t.gamevisuals.fSunDiscGain;
+	t.visuals.fSunDiscRed = t.gamevisuals.fSunDiscRed;
+	t.visuals.fSunDiscGreen = t.gamevisuals.fSunDiscGreen;
+	t.visuals.fSunDiscBlue = t.gamevisuals.fSunDiscBlue;
 	t.visuals.ZenithRed_f = t.gamevisuals.ZenithRed_f;
 	t.visuals.ZenithGreen_f = t.gamevisuals.ZenithGreen_f;
 	t.visuals.ZenithBlue_f = t.gamevisuals.ZenithBlue_f;

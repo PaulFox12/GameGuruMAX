@@ -234,6 +234,10 @@ void visuals_resetvalues (bool bNewLevel)
 	t.visuals.fsetBloomCap = 30.0f;
 	t.visuals.fLensFlareSunHue = 1.0f;
 	t.visuals.fLensFlareSunBrightness = 1.0f;
+	t.visuals.fSunDiscGain = 1.0f;
+	t.visuals.fSunDiscRed = 255.0f;
+	t.visuals.fSunDiscGreen = 255.0f;
+	t.visuals.fSunDiscBlue = 255.0f;
 	t.visuals.bScreenLensFlare = false;
 	t.visuals.fScreenLensFlareIntensity = 0.1f;
 	t.visuals.fScreenLensFlareThreshold = 4.0f;
@@ -812,6 +816,14 @@ void visuals_save ( void )
 	WriteString(1, t.strwork.Get());
 	t.strwork = ""; t.strwork = t.strwork + "visuals.LensFlareSunBrightness=" + Str(t.visuals.fLensFlareSunBrightness);
 	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.SunDiscGain=" + Str(t.visuals.fSunDiscGain);
+	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.SunDiscRed=" + Str(t.visuals.fSunDiscRed);
+	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.SunDiscGreen=" + Str(t.visuals.fSunDiscGreen);
+	WriteString(1, t.strwork.Get());
+	t.strwork = ""; t.strwork = t.strwork + "visuals.SunDiscBlue=" + Str(t.visuals.fSunDiscBlue);
+	WriteString(1, t.strwork.Get());
 	t.strwork = ""; t.strwork = t.strwork + "visuals.ScreenLensFlare=" + Str(t.visuals.bScreenLensFlare);
 	WriteString(1, t.strwork.Get());
 	t.strwork = ""; t.strwork = t.strwork + "visuals.ScreenLensFlareIntensity=" + Str(t.visuals.fScreenLensFlareIntensity);
@@ -1171,6 +1183,10 @@ void visuals_load ( void )
 	t.visuals.fsetBloomCap = 30.0f;
 	t.visuals.fLensFlareSunHue = 1.0f;
 	t.visuals.fLensFlareSunBrightness = 1.0f;
+	t.visuals.fSunDiscGain = 1.0f;
+	t.visuals.fSunDiscRed = 255.0f;
+	t.visuals.fSunDiscGreen = 255.0f;
+	t.visuals.fSunDiscBlue = 255.0f;
 	t.visuals.bScreenLensFlare = false;
 	t.visuals.fScreenLensFlareIntensity = 0.1f;
 	t.visuals.fScreenLensFlareThreshold = 4.0f;
@@ -1500,6 +1516,10 @@ void visuals_load ( void )
 			t.try_s = "visuals.BloomCap"; if (t.tfield_s == t.try_s)  t.visuals.fsetBloomCap = ValF(t.tvalue_s.Get());
 			t.try_s = "visuals.LensFlareSunHue"; if (t.tfield_s == t.try_s)  t.visuals.fLensFlareSunHue = ValF(t.tvalue_s.Get());
 			t.try_s = "visuals.LensFlareSunBrightness"; if (t.tfield_s == t.try_s)  t.visuals.fLensFlareSunBrightness = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.SunDiscGain"; if (t.tfield_s == t.try_s)  t.visuals.fSunDiscGain = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.SunDiscRed"; if (t.tfield_s == t.try_s)  t.visuals.fSunDiscRed = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.SunDiscGreen"; if (t.tfield_s == t.try_s)  t.visuals.fSunDiscGreen = ValF(t.tvalue_s.Get());
+			t.try_s = "visuals.SunDiscBlue"; if (t.tfield_s == t.try_s)  t.visuals.fSunDiscBlue = ValF(t.tvalue_s.Get());
 			t.try_s = "visuals.ScreenLensFlare"; if (t.tfield_s == t.try_s)  t.visuals.bScreenLensFlare = ValF(t.tvalue_s.Get());
 			t.try_s = "visuals.ScreenLensFlareIntensity"; if (t.tfield_s == t.try_s)  t.visuals.fScreenLensFlareIntensity = ValF(t.tvalue_s.Get());
 			t.try_s = "visuals.ScreenLensFlareThreshold"; if (t.tfield_s == t.try_s)  t.visuals.fScreenLensFlareThreshold = ValF(t.tvalue_s.Get());

@@ -7505,6 +7505,7 @@ void Wicked_Update_LightColors(void* visual)
 	}
 	WickedCall_SetSunColors(visuals->SunRed_f / 255.0, visuals->SunGreen_f / 255.0, visuals->SunBlue_f / 255.0, visuals->SunIntensity_f, 1.0f, t.visuals.fSunShadowBias);
 	wiRenderer::SetLensFlareEnergyReference(visuals->SunIntensity_f); // GG: the sun's flare brightness against the level's
+	WickedCall_SetSunDisc(visuals->fSunDiscGain, visuals->fSunDiscRed / 255.0f, visuals->fSunDiscGreen / 255.0f, visuals->fSunDiscBlue / 255.0f);
 }
 
 void Wicked_Update_Wind(void* visual)
@@ -8777,6 +8778,7 @@ void Wicked_Update_Visuals(void *voidvisual)
 
 	WickedCall_SetSunColors(visuals->SunRed_f / 255.0, visuals->SunGreen_f / 255.0, visuals->SunBlue_f / 255.0, visuals->SunIntensity_f, 1.0f, t.visuals.fSunShadowBias);
 	wiRenderer::SetLensFlareEnergyReference(visuals->SunIntensity_f); // GG: the sun's flare brightness against the level's
+	WickedCall_SetSunDisc(visuals->fSunDiscGain, visuals->fSunDiscRed / 255.0f, visuals->fSunDiscGreen / 255.0f, visuals->fSunDiscBlue / 255.0f);
 	WickedCall_SetSunDirection(visuals->SunAngleX, visuals->SunAngleY, visuals->SunAngleZ);
 
 	if (master_renderer) 

@@ -8525,6 +8525,13 @@ void WickedCall_SetSunColors(float fRed, float fGreen, float fBlue,float fEnergy
 	lightSun->energy = fEnergy;
 	lightSun->fov = fFov;
 }
+
+// GG: the sun's disc alone: its brightness against the sun's light (1 as it was) and a tint over the sun's colour, 0-1 a
+// channel; the sun's light, the sky and the probes stay as they are (skyAtmosphere.hlsli GetSunLuminance)
+void WickedCall_SetSunDisc(float fGain, float fRed, float fGreen, float fBlue)
+{
+	wiRenderer::SetSunDisc(fGain, fRed, fGreen, fBlue);
+}
 #include "master.h"
 
 void WickedCall_SetVisualizerEnabled(bool bVisualizer)

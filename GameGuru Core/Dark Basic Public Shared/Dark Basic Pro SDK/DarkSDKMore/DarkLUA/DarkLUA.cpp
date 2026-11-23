@@ -15074,6 +15074,39 @@ int GetSunIntensity(lua_State* L)
 	return 1;
 }
 
+// GG: SetSunDisc(gain [, r, g, b]): the sun's disc alone, its brightness against the sun's light (1 as before, the level's
+// from Tab Tab's Sun Disc) and a tint over the sun's colour, 0-255 a channel (255 255 255 as before); the sun's light, the
+// sky and the probes are left as they are. Held for the game (Tab Tab shows it) and back to the level's when a test game
+// ends. GetSunDisc(): gain, r, g, b
+extern void WickedCall_SetSunDisc(float fGain, float fRed, float fGreen, float fBlue);
+static float LuaSunDisc_Channel(float v)
+{
+	return v < 0 ? 0.0f : (v > 255 ? 255.0f : v);
+}
+int SetSunDisc(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n < 1) return 0;
+	float gain = lua_tonumber(L, 1);
+	t.visuals.fSunDiscGain = gain < 0 ? 0.0f : gain;
+	if (n >= 4)
+	{
+		t.visuals.fSunDiscRed = LuaSunDisc_Channel(lua_tonumber(L, 2));
+		t.visuals.fSunDiscGreen = LuaSunDisc_Channel(lua_tonumber(L, 3));
+		t.visuals.fSunDiscBlue = LuaSunDisc_Channel(lua_tonumber(L, 4));
+	}
+	WickedCall_SetSunDisc(t.visuals.fSunDiscGain, t.visuals.fSunDiscRed / 255.0f, t.visuals.fSunDiscGreen / 255.0f, t.visuals.fSunDiscBlue / 255.0f);
+	return 0;
+}
+int GetSunDisc(lua_State* L)
+{
+	lua_pushnumber(L, t.visuals.fSunDiscGain);
+	lua_pushnumber(L, t.visuals.fSunDiscRed);
+	lua_pushnumber(L, t.visuals.fSunDiscGreen);
+	lua_pushnumber(L, t.visuals.fSunDiscBlue);
+	return 4;
+}
+
 int SetExposure(lua_State* L)
 {
 	int n = LUA_GETTOP(L);
@@ -19298,6 +19331,8 @@ void addFunctions()
 	lua_register(lua, "SetSunLightingColor", SetSunLightingColor);
 	lua_register(lua, "SetSunIntensity", SetSunIntensity);
 	lua_register(lua, "GetSunIntensity", GetSunIntensity);
+	lua_register(lua, "SetSunDisc", SetSunDisc);
+	lua_register(lua, "GetSunDisc", GetSunDisc);
 
 	lua_register(lua, "GetSunColorBlue", GetSunColorBlue);
 	lua_register(lua, "GetSunColorGreen", GetSunColorGreen);

@@ -2388,6 +2388,8 @@ SetSunDirection: SetSunDirection(x,y,z) -- rotate the sun directional light in X
 SetSunShadowDirection : SetSunShadowDirection ( [x, y, z] ) -- the sun's shadows from these angles (as SetSunDirection's), so its light and disc can turn every frame and its shadows in steps; with no angles the shadows follow SetSunDirection again (as at each level start and the end of a test game)
 SetSunLightingColor: SetSunLightingColor(r,g,b) -- set the R,G,B color of the sun color
 SetSunIntensity: SetSunIntensity(intensity) -- set the intensity value of the sun color
+SetSunDisc : SetSunDisc ( gain [, r, g, b] ) -- the sun's disc alone: its brightness against the sun's light (1 as before; the level's is Tab Tab's Sun Disc) and a tint over the sun's colour 0-255 a channel (255 255 255 as before); the sun's light, the sky and the probes stay as they are; held for the game, the level's again when a test game ends
+GetSunDisc : gain, r, g, b = GetSunDisc() -- the sun disc's brightness and tint as the level or SetSunDisc set them
 SetExposure: SetExposure(value) -- set the exposure value of the post processing system
 GetExposure: value = GetExposure() -- get the exposure value of the post processing system
 

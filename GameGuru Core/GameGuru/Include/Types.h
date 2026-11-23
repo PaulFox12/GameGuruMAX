@@ -3863,6 +3863,12 @@ struct visualstype
 	float fsetBloomCap; // GG: the brightest a pixel counts for in the bloom, 30 as before
 	float fLensFlareSunHue; // GG: how far the sun's flare takes its colour, 0 white as before to 1
 	float fLensFlareSunBrightness; // GG: how far it follows the sun's intensity against the level's, 0 none to 1
+	// GG: the sun's disc alone (Tab Tab's Sun Disc, Lua SetSunDisc): its brightness against the sun's light, 1 as it was, and
+	// a tint over the sun's colour 0-255 a channel, white as it was; the sun's light, the sky and the probes are left as they are
+	float fSunDiscGain;
+	float fSunDiscRed;
+	float fSunDiscGreen;
+	float fSunDiscBlue;
 	// GG: the screen-space lens flare from the image's bright spots (off as before), its strength, its own threshold,
 	// the gap between its ghosts, its halo's radius, and the sky left out (the sun has its own flare)
 	bool bScreenLensFlare;
@@ -4149,6 +4155,10 @@ struct visualstype
 		 fsetBloomCap = 30.0f;
 		 fLensFlareSunHue = 1.0f;
 		 fLensFlareSunBrightness = 1.0f;
+		 fSunDiscGain = 1.0f;
+		 fSunDiscRed = 255.0f;
+		 fSunDiscGreen = 255.0f;
+		 fSunDiscBlue = 255.0f;
 		 bScreenLensFlare = false;
 		 fScreenLensFlareIntensity = 0.1f;
 		 fScreenLensFlareThreshold = 4.0f;

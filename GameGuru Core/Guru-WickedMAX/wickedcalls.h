@@ -284,6 +284,7 @@ void WickedCall_SetSpriteBoundBox(bool bShow,float fX1, float fY1,float fX2, flo
 void WickedCall_SetSunDirection(float fAx, float fAy, float fAz);
 void WickedCall_SetSunShadowDirection(bool bSet, float fAx, float fAy, float fAz);
 void WickedCall_SetSunColors(float fRed, float fGreen, float fBlue, float fEnergy, float fFov, float fShadowBias);
+void WickedCall_SetSunDisc(float fGain, float fRed, float fGreen, float fBlue);
 void WickedCall_SetVisualizerEnabled(bool bVisualizer);
 void WickedCall_SunSetVolumetricsEnabled(bool bVolumetrics);
 void WickedCall_SunSetSetStatic(bool bSetStatic);

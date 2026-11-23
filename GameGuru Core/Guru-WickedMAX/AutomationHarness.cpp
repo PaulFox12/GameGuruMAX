@@ -512,6 +512,35 @@ void AutoHarness_CheckForCommand ( void )
 			t.visuals.SunRed_f, t.visuals.SunGreen_f, t.visuals.SunBlue_f, t.visuals.SunIntensity_f);
 		result[sizeof(result) - 1] = 0;
 	}
+	else if ( _stricmp ( cmd, "SUN_DISC" ) == 0 )
+	{
+		// SUN_DISC [gain [r g b]]: the sun's disc alone (Tab Tab's Sun Disc, Lua SetSunDisc); with values set as the slider
+		// sets them (the level's, in t.visuals and t.gamevisuals, saved with it); answers the level's, the game's copy, what
+		// the renderer draws, and the sun's direction (towards it, to aim a camera at the disc). As the DX12 build's verb
+		extern void WickedCall_SetSunDisc(float fGain, float fRed, float fGreen, float fBlue);
+		float gain = -1, red = -1, green = -1, blue = -1;
+		int got = sscanf_s(arg, "%f %f %f %f", &gain, &red, &green, &blue);
+		if ( got >= 1 && gain >= 0 )
+		{
+			t.gamevisuals.fSunDiscGain = t.visuals.fSunDiscGain = gain;
+			if ( got >= 4 )
+			{
+				t.gamevisuals.fSunDiscRed = t.visuals.fSunDiscRed = red;
+				t.gamevisuals.fSunDiscGreen = t.visuals.fSunDiscGreen = green;
+				t.gamevisuals.fSunDiscBlue = t.visuals.fSunDiscBlue = blue;
+			}
+			WickedCall_SetSunDisc(t.visuals.fSunDiscGain, t.visuals.fSunDiscRed / 255.0f, t.visuals.fSunDiscGreen / 255.0f, t.visuals.fSunDiscBlue / 255.0f);
+			g.projectmodified = 1;
+		}
+		float dg = 0, dr = 0, dgr = 0, db = 0;
+		wiRenderer::GetSunDisc(dg, dr, dgr, db);
+		const XMFLOAT3 sun = wiScene::GetScene().weather.sunDirection;
+		_snprintf(result, sizeof(result), "OK: SUN_DISC level=%.3f,%.0f,%.0f,%.0f game=%.3f,%.0f,%.0f,%.0f drawn=%.3f,%.3f,%.3f,%.3f sundir=%.4f,%.4f,%.4f",
+			t.visuals.fSunDiscGain, t.visuals.fSunDiscRed, t.visuals.fSunDiscGreen, t.visuals.fSunDiscBlue,
+			t.gamevisuals.fSunDiscGain, t.gamevisuals.fSunDiscRed, t.gamevisuals.fSunDiscGreen, t.gamevisuals.fSunDiscBlue,
+			dg, dr, dgr, db, sun.x, sun.y, sun.z);
+		result[sizeof(result) - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "SET_SCREENFLARE" ) == 0 || _stricmp ( cmd, "SET_SUNFLARE" ) == 0 )
 	{
 		// SET_SCREENFLARE [enabled intensity threshold spacing halo nosky cap followbloom] and SET_SUNFLARE [enabled hue

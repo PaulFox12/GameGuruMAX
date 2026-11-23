@@ -7663,6 +7663,29 @@ void imgui_Customize_Sky_V2(int mode)
 			WickedCall_UpdateProbes();
 		}
 
+		// GG: the sun's disc alone, brighter and tinted, with the sun's light and the sky left as they are (the probes are
+		// captured without the disc, so they need no refresh); a script's SetSunDisc shows here while it holds
+		ImGui::TextCenter("Sun Disc");
+		fTmp = t.visuals.fSunDiscGain;
+		if (ImGui::SliderFloat("##SunDiscGain", &fTmp, 0.0f, 50.0f, "%.2f", 2.0f))
+		{
+			t.visuals.fSunDiscGain = fTmp < 0 ? 0.0f : fTmp;
+			t.gamevisuals.fSunDiscGain = t.visuals.fSunDiscGain;
+			WickedCall_SetSunDisc(t.visuals.fSunDiscGain, t.visuals.fSunDiscRed / 255.0f, t.visuals.fSunDiscGreen / 255.0f, t.visuals.fSunDiscBlue / 255.0f);
+			g.projectmodified = 1;
+		}
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("How bright the sun's disc is drawn against the sun's light (1 as before), so it can glow in the bloom without changing the level's lighting");
+		float fDiscTint[3] = { t.visuals.fSunDiscRed / 255.0f, t.visuals.fSunDiscGreen / 255.0f, t.visuals.fSunDiscBlue / 255.0f };
+		if (ImGui::ColorEdit3("Sun Disc Tint##SunDiscTint", fDiscTint, ImGuiColorEditFlags_NoInputs))
+		{
+			t.gamevisuals.fSunDiscRed = t.visuals.fSunDiscRed = fDiscTint[0] * 255.0f;
+			t.gamevisuals.fSunDiscGreen = t.visuals.fSunDiscGreen = fDiscTint[1] * 255.0f;
+			t.gamevisuals.fSunDiscBlue = t.visuals.fSunDiscBlue = fDiscTint[2] * 255.0f;
+			WickedCall_SetSunDisc(t.visuals.fSunDiscGain, fDiscTint[0], fDiscTint[1], fDiscTint[2]);
+			g.projectmodified = 1;
+		}
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("A tint over the sun's colour for its disc alone (white as before)");
+
 		ImGui::TextCenter("Exposure");
 		fTmp = t.visuals.fExposure * 100.0f;
 		if (ImGui::SliderFloat("##fFixedExposure:", &fTmp, 0.0, 400.0, "%.2f", 2.0f))
