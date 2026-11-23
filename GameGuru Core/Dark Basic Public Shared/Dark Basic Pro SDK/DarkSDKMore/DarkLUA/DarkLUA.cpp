@@ -15208,6 +15208,34 @@ int GetLightShafts(lua_State* L)
 	return 1;
 }
 
+extern float gg_lightshaft_gain, gg_lightshaft_length;
+
+// SetLightShaftStrength(strength [, length]): the sun's light shafts against their stock look: strength their brightness
+// (1 as before, 0 none, at most 10), length how far they reach toward the sun (1 as before, 0.25 to 4); a value below 0
+// keeps that setting. Light Shafts on (SetLightShafts) still decides whether they draw. A test game starts and ends at 1, 1
+int SetLightShaftStrength(lua_State* L)
+{
+	int n = LUA_GETTOP(L);
+	if (n >= 1) { float v = (float)lua_tonumber(L, 1); if (v >= 0) gg_lightshaft_gain = v > 10.0f ? 10.0f : v; }
+	if (n >= 2) { float v = (float)lua_tonumber(L, 2); if (v >= 0) gg_lightshaft_length = v < 0.25f ? 0.25f : (v > 4.0f ? 4.0f : v); }
+	return 0;
+}
+
+// GetLightShaftStrength(): strength, length as SetLightShaftStrength takes them
+int GetLightShaftStrength(lua_State* L)
+{
+	lua_pushnumber(L, gg_lightshaft_gain);
+	lua_pushnumber(L, gg_lightshaft_length);
+	return 2;
+}
+
+// the light shafts back to their stock look, at a test game's start and end
+void LuaLightShaftStrength_Reset(void)
+{
+	gg_lightshaft_gain = 1.0f;
+	gg_lightshaft_length = 1.0f;
+}
+
 int SetLensFlare(lua_State* L)
 {
 	int n = LUA_GETTOP(L);
@@ -19360,6 +19388,8 @@ void addFunctions()
 	lua_register(lua, "GetDepthOfField", GetDepthOfField);
 	lua_register(lua, "SetLightShafts", SetLightShafts);
 	lua_register(lua, "GetLightShafts", GetLightShafts);
+	lua_register(lua, "SetLightShaftStrength", SetLightShaftStrength);
+	lua_register(lua, "GetLightShaftStrength", GetLightShaftStrength);
 	lua_register(lua, "SetLensFlare", SetLensFlare);
 	lua_register(lua, "SetScreenLensFlare", SetScreenLensFlare);
 	lua_register(lua, "GetScreenLensFlare", GetScreenLensFlare);

@@ -15343,6 +15343,8 @@ void editor_previewmapormultiplayer_initcode ( int iUseVRTest )
 	t.gamevisuals.fSunDiscRed = t.visuals.fSunDiscRed;
 	t.gamevisuals.fSunDiscGreen = t.visuals.fSunDiscGreen;
 	t.gamevisuals.fSunDiscBlue = t.visuals.fSunDiscBlue;
+	extern void LuaLightShaftStrength_Reset(void);
+	LuaLightShaftStrength_Reset(); // SetLightShaftStrength's values are the game's alone
 	t.gamevisuals.bScreenLensFlare = t.visuals.bScreenLensFlare;
 	t.gamevisuals.fScreenLensFlareIntensity = t.visuals.fScreenLensFlareIntensity;
 	t.gamevisuals.fScreenLensFlareThreshold = t.visuals.fScreenLensFlareThreshold;
@@ -16056,6 +16058,8 @@ void editor_previewmapormultiplayer_afterloopcode ( int iUseVRTest )
 	t.visuals.fSunDiscRed = t.gamevisuals.fSunDiscRed;
 	t.visuals.fSunDiscGreen = t.gamevisuals.fSunDiscGreen;
 	t.visuals.fSunDiscBlue = t.gamevisuals.fSunDiscBlue;
+	extern void LuaLightShaftStrength_Reset(void);
+	LuaLightShaftStrength_Reset(); // and SetLightShaftStrength's
 	t.visuals.SunAngleX = t.gamevisuals.SunAngleX;
 	t.visuals.SunAngleY = t.gamevisuals.SunAngleY;
 	t.visuals.SunAngleZ = t.gamevisuals.SunAngleZ;

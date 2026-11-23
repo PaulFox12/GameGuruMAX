@@ -512,6 +512,20 @@ void AutoHarness_CheckForCommand ( void )
 			t.visuals.SunRed_f, t.visuals.SunGreen_f, t.visuals.SunBlue_f, t.visuals.SunIntensity_f);
 		result[sizeof(result) - 1] = 0;
 	}
+	else if ( _stricmp ( cmd, "SET_LIGHTSHAFTS" ) == 0 )
+	{
+		// SET_LIGHTSHAFTS [strength length]: as SetLightShaftStrength (a value below 0 keeps it, no clamp); no argument answers,
+		// with whether the shafts are on. As the DX12 build's verb
+		extern float gg_lightshaft_gain, gg_lightshaft_length;
+		extern bool GetLightShaftState(void);
+		float v[2] = { -1, -1 };
+		if ( arg ) sscanf_s(arg, "%f %f", &v[0], &v[1]);
+		if ( v[0] >= 0 ) gg_lightshaft_gain = v[0];
+		if ( v[1] >= 0 ) gg_lightshaft_length = v[1];
+		_snprintf(result, sizeof(result), "OK: SET_LIGHTSHAFTS strength=%.2f length=%.2f on=%d exposure=%.3f", gg_lightshaft_gain,
+			gg_lightshaft_length, GetLightShaftState() ? 1 : 0, 0.2f);
+		result[sizeof(result) - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "SUN_DISC" ) == 0 )
 	{
 		// SUN_DISC [gain [r g b]]: the sun's disc alone (Tab Tab's Sun Disc, Lua SetSunDisc); with values set as the slider
