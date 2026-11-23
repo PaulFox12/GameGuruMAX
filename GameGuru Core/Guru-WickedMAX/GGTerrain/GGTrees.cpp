@@ -1886,7 +1886,7 @@ bool GGTrees_GetDefaultDataV2(char *filename)
 	return bRet;
 }
 
-void GGTrees_GetTreesInRect( float minX, float minZ, float maxX, float maxZ, std::vector<GGTreeSlot>& out )
+void GGTrees_GetTreesInRect( float minX, float minZ, float maxX, float maxZ, std::vector<GGTreeSlot>& out, bool bSuppressed )
 {
 	out.clear();
 	if ( !ggtrees_initialised ) return;
@@ -1900,7 +1900,8 @@ void GGTrees_GetTreesInRect( float minX, float minZ, float maxX, float maxZ, std
 		for ( uint32_t j = 0; j < pChunk->pInstances.NumItems(); j++ )
 		{
 			InstanceTree* pInstance = pChunk->pInstances[ j ];
-			if ( !pInstance->IsVisible() || pInstance->IsFlattened() || pInstance->IsKilled() || pInstance->IsInvalid() ) continue;
+			if ( !pInstance->IsVisible() || pInstance->IsKilled() ) continue;
+			if ( !bSuppressed && (pInstance->IsFlattened() || pInstance->IsInvalid()) ) continue;
 			if ( pInstance->x < minX || pInstance->x > maxX || pInstance->z < minZ || pInstance->z > maxZ ) continue;
 			GGTreeSlot slot;
 			slot.id = (uint32_t)(pInstance - pAllTrees);
@@ -1956,6 +1957,12 @@ void GGTrees_SetTreeFlags( uint32_t id, uint32_t set, uint32_t clear )
 	if ( !ggtrees_initialised || id >= numTotalTrees ) return;
 	InstanceTree* pInstance = &pAllTrees[ id ];
 	pInstance->data = (pInstance->data & ~(clear & allowed)) | (set & allowed);
+}
+
+void GGTrees_SetTreeInvalid( uint32_t id, int invalid )
+{
+	if ( !ggtrees_initialised || id >= numTotalTrees ) return;
+	pAllTrees[ id ].SetInvalid( invalid ? 1 : 0 );
 }
 
 void (*pfnTreePaintHook)( float minX, float minZ, float maxX, float maxZ ) = 0; // GG: told the area the brush added or sprayed in (GGTrees_SetPaintHook)

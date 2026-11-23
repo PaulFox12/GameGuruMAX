@@ -96,7 +96,10 @@ namespace GGTrees
 	// centre and diameter, data), hiding one as the editor's remove does, showing it again only if its slot is still hidden
 	// and holds the same tree (position and data), and refreshing the chunks in a rect afterwards
 	struct GGTreeSlot { uint32_t id; float x, z; float trunkX, trunkZ, diameter; uint32_t data; };
-	void GGTrees_GetTreesInRect( float minX, float minZ, float maxX, float maxZ, std::vector<GGTreeSlot>& out );
+	// (bSuppressed: also the trees a rule keeps from drawing for now, under the water line or on a steep slope, or inside a
+	// flat area, so a road that hides them keeps them hidden when that rule changes; the water line's distance moved from
+	// 212 to 100 on 2026-11-22 and the Hanoi roads, baked when their ground was under it, had trees on them)
+	void GGTrees_GetTreesInRect( float minX, float minZ, float maxX, float maxZ, std::vector<GGTreeSlot>& out, bool bSuppressed = false );
 	void GGTrees_HideTree( uint32_t id );
 	bool GGTrees_ShowTree( uint32_t id, float x, float z, uint32_t data );
 	void GGTrees_RefreshRect( float minX, float minZ, float maxX, float maxZ );
@@ -116,6 +119,9 @@ namespace GGTrees
 	const uint32_t GGTREES_FLAG_USERMOVED = 0x02;
 	const uint32_t GGTREES_FLAG_KEEPFROMROADS = 0x40;
 	void GGTrees_SetTreeFlags( uint32_t id, uint32_t set, uint32_t clear );
+	// for the harness: a slot marked invalid (as under the water line or on steep ground) or valid again, as the height pass
+	// marks it at a level's load
+	void GGTrees_SetTreeInvalid( uint32_t id, int invalid );
 	// GG: called after the brush adds a tree or sprays, with the area it touched
 	void GGTrees_SetPaintHook( void (*pfnHook)( float minX, float minZ, float maxX, float maxZ ) );
 	void GGTrees_GetUsedTypes( uint64_t* pTypes ); // GG: the types of the trees standing, a bit each as paint_tree_bitfield

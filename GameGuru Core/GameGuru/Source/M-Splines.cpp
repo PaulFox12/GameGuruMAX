@@ -1280,7 +1280,9 @@ static void spline_bakeshape( sSpline& sp, const std::vector<sRoadSample>& c, co
 	for ( const sRoadSample& p : c ) { minX = std::min( minX, p.x ); minZ = std::min( minZ, p.z ); maxX = std::max( maxX, p.x ); maxZ = std::max( maxZ, p.z ); }
 	const float treeReach = halfW + std::max( shape.padLeft, shape.padRight ) + shape.treeMargin;
 	std::vector<GGTrees::GGTreeSlot> trees;
-	GGTrees::GGTrees_GetTreesInRect( minX - treeReach - 200.0f, minZ - treeReach - 200.0f, maxX + treeReach + 200.0f, maxZ + treeReach + 200.0f, trees );
+	// with the trees under the water line, on steep ground or in a flat area: hidden too, so they stay off the road when the
+	// water line or a flat area changes
+	GGTrees::GGTrees_GetTreesInRect( minX - treeReach - 200.0f, minZ - treeReach - 200.0f, maxX + treeReach + 200.0f, maxZ + treeReach + 200.0f, trees, true );
 	for ( const GGTrees::GGTreeSlot& tree : trees )
 	{
 		// a tree kept from roads (a street tree planted on a pavement) stands whatever the margin
@@ -5383,7 +5385,7 @@ static void spline_bakefills( const std::vector<char>& in, std::unordered_set<ui
 			}
 		}
 		std::vector<GGTrees::GGTreeSlot> trees;
-		GGTrees::GGTrees_GetTreesInRect( f.bounds[0], f.bounds[1], f.bounds[2], f.bounds[3], trees );
+		GGTrees::GGTrees_GetTreesInRect( f.bounds[0], f.bounds[1], f.bounds[2], f.bounds[3], trees, true ); // as a road's (spline_bakeroad)
 		for ( const GGTrees::GGTreeSlot& tree : trees )
 		{
 			if ( tree.data & GGTrees::GGTREES_FLAG_KEEPFROMROADS ) continue;
@@ -6811,7 +6813,7 @@ static void spline_keepofftrees( float minX, float minZ, float maxX, float maxZ 
 {
 	if ( !g_bSplineTreeKeep ) return;
 	std::vector<GGTrees::GGTreeSlot> trees;
-	GGTrees::GGTrees_GetTreesInRect( minX, minZ, maxX, maxZ, trees );
+	GGTrees::GGTrees_GetTreesInRect( minX, minZ, maxX, maxZ, trees, true ); // as a road's bake (spline_bakeroad)
 	if ( trees.empty() ) return;
 	std::vector<char> done( trees.size(), 0 );
 	const float rect[4] = { minX, minZ, maxX, maxZ };
@@ -10714,6 +10716,7 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		//   add x z type keep: a tree planted there (scale 128), with keep 1 kept from roads and user moved: its id
 		//   get id: whether the slot is shown, its place and flags
 		//   keepoff x z r: the brushes' Keep Off Roads over a square; count: the trees shown map-wide, kept and user moved
+		//   invalid id 0|1: the slot marked invalid (under the water line, on steep ground) or valid again
 		char sub[16] = "";
 		if ( pArg ) sscanf_s( pArg, "%15s", sub, (unsigned)sizeof(sub) );
 		if ( _stricmp( sub, "pavement" ) == 0 )
@@ -10776,6 +10779,16 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 				(slot.data & GGTrees::GGTREES_FLAG_KEEPFROMROADS) ? 1 : 0, (slot.data & GGTrees::GGTREES_FLAG_USERMOVED) ? 1 : 0, slot.data );
 			return true;
 		}
+		if ( _stricmp( sub, "invalid" ) == 0 )
+		{
+			// invalid id 0|1: the slot marked as under the water line or on steep ground (the height pass's rule), or valid again,
+			// for the test that a road's bake hides such a tree too and it stays hidden when the rule changes
+			int id = -1, invalid = 1;
+			sscanf_s( pArg, "%*s %d %d", &id, &invalid );
+			GGTrees::GGTrees_SetTreeInvalid( (uint32_t)id, invalid );
+			sprintf_s( pResult, resultSize, "OK: id=%d invalid=%d", id, invalid ? 1 : 0 );
+			return true;
+		}
 		if ( _stricmp( sub, "keepoff" ) == 0 )
 		{
 			// keepoff x z r: the brushes' Keep Off Roads over that square, as the tree brush's hook calls it after a stroke
@@ -10824,7 +10837,7 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 				(int)all.size(), keep, moved, keptAll, keptFlat, keptInvalid, where.c_str() );
 			return true;
 		}
-		sprintf_s( pResult, resultSize, "FAIL: SPLINE_TREETEST pavement|add|get|keepoff|count" );
+		sprintf_s( pResult, resultSize, "FAIL: SPLINE_TREETEST pavement|add|get|invalid|keepoff|count" );
 		return true;
 	}
 	if ( _stricmp( pCmd, "FLATAREAS_DUMP" ) == 0 )
