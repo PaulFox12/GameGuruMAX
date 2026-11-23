@@ -512,6 +512,50 @@ void AutoHarness_CheckForCommand ( void )
 			t.visuals.SunRed_f, t.visuals.SunGreen_f, t.visuals.SunBlue_f, t.visuals.SunIntensity_f);
 		result[sizeof(result) - 1] = 0;
 	}
+	else if ( _stricmp ( cmd, "SET_EDITORDOTS" ) == 0 )
+	{
+		// SET_EDITORDOTS [0|1 | keep 0|1]: the editor's entity dots (a hidden sphere per dynamic entity, its object number less
+		// 1,000,000) deleted (0, their numbers kept) or made again as the editor makes them (1), for a cost A/B in one game;
+		// keep 1 makes and leaves them in a test game as before, keep 0 (the default) doesn't; no argument answers how many
+		// exist, how many are kept to remake, and the keep setting. As the DX12 build's verb
+		static std::vector<int> s_dotsDeleted;
+		extern void CreateDotObject(int obj);
+		extern void PositionDotObject(int obj);
+		extern int g_iEditorDotsInGame;
+		extern int editor_deleteentitydots(void);
+		int iOn = -1, iKeep = -1;
+		if ( arg && _strnicmp(arg, "keep", 4) == 0 ) sscanf_s(arg + 4, "%d", &iKeep);
+		else if ( arg ) sscanf_s(arg, "%d", &iOn);
+		if ( iKeep == 0 || iKeep == 1 ) g_iEditorDotsInGame = iKeep;
+		int done = 0;
+		LARGE_INTEGER liFreq, liStart, liEnd;
+		QueryPerformanceFrequency(&liFreq);
+		QueryPerformanceCounter(&liStart);
+		if ( iOn == 0 )
+		{
+			for ( int o = ENTITYDOTOBJECTFIRST; o <= ENTITYDOTOBJECTLAST; o++ )
+				if ( ObjectExist(o) == 1 ) s_dotsDeleted.push_back(o);
+			done = editor_deleteentitydots();
+		}
+		else if ( iOn == 1 )
+		{
+			for ( int o : s_dotsDeleted )
+			{
+				if ( ObjectExist(o) == 0 && ObjectExist(o - (ENTITYDOTOBJECTFIRST - ENTITYOBJECTBASE)) == 1 )
+				{
+					CreateDotObject(o); PositionDotObject(o); HideObject(o); done++;
+				}
+			}
+			s_dotsDeleted.clear();
+		}
+		QueryPerformanceCounter(&liEnd);
+		double ms = (liEnd.QuadPart - liStart.QuadPart) * 1000.0 / (double)liFreq.QuadPart;
+		int count = 0;
+		for ( int o = ENTITYDOTOBJECTFIRST; o <= ENTITYDOTOBJECTLAST; o++ ) if ( ObjectExist(o) == 1 ) count++;
+		_snprintf(result, sizeof(result), "OK: SET_EDITORDOTS done=%d ms=%.0f dots=%d kept=%d keep=%d objects=%d", done, ms, count,
+			(int)s_dotsDeleted.size(), g_iEditorDotsInGame, (int)wiScene::GetScene().objects.GetCount());
+		result[sizeof(result) - 1] = 0;
+	}
 	else if ( _stricmp ( cmd, "SET_LIGHTSHAFTS" ) == 0 )
 	{
 		// SET_LIGHTSHAFTS [strength length]: as SetLightShaftStrength (a value below 0 keeps it, no clamp); no argument answers,

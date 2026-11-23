@@ -15554,6 +15554,22 @@ void editor_previewmapormultiplayer_initcode ( int iUseVRTest )
 
 	editor_toggle_element_vis(t.showtestgameelements);
 
+	// GG: the editor's entity dots out of the test game's scene, those it was showing now hidden (it makes them again when it
+	// shows them after the game)
+	extern int g_iEditorDotsInGame;
+	extern int editor_deleteentitydots(void);
+	if (g_iEditorDotsInGame == 0 && !t.showtestgameelements)
+	{
+		LARGE_INTEGER liFreq, liStart, liEnd;
+		QueryPerformanceFrequency(&liFreq);
+		QueryPerformanceCounter(&liStart);
+		int iDots = editor_deleteentitydots();
+		QueryPerformanceCounter(&liEnd);
+		char pDotsMsg[128];
+		sprintf(pDotsMsg, "PREVIEWMAP: %d editor entity dots deleted in %.0f ms", iDots, (liEnd.QuadPart - liStart.QuadPart) * 1000.0 / (double)liFreq.QuadPart);
+		timestampactivity(0, pDotsMsg);
+	}
+
 	// hide editor objects too
 	for ( t.obj = t.editor.objectstartindex+1; t.obj <= t.editor.objectstartindex+1+10 ;  t.obj++ ) //?//t.editor.objectstartindex+10;
 	{

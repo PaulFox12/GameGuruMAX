@@ -12017,6 +12017,12 @@ void DrawLogicNodes(bool bVisible)
 					}
 				}
 
+				// GG: hiding the dots no longer makes the ones that don't exist (each test game's start hid them, so made every
+				// one: 6,581 hidden spheres in Outdoors that Wicked's scene update walked every frame of the game);
+				// SET_EDITORDOTS keep 1 makes them as before
+				extern int g_iEditorDotsInGame;
+				if (bObjectNeedDot && !bVisible && g_iEditorDotsInGame == 0 && ObjectExist(iEntityObject + DOTOBJECTIDADD) == 0)
+					bObjectNeedDot = false;
 				if (bObjectNeedDot)
 				{
 					CreateDotObject(iEntityObject + DOTOBJECTIDADD);
@@ -12247,6 +12253,30 @@ void CreateDotObject(int obj)
 			WickedCall_SetObjectLightToUnlit(pDotObject, (int)wiScene::MaterialComponent::SHADERTYPE::SHADERTYPE_UNLIT);
 		}
 	}
+}
+
+// GG: the editor's entity dots deleted when a test game starts (those the editor showed; hiding no longer makes the rest,
+// DrawLogicNodes): a hidden sphere per dynamic entity, which Wicked's scene update still walked every frame of the game;
+// the editor makes them again when it shows its dots after the game. g_iEditorDotsInGame 1 keeps and makes them as before
+// (harness SET_EDITORDOTS keep 1). Returns how many were deleted
+int g_iEditorDotsInGame = 0;
+int editor_deleteentitydots(void)
+{
+	extern uint64_t g_hovered_dot_entity;
+	g_hovered_dot_pobject = NULL;
+	g_hovered_dot_entity = 0;
+	g_destination_dot_pobject = NULL;
+	g_source_dot_pobject = NULL;
+	int iDeleted = 0;
+	for (int iObj = ENTITYDOTOBJECTFIRST; iObj <= ENTITYDOTOBJECTLAST; iObj++)
+	{
+		if (ObjectExist(iObj) == 1)
+		{
+			DeleteObject(iObj);
+			iDeleted++;
+		}
+	}
+	return iDeleted;
 }
 
 void CreateDotArcObject(int obj)
@@ -36505,8 +36535,11 @@ void editor_toggle_element_vis(bool bIsVisible)
 	}
 
 	// hide show relational lines
+	// GG: not shown on the way to hiding everything (a test game's start showed every entity's dot, so made them all, then
+	// hid them; SET_EDITORDOTS keep 1 does as before)
 	extern bool g_bDotsAreVisible;
-	if (t.showeditorelements)
+	extern int g_iEditorDotsInGame;
+	if (t.showeditorelements && (bIsVisible || g_iEditorDotsInGame == 1))
 	{
 		if (g_bDotsAreVisible==false)
 		{
