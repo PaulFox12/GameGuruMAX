@@ -11086,6 +11086,38 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		sprintf_s( pResult, resultSize, "OK: SPLINE_FLOORAT %.0f %.0f terrain=%.2f floor=%.2f pave=%d", x, z, ground, floor, floor != ground ? 1 : 0 );
 		return true;
 	}
+	if ( _stricmp( pCmd, "SPLINE_FLOORAT_FILE" ) == 0 )
+	{
+		// SPLINE_FLOORAT_FILE in|out: SPLINE_FLOORAT at every "e k x z" line of a file (lines starting # skipped), written
+		// to another as "e k x z terrain floor pave" lines under a header
+		const char* pBar = pArg ? strchr( pArg, '|' ) : NULL;
+		if ( !pBar || pBar == pArg || pBar[1] == 0 ) { sprintf_s( pResult, resultSize, "ERROR: SPLINE_FLOORAT_FILE in|out" ); return true; }
+		std::string sIn( pArg, pBar - pArg ), sOut( pBar + 1 );
+		FILE* fIn = NULL;
+		FILE* fOut = NULL;
+		fopen_s( &fIn, sIn.c_str(), "r" );
+		if ( !fIn ) { sprintf_s( pResult, resultSize, "ERROR: SPLINE_FLOORAT_FILE cannot read %s", sIn.c_str() ); return true; }
+		fopen_s( &fOut, sOut.c_str(), "w" );
+		if ( !fOut ) { fclose( fIn ); sprintf_s( pResult, resultSize, "ERROR: SPLINE_FLOORAT_FILE cannot write %s", sOut.c_str() ); return true; }
+		fprintf( fOut, "e\tk\tx\tz\tterrain\tfloor\tpave\n" );
+		char pLine[256];
+		int iPoints = 0, iSkipped = 0, iPaved = 0;
+		while ( fgets( pLine, sizeof( pLine ), fIn ) )
+		{
+			if ( pLine[0] == '#' || pLine[0] == '\n' || pLine[0] == '\r' || pLine[0] == 0 ) continue;
+			char pE[32], pK[32];
+			float x = 0, z = 0;
+			if ( sscanf_s( pLine, "%31s %31s %f %f", pE, (unsigned)sizeof( pE ), pK, (unsigned)sizeof( pK ), &x, &z ) != 4 ) { iSkipped++; continue; }
+			const float ground = BT_GetGroundHeight( 0, x, z ), floor = spline_floorheight( x, z );
+			fprintf( fOut, "%s\t%s\t%.2f\t%.2f\t%.2f\t%.2f\t%d\n", pE, pK, x, z, ground, floor, floor != ground ? 1 : 0 );
+			iPoints++;
+			if ( floor != ground ) iPaved++;
+		}
+		fclose( fIn );
+		fclose( fOut );
+		sprintf_s( pResult, resultSize, "OK: SPLINE_FLOORAT_FILE points=%d paved=%d skipped=%d", iPoints, iPaved, iSkipped );
+		return true;
+	}
 	if ( _stricmp( pCmd, "SPLINE_ENTITIESIN" ) == 0 )
 	{
 		// SPLINE_ENTITIESIN x0 z0 x1 z1: the live entities with an object whose position is in the rectangle, a line each: index,
