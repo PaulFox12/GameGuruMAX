@@ -507,6 +507,8 @@ static void Cmd_EntityShader ( const char* arg, char* result, int resultSize )
 		if ( t.entityelement[e].eleprof.bUseFPESettings )
 		{
 			t.entityelement[e].eleprof.bUseFPESettings = false;
+			extern int g_iCustomMaterialFlagFix;
+			if ( g_iCustomMaterialFlagFix ) t.entityelement[e].eleprof.bCustomWickedMaterialActive = true; // as the panel's box (#253)
 			if ( !t.entityelement[e].eleprof.bCustomWickedMaterialActive )
 			{
 				sObject* pMasterObject = g_ObjectList[g.entitybankoffset + iMasterID];
@@ -1594,6 +1596,15 @@ void AutoHarness_CheckForCommand ( void )
 	else if ( _stricmp ( cmd, "ENTITY_SHADER" ) == 0 )
 	{
 		Cmd_EntityShader ( arg, result, resultSize );
+	}
+	else if ( _stricmp ( cmd, "SET_CUSTOMMATFIX" ) == 0 )
+	{
+		// SET_CUSTOMMATFIX [0|1]: #253, a placement with Always use Original Object Settings off and its own material active
+		// treated as having custom materials (1, the default) or not (0, as before); bare reads it
+		extern int g_iCustomMaterialFlagFix;
+		if ( arg && ( arg[0] == '0' || arg[0] == '1' ) ) g_iCustomMaterialFlagFix = arg[0] == '1' ? 1 : 0;
+		_snprintf ( result, resultSize, "OK: SET_CUSTOMMATFIX %d", g_iCustomMaterialFlagFix );
+		result[resultSize - 1] = 0;
 	}
 	else if ( _stricmp ( cmd, "ENTITY_FIND" ) == 0 )
 	{

@@ -8571,6 +8571,10 @@ void mapeditorexecutable_loop(void)
 											bNeedMaterialUpdate = true;
 											t.importer.bModelMeshNamesSet = false;
 											t.importer.cModelMeshNames.clear();
+											// unticked: the placement's own materials from here, starting from what it shows (#253)
+											extern int g_iCustomMaterialFlagFix;
+											if (g_iCustomMaterialFlagFix && !t.entityelement[iEntityIndex].eleprof.bUseFPESettings)
+												t.entityelement[iEntityIndex].eleprof.bCustomWickedMaterialActive = true;
 										}
 										WickedSetEntityId(-1);
 										WickedSetElementId(0);
@@ -8657,6 +8661,18 @@ void mapeditorexecutable_loop(void)
 																Wicked_Set_Material_From_grideleprof((void*)pObject, 0, &t.entityelement[ee].eleprof);
 																t.entityelement[ee].eleprof.WEMaterial.MaterialActive = false;
 															}
+														}
+													}
+													else
+													{
+														// unticked: each placement's own materials from here, starting from what it shows (#253)
+														extern int g_iCustomMaterialFlagFix;
+														sObject* pEleObject = ObjectExist(t.entityelement[ee].obj) == 1 ? GetObjectData(t.entityelement[ee].obj) : NULL;
+														if (g_iCustomMaterialFlagFix && pEleObject)
+														{
+															Wicked_Copy_Material_To_Grideleprof((void*)pEleObject, 0, &t.entityelement[ee].eleprof);
+															t.entityelement[ee].eleprof.bCustomWickedMaterialActive = true;
+															t.entityelement[ee].eleprof.WEMaterial.MaterialActive = true;
 														}
 													}
 												}

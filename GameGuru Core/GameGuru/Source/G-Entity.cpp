@@ -77,6 +77,9 @@ void entity_init_overwritefireratesettings (void)
 std::vector<int> g_WalkInUse;   // the elements in use (a bank entity), ascending
 std::vector<int> g_WalkDynamic; // of those, the dynamic or always active ones (entity_loop's walk), ascending
 int g_iWalkListsOn = 1;
+// #253: a placement with Always use Original Object Settings off and its own material active treated as having custom
+// materials (entity_createobj, the Materials panel's box); harness SET_CUSTOMMATFIX 0 as before
+int g_iCustomMaterialFlagFix = 1;
 uint32_t g_uWalkListsRebuilds[3] = { 0, 0, 0 }; // made again for: the element count or a game's start, the time, (unused)
 uint32_t g_uWalkListsMerged = 0;                // elements merged in between
 static int g_iWalkListsCount = -1;
@@ -5071,6 +5074,18 @@ void entity_createobj ( void )
 
 		// wicked handles instances inside engine, so always clone
 		bool bCreateAsClone = true;
+
+		// a placement with Always use Original Object Settings off and its own material active has custom materials, whatever
+		// its custom materials flag says: no UI sets the flag (every placement the editor makes has it), and without it the
+		// placement's own material (a custom shader set in the Materials panel) was never applied and a select wrote the
+		// profile's back over it (#253). Not an EBE structure, which textures itself
+		extern int g_iCustomMaterialFlagFix;
+		if (g_iCustomMaterialFlagFix && t.tupdatee != -1 && !t.entityelement[t.tupdatee].eleprof.bUseFPESettings
+			&& t.entityelement[t.tupdatee].eleprof.WEMaterial.MaterialActive && !t.entityelement[t.tupdatee].eleprof.bCustomWickedMaterialActive
+			&& t.entityprofile[t.tentid].isebe == 0)
+		{
+			t.entityelement[t.tupdatee].eleprof.bCustomWickedMaterialActive = true;
+		}
 
 		if (t.tupdatee != -1 && t.entityelement[t.tupdatee].eleprof.bUseFPESettings)
 		{
