@@ -5027,9 +5027,9 @@ static bool spline_pavetopat( float x, float z, float yFrom, float yTo, float* p
 // the floor at x z for the editor's find floor (Enter, and an entity dropped to the ground): the terrain, or a pavement or
 // fill on it (no entity's mesh, so the entity scan doesn't meet it)
 // the terrain's height at x z from its height data (1: GGTerrain_GetHeight's accurate read, the same wherever the camera is),
-// or from the LOD chunks round the camera (0, as before and the default until it is checked: at Noi Bai, 40,000 units from
-// the camera, 4 units high on its slopes); harness SET_FLOORACCURATE
-int g_iSplineFloorAccurate = 0;
+// or from the LOD chunks round the camera (0, as before: at Noi Bai, 40,000 units from the camera, 4 units high on its
+// slopes); 1 by default since 2026-11-25; harness SET_FLOORACCURATE
+int g_iSplineFloorAccurate = 1;
 float spline_terrainheight( float x, float z )
 {
 	float h = 0;
@@ -11132,7 +11132,7 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 	if ( _stricmp( pCmd, "SET_FLOORACCURATE" ) == 0 )
 	{
 		// SET_FLOORACCURATE [0|1]: the floor's terrain (spline_floorheight: a road layer's entities lifted onto it, Enter, the
-		// harness's floor verbs) from the height data (1) or the LOD chunks round the camera (0, as before, the default);
+		// harness's floor verbs) from the height data (1, the default) or the LOD chunks round the camera (0, as before);
 		// answers the lifts of road layers' entities so far: calls, entities looked at and moved, their total and longest ms
 		if ( pArg && *pArg ) g_iSplineFloorAccurate = atoi( pArg ) ? 1 : 0;
 		sprintf_s( pResult, resultSize, "OK: SET_FLOORACCURATE %d lifts=%u looked=%u moved=%u ms=%.2f longest_ms=%.2f", g_iSplineFloorAccurate,
