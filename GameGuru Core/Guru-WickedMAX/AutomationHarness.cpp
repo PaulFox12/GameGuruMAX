@@ -430,6 +430,49 @@ static void Cmd_EntityShader ( const char* arg, char* result, int resultSize )
 		result[resultSize - 1] = 0;
 		return;
 	}
+	if ( _stricmp ( sub, "flagall" ) == 0 || _stricmp ( sub, "census" ) == 0 )
+	{
+		// ENTITY_SHADER flagall <0|1> <text>: the custom materials flag set on every entity whose name holds text
+		// ENTITY_SHADER census <text>: those entities' flags, their meshes instanced or with their own material, the distinct
+		//   materials their meshes draw with, and the scene's material and object counts (does the flag cost instancing)
+		bool bFlag = _stricmp ( sub, "flagall" ) == 0;
+		const char* p = arg + strlen ( sub );
+		while ( *p == ' ' ) p++;
+		int iOn = 0;
+		if ( bFlag ) { iOn = atoi ( p ); while ( *p && *p != ' ' ) p++; while ( *p == ' ' ) p++; }
+		int iCount = 0, iCWM = 0, iFPE = 0, iMA = 0, iMeshes = 0, iInst = 0, iOwn = 0;
+		std::map<uint64_t, int> mats;
+		for ( int e = 1; e <= g.entityelementlist && *p; e++ )
+		{
+			if ( t.entityelement[e].bankindex <= 0 || t.entityelement[e].obj <= 0 ) continue;
+			if ( strstr ( t.entityelement[e].eleprof.name_s.Get(), p ) == NULL ) continue;
+			iCount++;
+			if ( bFlag ) { t.entityelement[e].eleprof.bCustomWickedMaterialActive = iOn != 0; continue; }
+			entityeleproftype* ep = &t.entityelement[e].eleprof;
+			if ( ep->bCustomWickedMaterialActive ) iCWM++;
+			if ( ep->bUseFPESettings ) iFPE++;
+			if ( ep->WEMaterial.MaterialActive ) iMA++;
+			sObject* pObject = ObjectExist ( t.entityelement[e].obj ) == 1 ? GetObjectData ( t.entityelement[e].obj ) : NULL;
+			for ( int i = 0; pObject && i < pObject->iMeshCount; i++ )
+			{
+				sMesh* pMesh = pObject->ppMeshList[i];
+				if ( pMesh == NULL ) continue;
+				iMeshes++;
+				if ( pMesh->bInstanced ) iInst++;
+				if ( pMesh->wickedmaterialindex != 0 ) iOwn++;
+				wiScene::MeshComponent* mesh = pMesh->wickedmeshindex ? wiScene::GetScene().meshes.GetComponent ( pMesh->wickedmeshindex ) : NULL;
+				if ( mesh && !mesh->subsets.empty() ) mats[mesh->subsets[0].materialID]++;
+			}
+		}
+		if ( bFlag )
+			_snprintf ( result, resultSize, "OK: ENTITY_SHADER flagall %d set on %d", iOn, iCount );
+		else
+			_snprintf ( result, resultSize, "OK: ENTITY_SHADER census entities=%d cwm=%d fpe=%d ma=%d meshes=%d instanced=%d own=%d materials=%d scene_materials=%d scene_objects=%d scene_meshes=%d",
+				iCount, iCWM, iFPE, iMA, iMeshes, iInst, iOwn, (int)mats.size(), (int)wiScene::GetScene().materials.GetCount(),
+				(int)wiScene::GetScene().objects.GetCount(), (int)wiScene::GetScene().meshes.GetCount() );
+		result[resultSize - 1] = 0;
+		return;
+	}
 	if ( _stricmp ( sub, "custom" ) == 0 )
 	{
 		int e = 0, iOn = 0;
