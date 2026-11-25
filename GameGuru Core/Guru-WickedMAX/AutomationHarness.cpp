@@ -347,6 +347,202 @@ static void Cmd_WPEPreview ( const char* arg, char* result, int resultSize )
 	result[resultSize - 1] = 0;
 }
 
+// the custom shader a mesh's drawn material holds and its first parameter; negative when the mesh has no material
+static int EntityShader_Mesh ( sMesh* pMesh, float* pP1 )
+{
+	*pP1 = 0;
+	if ( pMesh == NULL || pMesh->wickedmeshindex == 0 ) return -9;
+	wiScene::MeshComponent* mesh = wiScene::GetScene().meshes.GetComponent ( pMesh->wickedmeshindex );
+	if ( mesh == NULL || mesh->subsets.empty() ) return -8;
+	wiScene::MaterialComponent* mat = wiScene::GetScene().materials.GetComponent ( mesh->subsets[0].materialID );
+	if ( mat == NULL ) return -7;
+	*pP1 = mat->customShaderParam1;
+	return mat->customShaderID;
+}
+
+// ENTITY_SHADER: a placement's custom shader as the editor holds it (the tree custom shader shown as None after a save,
+// 2026-11-25), for entity_shader_check.py
+//   ENTITY_SHADER <e>: its flags (MaterialActive, Always use Original Object Settings, custom materials), its own and its
+//     profile's shader and first parameter, the shader its object's texturing takes (WickedCustomShaderID as
+//     entity_applymaterial sets it up), the master object's first mesh's, and per mesh of its object (up to 4) instanced or
+//     not and the shader its drawn material holds
+//   ENTITY_SHADER find <text>: the first 40 entities whose name holds text
+//   ENTITY_SHADER select <e>: e put in the widget selection as a viewport click puts it (0 deselects)
+//   ENTITY_SHADER set <id> <p1>: the selected entity's Always use Original Object Settings unticked as the Materials panel
+//     does, then its shader set as the panel's Custom Shaders box sets it, and the panel's next frame copy of the drawn
+//     material into the entity's own
+//   ENTITY_SHADER custom <e> <0|1>: the entity's custom materials flag set (no UI sets it; every placement made in the
+//     editor has it)
+static void Cmd_EntityShader ( const char* arg, char* result, int resultSize )
+{
+	extern void WickedSetEntityId ( int ent_id );
+	extern void WickedSetElementId ( int ele_id );
+	extern int WickedCustomShaderID ( void );
+	extern float WickedCustomShaderParam1 ( void );
+	extern void widget_updatewidgetobject ( void );
+	extern void widget_check_for_new_object_selection ( void );
+	extern void importer_set_all_material_shader_id ( int shaderID, float p1, float p2, float p3, float p4, float p5, float p6, float p7 );
+	extern void Wicked_Copy_Material_To_Grideleprof ( void* pVObject, int mode, entityeleproftype* edit_grideleprof );
+	extern void Wicked_Set_Material_From_grideleprof ( void* pVObject, int mode, entityeleproftype* edit_grideleprof );
+	extern sObject** g_ObjectList;
+	char sub[32] = "";
+	if ( arg ) sscanf ( arg, "%31s", sub );
+	if ( _stricmp ( sub, "find" ) == 0 )
+	{
+		const char* text = strchr ( arg, ' ' );
+		while ( text && *text == ' ' ) text++;
+		int n = _snprintf ( result, resultSize, "OK: ENTITY_SHADER find" );
+		int iFound = 0;
+		for ( int e = 1; e <= g.entityelementlist && text && *text; e++ )
+		{
+			if ( t.entityelement[e].bankindex <= 0 || t.entityelement[e].obj <= 0 ) continue;
+			if ( strstr ( t.entityelement[e].eleprof.name_s.Get(), text ) == NULL ) continue;
+			iFound++;
+			if ( iFound <= 40 && n > 0 && n < resultSize - 120 )
+				n += _snprintf ( result + n, resultSize - n, " | %d %s", e, t.entityelement[e].eleprof.name_s.Get() );
+		}
+		if ( n > 0 && n < resultSize - 32 ) _snprintf ( result + n, resultSize - n, " | found=%d", iFound );
+		result[resultSize - 1] = 0;
+		return;
+	}
+	if ( _stricmp ( sub, "select" ) == 0 )
+	{
+		int e = atoi ( arg + 6 );
+		if ( e <= 0 )
+		{
+			t.widget.pickedObject = 0;
+			t.widget.pickedEntityIndex = 0;
+			widget_updatewidgetobject ( );
+			t.widget.activeObject = 0;
+			_snprintf ( result, resultSize, "OK: ENTITY_SHADER deselected" );
+		}
+		else if ( e > g.entityelementlist || t.entityelement[e].obj <= 0 )
+			_snprintf ( result, resultSize, "ERROR: ENTITY_SHADER select no entity %d", e );
+		else
+		{
+			t.widget.pickedEntityIndex = e;
+			t.entityelement[e].editorlock = 0;
+			t.widget.pickedObject = t.entityelement[e].obj;
+			t.widget.activeObject = 0;
+			widget_check_for_new_object_selection ( );
+			_snprintf ( result, resultSize, "OK: ENTITY_SHADER selected %d obj=%d activeObject=%d", e, t.entityelement[e].obj, t.widget.activeObject );
+		}
+		result[resultSize - 1] = 0;
+		return;
+	}
+	if ( _stricmp ( sub, "custom" ) == 0 )
+	{
+		int e = 0, iOn = 0;
+		sscanf ( arg + 6, "%d %d", &e, &iOn );
+		if ( e <= 0 || e > g.entityelementlist || t.entityelement[e].bankindex <= 0 )
+			_snprintf ( result, resultSize, "ERROR: ENTITY_SHADER custom no entity %d", e );
+		else
+		{
+			t.entityelement[e].eleprof.bCustomWickedMaterialActive = iOn != 0;
+			_snprintf ( result, resultSize, "OK: ENTITY_SHADER custom %d cwm=%d", e, t.entityelement[e].eleprof.bCustomWickedMaterialActive ? 1 : 0 );
+		}
+		result[resultSize - 1] = 0;
+		return;
+	}
+	if ( _stricmp ( sub, "set" ) == 0 )
+	{
+		int iShader = -1; float fP1 = 0;
+		sscanf ( arg + 3, "%d %f", &iShader, &fP1 );
+		int e = t.widget.pickedEntityIndex;
+		sObject* pObject = ( e > 0 && e <= g.entityelementlist && ObjectExist ( t.entityelement[e].obj ) == 1 ) ? GetObjectData ( t.entityelement[e].obj ) : NULL;
+		if ( pObject == NULL || pObject->iMeshCount <= 0 )
+		{
+			_snprintf ( result, resultSize, "ERROR: ENTITY_SHADER set needs a selected entity (picked %d)", e );
+			result[resultSize - 1] = 0;
+			return;
+		}
+		int iMasterID = t.entityelement[e].bankindex;
+		WickedSetEntityId ( iMasterID );
+		WickedSetElementId ( e );
+		// the panel's Always use Original Object Settings unticked (M-GridEdit.cpp, the Materials header's bNeedMaterialUpdate)
+		int iWasFPE = t.entityelement[e].eleprof.bUseFPESettings ? 1 : 0;
+		if ( t.entityelement[e].eleprof.bUseFPESettings )
+		{
+			t.entityelement[e].eleprof.bUseFPESettings = false;
+			if ( !t.entityelement[e].eleprof.bCustomWickedMaterialActive )
+			{
+				sObject* pMasterObject = g_ObjectList[g.entitybankoffset + iMasterID];
+				if ( pMasterObject )
+				{
+					Wicked_Copy_Material_To_Grideleprof ( (void*)pMasterObject, 0, &t.entityelement[e].eleprof );
+					Wicked_Set_Material_From_grideleprof ( (void*)pObject, 0, &t.entityelement[e].eleprof );
+				}
+			}
+			else
+			{
+				Wicked_Copy_Material_To_Grideleprof ( (void*)pObject, 0, &t.entityelement[e].eleprof );
+				Wicked_Set_Material_From_grideleprof ( (void*)pObject, 0, &t.entityelement[e].eleprof );
+				t.entityelement[e].eleprof.WEMaterial.MaterialActive = true;
+				t.grideleprof.WEMaterial.MaterialActive = true;
+			}
+		}
+		// the Custom Shaders box (M-Importer.cpp Wicked_Change_Object_Material) on the chosen mesh's material, then the copy
+		// into the entity's own that the panel makes on its next frame
+		float fP1Now = 0;
+		int iBefore = EntityShader_Mesh ( pObject->ppMeshList[0], &fP1Now );
+		wiScene::MeshComponent* mesh = pObject->ppMeshList[0] ? wiScene::GetScene().meshes.GetComponent ( pObject->ppMeshList[0]->wickedmeshindex ) : NULL;
+		wiScene::MaterialComponent* mat = ( mesh && !mesh->subsets.empty() ) ? wiScene::GetScene().materials.GetComponent ( mesh->subsets[0].materialID ) : NULL;
+		if ( mat )
+		{
+			mat->customShaderID = iShader;
+			mat->customShaderParam1 = fP1;
+			importer_set_all_material_shader_id ( mat->customShaderID, mat->customShaderParam1, mat->customShaderParam2, mat->customShaderParam3, mat->customShaderParam4, mat->customShaderParam5, mat->customShaderParam6, mat->customShaderParam7 );
+			Wicked_Copy_Material_To_Grideleprof ( (void*)pObject, 0, &t.entityelement[e].eleprof );
+		}
+		WickedSetEntityId ( -1 );
+		WickedSetElementId ( 0 );
+		float fP1After = 0;
+		int iAfter = EntityShader_Mesh ( pObject->ppMeshList[0], &fP1After );
+		_snprintf ( result, resultSize, "OK: ENTITY_SHADER set %d shader=%d p1=%.2f fpe_was=%d drawn %d->%d ele=%d,%.2f ma=%d cwm=%d", e, iShader, fP1, iWasFPE, iBefore, iAfter,
+			t.entityelement[e].eleprof.WEMaterial.customShaderID, t.entityelement[e].eleprof.WEMaterial.customShaderParam1,
+			t.entityelement[e].eleprof.WEMaterial.MaterialActive ? 1 : 0, t.entityelement[e].eleprof.bCustomWickedMaterialActive ? 1 : 0 );
+		result[resultSize - 1] = 0;
+		return;
+	}
+	int e = atoi ( sub );
+	if ( e <= 0 || e > g.entityelementlist || t.entityelement[e].bankindex <= 0 )
+	{
+		_snprintf ( result, resultSize, "ERROR: ENTITY_SHADER <e> | find <text> | select <e> | set <id> <p1> | custom <e> <0|1> (no entity %d)", e );
+		result[resultSize - 1] = 0;
+		return;
+	}
+	int iBank = t.entityelement[e].bankindex;
+	entityeleproftype* ep = &t.entityelement[e].eleprof;
+	WickedSetEntityId ( iBank );
+	WickedSetElementId ( e );
+	int iTake = ep->WEMaterial.MaterialActive ? WickedCustomShaderID ( ) : t.entityprofile[iBank].WEMaterial.customShaderID;
+	float fTakeP1 = ep->WEMaterial.MaterialActive ? WickedCustomShaderParam1 ( ) : t.entityprofile[iBank].WEMaterial.customShaderParam1;
+	WickedSetEntityId ( -1 );
+	WickedSetElementId ( 0 );
+	float fMasterP1 = 0;
+	sObject* pMaster = ObjectExist ( g.entitybankoffset + iBank ) == 1 ? GetObjectData ( g.entitybankoffset + iBank ) : NULL;
+	int iMaster = ( pMaster && pMaster->iMeshCount > 0 ) ? EntityShader_Mesh ( pMaster->ppMeshList[0], &fMasterP1 ) : -9;
+	int n = _snprintf ( result, resultSize, "OK: ENTITY_SHADER %d name=%s bank=%d obj=%d picked=%d ma=%d fpe=%d cwm=%d ele=%d,%.2f prof=%d,%.2f,ma%d take=%d,%.2f master=%d,%.2f",
+		e, ep->name_s.Get(), iBank, t.entityelement[e].obj, t.widget.pickedEntityIndex == e ? 1 : 0, ep->WEMaterial.MaterialActive ? 1 : 0,
+		ep->bUseFPESettings ? 1 : 0, ep->bCustomWickedMaterialActive ? 1 : 0, ep->WEMaterial.customShaderID, ep->WEMaterial.customShaderParam1,
+		t.entityprofile[iBank].WEMaterial.customShaderID, t.entityprofile[iBank].WEMaterial.customShaderParam1, t.entityprofile[iBank].WEMaterial.MaterialActive ? 1 : 0,
+		iTake, fTakeP1, iMaster, fMasterP1 );
+	sObject* pObject = ObjectExist ( t.entityelement[e].obj ) == 1 ? GetObjectData ( t.entityelement[e].obj ) : NULL;
+	if ( pObject && n > 0 && n < resultSize - 64 )
+	{
+		n += _snprintf ( result + n, resultSize - n, " meshes=%d", pObject->iMeshCount );
+		for ( int i = 0; i < pObject->iMeshCount && i < 4 && n > 0 && n < resultSize - 96; i++ )
+		{
+			sMesh* pMesh = pObject->ppMeshList[i];
+			float fP1 = 0;
+			int iShader = EntityShader_Mesh ( pMesh, &fP1 );
+			n += _snprintf ( result + n, resultSize - n, " | m%d inst=%d own=%d drawn=%d,%.2f", i, ( pMesh && pMesh->bInstanced ) ? 1 : 0,
+				( pMesh && pMesh->wickedmaterialindex != 0 ) ? 1 : 0, iShader, fP1 );
+		}
+	}
+	result[resultSize - 1] = 0;
+}
+
 namespace wiGraphics { namespace DX11_Internal { void GG_DumpVRAMCensus ( const char* path ); } }
 static void Cmd_DumpVRAM ( const char* arg, char* result, int resultSize )
 {
@@ -1351,6 +1547,10 @@ void AutoHarness_CheckForCommand ( void )
 			const int e = g.entityrubberbandlist[i].e;
 			sl += _snprintf(result + sl, resultSize - sl, " %d %s;", e, (e > 0 && e < (int)t.entityelement.size()) ? t.entityelement[e].eleprof.name_s.Get() : "?");
 		}
+	}
+	else if ( _stricmp ( cmd, "ENTITY_SHADER" ) == 0 )
+	{
+		Cmd_EntityShader ( arg, result, resultSize );
 	}
 	else if ( _stricmp ( cmd, "ENTITY_FIND" ) == 0 )
 	{
