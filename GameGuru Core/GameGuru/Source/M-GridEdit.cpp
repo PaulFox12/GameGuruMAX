@@ -19769,7 +19769,7 @@ void editor_overallfunctionality ( void )
 				t.thardauto = 1; editor_findentityground();
 				if (t.gridentityposoffground == 0)
 				{
-					float ftmp = spline_floorheight(t.gridentityposx_f, t.gridentityposz_f); // GG: the terrain, or a spline pavement or fill on it
+					float ftmp = spline_floorheight_fast(t.gridentityposx_f, t.gridentityposz_f); // GG: the terrain, or a spline pavement or fill on it (every frame while dragged: the camera's LOD read)
 					t.gridentityposy_f = ftmp;
 					ApplyPivotToGridEntity(); //PE: Apply pivot here.
 				}
@@ -20811,7 +20811,7 @@ void editor_findentityground ( void )
 					}
 				}
 				// ensure a 'autofoundYpos' never drops BELOW Floor ( ( (i.e. skull under Floor) ) )
-				float ftmp = spline_floorheight(t.gridentityposx_f, t.gridentityposz_f); // GG: the terrain, or a spline pavement or fill on it
+				float ftmp = spline_floorheight_fast(t.gridentityposx_f, t.gridentityposz_f); // GG: the terrain, or a spline pavement or fill on it (every frame while dragged: the camera's LOD read)
 				t.trygridentityposy_f = ftmp;
 				ApplyPivotToGridEntity();
 				if (  t.gridentityposy_f<t.trygridentityposy_f ) 

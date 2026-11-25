@@ -5026,12 +5026,34 @@ static bool spline_pavetopat( float x, float z, float yFrom, float yTo, float* p
 
 // the floor at x z for the editor's find floor (Enter, and an entity dropped to the ground): the terrain, or a pavement or
 // fill on it (no entity's mesh, so the entity scan doesn't meet it)
-float spline_floorheight( float x, float z )
+// the terrain's height at x z from its height data (1: GGTerrain_GetHeight's accurate read, the same wherever the camera is),
+// or from the LOD chunks round the camera (0, as before and the default until it is checked: at Noi Bai, 40,000 units from
+// the camera, 4 units high on its slopes); harness SET_FLOORACCURATE
+int g_iSplineFloorAccurate = 0;
+float spline_terrainheight( float x, float z )
 {
-	const float ground = BT_GetGroundHeight( 0, x, z );
+	float h = 0;
+	if ( g_iSplineFloorAccurate && GGTerrain::GGTerrain_GetHeight( x, z, &h, 1 ) ) return h;
+	return BT_GetGroundHeight( 0, x, z );
+}
+
+static float spline_floorover( float x, float z, float ground )
+{
 	float top = 0;
 	if ( spline_pavetopat( x, z, ground + 500.0f, ground - 1.0f, &top ) && top > ground ) return top;
 	return ground;
+}
+
+float spline_floorheight( float x, float z )
+{
+	return spline_floorover( x, z, spline_terrainheight( x, z ) );
+}
+
+// the same from the LOD chunks round the camera, for the editor's callers every frame while an entity is dragged (the drop
+// to the ground and the never-below-the-floor clamp), where the entity is in front of the camera
+float spline_floorheight_fast( float x, float z )
+{
+	return spline_floorover( x, z, BT_GetGroundHeight( 0, x, z ) );
 }
 
 // the roads a fill's grid is measured from (all of them, with their meetings and corners), and the roads near each
@@ -5901,8 +5923,27 @@ static void spline_placechanged( void )
 // a road layer's entities stand on the floor under them (the terrain, or a pavement or fill on it: spline_floorheight)
 // at their layer's height: those in the pavement chunks given (built again since), or one spline's (its id), or all; a
 // layer places on the terrain, and the pavements are built a moment after the road's bake
+// the lifts so far: calls, the entities looked at and moved, their time (SET_FLOORACCURATE)
+static uint32_t g_uSplineLiftCalls = 0, g_uSplineLiftLooked = 0, g_uSplineLiftMoved = 0;
+static double g_dSplineLiftMs = 0, g_dSplineLiftMaxMs = 0;
 static int spline_liftplaced( const std::unordered_set<int64_t>* pChunks, int splineID )
 {
+	LARGE_INTEGER qf, q0;
+	QueryPerformanceFrequency( &qf );
+	QueryPerformanceCounter( &q0 );
+	struct sLiftTimer
+	{
+		LARGE_INTEGER& qf; LARGE_INTEGER& q0;
+		~sLiftTimer()
+		{
+			LARGE_INTEGER q1;
+			QueryPerformanceCounter( &q1 );
+			const double ms = (double)( q1.QuadPart - q0.QuadPart ) * 1000.0 / (double)qf.QuadPart;
+			g_dSplineLiftMs += ms;
+			if ( ms > g_dSplineLiftMaxMs ) g_dSplineLiftMaxMs = ms;
+			g_uSplineLiftCalls++;
+		}
+	} timer{ qf, q0 };
 	const float size = SPLINE_PAVE_STEP * SPLINE_PAVE_CELLS;
 	int moved = 0;
 	for ( int e = 1; e <= g.entityelementlist && e < (int)t.entityelement.size(); e++ )
@@ -5915,8 +5956,10 @@ static int spline_liftplaced( const std::unordered_set<int64_t>* pChunks, int sp
 		for ( sSpline& s : g_Splines ) if ( s.id == ee.eleprof.iObjectReserved2 ) { pS = &s; break; }
 		const int li = ee.eleprof.iObjectReserved3;
 		if ( !pS || pS->kind != SPLINE_KIND_ROAD || li < 0 || li >= (int)pS->layers.size() || pS->layers[ li ].frozen ) continue;
+		g_uSplineLiftLooked++;
 		const float y = spline_floorheight( ee.x, ee.z ) + pS->layers[ li ].height;
 		if ( fabsf( ee.y - y ) < 0.05f ) continue;
+		g_uSplineLiftMoved++;
 		for ( sSplinePlaced& p : pS->placed )
 		{
 			if ( p.layer == li && fabsf( p.x - ee.x ) < 0.5f && fabsf( p.z - ee.z ) < 0.5f && fabsf( p.y - ee.y ) < 0.5f ) { p.y = y; break; }
@@ -11082,8 +11125,48 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		// SPLINE_FLOORAT x z: the terrain and the editor's floor there (a pavement or fill on the terrain, as Enter finds it)
 		float x = 0, z = 0;
 		if ( !pArg || sscanf_s( pArg, "%f %f", &x, &z ) != 2 ) { sprintf_s( pResult, resultSize, "ERROR: SPLINE_FLOORAT x z" ); return true; }
-		const float ground = BT_GetGroundHeight( 0, x, z ), floor = spline_floorheight( x, z );
+		const float ground = spline_terrainheight( x, z ), floor = spline_floorheight( x, z );
 		sprintf_s( pResult, resultSize, "OK: SPLINE_FLOORAT %.0f %.0f terrain=%.2f floor=%.2f pave=%d", x, z, ground, floor, floor != ground ? 1 : 0 );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SET_FLOORACCURATE" ) == 0 )
+	{
+		// SET_FLOORACCURATE [0|1]: the floor's terrain (spline_floorheight: a road layer's entities lifted onto it, Enter, the
+		// harness's floor verbs) from the height data (1) or the LOD chunks round the camera (0, as before, the default);
+		// answers the lifts of road layers' entities so far: calls, entities looked at and moved, their total and longest ms
+		if ( pArg && *pArg ) g_iSplineFloorAccurate = atoi( pArg ) ? 1 : 0;
+		sprintf_s( pResult, resultSize, "OK: SET_FLOORACCURATE %d lifts=%u looked=%u moved=%u ms=%.2f longest_ms=%.2f", g_iSplineFloorAccurate,
+			g_uSplineLiftCalls, g_uSplineLiftLooked, g_uSplineLiftMoved, g_dSplineLiftMs, g_dSplineLiftMaxMs );
+		return true;
+	}
+	if ( _stricmp( pCmd, "SPLINE_LIFTCENSUS" ) == 0 )
+	{
+		// SPLINE_LIFTCENSUS file: every road layer's entity with its height now, its layer's height and the floor under it by
+		// the camera's LOD read and by the height data, written to the file (nothing moved); answers how many and how many
+		// the two reads put more than 0.05 apart
+		if ( !pArg || !*pArg ) { sprintf_s( pResult, resultSize, "ERROR: SPLINE_LIFTCENSUS file" ); return true; }
+		FILE* fOut = NULL;
+		fopen_s( &fOut, pArg, "w" );
+		if ( !fOut ) { sprintf_s( pResult, resultSize, "ERROR: SPLINE_LIFTCENSUS cannot write %s", pArg ); return true; }
+		fprintf( fOut, "e\tspline\tlayer\tx\tz\ty_now\tlayer_height\tfloor_fast\tfloor_accurate\tname\n" );
+		int iEntities = 0, iApart = 0;
+		for ( int e = 1; e <= g.entityelementlist && e < (int)t.entityelement.size(); e++ )
+		{
+			entitytype& ee = t.entityelement[ e ];
+			if ( ee.bankindex <= 0 || ee.eleprof.iObjectReserved1 != SPLINE_ENTITY_TAG ) continue;
+			sSpline* pS = nullptr;
+			for ( sSpline& s : g_Splines ) if ( s.id == ee.eleprof.iObjectReserved2 ) { pS = &s; break; }
+			const int li = ee.eleprof.iObjectReserved3;
+			if ( !pS || pS->kind != SPLINE_KIND_ROAD || li < 0 || li >= (int)pS->layers.size() ) continue;
+			const float fast = spline_floorheight_fast( ee.x, ee.z );
+			const float accurate = spline_floorover( ee.x, ee.z, [&]() { float h = 0; return GGTerrain::GGTerrain_GetHeight( ee.x, ee.z, &h, 1 ) ? h : BT_GetGroundHeight( 0, ee.x, ee.z ); }() );
+			fprintf( fOut, "%d\t%d\t%d\t%.1f\t%.1f\t%.2f\t%.2f\t%.2f\t%.2f\t%s\n", e, pS->id, li, ee.x, ee.z, ee.y, pS->layers[ li ].height, fast, accurate,
+				ee.eleprof.name_s.Get() );
+			iEntities++;
+			if ( fabsf( fast - accurate ) > 0.05f ) iApart++;
+		}
+		fclose( fOut );
+		sprintf_s( pResult, resultSize, "OK: SPLINE_LIFTCENSUS entities=%d apart=%d", iEntities, iApart );
 		return true;
 	}
 	if ( _stricmp( pCmd, "SPLINE_FLOORAT_FILE" ) == 0 )
@@ -11108,7 +11191,7 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 			char pE[32], pK[32];
 			float x = 0, z = 0;
 			if ( sscanf_s( pLine, "%31s %31s %f %f", pE, (unsigned)sizeof( pE ), pK, (unsigned)sizeof( pK ), &x, &z ) != 4 ) { iSkipped++; continue; }
-			const float ground = BT_GetGroundHeight( 0, x, z ), floor = spline_floorheight( x, z );
+			const float ground = spline_terrainheight( x, z ), floor = spline_floorheight( x, z );
 			fprintf( fOut, "%s\t%s\t%.2f\t%.2f\t%.2f\t%.2f\t%d\n", pE, pK, x, z, ground, floor, floor != ground ? 1 : 0 );
 			iPoints++;
 			if ( floor != ground ) iPaved++;
@@ -11135,7 +11218,7 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 			char owner[ 64 ] = "";
 			const int owned = spline_entityowner( e, owner, 64 ) ? 1 : 0;
 			const int n = sprintf_s( pResult + len, resultSize - len, "\n%d %.1f %.1f %.1f terrain=%.1f floor=%.1f own=%d lock=%d %.40s", e, ee.x, ee.y, ee.z,
-				BT_GetGroundHeight( 0, ee.x, ee.z ), spline_floorheight( ee.x, ee.z ), owned, ee.editorlock, ee.eleprof.name_s.Get() );
+				spline_terrainheight( ee.x, ee.z ), spline_floorheight( ee.x, ee.z ), owned, ee.editorlock, ee.eleprof.name_s.Get() );
 			if ( n > 0 ) len += n;
 		}
 		if ( len < resultSize - 40 ) sprintf_s( pResult + len, resultSize - len, "\ncount=%d", count );
@@ -11157,7 +11240,7 @@ bool spline_harness( const char* pCmd, const char* pArg, char* pResult, int resu
 		t.inputsys.keyreturn = keyreturn;
 		entitytype& ee = t.entityelement[ e ];
 		sprintf_s( pResult, resultSize, "OK: SPLINE_ENTERSNAP e=%d before=%.2f after=%.2f terrain=%.2f floor=%.2f at %.0f,%.0f %.40s", e, before, ee.y,
-			BT_GetGroundHeight( 0, ee.x, ee.z ), spline_floorheight( ee.x, ee.z ), ee.x, ee.z, ee.eleprof.name_s.Get() );
+			spline_terrainheight( ee.x, ee.z ), spline_floorheight( ee.x, ee.z ), ee.x, ee.z, ee.eleprof.name_s.Get() );
 		return true;
 	}
 	if ( _stricmp( pCmd, "SPLINE_LIST" ) == 0 )
